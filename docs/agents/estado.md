@@ -120,7 +120,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-058](../planos/DL-058-pequenas-fugas-de-informacao.md) | Pequenas fugas de informação (BL-554, BL-555) | Integrada (PR #72) — auditoria aprovada com ressalvas; BL-592 a BL-596; DE-096 |
 | [DL-059](../planos/DL-059-trilha-do-convite-e-eventos-sem-ip.md) | Trilha do convite e eventos sem IP (BL-560, BL-566, BL-579) | Integrada (PR #73) — auditoria aprovada com ressalvas; BL-597 a BL-601 |
 | [DL-060](../planos/DL-060-confirmacao-da-cascata.md) | A reabertura em cascata confirma exatamente os meses mostrados (BL-588, BL-589) | Integrada (PR #74) — reconferência aprovada com ressalvas; BL-602 |
-| [DL-061](../planos/DL-061-dmpl.md) | DMPL, etapa CTB-14 da DL-048 (RC-151) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-061](../planos/DL-061-dmpl.md) | DMPL, etapa CTB-14 da DL-048 (RC-151) | Integrada (PR #76) — fatia 1; rodada 1 reprovada, reconferência aprovada com ressalvas (BL-622 a BL-626) |
+| [DL-062](../planos/DL-062-dmpl-dividendo-proposto-e-vetos.md) | DMPL: dividendo adicional proposto, veto dos lançamentos mistos, saída pelo estorno (RC-153, RC-155, BL-624) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -137,18 +138,55 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 e integradas **uma por vez** na branch `claude/zealous-goldberg-jr5ggu` →
 `main`, cada uma com auditoria aprovada e os quatro checks verdes (RC-150).
 
-**Em andamento: DL-061 — DMPL** (CTB-14 da DL-048), escolhida pelo Fred em
-01/10/2026. Linha automática pela contrapartida, como na DLPA (RC-151); manual do
-sistema de referência lido (p. 122, 192–194, 616–622, 773–774). Fatia 1
-(servidor e tela) integrada na branch; [auditoria rodada 1](../auditorias/2026-10-01-dl-061-rodada-1.md)
-**reprovou** (N1 e N2 altas: evento errado em vez de veto); rodada única de correção
-integrada (`40e47f5`); [reconferência](../auditorias/2026-10-01-dl-061-reconferencia.md)
-**aprovada com ressalvas** (BL-622 a BL-626); merge **autorizado pelo Fred** (RC-154), em
-revisão no pull request, com a CI verde;
-merge só depois da auditoria e da CI verde. Pontos abertos: BL-603 a BL-607.
-Logo depois da fatia 1, numa etapa curta: coluna de dividendo adicional proposto
-(RC-153, BL-603), texto verdadeiro do veto (M3, BL-624) e veto dos lançamentos com
-eventos opostos na mesma coluna (RC-155, BL-623). HI-50 confirmada pelo Fred (RC-152): alíneas "c" e "d" revogadas.
+**DL-061 — DMPL, fatia 1: integrada pelo [PR #76](https://github.com/fredabsd-svg/DataLedger/pull/76)**
+em 01/10/2026 (squash `f4bc628`), com os quatro checks verdes e autorização do Fred
+(RC-154). Linha automática pela contrapartida, como na DLPA (RC-151); alíneas "c" e
+"d" do art. 182, §1º, revogadas e fora das colunas (RC-152).
+[Rodada 1](../auditorias/2026-10-01-dl-061-rodada-1.md) reprovada (N1 e N2: evento
+errado em vez de veto); [reconferência](../auditorias/2026-10-01-dl-061-reconferencia.md)
+aprovada com ressalvas (BL-622 a BL-626). Rotina do sistema de referência e consulta ao
+manual sobre as ressalvas registradas no [plano](../planos/DL-061-dmpl.md).
+
+**Em andamento: [DL-062](../planos/DL-062-dmpl-dividendo-proposto-e-vetos.md)** —
+coluna de dividendo adicional proposto (RC-153), veto dos lançamentos com eventos
+opostos na mesma coluna (RC-155) e saída pelo estorno com mensagens verdadeiras (M3,
+BL-624), mais a dica M4 (BL-625). Em implementação (servidor e tela em cópias
+isoladas); quando integrada, a linha abaixo indica o commit a auditar.
+
+**Para retomar noutra sessão:**
+
+1. Ler este arquivo, o plano da DL-062 e as duas auditorias da DL-061.
+2. Seguir o fluxo nível 1: auditoria independente da versão integrada da DL-062 →
+   no máximo uma rodada de correção → reconferência final → PR → merge com os quatro
+   checks verdes. O merge da DL-062 **ainda não foi autorizado** pelo Fred.
+3. Na branch, depois de cada squash na `main`, fazer o merge da `main` com
+   `git merge -s ours origin/main` **só** se `git diff origin/main HEAD` estiver vazio
+   antes; nunca force push.
+4. O manual do sistema de referência (`Dominio_Contabilidade.md`) foi entregue pelo
+   Fred **como anexo da sessão de 01/10**, fora do repositório (que é público). Nova
+   sessão precisa recebê-lo de novo para consultar a rotina.
+5. Rede desta máquina: Planalto e sites do sistema de referência ficaram bloqueados
+   pela política de rede; a conferência normativa ficou com o Fred.
+
+**Decisões abertas com o Fred (nenhuma bloqueia a DL-062):**
+
+- BL-626: validar as escolhas contábeis da DMPL:
+  - nota impressa do resultado não transferido;
+  - cancelamento de ações em tesouraria na mesma linha da alienação;
+  - lucros e prejuízos acumulados numa coluna só;
+  - ordem das linhas;
+  - reserva de capital levada ao capital como "aumento de capital com reservas e lucros".
+- BL-620: o escritório precisa de DMPL emitida "congelada"? No sistema de referência,
+  isso vem do anexo ao livro Diário.
+- PE-75: fonte oficial da interpretação sobre dividendo adicional proposto (ICPC 08)
+  antes de citar item.
+- Da leva anterior:
+  - BL-550 (DE-086, reclassificação da DRE em mês encerrado);
+  - limites da DL-056 (hipótese);
+  - texto do Início do Cliente (BL-586).
+
+**Antes da implantação:** BL-577 (recusar `0.0.0.0/0` nos proxies) e PE-07 (backup e
+restauração).
 
 - **DL-054** — **integrada pelo PR #70** (squash `e7b85aa`).
 - **DL-055** — **integrada pelo PR #69** (squash `9ceda53`).

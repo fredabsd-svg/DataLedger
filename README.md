@@ -242,6 +242,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-059** — Trilha do convite e eventos sem IP: a recusa de aceite de convite fica registrada na trilha, o convite já usado não oferece mais o botão de aceitar e os eventos que saíam sem IP passam a gravá-lo. Plano em [docs/planos/DL-059-trilha-do-convite-e-eventos-sem-ip.md](docs/planos/DL-059-trilha-do-convite-e-eventos-sem-ip.md)
 - **DL-060** — A reabertura em cascata do livro-caixa confirma exatamente os meses mostrados: mês encerrado entre a tela e o clique faz a reabertura parar, sem alterar nada. Plano em [docs/planos/DL-060-confirmacao-da-cascata.md](docs/planos/DL-060-confirmacao-da-cascata.md)
 - **DL-061** — DMPL (Demonstração das Mutações do Patrimônio Líquido), etapa CTB-14 da DL-048: uma coluna por componente do PL, linha descoberta pela contrapartida do lançamento, conciliação com o Balanço e com a DLPA. Plano em [docs/planos/DL-061-dmpl.md](docs/planos/DL-061-dmpl.md)
+- **DL-062** — DMPL, continuação: coluna de dividendo adicional proposto, recusa dos lançamentos com eventos opostos na mesma coluna e saída pelo estorno para os lançamentos recusados. Plano em [docs/planos/DL-062-dmpl-dividendo-proposto-e-vetos.md](docs/planos/DL-062-dmpl-dividendo-proposto-e-vetos.md)
 
 Ainda não existem:
 
