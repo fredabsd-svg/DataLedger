@@ -1,0 +1,393 @@
+{% extends "base.html" %}
+
+{% block titulo %}Demonstração das Mutações do Patrimônio Líquido — {{ empresa.razao_social }}{% endblock %}
+{% comment %}
+Mesmo formato "nome do relatório — razão social do cliente" que
+Balancete/Diário/Razão/Balanço/DRE/DLPA usam (BL-332/RC-97).
+
+⚠️ Nunca escreva "title" (nem outra palavra) entre sinais de menor/maior
+neste arquivo — ver o comentário completo em templates/base.html.
+{% endcomment %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
+
+{% comment %}
+DL-061/CTB-14: mesmo padrão do Balanço, da DRE e da DLPA — timbre de
+impressão do ESCRITÓRIO (BL-282/BL-338) e o bloco de identificação da
+ENTIDADE (cliente) em CADA página, dentro do `<thead>` da tabela, mais
+abaixo. Classe 2 (demonstração): identificação é obrigação, não opção de
+layout (NBC TG 26 itens 51 e 52; NBC TG 51 item 27 para exercícios a partir
+de 2027 ou com adoção antecipada — quem escolhe a norma é o SERVIDOR, o
+template só cita `norma`).
+{% endcomment %}
+{% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
+
+{% comment %}
+Com mais de quatro colunas de componente a tabela não cabe em A4 retrato:
+`imprime_em_paisagem` (views_web.py, `dmpl`) liga a página nomeada em
+paisagem (`@page dmpl-paisagem`, static/css/base.css) só a este documento.
+{% endcomment %}
+{% block classe_body %}{% if imprime_em_paisagem %}pagina-dmpl-impressao{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    {% if data_referencia %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Até</span>
+            <strong>{{ data_referencia|date:"F \d\e Y"|capfirst }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Demonstração das Mutações do Patrimônio Líquido</h1>{% endblock %}
+
+{% block content %}
+    <div class="timbre-impressao">
+        {% for linha in timbre_linhas %}
+            <p>{{ linha }}</p>
+        {% endfor %}
+    </div>
+
+    {% comment %}
+    Navegação de competência "‹ Mês anterior / Até Março de 2026 / Mês
+    seguinte ›" — mesma gramática da DRE e da DLPA (mês/ano na querystring,
+    sem JavaScript): a DMPL mostra o exercício ATÉ o mês pedido. Cada link só
+    aparece quando `dmpl()` (views_web.py) confirma que a competência
+    adjacente é VÁLIDA.
+    {% endcomment %}
+    <nav class="navegacao-competencia" aria-label="Navegação de competência">
+        {% if ano_anterior %}
+            <a class="botao botao--secundario"
+               href="{% url 'contabilidade_web:dmpl' empresa.id %}?ano={{ ano_anterior }}&mes={{ mes_anterior }}">
+                ‹ Mês anterior
+            </a>
+        {% endif %}
+        <strong class="navegacao-competencia__atual">
+            {% if data_referencia %}Até {{ data_referencia|date:"F \d\e Y"|capfirst }}{% endif %}
+        </strong>
+        {% if ano_seguinte %}
+            <a class="botao botao--secundario"
+               href="{% url 'contabilidade_web:dmpl' empresa.id %}?ano={{ ano_seguinte }}&mes={{ mes_seguinte }}">
+                Mês seguinte ›
+            </a>
+        {% endif %}
+    </nav>
+
+    {% if not data_referencia %}
+        <p>
+            A competência informada não pôde ser usada, por isso nenhum dado foi carregado.
+            <a href="{% url 'contabilidade_web:dmpl' empresa.id %}">Voltar à competência padrão (mês corrente)</a>
+            para ver a DMPL.
+        </p>
+    {% elif not empresa_tem_plano_de_contas %}
+        {% comment %}
+        Estado VAZIO (mesmo critério do Balancete/Balanço/DRE/DLPA).
+        {% endcomment %}
+        <p>
+            Esta empresa ainda não tem nenhuma conta cadastrada.
+            <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Ir para o plano de contas</a>
+            para cadastrar a primeira.
+        </p>
+    {% elif not pode_emitir %}
+        {% comment %}
+        Quem decidiu que NÃO pode emitir foi o SERVIDOR
+        (`avaliar_emissao_da_dmpl`); esta tela só OBEDECE e EXPLICA: nenhum
+        valor é montado enquanto houver pendência, e cada pendência nomeia a
+        SI MESMA (`lista.titulo`), a AÇÃO que resolve (`lista.acao`) e, onde
+        há conta, o link direto para classificar — este só para quem
+        escritura (filtrado na view, `pode_escriturar`).
+        {% endcomment %}
+        <div class="faixa-fechamento faixa-fechamento--nao-fecha" role="status">
+            <strong class="faixa-fechamento__veredito">A DMPL NÃO pode ser emitida nesta competência</strong>
+        </div>
+        <div class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> há pendência que impede a emissão — veja abaixo.
+            {% for lista in listas_pendentes %}
+                <p><strong>{{ lista.titulo }}</strong></p>
+                <ul>
+                    {% for linha in lista.linhas %}
+                        <li>
+                            {{ linha.texto }}
+                            {% for link in linha.links %}
+                                — <a href="{{ link.url }}">{{ link.rotulo }}</a>
+                            {% endfor %}
+                            {% if linha.resto %}— e mais {{ linha.resto }} lançamento(s); veja o Diário.{% endif %}
+                            {% if linha.contas %}
+                                <ul>
+                                    {% for conta in linha.contas %}<li>{{ conta }}</li>{% endfor %}
+                                </ul>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+                <p class="texto-apoio">{{ lista.acao }}</p>
+            {% endfor %}
+            <p>
+                <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Ir ao plano de contas</a>
+                para ver a classificação de todas as contas.
+            </p>
+            {% if not pode_escriturar %}
+                <p class="texto-apoio">
+                    Seu papel consulta a contabilidade mas não classifica contas: peça a quem
+                    escritura esta empresa para resolver as pendências acima.
+                </p>
+            {% endif %}
+        </div>
+    {% else %}
+        {% comment %}
+        Controle POSITIVO: `pode_emitir` chegou `True` do servidor, então a
+        demonstração é montada. A faixa é estado de FLUXO interno (decisão de
+        bancada antes de emitir), não conteúdo do documento: não sai no papel.
+        {% endcomment %}
+        <div class="faixa-fechamento faixa-fechamento--somente-tela" role="status">
+            <strong class="faixa-fechamento__veredito">DMPL pronta para emissão</strong>
+            <span class="texto-apoio">
+                Saldo final de cada coluna e total conferidos com o Balanço da mesma data.
+            </span>
+        </div>
+
+        {% if not tabela.tem_movimento %}
+            <p class="texto-apoio mensagem--somente-tela">
+                Não houve movimento no patrimônio líquido entre
+                {{ data_inicio_exercicio|date:"d/m/Y" }} e {{ data_fim|date:"d/m/Y" }}: a
+                demonstração traz só os saldos.
+            </p>
+        {% endif %}
+
+        {% comment %}
+        O invólucro com rolagem horizontal existe para telas estreitas (390 px):
+        rola só a TABELA, nunca a PÁGINA (mesma técnica do demonstrativo anual
+        do carnê-leão). `role="region"` + `tabindex="0"` + nome acessível:
+        sem eles, quem usa só o teclado não consegue rolar a região. No papel
+        o rolamento desliga (base.css, `@media print`).
+
+        O bloco de identificação vive DENTRO do `<thead>`, ao lado do cabeçalho
+        de coluna, pelo mesmo mecanismo provado pelo Balanço (`display:
+        table-header-group`, BL-282) — repete em TODA página impressa. Medido
+        no navegador real por scripts/medir_identificacao_do_emitente.py.
+        {% endcomment %}
+        <div class="tabela-com-rolagem-horizontal rolagem-da-dmpl" role="region" tabindex="0"
+             aria-label="Demonstração das Mutações do Patrimônio Líquido — tabela com rolagem horizontal">
+        <table class="tabela-dados tabela-dmpl">
+            <caption class="visualmente-oculto">
+                Demonstração das Mutações do Patrimônio Líquido de {{ empresa.razao_social }} —
+                exercício de {{ data_inicio_exercicio|date:"d/m/Y" }} a {{ data_fim|date:"d/m/Y" }}
+            </caption>
+            <thead>
+                <tr class="linha-identificacao-do-documento">
+                    <th scope="colgroup" colspan="{{ tabela.quantidade_de_colunas_da_tabela }}">
+                        <div class="identificacao-do-documento">
+                            <p><strong>{{ empresa.razao_social }}</strong> — {{ rotulo_inscricao }} {{ inscricao_formatada }}</p>
+                            <p>
+                                Demonstração das Mutações do Patrimônio Líquido
+                                ({{ identificacao.entidade_individual_ou_grupo|capfirst }}) —
+                                exercício de {{ data_inicio_exercicio|date:"d/m/Y" }} a {{ data_fim|date:"d/m/Y" }}
+                                (até a competência de {{ data_referencia|date:"F \d\e Y" }})
+                            </p>
+                            <p>
+                                Valores em {{ identificacao.moeda_de_apresentacao }} —
+                                {{ identificacao.nivel_de_arredondamento|capfirst }}
+                            </p>
+                            {% comment %}
+                            A norma citada, o item das colunas e o da
+                            identificação VARIAM com a data de início do
+                            exercício (e com a adoção antecipada): vêm do
+                            servidor (`norma_das_demonstracoes`), nunca de uma
+                            comparação de data no template.
+                            {% endcomment %}
+                            <p>
+                                Base normativa: {{ norma.norma }}, itens {{ norma.itens_da_dmpl }}
+                                (colunas por componente do patrimônio líquido: item {{ norma.item_das_colunas }});
+                                identificação conforme o item {{ norma.item_da_identificacao }}{% if norma.por_adocao_antecipada %}.
+                                Adoção antecipada da NBC TG 51, declarada nos parâmetros contábeis da empresa{% endif %}.
+                            </p>
+                            <p>
+                                Critério de apuração: uma coluna por componente do patrimônio
+                                líquido classificado; cada linha vem da contrapartida do
+                                lançamento; saldo final de cada coluna e total conferidos com o
+                                Balanço Patrimonial de {{ data_fim|date:"d/m/Y" }}.
+                            </p>
+                        </div>
+                    </th>
+                </tr>
+                <tr>
+                    <th scope="col"{% if tabela.colunas_do_segundo_nivel %} rowspan="2"{% endif %}>Histórico</th>
+                    {% for grupo in tabela.grupos %}
+                        {% if grupo.fundido %}
+                            <th scope="col" class="cabecalho-numerico"{% if tabela.colunas_do_segundo_nivel %} rowspan="2"{% endif %}>{{ grupo.titulo }}</th>
+                        {% else %}
+                            <th scope="colgroup" class="cabecalho-grupo" colspan="{{ grupo.colunas|length }}">{{ grupo.titulo }}</th>
+                        {% endif %}
+                    {% endfor %}
+                    <th scope="col" class="cabecalho-numerico"{% if tabela.colunas_do_segundo_nivel %} rowspan="2"{% endif %}>Total</th>
+                </tr>
+                {% if tabela.colunas_do_segundo_nivel %}
+                    <tr>
+                        {% for coluna in tabela.colunas_do_segundo_nivel %}
+                            <th scope="col" class="cabecalho-numerico">{{ coluna.titulo }}</th>
+                        {% endfor %}
+                    </tr>
+                {% endif %}
+            </thead>
+            <tbody>
+                {% comment %}
+                A ORDEM das linhas vem do SERVIÇO (`apurar_dmpl`, decisão E4 do
+                plano); aqui é só um laço. Célula sem movimento sai "—" (com
+                texto para leitor de tela); valor negativo, entre parênteses
+                (`_valor_dre.html`, RC-90).
+                {% endcomment %}
+                {% for linha in tabela.linhas %}
+                    <tr{% if linha.eh_saldo %} class="linha-total"{% endif %}>
+                        <th scope="row" class="cabecalho-de-linha">{{ linha.titulo }}</th>
+                        {% for celula in linha.celulas %}
+                            <td class="valor-monetario">
+                                {% if not celula %}
+                                    <span aria-hidden="true">—</span><span class="visualmente-oculto">sem movimento</span>
+                                {% elif celula.ancora %}
+                                    {% comment %}
+                                    Rastreabilidade por CÉLULA: o valor leva à lista
+                                    de lançamentos de origem logo abaixo da tabela. O
+                                    texto oculto completa o nome acessível do link
+                                    ("25.000,00 — ver lançamentos de origem: …"), que
+                                    continua começando pelo texto visível.
+                                    {% endcomment %}
+                                    <a class="valor-com-origem" href="#{{ celula.ancora }}">{% include "contabilidade/_valor_dre.html" with valor=celula.valor %}<span class="visualmente-oculto"> — ver lançamentos de origem: {{ celula.linha }}, {{ celula.coluna }}</span></a>
+                                {% else %}
+                                    {% include "contabilidade/_valor_dre.html" with valor=celula.valor %}
+                                {% endif %}
+                            </td>
+                        {% endfor %}
+                        <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linha.total %}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+
+        {% comment %}
+        Notas do documento — saem NO PAPEL, depois da tabela. A norma é a mesma
+        do bloco de identificação. E8 do plano: o dividendo por ação (ou por
+        quota) é dado que a norma admite na DMPL OU nas notas; o produto não
+        tem quantidade de ações nem módulo de notas, então o documento DIZ que
+        não o apresenta — limitação visível, nunca escondida.
+        {% endcomment %}
+        <div class="notas-do-documento">
+            <p>
+                Dividendo por ação ou por quota: não apresentado nesta demonstração. O
+                DataLedger não registra a quantidade de ações ou quotas; a norma
+                ({{ norma.norma }}, item {{ norma.item_do_dividendo_por_acao }}) admite a
+                divulgação na própria DMPL ou nas notas explicativas.
+            </p>
+            <p>
+                Demonstração elaborada conforme a {{ norma.norma }}, itens {{ norma.itens_da_dmpl }}.
+                {% if norma.por_adocao_antecipada %}
+                    Adoção antecipada da NBC TG 51, declarada pela entidade para este exercício.
+                {% endif %}
+            </p>
+        </div>
+
+        {% comment %}
+        Conferência de BANCADA (não sai no papel): a conciliação com o Balanço
+        é condição de emissão — a DMPL só chega aqui se TODAS as diferenças
+        são zero (pendência `diferenca_de_fechamento` veta). Mostrar a prova
+        responde, antes de entregar, o "momento da verdade" desta tela: o
+        saldo final de cada coluna bate com o Balanço? Exigência DERIVADA do
+        item {{ norma.item_da_conciliacao }} da {{ norma.norma }}, não citação
+        literal (plano DL-061, E5).
+        {% endcomment %}
+        <section class="bloco--somente-tela" aria-labelledby="titulo-conferencia-da-dmpl">
+            <h2 id="titulo-conferencia-da-dmpl">Conferência com o Balanço de {{ data_fim|date:"d/m/Y" }}</h2>
+            <p class="texto-apoio">
+                Conferência exigida pelo produto, derivada do item
+                {{ norma.item_da_conciliacao }} da {{ norma.norma }} (a norma não a manda
+                em letra): o saldo final de cada coluna precisa ser o saldo das contas dela no Balanço.
+            </p>
+            <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0"
+                 aria-label="Conferência da DMPL com o Balanço — tabela com rolagem horizontal">
+            <table class="tabela-dados">
+                <caption class="visualmente-oculto">
+                    Conferência do saldo final da DMPL com o Balanço de {{ data_fim|date:"d/m/Y" }}
+                </caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Coluna</th>
+                        <th scope="col" class="cabecalho-numerico">Saldo na DMPL</th>
+                        <th scope="col" class="cabecalho-numerico">Saldo no Balanço</th>
+                        <th scope="col" class="cabecalho-numerico">Diferença</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in tabela.conferencia.por_coluna %}
+                        <tr>
+                            <th scope="row" class="cabecalho-de-linha">{{ linha.titulo }}</th>
+                            <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linha.na_dmpl %}</td>
+                            <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linha.no_balanco %}</td>
+                            <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linha.diferenca %}</td>
+                        </tr>
+                    {% endfor %}
+                    <tr class="linha-total">
+                        <th scope="row" class="cabecalho-de-linha">Total do patrimônio líquido (soma das colunas na DMPL)</th>
+                        <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=tabela.conferencia.total.na_dmpl %}</td>
+                        <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=tabela.conferencia.total.no_balanco %}</td>
+                        <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=tabela.conferencia.total.diferenca %}</td>
+                    </tr>
+                </tbody>
+            </table>
+            </div>
+            <p class="texto-apoio">
+                No total, o patrimônio líquido do Balanço é a soma das colunas mais o saldo das
+                contas de passagem do resultado do exercício, que não viram coluna:
+                {% include "contabilidade/_valor_dre.html" with valor=tabela.conferencia.total.de_passagem %}.
+            </p>
+        </section>
+
+        {% comment %}
+        Rastreabilidade por célula: cada valor da tabela com movimento aponta
+        para o bloco dele aqui. Conferência de bancada — não sai no papel (a
+        DMPL entregue ao cliente não carrega a lista de lançamentos).
+        {% endcomment %}
+        {% if tabela.origens %}
+            <section class="bloco--somente-tela" aria-labelledby="titulo-origens-da-dmpl">
+                <h2 id="titulo-origens-da-dmpl">Lançamentos de origem</h2>
+                <p class="texto-apoio">
+                    Cada valor com movimento na tabela leva ao bloco correspondente abaixo; cada
+                    lançamento abre o detalhe para conferir no Diário e no Razão.
+                </p>
+                {% for origem in tabela.origens %}
+                    <div id="{{ origem.ancora }}" class="origem-da-celula">
+                        <h3>{{ origem.linha }} — {{ origem.coluna }}:
+                            {% include "contabilidade/_valor_dre.html" with valor=origem.valor %}</h3>
+                        <ul class="lista-origens-da-linha">
+                            {% for lancamento in origem.lancamentos %}
+                                <li><a href="{{ lancamento.url }}">{{ lancamento.descricao }}</a></li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                {% endfor %}
+            </section>
+        {% endif %}
+    {% endif %}
+
+    {% comment %}
+    Mesmo padrão da DLPA (DE-070): os avisos (que NUNCA bloqueiam) aparecem
+    nos DOIS desfechos — emitida com aviso, ou vetada por outro motivo com o
+    aviso também presente — fora do if/else acima, e SÓ na tela
+    (`mensagem--somente-tela`): conferência de bancada, nunca conteúdo do
+    documento.
+    {% endcomment %}
+    {% if listas_apenas_aviso %}
+        <div class="mensagem mensagem-warning mensagem--somente-tela" role="status">
+            <strong>Aviso:</strong> não impede a emissão da DMPL.
+            {% for lista in listas_apenas_aviso %}
+                <p><strong>{{ lista.titulo }}</strong></p>
+                <ul>
+                    {% for linha in lista.linhas %}
+                        <li>{{ linha.detalhe }}</li>
+                    {% endfor %}
+                </ul>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endblock %}
