@@ -33,6 +33,11 @@ vem ANTES do formulário, com a explicação, e a ação é UMA só — "reabrir
 e os seguintes" — atrás de uma caixa de confirmação explícita. Sem posteriores
 encerrados, a tela é a de sempre. A decisão final é do servidor: sem a caixa
 marcada, o POST é a reabertura simples e o serviço recusa se houver posteriores.
+
+DL-060: o formulário leva, em campo oculto (`meses_confirmados`), os meses que
+esta página mostrou. Se outro mês foi encerrado (ou um dos mostrados foi
+reaberto) entre a página e o clique, o servidor recusa com 409 e esta mesma tela
+volta com a lista atual e a caixa desmarcada: ninguém reabre o que não viu.
 {% endcomment %}
 {% block titulo_pagina %}<h1>Reabrir mês {{ mes|stringformat:"02d" }}/{{ ano }}</h1>{% endblock %}
 
@@ -109,6 +114,8 @@ marcada, o POST é a reabertura simples e o serviço recusa se houver posteriore
                 </p>
             </div>
             {% if meses_posteriores %}
+                {# DL-060: os meses que ESTA tela mostrou. O servidor só reabre a cascata se forem exatamente os encerrados no momento do clique. #}
+                <input type="hidden" name="meses_confirmados" value="{{ meses_posteriores_valor }}">
                 <div class="campo campo--caixa">
                     <label>
                         <input type="checkbox" name="confirmar_cascata" value="1" required

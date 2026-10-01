@@ -86,4 +86,7 @@ PR.
   fevereiro 1.016,27 inalterado), estresse de cerca de 3.000 operações sem
   deadlock nem estado misto, suíte com 4.080 aprovados e a falha conhecida
   de Python 3.13. Ressalvas: BL-588 a BL-591; H1 e H2 na DL-060.
-
+- **Contrato da API alterado pela [DL-060](DL-060-confirmacao-da-cascata.md):**
+  a reabertura com `cascata: true` passou a exigir `meses_confirmados` (lista
+  de `{ano, mes}` com os meses mostrados); lista divergente dá 409 sem
+  efeito, lista ausente ou sem `cascata: true` dá 400.

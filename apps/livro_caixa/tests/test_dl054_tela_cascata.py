@@ -189,10 +189,25 @@ def _estados(cenario, empresa=None):
     return {linha.mes: linha.estado for linha in linhas}
 
 
+def _meses_mostrados(cenario, mes, empresa=None):
+    """O valor do campo oculto `meses_confirmados` que a tela mostraria agora
+    (DL-060): `AAAA-MM` dos encerrados depois de `mes`, separados por vírgula."""
+    linhas = FechamentoMesCaixa.objects.filter(
+        empresa=empresa or cenario["empresa"],
+        ano=2026,
+        mes__gt=mes,
+        estado=EstadoMesCaixa.ENCERRADO,
+    ).order_by("mes")
+    return ",".join(f"{linha.ano}-{linha.mes:02d}" for linha in linhas)
+
+
 def _post_reabrir(cliente, cenario, *, mes=1, motivo=_MOTIVO, cascata=True, **extra):
     dados = {"ano": "2026", "mes": str(mes), "motivo": motivo}
     if cascata:
         dados["confirmar_cascata"] = "1"
+        # DL-060: a confirmação leva a lista que a tela mostrou; por padrão, a
+        # lista exata do momento. Os testes da divergência passam a sua.
+        dados["meses_confirmados"] = _meses_mostrados(cenario, mes)
     dados.update(extra)
     return cliente.post(_url("mes_reabrir", cenario["empresa"]), dados)
 
@@ -485,7 +500,13 @@ def test_empresa_de_outro_escritorio_da_404_e_a_cascata_nao_acontece(cenario):
     resposta_get = cliente.get(_url("mes_reabrir", cenario["empresa_b"], ano=2026, mes=1))
     resposta_post = cliente.post(
         _url("mes_reabrir", cenario["empresa_b"]),
-        {"ano": "2026", "mes": "1", "motivo": _MOTIVO, "confirmar_cascata": "1"},
+        {
+            "ano": "2026",
+            "mes": "1",
+            "motivo": _MOTIVO,
+            "confirmar_cascata": "1",
+            "meses_confirmados": "2026-02,2026-03",
+        },
     )
 
     assert resposta_get.status_code == 404

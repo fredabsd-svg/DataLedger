@@ -118,7 +118,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-055](../planos/DL-055-cliente-nao-ve-a-carteira.md) | O papel Cliente não vê o cadastro de empresas (BL-549) | Integrada (PR #69) — auditoria aprovada com ressalvas; BL-584 a BL-587; DE-095 |
 | [DL-056](../planos/DL-056-limite-de-tentativas.md) | Limite de tentativas no login e no cadastro (BL-552) | Integrada (PR #71) — nível 2; limites são hipótese a validar |
 | [DL-058](../planos/DL-058-pequenas-fugas-de-informacao.md) | Pequenas fugas de informação (BL-554, BL-555) | Integrada (PR #72) — auditoria aprovada com ressalvas; BL-592 a BL-596; DE-096 |
-| [DL-059](../planos/DL-059-trilha-do-convite-e-eventos-sem-ip.md) | Trilha do convite e eventos sem IP (BL-560, BL-566, BL-579) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-059](../planos/DL-059-trilha-do-convite-e-eventos-sem-ip.md) | Trilha do convite e eventos sem IP (BL-560, BL-566, BL-579) | Integrada (PR #73) — auditoria aprovada com ressalvas; BL-597 a BL-601 |
+| [DL-060](../planos/DL-060-confirmacao-da-cascata.md) | A reabertura em cascata confirma exatamente os meses mostrados (BL-588, BL-589) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -134,9 +135,9 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 instrução do Fred de até 4 agentes simultâneos (RC-149), cada uma em cópia
 isolada do repositório e integrada **uma por vez** na branch
 `claude/zealous-goldberg-jr5ggu` → `main`. O Fred autorizou o merge de cada
-uma com a auditoria aprovada e a CI verde (RC-150). Integração prevista:
-DL-059 (auditada, aprovada com ressalvas) e a DL-060 (H1 e H2 da
-auditoria da DL-054; auditada, em reconferência única).
+uma com a auditoria aprovada e a CI verde (RC-150). Última da leva:
+a DL-060 (H1 e H2 da auditoria da DL-054; reconferência aprovada com
+ressalvas).
 
 - **DL-054** — **integrada pelo PR #70** (squash `e7b85aa`).
 - **DL-055** — **integrada pelo PR #69** (squash `9ceda53`).
@@ -144,13 +145,12 @@ auditoria da DL-054; auditada, em reconferência única).
 - **DL-058** — **integrada pelo PR #72** (squash `dd745a4`). Fechou um
   canal real: o login Basic autenticava em duas rotas da API, fora do limite
   de tentativas.
-- **DL-059** (nível 1) — trilha do convite e eventos sem IP (BL-560, BL-566,
-  BL-579); [auditoria](../auditorias/2026-10-01-dl-059-rodada-1.md) aprovada
-  com ressalvas (BL-597 a BL-601); em revisão no pull request, merge com a CI
-  verde.
-- **DL-060** (nível 1) — confirmação da reabertura em cascata (H1 e H2 da
-  DL-054); auditada, em reconferência única da correção; integra depois da
-  DL-059.
+- **DL-059** — **integrada pelo PR #73** (squash `5149cc4`).
+- **DL-060** (nível 1) — a reabertura em cascata confirma exatamente os
+  meses mostrados (BL-588, BL-589);
+  [reconferência](../auditorias/2026-10-01-dl-060-reconferencia.md) aprovada
+  com ressalvas (BL-602); em revisão no pull request, merge com a CI verde.
+  A API de reabrir em cascata passou a exigir `meses_confirmados`.
 - **DL-057** — **integrada pelo PR #68** (squash `49f118d`). Antes da
   implantação: BL-577 (recusar `0.0.0.0/0`).
 
