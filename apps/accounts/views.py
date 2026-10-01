@@ -71,6 +71,10 @@ def cadastro(request):
                         usuario=usuario,
                         nome=form.cleaned_data["nome_escritorio"],
                         cnpj=form.cleaned_data["cnpj"],
+                        # DL-059 (BL-579): sem `request` a trilha de
+                        # `escritorio.criado_por_bootstrap` saía sem IP por
+                        # este caminho (só o do primeiro acesso o gravava).
+                        request=request,
                     )
             except IntegrityError:
                 form.add_error(

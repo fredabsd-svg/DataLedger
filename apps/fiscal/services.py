@@ -2,7 +2,7 @@
 
 Contrato obrigatório do plano (docs/planos/DL-010-F1-recepcao-nfse.md):
 
-- `receber_envio(*, escritorio, usuario, arquivo, nome_arquivo) -> LoteDeRecepcao`
+- `receber_envio(*, escritorio, usuario, arquivo, nome_arquivo, request=None) -> LoteDeRecepcao`
 - `documentos_do_escritorio(escritorio, *, empresa=None, competencia=None, situacao=None)
   -> QuerySet[DocumentoFiscal]`, SEMPRE queryset, cada linha anotada com o
   booleano `cancelada` (calculado no banco — contrato repassado à tela).
@@ -834,7 +834,7 @@ def _itens_do_envio(conteudo: bytes, nome_arquivo: str) -> list[tuple[str, bytes
 
 
 @transaction.atomic
-def receber_envio(*, escritorio, usuario, arquivo, nome_arquivo) -> LoteDeRecepcao:
+def receber_envio(*, escritorio, usuario, arquivo, nome_arquivo, request=None) -> LoteDeRecepcao:
     """Recebe um envio (um XML solto ou um ZIP de XMLs) e devolve o
     `LoteDeRecepcao` com o resultado de cada arquivo.
 
@@ -869,7 +869,11 @@ def receber_envio(*, escritorio, usuario, arquivo, nome_arquivo) -> LoteDeRecepc
 
     try:
         return _receber_envio_com_lock_adquirido(
-            escritorio=escritorio, usuario=usuario, arquivo=arquivo, nome_arquivo=nome_arquivo
+            escritorio=escritorio,
+            usuario=usuario,
+            arquivo=arquivo,
+            nome_arquivo=nome_arquivo,
+            request=request,
         )
     except OperationalError as exc:
         # Defesa em profundidade (DE-076 item 1): o bloqueio acima já
@@ -889,7 +893,7 @@ def receber_envio(*, escritorio, usuario, arquivo, nome_arquivo) -> LoteDeRecepc
 
 
 def _receber_envio_com_lock_adquirido(
-    *, escritorio, usuario, arquivo, nome_arquivo
+    *, escritorio, usuario, arquivo, nome_arquivo, request=None
 ) -> LoteDeRecepcao:
     conteudo = _ler_bytes_do_arquivo_enviado(arquivo)
 
@@ -955,6 +959,7 @@ def _receber_envio_com_lock_adquirido(
             "total_duplicados": lote.total_duplicados,
             "total_recusados": lote.total_recusados,
         },
+        request=request,  # DL-059 (BL-579): origem (IP) na trilha; None fora da web
     )
 
     return lote

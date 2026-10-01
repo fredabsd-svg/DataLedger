@@ -398,6 +398,7 @@ def _recepcao_verificada(request, handler):
                 usuario=request.user,
                 arquivo=arquivo,
                 nome_arquivo=arquivo.name,
+                request=request,
             )
         except EnvioInvalido as exc:
             # Critério do contrato de `services.receber_envio`: o ENVIO
