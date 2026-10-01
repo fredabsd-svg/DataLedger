@@ -17,11 +17,10 @@ outra cópia isolada; nesta base ainda não existem):
   quando nenhum exercício anterior a 2027 começa dentro da vigência.
 
 Os testes de TELA montam esses dicts por `monkeypatch` da apuração (a tela só
-obedece ao que o servidor entrega) e passam desde já. Os testes de INTEGRAÇÃO,
-com a apuração REAL, têm o prefixo `test_integracao_` e a marca
-`depende_do_servidor`: enquanto o servidor desta base não produz o contrato,
-ficam `xfail` (não contam como aprovados); depois da integração passam — e, se
-passarem antes, `strict=False` os mostra como XPASS sem reprovar a suíte.
+obedece ao que o servidor entrega). Os testes de INTEGRAÇÃO, com a apuração
+REAL, têm o prefixo `test_integracao_` e conferem o contrato de ponta a ponta;
+nasceram marcados como falha esperada enquanto as duas cópias corriam em
+paralelo e viraram testes comuns na integração.
 
 Os testes de NAVEGADOR (`_navegador`) usam o Chromium do Playwright e o
 `pdftotext`, e são PULADOS, com o motivo dito, onde faltam.
@@ -81,15 +80,6 @@ from apps.contabilidade.tests.test_dl061_tela_dmpl import (
 from apps.tenancy.models import Papel
 
 pytestmark = pytest.mark.django_db
-
-depende_do_servidor = pytest.mark.xfail(
-    reason=(
-        "Depende do contrato novo do SERVIDOR (desenvolvedor-pleno, DL-061 rodada 1): "
-        "passa depois da integração das duas cópias."
-    ),
-    strict=False,
-)
-
 
 # ---------------------------------------------------------------------------
 # Auxiliares
@@ -235,7 +225,6 @@ def test_vetada_por_outro_motivo_a_tela_mostra_o_aviso_e_nao_monta_a_nota(client
     assert "Com ressalva" not in html
 
 
-@depende_do_servidor
 def test_integracao_estorno_da_transferencia_gera_aviso_e_nota_com_a_apuracao_real(client):
     """Cenário do auditor (caso 3), com a apuração REAL: o contrato novo do
     servidor produz o aviso de 25.000,00; a tela o mostra e o papel o anota."""
@@ -350,7 +339,6 @@ def test_sem_orientacao_do_servidor_a_tela_ainda_nao_oferece_o_link(client, monk
     assert "Esta conta não aceita coluna na DMPL" in _texto(html)
 
 
-@depende_do_servidor
 def test_integracao_conta_de_pl_classificada_como_dividendo_nao_recebe_link_de_coluna(client):
     """Caso 4 do auditor, com a apuração REAL: conta de PL classificada como
     dividendo na DLPA e movimentada. O servidor a marca como não
@@ -520,7 +508,6 @@ def test_recusa_do_servidor_na_marca_aparece_como_erro_e_nada_e_gravado(client, 
     assert _vigencia(empresa).adota_nbc_tg_51_antecipadamente is False
 
 
-@depende_do_servidor
 def test_integracao_marca_em_vigencia_iniciada_depois_de_1_de_janeiro_e_recusada(client):
     """Caso 6 do auditor, com o serviço REAL: vigência iniciada em 01/03/2026
     não cobre o 1º de janeiro de nenhum exercício anterior a 2027."""
