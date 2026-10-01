@@ -53,10 +53,13 @@ da DLPA). Enum, na ordem do item 111A da NBC TG 51 (106B da R5):
   divergência e a apuração a acusa como pendência.
 - **Fora das colunas:** a conta "Resultado do exercício" (`classificacao_dlpa =
   resultado_do_exercicio`) é conta de passagem do zeramento.
-- **Reservas de capital do art. 182, §1º, "c" e "d":** **não** viram coluna. Ver HI-50 em
-  [requisitos.md](../projeto/requisitos.md): o nosso próprio registro de 28/09 diz que
-  foram revogadas pela Lei 11.638/2007, o que contradiz a pendência de 29/09. A
-  conferência no Planalto ficou bloqueada nesta sessão.
+- **Reservas de capital do art. 182, §1º, "c" e "d":** **não** viram coluna. Foram
+  revogadas pelo art. 10 da Lei 11.638/2007, como o Fred confirmou em 01/10/2026
+  (RC-152, em [requisitos.md](../projeto/requisitos.md)).
+- **Dividendo adicional proposto (RC-153):** o Fred confirmou que há cliente com essa
+  conta no PL. A coluna entra **logo depois da fatia 1**, com linha própria e
+  identidade com a DLPA (BL-603). Até lá, a emissão para esse cliente fica vetada,
+  com a pendência explicando o motivo.
 - **Correção monetária do capital realizado (art. 182, §2º):** não vira coluna, mesmo
   fundamento da DLPA (Lei 9.249/95, art. 4º, p.ú.).
 - Só aparecem no documento as colunas com conta classificada.
@@ -247,7 +250,7 @@ Conferência: 100.000 + 20.000 + 25.000 − 10.000 + 3.000 − 2.000 = 136.000.
 - Participação de não controladores e DMPL consolidada.
 - Detalhamento dos outros resultados abrangentes por item (depende da DRA, CTB-16).
 - Dividendo por ação (E8).
-- Reservas de capital "c" e "d" (HI-50).
+- Reservas de capital "c" e "d": revogadas (RC-152).
 
 ## Evidências e integração (fatia 1)
 

@@ -195,6 +195,10 @@ produto não dá, descrita como se desse.
 
 #### Colunas de reservas de CAPITAL que a RC-137 não listou
 
+⚠️ **CORRIGIDO em 01/10/2026 (RC-152):** "prêmio na emissão de debêntures" e "doações e
+subvenções para investimento" foram **revogadas** pelo art. 10 da Lei 11.638/2007 e
+**não** entram na DMPL. A afirmação "as duas primeiras entram", abaixo, está errada.
+
 ⚠️ **Pendência para a DMPL.** A RC-137 lista ágio na emissão de ações e
 alienação de partes beneficiárias/bônus de subscrição. A lei tem **três** reservas de
 capital que ficaram de fora, e são coluna da DMPL por norma (item 111A):

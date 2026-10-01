@@ -2053,7 +2053,7 @@ Plano: [DL-061](../planos/DL-061-dmpl.md).
 
 | ID | Item | Responsável | Depende de | Estado | Critério de aceite |
 | --- | --- | --- | --- | --- | --- |
-| BL-603 | Conta de PL de "dividendo adicional proposto" (ou de ajustes de exercícios anteriores mantida no PL) não tem coluna na DMPL, e a emissão fica vetada | `arquiteto-senior` | Fred | aberta — **decisão de produto do Fred** | Coluna nova ou regra registrada, com teste |
+| BL-603 | Conta de PL de "dividendo adicional proposto" (ou de ajustes de exercícios anteriores mantida no PL) não tem coluna na DMPL, e a emissão fica vetada | `desenvolvedor-pleno` | DL-061 fatia 1 | **planejada** — Fred confirmou em 01/10/2026 que há cliente com essa conta (RC-153) | Coluna "dividendo adicional proposto"; linha da destinação e da aprovação; identidade com a DLPA; PE-75 antes de citar item normativo |
 | BL-604 | Retificadora de PL cadastrada na raiz do plano é somada pelo Balanço em vez de subtraída (pré-existente, descrito em `apurar_saldos`); a DMPL acusa e veta | `desenvolvedor-pleno` | — | aberta | Balanço e DMPL coerentes com retificadora na raiz, ou recusa do cadastro, com teste |
 | BL-605 | Marcação manual por lançamento para as exceções (fatia 2, RC-151) e API da DMPL | `desenvolvedor-pleno` | DL-061 fatia 1 | planejada | Fatia 2 do plano |
 | BL-606 | Formulário de conta nova sem o campo "Coluna da DMPL" (a DLPA tem) | `especialista-frontend` | — | aberta | Campo no `ContaCriarForm`, com contrato e teste |
