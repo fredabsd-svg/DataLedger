@@ -115,7 +115,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-052](../planos/DL-052-integridade-do-livro-e-do-acesso.md) | Integridade do livro e do acesso: convite com validade, invariantes do lançamento no banco, estorno atômico | Integrada (PR #66) — auditoria e reconferência aprovadas com ressalvas; limite aceito no BL-569 |
 | [DL-053](../planos/DL-053-fechamento-do-livro-caixa.md) | Fechamento de mês do livro-caixa (RC-145, RC-146, RC-147) | Integrada (PR #67) — auditoria aprovada com ressalvas; limite do encadeamento fechado pela DL-054 |
 | [DL-054](../planos/DL-054-encadeamento-do-fechamento.md) | Mês encerrado congelado contra o encadeamento do carnê-leão (RC-148) | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-055](../planos/DL-055-cliente-nao-ve-a-carteira.md) | O papel Cliente não vê o cadastro de empresas (BL-549) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-055](../planos/DL-055-cliente-nao-ve-a-carteira.md) | O papel Cliente não vê o cadastro de empresas (BL-549) | Integrada (PR #69) — auditoria aprovada com ressalvas; BL-584 a BL-587; DE-095 |
 | [DL-056](../planos/DL-056-limite-de-tentativas.md) | Limite de tentativas no login e no cadastro (BL-552) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
@@ -133,14 +133,15 @@ instrução do Fred de até 4 agentes simultâneos (RC-149), cada uma em cópia
 isolada do repositório e integrada **uma por vez** na branch
 `claude/zealous-goldberg-jr5ggu` → `main`. O Fred autorizou o merge de cada
 uma com a auditoria aprovada e a CI verde (RC-150). Integração prevista:
-DL-055, DL-054, DL-056, DL-058, DL-059.
+DL-054, DL-056, DL-058, DL-059; depois a DL-060 (H1 e H2 da
+auditoria da DL-054).
 
 - **DL-054** (nível 1) — mês encerrado congelado contra o encadeamento do
-  carnê-leão no ano, com reabertura em cascata (RC-148, BL-572). Primeiro o
-  servidor; depois a tela e a auditoria.
-- **DL-055** (nível 1) — o papel Cliente não vê o cadastro de empresas
-  (BL-549); [auditoria](../auditorias/2026-10-01-dl-055-rodada-1.md)
-  aprovada com ressalvas; em revisão no pull request, merge com a CI verde.
+  carnê-leão, com reabertura em cascata (RC-148, BL-572);
+  [auditoria](../auditorias/2026-10-01-dl-054-rodada-1.md) aprovada com
+  ressalvas; em revisão no pull request, merge com a CI verde. H1 e H2 na
+  DL-060.
+- **DL-055** — **integrada pelo PR #69** (squash `9ceda53`).
 - **DL-056** (nível 2) — limite de tentativas no login e no cadastro
   (BL-552, sem a titularidade do CNPJ). Limites iniciais são hipótese.
 - **DL-057** — **integrada pelo PR #68** (squash `49f118d`). Antes da

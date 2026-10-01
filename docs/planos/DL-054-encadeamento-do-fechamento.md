@@ -69,3 +69,21 @@ PR.
 
 `desenvolvedor-pleno` (serviços, API, testes), depois `especialista-frontend`
 (tela da reabertura em cascata e aviso), depois `auditor-qa`.
+
+## Evidências e integração
+
+- Servidor (`desenvolvedor-pleno`): recusa de lançar ou estornar em mês com
+  mês posterior encerrado no ano, sob locks consultivos de M a dezembro;
+  `reabrir_mes_caixa_em_cascata` atômica, um registro de trilha por mês;
+  API de reabrir com `cascata`.
+- Tela (`especialista-frontend`): lista dos meses antes do formulário,
+  confirmação explícita, painel e avisos no formulário, na lista e no
+  estorno.
+- Um teste da DL-053 mudou de expectativa por consequência direta da RC-148
+  (novembro recusado com dezembro encerrado no mesmo ano).
+- [Auditoria rodada 1](../auditorias/2026-10-01-dl-054-rodada-1.md):
+  **aprovada com ressalvas** — cenário E1 reproduzido (imposto de
+  fevereiro 1.016,27 inalterado), estresse de cerca de 3.000 operações sem
+  deadlock nem estado misto, suíte com 4.080 aprovados e a falha conhecida
+  de Python 3.13. Ressalvas: BL-588 a BL-591; H1 e H2 na DL-060.
+

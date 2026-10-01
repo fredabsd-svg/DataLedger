@@ -1964,7 +1964,7 @@ E1 depende de decisão do Fred (PE-74) e bloqueia o merge; E2 a E5 ficam abaixo.
 
 | ID | Item | Responsável | Depende de | Estado | Critério de aceite |
 | --- | --- | --- | --- | --- | --- |
-| BL-572 | **E1 (média)** — lançamento ou estorno em mês aberto muda o carnê-leão de mês posterior encerrado do mesmo ano; reabrir um mês não considera os meses encerrados depois dele | `desenvolvedor-pleno` | — | em desenvolvimento (DL-054) | **Decidido pelo Fred (RC-148):** lançar/estornar recusado com mês posterior encerrado no mesmo ano; reabertura em cascata com motivo único e trilha |
+| BL-572 | **E1 (média)** — lançamento ou estorno em mês aberto muda o carnê-leão de mês posterior encerrado do mesmo ano; reabrir um mês não considera os meses encerrados depois dele | `desenvolvedor-pleno` | — | concluída (DL-054) | **Decidido pelo Fred (RC-148):** lançar/estornar recusado com mês posterior encerrado no mesmo ano; reabertura em cascata com motivo único e trilha |
 | BL-573 | **E2 (baixa)** — trocar a empresa de livro-caixa para contabilidade ignora meses encerrados e deixa fechamento órfão | `desenvolvedor-pleno` | — | aberta | Troca recusada com mês encerrado, ou comportamento documentado, com teste |
 | BL-574 | **E3 (baixa)** — o formulário de lançamento só avisa em texto o mês encerrado (a recusa é do servidor) e o aviso omite anos anteriores ao passado | `especialista-frontend` | — | aberta | Aviso cobre todo ano com mês encerrado, com teste de renderização |
 | BL-575 | **E4 (baixa)** — comentários com referência errada (`models.py` cita "decisão 6" para fora do escopo; teste de atalhos diz que a tela ainda não existe) | `desenvolvedor-pleno` | — | aberta | Referências corrigidas |
@@ -1996,3 +1996,15 @@ Integrada com as ressalvas abaixo (RC-150).
 | BL-585 | **G2 (baixa, latente)** — separar "quem lê a carteira" de "quem lê a contabilidade" não é mudar uma linha: o Início (`apps/tenancy/views.py` ~790), a fila de atenção e os seletores de módulo usam a regra da contabilidade | `desenvolvedor-pleno` | — | aberta | Usar `papel_pode_ler_carteira` onde o dado exibido é cadastro; teste com as listas divergentes |
 | BL-586 | **G3 (baixa)** — o Início do Cliente fica quase vazio, sem explicar o que o papel pode fazer | `especialista-frontend` | Fred | aberta — **decisão de produto do Fred** | Estado vazio do papel sem módulo, com texto aprovado |
 | BL-587 | Tabela "Empresas da carteira" do Início passa da largura a 390 px (pré-existente, medido nas auditorias da DL-055) | `especialista-frontend` | — | aberta | Sem rolagem horizontal a 390 px, medido no navegador |
+
+## Auditoria da DL-054 — rodada 1, APROVADA COM RESSALVAS (2026-10-01)
+
+Relatório integral em [2026-10-01-dl-054-rodada-1.md](../auditorias/2026-10-01-dl-054-rodada-1.md).
+Integrada com as ressalvas abaixo (RC-150); H1 e H2 viram a DL-060.
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-588 | **H1 (baixa)** — a confirmação da reabertura em cascata não fixa os meses mostrados: mês encerrado entre a tela e o clique é reaberto junto, sem constar da confirmação | `desenvolvedor-pleno` + `especialista-frontend` | — | planejada (DL-060) | A tela envia os meses confirmados; o serviço recusa (409, lista atual) se o conjunto sob lock divergir; nenhum mês alterado |
+| BL-589 | **H2 (baixa)** — faltam testes de corrida "reabrir sem cascata × encerrar mês posterior" e a asserção de estado final no teste de duas cascatas | `desenvolvedor-pleno` | — | planejada (DL-060) | Casos propostos na auditoria; a mutação sem o lock dos posteriores reprova |
+| BL-590 | **H3 (baixa)** — a tela filtra `estado=encerrado` e o serviço `!= aberto`; divergiriam com um terceiro estado | `especialista-frontend` | — | aberta | Mesmo critério nos dois, com teste |
+| BL-591 | **H4 (baixa)** — comentário da margem do `lock_timeout` (`config/settings.py`) supõe um lock por requisição; o lançamento agora toma até 12 | `desenvolvedor-pleno` | — | aberta | Comentário atualizado com a nova conta, ou medição |
