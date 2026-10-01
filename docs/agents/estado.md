@@ -139,9 +139,9 @@ e integradas **uma por vez** na branch `claude/zealous-goldberg-jr5ggu` →
 
 **Em andamento: DL-061 — DMPL** (CTB-14 da DL-048), escolhida pelo Fred em
 01/10/2026. Linha automática pela contrapartida, como na DLPA (RC-151); manual do
-sistema de referência lido (p. 122, 192–194, 616–622, 773–774). Fatia 1:
-`desenvolvedor-pleno` (servidor), depois `especialista-frontend` (tela), depois
-auditoria nível 1. **Para o Fred validar:** HI-50 — as alíneas "c" e "d" do art. 182,
+sistema de referência lido (p. 122, 192–194, 616–622, 773–774). Fatia 1
+(servidor e tela) **implementada e integrada na branch, em auditoria nível 1**;
+merge só depois da auditoria e da CI verde. Pontos abertos: BL-603 a BL-607. **Para o Fred validar:** HI-50 — as alíneas "c" e "d" do art. 182,
 §1º, parecem revogadas pela Lei 11.638/2007, o que contradiz a pendência de 29/09; o
 Planalto ficou bloqueado pela rede nesta sessão.
 

@@ -248,3 +248,44 @@ Conferência: 100.000 + 20.000 + 25.000 − 10.000 + 3.000 − 2.000 = 136.000.
 - Detalhamento dos outros resultados abrangentes por item (depende da DRA, CTB-16).
 - Dividendo por ação (E8).
 - Reservas de capital "c" e "d" (HI-50).
+
+## Evidências e integração (fatia 1)
+
+- **Servidor** (`desenvolvedor-pleno`, cópia isolada): campo e enum da coluna,
+  migração 0018, leitura compartilhada extraída de `apurar_dlpa` sem mudar a DLPA,
+  `apurar_dmpl`, `avaliar_emissao_da_dmpl`, `classificar_conta_na_dmpl`,
+  `norma_das_demonstracoes` e `definir_adocao_antecipada_da_nbc_tg_51`, todos com
+  trilha. Os casos A e B fecham ao centavo e a identidade com a DLPA vale nos
+  casos A e B e no cenário da DLPA.
+- **Tela** (`especialista-frontend`, cópia isolada):
+  - a DMPL com identificação do emitente e a norma por vigência;
+  - colunas agrupadas pelo item 111A;
+  - origem de cada célula e conferência com o Balanço, só na tela;
+  - impressão em paisagem com mais de 4 colunas;
+  - classificação da coluna no plano de contas;
+  - marca de adoção antecipada na tela de parâmetros;
+  - hub e menu;
+  - medição no navegador (piso de classe 2), emitível nos dois ramos da semente.
+- **Decisões tomadas na implementação e aceitas pelo `arquiteto-senior`:**
+  - pendência `nenhuma_coluna_classificada`, para não emitir DMPL vazia;
+  - tabela de consistência DLPA × DMPL mais ampla que o E1:
+    - resultado, dividendo e ajuste não admitem coluna;
+    - lucro incorporado ao capital só combina com capital social;
+  - reservas de capital → capital vira "aumento de capital com reservas e lucros",
+    permitido pelo art. 200, IV, da Lei 6.404/76;
+  - débito em reserva de capital contra conta de fora vira pendência;
+  - lançamento com duas ou mais colunas exige uma "âncora" (um lado com um único
+    nó). Se lucros acumulados participa, ele é a âncora; sem âncora, é pendência.
+    É o que mantém a identidade com a DLPA;
+  - a marca de adoção antecipada vale para a vigência inteira do parâmetro, e
+    vigência nova herda a marca;
+  - a marca fica com ADMINISTRADOR e GESTOR, a mesma regra da tela de parâmetros
+    (RC-102), e não com todos os papéis que escrituram;
+  - célula sem movimento sai "—".
+- **Verificação dos implementadores:**
+  - suíte completa: 4.450 aprovados, só com a falha conhecida de Python 3.13 local;
+  - medição real no Chromium: `contabilidade_web:dmpl` passou nos dois ramos da semente;
+  - 390 px sem rolagem horizontal da página;
+  - impressão em 1 página A4 paisagem com 12 colunas.
+- **Auditoria:** pendente (nível 1).
+
