@@ -6381,11 +6381,15 @@ def _atribuir_lancamento_as_linhas_da_dmpl(*, itens, coluna_de, contas, e_estorn
     se compensam: "subscrição contra capital a integralizar" tem efeito zero).
     Cada coluna com efeito ≠ 0 e cada item fora das colunas é um NÓ com sinal.
 
-    0. **AMBÍGUO (N7):** uma coluna debitada E creditada no mesmo lançamento,
-       com qualquer outra partida fora dela, é ambígua — a DLPA lê o item a
-       item e a DMPL somaria por coluna, e as duas discordariam na quebra.
-       Exceção: lucros acumulados, onde a DLPA TAMBÉM soma os itens (são as
-       contas sujeito). A subscrição pura (só a coluna) fica de fora.
+    0. **AMBÍGUO (N7):** uma das SEIS colunas de reservas de lucros debitada
+       E creditada no mesmo lançamento, com qualquer outra partida fora dela,
+       é ambígua — a DLPA lê cada item de reserva e a DMPL somaria por coluna,
+       e as duas discordariam na quebra. É o único caso em que a DLPA detalha
+       item a item. Lucros acumulados fica de fora (a DLPA TAMBÉM soma os itens
+       das contas sujeito); capital, reservas de capital, ajustes de avaliação
+       e tesouraria não aparecem na DLPA e usam o efeito LÍQUIDO da coluna
+       (subscrição + integralização no mesmo lançamento é aumento de capital
+       líquido). A subscrição pura (só a coluna) também fica de fora.
     1. UMA coluna só movimentada: cada contrapartida externa com classificação
        DLPA decisiva dá a sua linha (identidade com a DLPA); as demais NÃO
        decidem uma a uma — o LÍQUIDO delas decide a linha, por coluna e
@@ -6432,7 +6436,11 @@ def _atribuir_lancamento_as_linhas_da_dmpl(*, itens, coluna_de, contas, e_estorn
     mistas = [
         coluna
         for coluna, lados in lados_da_coluna.items()
-        if coluna != lucros and len(lados) > 1 and total_de_itens > itens_da_coluna[coluna]
+        if (
+            coluna in RESERVAS_DE_LUCROS_DA_DMPL
+            and len(lados) > 1
+            and total_de_itens > itens_da_coluna[coluna]
+        )
     ]
     if mistas:
         problemas.append(

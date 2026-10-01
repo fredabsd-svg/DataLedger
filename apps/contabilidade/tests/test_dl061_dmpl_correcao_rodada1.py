@@ -825,6 +825,60 @@ def test_n7_subscricao_pura_contra_capital_a_integralizar_continua_efeito_zero_s
     assert "aumento_de_capital" not in _chaves_das_linhas(dmpl)
 
 
+def test_n7_transferencia_pura_entre_contas_da_mesma_reserva_nao_e_ambigua():
+    """Sem OUTRA partida fora da coluna não há o que divergir da DLPA: duas
+    contas da mesma coluna de reserva movendo saldo entre si têm efeito
+    líquido zero, sem pendência."""
+    empresa, contas, _ = _caso_a()
+    outra = _conta(
+        empresa,
+        "3.8",
+        "Reserva Legal - Outra Conta",
+        PL,
+        C,
+        dmpl=COL.RESERVA_LEGAL,
+        dlpa=ClassificacaoDlpa.RESERVA_LEGAL,
+        pai=contas["pl"],
+    )
+    _lancar(empresa, date(2026, 3, 20), "Remanejamento", contas["reserva_legal"], outra, "100.00")
+    dmpl = _apurar(empresa)
+    assert _pendencias_nao_vazias(dmpl) == set()
+    assert dmpl["saldo_final"]["valores"]["reserva_legal"] == _dec("1250.00")
+
+
+def test_n7_subscricao_com_integralizacao_no_mesmo_lancamento_e_aumento_de_capital_liquido():
+    """Decisão do arquiteto: o veto da coluna mista vale SÓ para as seis
+    reservas de lucros (a única coluna que a DLPA detalha item a item).
+    D Caixa 500 / D Capital a Integralizar 500 / C Capital 1.000: as duas
+    contas de capital estão na coluna capital_social, que recebeu 500 líquidos
+    — "Aumento de capital" de 500,00, sem pendência."""
+    empresa, contas, _ = _caso_a()
+    a_integralizar = _conta(
+        empresa,
+        "3.8",
+        "(-) Capital a Integralizar",
+        PL,
+        D,
+        dmpl=COL.CAPITAL_SOCIAL,
+        pai=contas["pl"],
+    )
+    _lancar_itens(
+        empresa,
+        date(2026, 2, 1),
+        "Subscrição com integralização parcial",
+        [
+            (contas["caixa"], "D", "500.00"),
+            (a_integralizar, "D", "500.00"),
+            (contas["capital"], "C", "1000.00"),
+        ],
+    )
+    dmpl = _apurar(empresa)
+    assert _pendencias_nao_vazias(dmpl) == set()
+    assert avaliar_emissao_da_dmpl(dmpl)["pode_emitir"] is True
+    assert _celula(dmpl, "aumento_de_capital", "capital_social") == _dec("500.00")
+    assert dmpl["saldo_final"]["valores"]["capital_social"] == _dec("100500.00")
+
+
 def test_n7_lucros_e_prejuizos_na_mesma_coluna_no_mesmo_lancamento_nao_divergem_da_dlpa():
     """A coluna de lucros reúne duas contas sujeito; a DLPA TAMBÉM soma os
     itens delas (`movimento += efeito`). Por isso lucros debitado e
