@@ -1048,9 +1048,12 @@ def test_cascata_em_andamento_faz_o_lancamento_em_janeiro_esperar_e_depois_ser_a
 
 
 @pytest.mark.django_db(transaction=True)
-def test_duas_cascatas_e_um_fechamento_simultaneos_terminam_sem_deadlock_e_sem_estado_misto():
+def test_duas_cascatas_e_um_fechamento_simultaneos_terminam_sem_deadlock():
     """A ordem crescente dos locks é o que impede o deadlock: duas cascatas
-    (janeiro e março) e um encerramento de fevereiro ao mesmo tempo."""
+    (janeiro e março) e um encerramento de fevereiro ao mesmo tempo. A janela
+    de intercalação é de microssegundos, então este teste só prova a ausência
+    de deadlock e de estouro de lock; o ESTADO FINAL é afirmado, sem depender
+    de sorte, em `test_duas_cascatas_com_fevereiro_pausado_terminam_em_estado_unico`."""
     c = _cenario_commitado()
     for mes in (1, 3, 5):
         encerrar_mes_caixa(empresa=c["empresa"], ano=2026, mes=mes, usuario=c["gestor"])
@@ -1085,31 +1088,6 @@ def test_duas_cascatas_e_um_fechamento_simultaneos_terminam_sem_deadlock_e_sem_e
         # deadlock ou estouro de lock não.
         assert erro is None or isinstance(erro, FechamentoMesCaixaRecusado), resultado
         assert not isinstance(erro, FechamentoMesCaixaTravado), resultado
-
-    # Estado final (achado H2 da auditoria da DL-054): o nome promete "sem
-    # estado misto", então o estado é afirmado, não só a ausência de deadlock.
-    # Só existem dois desfechos seriais legítimos. Exatamente UMA cascata vence:
-    # se a de janeiro vence, a de março encontra março já aberto e é recusada;
-    # se a de março vence, a de janeiro encontra a lista confirmada ({março,
-    # maio}) diferente da atual ({}) e é recusada. Fevereiro é sempre encerrado.
-    assert "erro" not in r3, r3
-    vencedoras = [r for r in (r1, r2) if "erro" not in r]
-    assert len(vencedoras) == 1, (r1, r2)
-    estados = _estados(c["empresa"])
-    aberto, encerrado = EstadoMesCaixa.ABERTO, EstadoMesCaixa.ENCERRADO
-    if "erro" not in r1:
-        assert estados == {1: aberto, 2: encerrado, 3: aberto, 5: aberto}, estados
-        meses_reabertos = [1, 3, 5]
-    else:
-        assert estados == {1: encerrado, 2: encerrado, 3: aberto, 5: aberto}, estados
-        meses_reabertos = [3, 5]
-    # A trilha de reabertura tem um registro por mês EFETIVAMENTE reaberto, e a
-    # cascata recusada não deixa rastro de reabertura.
-    trilha = RegistroAuditoria.objects.filter(acao="fechamento_mes_caixa.reaberto")
-    assert sorted(r.detalhes["mes"] for r in trilha) == meses_reabertos
-    assert FechamentoMesCaixa.objects.filter(
-        empresa=c["empresa"], reaberto_em__isnull=False
-    ).count() == len(meses_reabertos)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1178,3 +1156,63 @@ def test_encerramento_posterior_em_andamento_faz_a_reabertura_simples_ser_recusa
     assert res_reabrir["erro"].meses == (3,)
     assert _estados(c["empresa"]) == {1: EstadoMesCaixa.ENCERRADO, 3: EstadoMesCaixa.ENCERRADO}
     assert not RegistroAuditoria.objects.filter(acao="fechamento_mes_caixa.reaberto").exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_duas_cascatas_com_fevereiro_pausado_terminam_em_estado_unico():
+    """Estado final determinístico (L2 da auditoria da DL-060). O encerramento
+    de fevereiro é pausado com o lock de fevereiro na mão; a cascata de janeiro
+    (que travou janeiro e espera fevereiro) fica presa; a de março, que não
+    depende de fevereiro, termina ENQUANTO as outras duas esperam (`_esperar(b)`
+    é a âncora: o `join` com timeout falha se ela ficar presa). Liberado o
+    fechamento, a cascata de janeiro lê fevereiro encerrado, vê a lista
+    confirmada ({março, maio}) diferente da atual ({fevereiro}) e é recusada.
+    O desfecho é um só, sem sorte de escalonamento."""
+    c = _cenario_commitado()
+    for mes in (1, 3, 5):
+        encerrar_mes_caixa(empresa=c["empresa"], ano=2026, mes=mes, usuario=c["gestor"])
+
+    with _pausando("fechamento_mes_caixa.encerrado") as (dentro, liberar):
+        fechar, res_fechar = _rodar_em_thread(
+            lambda: encerrar_mes_caixa(empresa=c["empresa"], ano=2026, mes=2, usuario=c["gestor"])
+        )
+        assert dentro.wait(timeout=30), "o encerramento de fevereiro nunca chegou à pausa"
+        cascata_a, res_a = _rodar_em_thread(
+            lambda: reabrir_mes_caixa_em_cascata(
+                empresa=c["empresa"],
+                ano=2026,
+                mes=1,
+                usuario=c["gestor"],
+                motivo=_MOTIVO,
+                meses_confirmados={(2026, 3), (2026, 5)},
+            )
+        )
+        time.sleep(_PAUSA_CURTA)
+        assert cascata_a.is_alive(), "a cascata de janeiro deveria esperar o lock de fevereiro"
+        cascata_b, res_b = _rodar_em_thread(
+            lambda: reabrir_mes_caixa_em_cascata(
+                empresa=c["empresa"],
+                ano=2026,
+                mes=3,
+                usuario=c["gestor"],
+                motivo=_MOTIVO,
+                meses_confirmados={(2026, 5)},
+            )
+        )
+        _esperar(cascata_b)  # termina enquanto fevereiro e janeiro esperam
+        assert cascata_a.is_alive() and fechar.is_alive()
+        liberar.set()
+        _esperar(fechar, cascata_a)
+
+    assert "erro" not in res_fechar, res_fechar
+    assert "erro" not in res_b, res_b
+    assert isinstance(res_a.get("erro"), ReaberturaExigeCascata), res_a
+    assert res_a["erro"].meses == (2,)
+    assert _estados(c["empresa"]) == {
+        1: EstadoMesCaixa.ENCERRADO,
+        2: EstadoMesCaixa.ENCERRADO,
+        3: EstadoMesCaixa.ABERTO,
+        5: EstadoMesCaixa.ABERTO,
+    }
+    trilha = RegistroAuditoria.objects.filter(acao="fechamento_mes_caixa.reaberto")
+    assert sorted(r.detalhes["mes"] for r in trilha) == [3, 5]

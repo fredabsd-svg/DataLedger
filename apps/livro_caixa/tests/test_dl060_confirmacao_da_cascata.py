@@ -19,6 +19,7 @@ Dados 100% sintéticos, datas em 2026, no passado.
 # ruff: noqa: F811
 # (a fixture `cenario` importada é usada como parâmetro, o padrão do repositório)
 import json
+import time
 
 import pytest
 from django.urls import reverse
@@ -28,8 +29,16 @@ from apps.livro_caixa.models import EstadoMesCaixa, FechamentoMesCaixa
 from apps.livro_caixa.services import (
     FechamentoMesCaixaInvalido,
     ReaberturaExigeCascata,
+    encerrar_mes_caixa,
     reabrir_mes_caixa,
     reabrir_mes_caixa_em_cascata,
+)
+from apps.livro_caixa.tests.test_dl053_fechamento_do_mes import (
+    _PAUSA_CURTA,
+    _cenario_commitado,
+    _esperar,
+    _pausando,
+    _rodar_em_thread,
 )
 from apps.livro_caixa.tests.test_dl054_tela_cascata import (  # noqa: F401
     _MOTIVO,
@@ -241,6 +250,10 @@ def test_a_ordem_dos_meses_no_campo_nao_muda_o_conjunto(cenario):
         "2026-02, 2026-03",
         "2026-02;2026-03",
         "２０２６-02",  # dígitos Unicode de largura inteira
+        "0000-01",  # ano fora da faixa da API (1970 a 2999): adulteração, não divergência
+        "9999-12",
+        "1969-12",
+        "3000-01",
         "2026-02\n",
     ],
 )
@@ -410,6 +423,60 @@ def test_api_lista_de_outro_ano_nao_confirma_os_meses_do_ano_pedido(cenario):
     assert _fotografia(cenario["empresa"]) == antes
 
 
+@pytest.mark.parametrize(
+    ("mes_pedido", "confirmados"),
+    [
+        (1, _meses(1, 2)),  # o próprio mês pedido não é "posterior"
+        (1, _meses(1)),
+        (2, _meses(1, 3)),  # mês anterior ao pedido, no mesmo ano
+        (2, _meses(12, ano=2025) + _meses(3)),  # anterior, na virada do ano
+        (1, _meses(2) + _meses(2, ano=2027)),  # mesmo mês em outro ano
+    ],
+    ids=[
+        "proprio_mes_e_posterior",
+        "so_o_proprio_mes",
+        "anterior_do_ano",
+        "anterior_2025",
+        "ano_2027",
+    ],
+)
+def test_api_lista_forjada_com_proprio_mes_ou_anterior_da_409_e_nao_altera_nada(
+    cenario, mes_pedido, confirmados
+):
+    """A comparação é de IGUALDADE com os encerrados posteriores: nem o mês
+    pedido nem um anterior a ele podem entrar na lista confirmada."""
+    _encerrar(cenario, 1, 2, 3)
+    antes = _fotografia(cenario["empresa"])
+
+    resposta = _api(_gestor(cenario), cenario, _corpo(confirmados), mes=mes_pedido)
+
+    assert resposta.status_code == 409, resposta.content
+    esperado = _meses(2, 3) if mes_pedido == 1 else _meses(3)
+    assert resposta.json()["meses_encerrados_posteriores"] == esperado
+    assert _fotografia(cenario["empresa"]) == antes
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"ano": 10**40, "mes": 2},
+        {"ano": 2026, "mes": 10**40},
+        {"ano": 2**70, "mes": 2**70},
+        {"ano": -1, "mes": 2},
+        {"ano": 2026, "mes": -1},
+    ],
+    ids=repr,
+)
+def test_api_inteiro_gigante_ou_negativo_da_400_sem_500_e_nao_altera_nada(cenario, item):
+    _encerrar(cenario, 1, 2)
+    antes = _fotografia(cenario["empresa"])
+
+    resposta = _api(_gestor(cenario), cenario, _corpo([item]))
+
+    assert resposta.status_code == 400, resposta.content
+    assert _fotografia(cenario["empresa"]) == antes
+
+
 def test_api_cascata_sem_meses_confirmados_da_400_e_nao_altera_nada(cenario):
     _encerrar(cenario, 1, 2, 3)
     antes = _fotografia(cenario["empresa"])
@@ -575,3 +642,85 @@ def test_servico_aceita_lista_e_tupla_alem_de_conjunto(cenario):
     _encerrar(cenario, 1, 2, 3, 4)
     _cascata_do_servico(cenario, [(2026, 2), (2026, 3), (2026, 4)])
     assert _estados(cenario) == {1: "aberto", 2: "aberto", 3: "aberto", 4: "aberto"}
+
+
+# ---------------------------------------------------------------------------
+# Concorrência — a comparação acontece DEPOIS dos locks (L1 da auditoria)
+# ---------------------------------------------------------------------------
+#
+# Se a leitura dos encerrados posteriores e a comparação viessem ANTES de travar,
+# uma operação concorrente ainda não comitada seria invisível e a cascata
+# reabriria o mês que acabou de ser encerrado (o dano do H1 pela janela da
+# corrida). Nos dois testes a operação concorrente segura o lock, a cascata
+# chega durante a pausa e precisa ESPERAR; só depois de liberada ela lê o estado
+# comitado, diverge e não altera nada.
+
+
+@pytest.mark.django_db(transaction=True)
+def test_encerramento_de_abril_em_andamento_faz_a_cascata_esperar_e_depois_divergir():
+    c = _cenario_commitado()
+    for mes in (1, 2, 3):
+        encerrar_mes_caixa(empresa=c["empresa"], ano=2026, mes=mes, usuario=c["gestor"])
+
+    with _pausando("fechamento_mes_caixa.encerrado") as (dentro, liberar):
+        fechar, res_fechar = _rodar_em_thread(
+            lambda: encerrar_mes_caixa(empresa=c["empresa"], ano=2026, mes=4, usuario=c["gestor"])
+        )
+        assert dentro.wait(timeout=30), "o encerramento de abril nunca chegou à pausa"
+        cascata, res_cascata = _rodar_em_thread(
+            lambda: reabrir_mes_caixa_em_cascata(
+                empresa=c["empresa"],
+                ano=2026,
+                mes=1,
+                usuario=c["gestor"],
+                motivo=_MOTIVO,
+                meses_confirmados={(2026, 2), (2026, 3)},
+            )
+        )
+        time.sleep(_PAUSA_CURTA)
+        assert cascata.is_alive(), "a cascata não esperou o encerramento de abril"
+        liberar.set()
+        _esperar(fechar, cascata)
+
+    assert "erro" not in res_fechar, res_fechar
+    assert isinstance(res_cascata.get("erro"), ReaberturaExigeCascata), res_cascata
+    assert res_cascata["erro"].meses == (2, 3, 4)
+    assert _estados(c, c["empresa"]) == {mes: "encerrado" for mes in (1, 2, 3, 4)}
+    assert not RegistroAuditoria.objects.filter(acao="fechamento_mes_caixa.reaberto").exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_reabertura_de_marco_em_andamento_faz_a_cascata_esperar_e_depois_divergir_a_menos():
+    c = _cenario_commitado()
+    for mes in (1, 2, 3):
+        encerrar_mes_caixa(empresa=c["empresa"], ano=2026, mes=mes, usuario=c["gestor"])
+
+    with _pausando("fechamento_mes_caixa.reaberto") as (dentro, liberar):
+        simples, res_simples = _rodar_em_thread(
+            lambda: reabrir_mes_caixa(
+                empresa=c["empresa"], ano=2026, mes=3, usuario=c["gestor"], motivo=_MOTIVO
+            )
+        )
+        assert dentro.wait(timeout=30), "a reabertura de março nunca chegou à pausa"
+        cascata, res_cascata = _rodar_em_thread(
+            lambda: reabrir_mes_caixa_em_cascata(
+                empresa=c["empresa"],
+                ano=2026,
+                mes=1,
+                usuario=c["gestor"],
+                motivo=_MOTIVO,
+                meses_confirmados={(2026, 2), (2026, 3)},
+            )
+        )
+        time.sleep(_PAUSA_CURTA)
+        assert cascata.is_alive(), "a cascata não esperou a reabertura de março"
+        liberar.set()
+        _esperar(simples, cascata)
+
+    assert "erro" not in res_simples, res_simples
+    assert isinstance(res_cascata.get("erro"), ReaberturaExigeCascata), res_cascata
+    assert res_cascata["erro"].meses == (2,)
+    assert _estados(c, c["empresa"]) == {1: "encerrado", 2: "encerrado", 3: "aberto"}
+    # Só a reabertura simples de março deixou rastro; a cascata recusada, nenhum.
+    trilha = RegistroAuditoria.objects.filter(acao="fechamento_mes_caixa.reaberto")
+    assert [r.detalhes["mes"] for r in trilha] == [3]

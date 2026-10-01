@@ -101,6 +101,7 @@ from apps.livro_caixa.validators import (
     DATA_MINIMA_LANCAMENTO_CAIXA,
     data_maxima_lancamento_caixa,
 )
+from apps.livro_caixa.views import _ANO_MAXIMO, _ANO_MINIMO
 
 TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA_CAIXA = 255
 
@@ -2439,8 +2440,8 @@ _MES_CONFIRMADO_DO_FORMULARIO = re.compile(r"([0-9]{4})-(0[1-9]|1[0-2])")
 def _meses_confirmados_do_formulario(valor):
     """Lê o campo oculto `meses_confirmados` (`AAAA-MM,AAAA-MM`, DL-060) e
     devolve o `frozenset` de `(ano, mes)`. Campo AUSENTE ou item fora do
-    formato (só dígitos ASCII, mês 01-12, sem espaço, sem repetição) levanta
-    `ValueError` com mensagem para o usuário: o campo é do servidor para o
+    formato (só dígitos ASCII, mês 01-12, ano na faixa da API, sem espaço, sem
+    repetição) levanta `ValueError` com mensagem para o usuário: o campo é do servidor para o
     servidor, e a cascata nunca assume "todos" quando ele falta. Campo
     presente e vazio é válido — o formulário mostrou nenhum mês posterior."""
     if valor is None:
@@ -2452,7 +2453,11 @@ def _meses_confirmados_do_formulario(valor):
     for texto in valor.split(",") if valor else []:
         achado = _MES_CONFIRMADO_DO_FORMULARIO.fullmatch(texto)
         item = (int(achado[1]), int(achado[2])) if achado else None
-        if item is None or item in confirmados:
+        # Mesma faixa de anos da API (`_ANO_MINIMO`/`_ANO_MAXIMO` de views.py):
+        # o campo é do servidor para o servidor, então ano fora da faixa só
+        # pode ser adulteração — 400 como os demais formatos inválidos, e não
+        # um 409 dizendo que "a lista mudou".
+        if item is None or item in confirmados or not (_ANO_MINIMO <= item[0] <= _ANO_MAXIMO):
             raise ValueError(
                 "A lista dos meses confirmados está em formato inválido. Nada foi alterado; "
                 "confirme a reabertura de novo."
