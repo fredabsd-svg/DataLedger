@@ -86,6 +86,7 @@ from apps.livro_caixa.services import (
     LancamentoCaixaInvalido,
     MesCaixaEncerrado,
     MesCaixaOcupado,
+    ReaberturaExigeCascata,
     apurar_livro_caixa,
     criar_conta_livro_caixa,
     criar_lancamento_caixa,
@@ -94,6 +95,7 @@ from apps.livro_caixa.services import (
     estornar_lancamento_caixa,
     mes_caixa_esta_encerrado,
     reabrir_mes_caixa,
+    reabrir_mes_caixa_em_cascata,
 )
 from apps.livro_caixa.validators import (
     DATA_MINIMA_LANCAMENTO_CAIXA,
@@ -194,6 +196,47 @@ def _meses_encerrados(empresa, ano_inicial, ano_final):
             ano__lte=ano_final,
         ).values_list("ano", "mes")
     )
+
+
+def _meses_abertos_bloqueados_por_encadeamento(encerrados):
+    """Conjunto `{(ano, mes)}` dos meses ABERTOS que, mesmo assim, não recebem
+    lançamento nem estorno porque há um mês encerrado DEPOIS deles no mesmo
+    ano (DL-054, RC-148: o carnê-leão se encadeia de janeiro a dezembro, então
+    gravar num mês anterior mudaria o resultado entregue do mês encerrado).
+    `encerrados` é o conjunto `{(ano, mes)}` de `_meses_encerrados`. Só
+    informa a TELA (aviso e ausência do botão); a recusa de verdade é da trava
+    de `criar_lancamento_caixa`. Só o ANO importa: mês encerrado de outro ano
+    não bloqueia."""
+    ultimo_encerrado_do_ano = {}
+    for ano, mes in encerrados:
+        ultimo_encerrado_do_ano[ano] = max(mes, ultimo_encerrado_do_ano.get(ano, 0))
+    return {
+        (ano, mes)
+        for ano, ultimo in ultimo_encerrado_do_ano.items()
+        for mes in range(1, ultimo)
+        if (ano, mes) not in encerrados
+    }
+
+
+def _primeiro_mes_posterior_encerrado(empresa, ano, mes):
+    """Primeiro mês ENCERRADO depois de `mes` no mesmo `ano` (inteiro) ou
+    `None` — leitura sem lock, só para a tela explicar (DL-054)."""
+    return (
+        FechamentoMesCaixa.objects.filter(
+            empresa=empresa, ano=ano, mes__gt=mes, estado=EstadoMesCaixa.ENCERRADO
+        )
+        .order_by("mes")
+        .values_list("mes", flat=True)
+        .first()
+    )
+
+
+def _lista_em_texto(itens):
+    """`["a", "b", "c"]` -> `"a, b e c"` (português)."""
+    itens = list(itens)
+    if len(itens) <= 1:
+        return "".join(itens)
+    return f"{', '.join(itens[:-1])} e {itens[-1]}"
 
 
 # ---------------------------------------------------------------------------
@@ -507,23 +550,33 @@ def _competencia_previdencia_do_formulario(bruto):
     return para_data(texto)
 
 
-def _meses_encerrados_para_o_formulario(empresa):
-    """Meses encerrados do ano anterior em diante, em texto `MM/AAAA` e em
-    ordem cronológica, para o aviso do formulário de lançamento (DL-053,
-    critério 7). Um `<input type="date">` não consegue excluir meses sem
-    JavaScript (regra 6 da direção de arte), então a tela AVISA quais datas
-    serão recusadas, em texto; quem recusa de verdade é o servidor. O ano
-    anterior entra porque é onde o contador corrige o fechamento recém-feito."""
+def _meses_do_aviso_do_formulario(empresa):
+    """Devolve `(encerrados, bloqueados_por_encadeamento)`, ambos listas de
+    texto `MM/AAAA` em ordem cronológica, para o aviso do formulário de
+    lançamento (DL-053, critério 7; DL-054, critério 6). Um `<input
+    type="date">` não consegue excluir meses sem JavaScript (regra 6 da
+    direção de arte), então a tela AVISA quais datas serão recusadas, em
+    texto; quem recusa de verdade é o servidor. O ano anterior entra porque é
+    onde o contador corrige o fechamento recém-feito.
+
+    A segunda lista são os meses ABERTOS que também recusam, por haver mês
+    encerrado depois deles no mesmo ano (o carnê-leão se encadeia)."""
     ano_corrente = timezone.localdate().year
-    encerrados = sorted(_meses_encerrados(empresa, ano_corrente - 1, 9999))
-    return [f"{mes:02d}/{ano}" for ano, mes in encerrados]
+    encerrados = _meses_encerrados(empresa, ano_corrente - 1, 9999)
+    bloqueados = _meses_abertos_bloqueados_por_encadeamento(encerrados)
+    return (
+        [f"{mes:02d}/{ano}" for ano, mes in sorted(encerrados)],
+        [f"{mes:02d}/{ano}" for ano, mes in sorted(bloqueados)],
+    )
 
 
 def _contexto_form_lancamento_caixa(empresa, contas, dados, *, chave_idempotencia):
+    meses_encerrados, meses_bloqueados = _meses_do_aviso_do_formulario(empresa)
     return {
         "empresa": empresa,
         "contas": contas,
-        "meses_encerrados": _meses_encerrados_para_o_formulario(empresa),
+        "meses_encerrados": meses_encerrados,
+        "meses_bloqueados_por_encadeamento": meses_bloqueados,
         "ano_do_fechamento": timezone.localdate().year,
         "origens": OrigemRecebimento.choices,
         "data_texto": dados.get("data", ""),
@@ -770,6 +823,12 @@ def lancamentos_caixa_lista(request, empresa_id):
     # exigiria reabrir o mês). Uma consulta para o intervalo inteiro; a
     # recusa continua sendo do servidor de qualquer forma.
     encerrados = _meses_encerrados(empresa, inicio.year, fim.year)
+    # DL-054 (RC-148): mês ABERTO com mês encerrado depois dele no mesmo ano
+    # também recusa estorno (e lançamento), então a linha dele não oferece o
+    # botão e a tela diz por quê. Calculado sobre os anos inteiros do
+    # intervalo, não só sobre o intervalo: o mês encerrado que bloqueia pode
+    # estar fora dele.
+    bloqueados = _meses_abertos_bloqueados_por_encadeamento(encerrados)
     linhas = [
         {
             "lancamento": lancamento,
@@ -777,14 +836,21 @@ def lancamentos_caixa_lista(request, empresa_id):
             "e_estorno": lancamento.estorno_de_id is not None,
             "ja_estornado": lancamento._tem_estorno,
             "mes_encerrado": (lancamento.data.year, lancamento.data.month) in encerrados,
+            "mes_bloqueado_por_encadeamento": (lancamento.data.year, lancamento.data.month)
+            in bloqueados,
         }
         for lancamento in lancamentos
     ]
     contexto["linhas"] = linhas
+
+    def _no_periodo(ano, mes):
+        return (inicio.year, inicio.month) <= (ano, mes) <= (fim.year, fim.month)
+
     contexto["meses_encerrados_no_periodo"] = [
-        f"{mes:02d}/{ano}"
-        for ano, mes in sorted(encerrados)
-        if (inicio.year, inicio.month) <= (ano, mes) <= (fim.year, fim.month)
+        f"{mes:02d}/{ano}" for ano, mes in sorted(encerrados) if _no_periodo(ano, mes)
+    ]
+    contexto["meses_bloqueados_no_periodo"] = [
+        f"{mes:02d}/{ano}" for ano, mes in sorted(bloqueados) if _no_periodo(ano, mes)
     ]
     return render(request, "livro_caixa/lancamentos_lista.html", contexto)
 
@@ -800,7 +866,16 @@ def _contexto_lancamento_estornar(empresa, lancamento):
         "mes_encerrado": mes_caixa_esta_encerrado(
             empresa=empresa, ano=lancamento.data.year, mes=lancamento.data.month
         ),
+        # DL-054 (RC-148): mês aberto, mas com mês encerrado depois dele no
+        # mesmo ano — o estorno também é recusado. `None` se não houver; senão
+        # o texto `MM/AAAA` do primeiro mês encerrado alcançado.
+        "mes_posterior_encerrado": _texto_do_mes_posterior_encerrado(empresa, lancamento),
     }
+
+
+def _texto_do_mes_posterior_encerrado(empresa, lancamento):
+    mes = _primeiro_mes_posterior_encerrado(empresa, lancamento.data.year, lancamento.data.month)
+    return None if mes is None else f"{mes:02d}/{lancamento.data.year}"
 
 
 @login_required
@@ -849,7 +924,12 @@ def lancamento_caixa_estornar(request, empresa_id, lancamento_id):
             # tela diz a mesma coisa em linguagem de escritório. A recusa por
             # espera de lock (`MesCaixaOcupado`) mantém a mensagem do
             # serviço, que não cita código nenhum.
-            if isinstance(exc, MesCaixaOcupado):
+            # DL-054: se o mês do próprio lançamento está aberto, a recusa é
+            # por mês POSTERIOR encerrado; a mensagem do serviço nomeia esse
+            # mês e o caminho, e não cita código nenhum.
+            if isinstance(exc, MesCaixaOcupado) or not mes_caixa_esta_encerrado(
+                empresa=empresa, ano=lancamento.data.year, mes=lancamento.data.month
+            ):
                 messages.error(request, str(exc))
             else:
                 messages.error(
@@ -2021,7 +2101,9 @@ _CONTRATO_ENCERRAR_MES_CAIXA = ContratoDeRequisicao(
     contexto="no encerramento de mês do livro-caixa",
 )
 _CONTRATO_REABRIR_MES_CAIXA = ContratoDeRequisicao(
-    campos=frozenset({"csrfmiddlewaretoken", "ano", "mes", "motivo"}),
+    # `confirmar_cascata` (DL-054): a caixa de confirmação da reabertura em
+    # cascata; só o valor "1" confirma.
+    campos=frozenset({"csrfmiddlewaretoken", "ano", "mes", "motivo", "confirmar_cascata"}),
     aceita_arquivo=False,
     aceita_querystring=False,
     cabecalhos_ignorados=("Idempotency-Key",),
@@ -2130,6 +2212,15 @@ def fechamento_mes_caixa(request, empresa_id):
         mes["primeiro_dia"] = date(ano, mes["mes"], 1)  # o template escreve o nome do mês
         mes["inicio_iso"] = mes["primeiro_dia"].isoformat()
         mes["fim_iso"] = date(ano, mes["mes"], calendar.monthrange(ano, mes["mes"])[1]).isoformat()
+    # DL-054 (RC-148): reabrir um mês que tem meses encerrados DEPOIS dele no
+    # ano só é possível em cascata (o carnê-leão se encadeia). O painel diz isso
+    # na própria ação, com os meses, antes de a pessoa clicar.
+    for mes in meses:
+        mes["reabre_em_cascata"] = [
+            f"{outro['mes']:02d}/{outro['ano']}"
+            for outro in meses
+            if mes["encerrado"] and outro["encerrado"] and outro["mes"] > mes["mes"]
+        ]
     contexto.update(
         {
             "ano": ano,
@@ -2246,8 +2337,15 @@ def mes_caixa_reabrir(request, empresa_id):
             messages.error(request, exc.mensagem)
             return redirect(_url_do_painel_de_fechamento(empresa, ano))
         motivo = request.POST.get("motivo", "")
+        # Só o valor "1" confirma a cascata (mesmo padrão das demais
+        # confirmações do projeto). Sem confirmar, vale a reabertura SIMPLES,
+        # que o serviço recusa (`ReaberturaExigeCascata`) se houver mês
+        # encerrado depois deste — a tela nunca reabre vários meses por
+        # inferência.
+        em_cascata = request.POST.get("confirmar_cascata") == "1"
+        reabrir = reabrir_mes_caixa_em_cascata if em_cascata else reabrir_mes_caixa
         try:
-            reabrir_mes_caixa(
+            resultado = reabrir(
                 empresa=empresa,
                 ano=ano,
                 mes=mes,
@@ -2261,18 +2359,38 @@ def mes_caixa_reabrir(request, empresa_id):
             messages.error(request, str(exc))
             contexto = _contexto_da_acao_de_fechamento(empresa, ano, mes)
             contexto["motivo"] = motivo
-            contexto.update(_contexto_do_encerramento_atual(empresa, ano, mes))
+            contexto.update(_contexto_da_reabertura(empresa, ano, mes))
             return render(request, "livro_caixa/fechamento_mes_reabrir.html", contexto, status=400)
+        except ReaberturaExigeCascata as exc:
+            # Corrida: a tela de reabertura simples foi aberta antes de outro
+            # mês ser encerrado depois deste. Nada foi gravado; o formulário
+            # volta com o motivo digitado, a lista ATUAL e a explicação — 409
+            # (conflito de ESTADO), nunca 500.
+            messages.error(request, str(exc))
+            contexto = _contexto_da_acao_de_fechamento(empresa, ano, mes)
+            contexto["motivo"] = motivo
+            contexto.update(_contexto_da_reabertura(empresa, ano, mes))
+            return render(request, "livro_caixa/fechamento_mes_reabrir.html", contexto, status=409)
         except FechamentoMesCaixaRecusado as exc:
             # Mês que já estava aberto (duas pessoas reabrindo) ou espera de
             # lock estourada: nada foi gravado; o painel mostra o estado atual.
             messages.error(request, str(exc))
             return redirect(_url_do_painel_de_fechamento(empresa, ano))
-        messages.success(
-            request,
-            f"Mês {mes:02d}/{ano} do livro-caixa de {empresa.razao_social} reaberto com "
-            "sucesso. O motivo ficou registrado na trilha de auditoria.",
-        )
+        # A cascata devolve a lista dos meses reabertos; a simples, um só.
+        reabertos = resultado if isinstance(resultado, list) else [resultado]
+        if len(reabertos) > 1:
+            lista = _lista_em_texto(f"{linha.mes:02d}/{linha.ano}" for linha in reabertos)
+            messages.success(
+                request,
+                f"Meses {lista} do livro-caixa de {empresa.razao_social} reabertos com "
+                "sucesso. O motivo ficou registrado na trilha de auditoria de cada um deles.",
+            )
+        else:
+            messages.success(
+                request,
+                f"Mês {mes:02d}/{ano} do livro-caixa de {empresa.razao_social} reaberto com "
+                "sucesso. O motivo ficou registrado na trilha de auditoria.",
+            )
         return redirect(_url_do_painel_de_fechamento(empresa, ano))
 
     if not mes_caixa_esta_encerrado(empresa=empresa, ano=ano, mes=mes):
@@ -2285,16 +2403,36 @@ def mes_caixa_reabrir(request, empresa_id):
 
     contexto = _contexto_da_acao_de_fechamento(empresa, ano, mes)
     contexto["motivo"] = ""
-    contexto.update(_contexto_do_encerramento_atual(empresa, ano, mes))
+    contexto.update(_contexto_da_reabertura(empresa, ano, mes))
     return render(request, "livro_caixa/fechamento_mes_reabrir.html", contexto)
 
 
-def _contexto_do_encerramento_atual(empresa, ano, mes):
-    """Quem encerrou o mês e quando — mostrado na tela de reabertura para a
-    pessoa saber o que está desfazendo. Lê os 12 meses do ano (uma consulta)
-    pelo serviço e fica com o pedido."""
-    estado = estado_dos_meses_caixa(empresa=empresa, ano=ano)[mes - 1]
+def _contexto_da_reabertura(empresa, ano, mes):
+    """O que a tela de reabertura mostra sobre o estado ATUAL: quem encerrou o
+    mês e quando (para a pessoa saber o que está desfazendo) e, na DL-054
+    (RC-148), os meses encerrados DEPOIS deste no mesmo ano — que a reabertura
+    em cascata reabre junto. Lê os 12 meses do ano (uma consulta) pelo serviço.
+
+    A lista segue a mesma condição do serviço (`estado != aberto`) e vem em
+    ordem crescente; é só o que a tela mostra — quem decide o que é reaberto é
+    `reabrir_mes_caixa_em_cascata`, sob lock."""
+    estados = estado_dos_meses_caixa(empresa=empresa, ano=ano)
+    estado = estados[mes - 1]
+    posteriores = [
+        {
+            "texto": f"{outro['mes']:02d}/{outro['ano']}",
+            "fechado_por_nome": outro["fechado_por_nome"],
+            "fechado_em": outro["fechado_em"],
+        }
+        for outro in estados[mes:]
+        if outro["estado"] != EstadoMesCaixa.ABERTO
+    ]
     return {
         "fechado_por_nome": estado["fechado_por_nome"],
         "fechado_em": estado["fechado_em"],
+        "meses_posteriores": posteriores,
+        "meses_posteriores_texto": _lista_em_texto(m["texto"] for m in posteriores),
+        "meses_a_reabrir_texto": _lista_em_texto(
+            [f"{mes:02d}/{ano}", *(m["texto"] for m in posteriores)]
+        ),
     }

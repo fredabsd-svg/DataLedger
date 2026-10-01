@@ -51,6 +51,30 @@ risco, ação sensível), mesmo padrão de competencia_reabrir.html
             </div>
             <p class="texto-apoio">O botão de estornar está indisponível enquanto o mês estiver encerrado.</p>
         </div>
+    {% elif mes_posterior_encerrado %}
+        {# DL-054 (RC-148): mês aberto, mas o carnê-leão se encadeia e há mês encerrado depois dele no ano. #}
+        <div class="painel-etapa painel-etapa--risco">
+            <h2>Há um mês encerrado depois deste</h2>
+            <p>
+                O lançamento nº {{ lancamento.id }} é de {{ lancamento.data|date:"d/m/Y" }}. O mês
+                <strong>{{ lancamento.data|date:"m/Y" }}</strong> está aberto, mas o mês
+                <strong>{{ mes_posterior_encerrado }}</strong> do livro-caixa de
+                {{ empresa.razao_social }} está encerrado, e o carnê-leão se encadeia de janeiro
+                a dezembro: estornar aqui mudaria o resultado de um mês encerrado.
+            </p>
+            <p>
+                Para estornar, reabra {{ mes_posterior_encerrado }} (e os meses encerrados
+                seguintes do ano) informando o motivo, estorne, e encerre os meses de novo.
+            </p>
+            <div class="acoes-de-linha">
+                <button type="button" class="botao botao--primario" disabled aria-disabled="true">
+                    Estornar lançamento nº {{ lancamento.id }} ({{ valor_ptbr }})
+                </button>
+                <a class="botao botao--secundario"
+                   href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}?ano={{ lancamento.data.year }}">Ir para o fechamento de mês</a>
+            </div>
+            <p class="texto-apoio">O botão de estornar está indisponível enquanto houver mês encerrado depois deste no ano.</p>
+        </div>
     {% else %}
     <div class="painel-etapa">
         <h2>O que vai acontecer</h2>

@@ -50,6 +50,12 @@ O "momento da verdade" desta tela: este mês já está fechado? quem fechou?
             Mês encerrado não recebe lançamento nem estorno. Para corrigir um lançamento de um
             mês encerrado, reabra o mês informando o motivo, corrija, e encerre de novo.
         </p>
+        <p class="texto-apoio">
+            O carnê-leão se encadeia de janeiro a dezembro, então também é recusado lançar ou
+            estornar em um mês anterior a um mês encerrado do mesmo ano. Por isso, reabrir um
+            mês que tem meses encerrados depois dele reabre também esses meses (em cascata,
+            num só ato e com um só motivo).
+        </p>
 
         {% comment %}
         "Sem permissão" é ESTADO, não erro: quem só lê VÊ o painel inteiro (estados,
@@ -146,7 +152,7 @@ O "momento da verdade" desta tela: este mês já está fechado? quem fechou?
                                     {% if pode_fechar %}
                                         {% if mes.encerrado %}
                                             <a class="botao botao--secundario botao--pequeno"
-                                               href="{% url 'livro_caixa_web:mes_reabrir' empresa.id %}?ano={{ mes.ano }}&amp;mes={{ mes.mes }}">Reabrir<span class="visualmente-oculto"> o mês {{ mes.mes|stringformat:"02d" }}/{{ mes.ano }}</span></a>
+                                               href="{% url 'livro_caixa_web:mes_reabrir' empresa.id %}?ano={{ mes.ano }}&amp;mes={{ mes.mes }}">{% if mes.reabre_em_cascata %}Reabrir em cascata{% else %}Reabrir{% endif %}<span class="visualmente-oculto"> o mês {{ mes.mes|stringformat:"02d" }}/{{ mes.ano }}{% if mes.reabre_em_cascata %} e os encerrados seguintes{% endif %}</span></a>
                                         {% else %}
                                             <a class="botao botao--secundario botao--pequeno"
                                                href="{% url 'livro_caixa_web:mes_encerrar' empresa.id %}?ano={{ mes.ano }}&amp;mes={{ mes.mes }}">Encerrar<span class="visualmente-oculto"> o mês {{ mes.mes|stringformat:"02d" }}/{{ mes.ano }}</span></a>
@@ -158,6 +164,10 @@ O "momento da verdade" desta tela: este mês já está fechado? quem fechou?
                                     <a class="botao botao--fantasma botao--pequeno"
                                        href="{% url 'livro_caixa_web:lancamentos' empresa.id %}?inicio={{ mes.inicio_iso }}&amp;fim={{ mes.fim_iso }}">Lançamentos<span class="visualmente-oculto"> de {{ mes.mes|stringformat:"02d" }}/{{ mes.ano }}</span></a>
                                 </div>
+                                {% if pode_fechar and mes.reabre_em_cascata %}
+                                    {# DL-054: a ação diz, em texto, que reabre mais de um mês. #}
+                                    <p class="texto-apoio">Reabre também {{ mes.reabre_em_cascata|join:", " }}.</p>
+                                {% endif %}
                             </td>
                         </tr>
                     {% endfor %}

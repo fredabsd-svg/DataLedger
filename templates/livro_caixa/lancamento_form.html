@@ -42,6 +42,23 @@
                 Escolha uma data em mês aberto, ou reabra o mês em
                 <a href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}?ano={{ ano_do_fechamento }}">Fechamento de mês</a>.
             </p>
+            {% comment %}
+            DL-054 (RC-148): o carnê-leão se encadeia no ano, então um mês ABERTO
+            anterior a um mês encerrado do mesmo ano também recusa.
+            {% endcomment %}
+            <p class="mensagem mensagem-warning" role="note">
+                <strong>Também não recebe lançamento um mês anterior a um mês encerrado do
+                mesmo ano:</strong> o carnê-leão se encadeia de janeiro a dezembro, e um
+                lançamento nele mudaria o resultado do mês encerrado.
+                {% if meses_bloqueados_por_encadeamento %}
+                    Meses abertos que recusam por isso:
+                    {{ meses_bloqueados_por_encadeamento|join:", " }}.
+                {% else %}
+                    Hoje nenhum mês aberto está nessa situação.
+                {% endif %}
+                Para lançar neles, reabra o mês encerrado seguinte em
+                <a href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}?ano={{ ano_do_fechamento }}">Fechamento de mês</a>.
+            </p>
         {% endif %}
         <form method="post" action="{% url 'livro_caixa_web:lancamento_novo' empresa.id %}"
               class="formulario" novalidate>
