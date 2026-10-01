@@ -64,6 +64,21 @@
         </p>
     {% endif %}
 
+    {% comment %}
+    DL-054 (RC-148): mês aberto, mas com mês encerrado depois dele no mesmo ano
+    (o carnê-leão se encadeia): lançamento e estorno também são recusados.
+    {% endcomment %}
+    {% if meses_bloqueados_no_periodo %}
+        <p class="mensagem mensagem-warning" role="note">
+            <strong>Meses abertos que também não recebem lançamento nem estorno:</strong>
+            {{ meses_bloqueados_no_periodo|join:", " }}.
+            Há um mês encerrado depois deles no mesmo ano, e o carnê-leão se encadeia de
+            janeiro a dezembro: alterar um mês anterior mudaria o resultado do mês encerrado.
+            Para corrigir, reabra os meses encerrados seguintes em
+            <a href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}?ano={{ inicio.year }}">Fechamento de mês</a>.
+        </p>
+    {% endif %}
+
     {% if linhas %}
         <div class="cartao-tabela">
             <table class="tabela-dados tabela-lancamentos-caixa">
@@ -113,6 +128,9 @@
                                     {% if linha.mes_encerrado %}
                                         {# Mês encerrado: sem o botão, e o motivo em texto. #}
                                         <span class="texto-apoio">Mês encerrado</span>
+                                    {% elif linha.mes_bloqueado_por_encadeamento %}
+                                        {# DL-054: sem o botão, e o motivo em texto. #}
+                                        <span class="texto-apoio">Mês posterior encerrado</span>
                                     {% else %}
                                         <a class="botao botao--secundario botao--pequeno"
                                            href="{% url 'livro_caixa_web:lancamento_estornar' empresa.id linha.lancamento.id %}">

@@ -27,6 +27,12 @@
 {% comment %}
 Ação sensível (arquétipo E) — mesmo raciocínio de fechamento_mes_encerrar.html:
 mês/ano permanece no título, e o botão tem o tom "perigoso".
+
+DL-054 (RC-148): se há meses encerrados DEPOIS deste no mesmo ano, a lista deles
+vem ANTES do formulário, com a explicação, e a ação é UMA só — "reabrir este mês
+e os seguintes" — atrás de uma caixa de confirmação explícita. Sem posteriores
+encerrados, a tela é a de sempre. A decisão final é do servidor: sem a caixa
+marcada, o POST é a reabertura simples e o serviço recusa se houver posteriores.
 {% endcomment %}
 {% block titulo_pagina %}<h1>Reabrir mês {{ mes|stringformat:"02d" }}/{{ ano }}</h1>{% endblock %}
 
@@ -45,7 +51,14 @@ mês/ano permanece no título, e o botão tem o tom "perigoso".
             Ao reabrir:
         </p>
         <ul>
-            <li>O mês volta a aceitar lançamento e estorno.</li>
+            {% if meses_posteriores %}
+                <li>
+                    Este mês e {% if meses_posteriores|length == 1 %}o mês seguinte encerrado{% else %}os meses seguintes encerrados{% endif %}
+                    ({{ meses_posteriores_texto }}) voltam a aceitar lançamento e estorno.
+                </li>
+            {% else %}
+                <li>O mês volta a aceitar lançamento e estorno.</li>
+            {% endif %}
             <li>
                 Se o carnê-leão deste mês já foi apurado, pago ou importado no Carnê-Leão Web,
                 o resultado dele pode mudar depois da correção — confira antes de encerrar de
@@ -56,6 +69,33 @@ mês/ano permanece no título, e o botão tem o tom "perigoso".
                 com quem encerrou antes e quando.
             </li>
         </ul>
+        {% if meses_posteriores %}
+            {# A lista ANTES do formulário: o que mais será reaberto, e por quê. #}
+            <div class="mensagem mensagem-warning" role="note" id="aviso-cascata">
+                <h3>Reabrir {{ mes|stringformat:"02d" }}/{{ ano }} exige reabrir também {% if meses_posteriores|length == 1 %}1 mês encerrado{% else %}{{ meses_posteriores|length }} meses encerrados{% endif %} de {{ ano }}</h3>
+                <p>
+                    O carnê-leão se encadeia de janeiro a dezembro: o excesso de livro-caixa e o
+                    saldo de um mês passam para o seguinte. Um lançamento em
+                    {{ mes|stringformat:"02d" }}/{{ ano }} mudaria o resultado
+                    {% if meses_posteriores|length == 1 %}do mês seguinte já encerrado{% else %}dos meses seguintes já encerrados{% endif %},
+                    por isso {% if meses_posteriores|length == 1 %}ele precisa ser reaberto junto{% else %}eles precisam ser reabertos juntos{% endif %},
+                    no mesmo ato e com o mesmo motivo:
+                </p>
+                <ul>
+                    {% for posterior in meses_posteriores %}
+                        <li>
+                            <strong>{{ posterior.texto }}</strong> — encerrado
+                            {% if posterior.fechado_em %}por {{ posterior.fechado_por_nome|default:"—" }}
+                            em {{ posterior.fechado_em|date:"d/m/Y H:i" }}{% endif %}.
+                        </li>
+                    {% endfor %}
+                </ul>
+                <p>
+                    Depois da correção, encerre de novo cada mês reaberto. Meses abertos entre eles
+                    continuam como estão.
+                </p>
+            </div>
+        {% endif %}
         <form method="post" action="{% url 'livro_caixa_web:mes_reabrir' empresa.id %}" class="formulario">
             {% csrf_token %}
             <input type="hidden" name="ano" value="{{ ano }}">
@@ -65,11 +105,26 @@ mês/ano permanece no título, e o botão tem o tom "perigoso".
                 <textarea id="id_motivo" name="motivo" required rows="3" maxlength="{{ motivo_tamanho_maximo }}"
                           aria-describedby="id_motivo_ajuda">{{ motivo }}</textarea>
                 <p class="texto-apoio" id="id_motivo_ajuda">
-                    Obrigatório, até {{ motivo_tamanho_maximo|floatformat:"0g" }} caracteres — fica na trilha de auditoria deste mês.
+                    Obrigatório, até {{ motivo_tamanho_maximo|floatformat:"0g" }} caracteres — fica na trilha de auditoria {% if meses_posteriores %}de cada mês reaberto{% else %}deste mês{% endif %}.
                 </p>
             </div>
+            {% if meses_posteriores %}
+                <div class="campo campo--caixa">
+                    <label>
+                        <input type="checkbox" name="confirmar_cascata" value="1" required
+                               aria-describedby="aviso-cascata">
+                        Confirmo que quero reabrir {{ mes|stringformat:"02d" }}/{{ ano }} e
+                        {% if meses_posteriores|length == 1 %}o mês encerrado seguinte{% else %}os meses encerrados seguintes{% endif %}
+                        ({{ meses_posteriores_texto }}), com este motivo.
+                    </label>
+                </div>
+            {% endif %}
             <div class="acoes-de-linha">
-                <button type="submit" class="botao botao--perigoso">Reabrir mês {{ mes|stringformat:"02d" }}/{{ ano }}</button>
+                {% if meses_posteriores %}
+                    <button type="submit" class="botao botao--perigoso">Reabrir este mês e os seguintes encerrados ({{ meses_a_reabrir_texto }})</button>
+                {% else %}
+                    <button type="submit" class="botao botao--perigoso">Reabrir mês {{ mes|stringformat:"02d" }}/{{ ano }}</button>
+                {% endif %}
                 <a class="botao botao--fantasma" href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}?ano={{ ano }}">Cancelar</a>
             </div>
         </form>
