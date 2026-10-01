@@ -837,8 +837,11 @@ TIPOS_ACEITOS_DA_CLASSIFICACAO_DMPL = {
 #   das colunas.
 # - Dividendo e ajuste de exercício anterior: NENHUMA. Quando a conta é de PL
 #   ("dividendos a distribuir", "ajustes de exercícios anteriores"), ela
-#   segue sem coluna e a apuração pede que o contador resolva — limitação
-#   declarada no plano DL-061, não presumida aqui.
+#   segue sem coluna e a emissão da DMPL fica VETADA enquanto a conta tiver
+#   saldo ou movimento. Não há o que o contador classificar: a pendência diz
+#   isso (`classificavel = False` + `orientacao`, N4). A decisão de produto
+#   — coluna de "dividendo adicional proposto" (RC-153) — é a BL-603 do
+#   backlog; NÃO está declarada no plano DL-061, só no backlog.
 COLUNAS_DA_DMPL_ADMITIDAS_PARA_A_CLASSIFICACAO_DLPA = {
     ClassificacaoDlpa.LUCROS_OU_PREJUIZOS_ACUMULADOS: frozenset(
         {ClassificacaoDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS}

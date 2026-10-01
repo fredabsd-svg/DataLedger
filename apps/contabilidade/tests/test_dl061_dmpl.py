@@ -1079,7 +1079,9 @@ def test_a_conciliacao_fecha_por_coluna_e_no_total():
 
 def test_o_saldo_da_conta_de_passagem_entra_no_total_mas_nao_vira_coluna():
     """Resultado do exercício ainda com saldo (sem zerar o período): o total
-    da DMPL + a conta de passagem é o PL do Balanço, e o aviso diz o resto."""
+    da DMPL + a conta de passagem é o PL do Balanço, e o aviso
+    `resultado_na_conta_de_passagem` diz o resto (N3 da auditoria: antes o
+    docstring prometia o aviso e nada o verificava)."""
     empresa = _empresa()
     contas = _plano_basico(empresa)
     _lancar(empresa, date(2025, 12, 31), "Capital", contas["caixa"], contas["capital"], "1000.00")
@@ -1095,7 +1097,11 @@ def test_o_saldo_da_conta_de_passagem_entra_no_total_mas_nao_vira_coluna():
     assert total["saldo_na_dmpl"] + total["saldo_contas_de_passagem"] == total["saldo_no_balanco"]
     assert total["saldo_no_balanco"] == _dec("1300.00")
     assert total["diferenca"] == 0
-    assert avaliar_emissao_da_dmpl(dmpl)["pode_emitir"] is True
+    emissao = avaliar_emissao_da_dmpl(dmpl)
+    assert emissao["pode_emitir"] is True
+    (aviso,) = emissao["avisos"]["resultado_na_conta_de_passagem"]
+    assert aviso["valor"] == _dec("300.00")
+    assert [(c["conta"], c["saldo"]) for c in aviso["contas"]] == [("3.0", _dec("300.00"))]
 
 
 def test_resultado_ainda_nao_transferido_e_aviso_e_nunca_veto():
