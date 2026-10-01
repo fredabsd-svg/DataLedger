@@ -164,6 +164,11 @@ mês aberto anterior ainda pode mudar o carnê-leão de mês posterior encerrado
 do mesmo ano (BL-572). Observação de CI: pelo evento `pull_request`, o job
 de identificação do emitente roda a bateria do instrumento (~9 min); pelo
 `push`, não — a diferença de duração não indica travamento.
+Incidente de 01/10/2026 (PR #73): o passo de testes do instrumento foi
+cancelado aos 6 min sem saída do pytest nem autor identificado, e a execução
+ficou presa como "em andamento" na API (reexecutar respondeu "já está
+rodando"; cancelar, "não está em andamento"). Saída adotada: novo commit com
+conteúdo real, que dispara execução nova; nunca commit vazio.
 
 **DL-052 — integrada pelo [PR #66](https://github.com/fredabsd-svg/DataLedger/pull/66)**
 em 30/09/2026 (squash `258e413`), com os quatro checks verdes no último
