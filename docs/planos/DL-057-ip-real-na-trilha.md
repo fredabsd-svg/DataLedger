@@ -54,3 +54,11 @@ por padrão; entrada que não seja IP ou CIDR impede a subida) e a variável no
   com o IP do proxy.
 - Não testado: proxy real (nginx); Python 3.14 (CI).
 
+## Integração
+
+[Auditoria rodada 1](../auditorias/2026-10-01-dl-057-rodada-1.md):
+**aprovada com ressalvas**, sem bloqueador. Integrada pela autorização do
+Fred (RC-150). F2 é resolvida na integração da DL-056 (BL-578); F1 é
+obrigatória antes da implantação (BL-577); F3 a F6 e a observação O1 estão
+no backlog (BL-579 a BL-583).
+

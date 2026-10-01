@@ -1969,3 +1969,18 @@ E1 depende de decisão do Fred (PE-74) e bloqueia o merge; E2 a E5 ficam abaixo.
 | BL-574 | **E3 (baixa)** — o formulário de lançamento só avisa em texto o mês encerrado (a recusa é do servidor) e o aviso omite anos anteriores ao passado | `especialista-frontend` | — | aberta | Aviso cobre todo ano com mês encerrado, com teste de renderização |
 | BL-575 | **E4 (baixa)** — comentários com referência errada (`models.py` cita "decisão 6" para fora do escopo; teste de atalhos diz que a tela ainda não existe) | `desenvolvedor-pleno` | — | aberta | Referências corrigidas |
 | BL-576 | **E5 (informativo)** — reverter a migração 0010 apaga os fechamentos e reabre todos os meses sem trilha | `arquiteto-senior` | — | aberta | Aviso no procedimento de reversão: exportar fechamentos e comunicar o escritório antes |
+
+## Auditoria da DL-057 — rodada 1, APROVADA COM RESSALVAS (2026-10-01)
+
+Relatório integral em [2026-10-01-dl-057-rodada-1.md](../auditorias/2026-10-01-dl-057-rodada-1.md).
+Integrada com as ressalvas abaixo (RC-150): nenhuma muda o escopo aprovado.
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-577 | **F1 (média)** — `DJANGO_PROXIES_CONFIAVEIS` aceita `0.0.0.0/0` e `::/0` (qualquer cliente forja o IP) e redes largas sem aviso. O padrão (lista vazia) é seguro | `desenvolvedor-pleno` | — | aberta — **obrigatória antes da implantação** | Subida recusa `/0`; aviso do `check` para redes largas; teste |
+| BL-578 | **F2 (média)** — a varredura de leitura de IP cobre só `apps/auditoria` e três marcas fixas | `desenvolvedor-pleno` | — | planejada (integração da DL-056) | Guarda derivada sobre todo `apps/` (AST); DL-056 usando `ip_do_cliente`; mutações M8 a M10 reprovam |
+| BL-579 | **F3 (baixa, pré-existente)** — seis eventos gravados sem IP (`escritorio.ativado`, convite emitido/aceito, primeiro acesso, envio fiscal recebido) | `desenvolvedor-pleno` | — | aberta | `request` ou IP passado em cada chamador, com teste por evento |
+| BL-580 | **F4 (baixa)** — validação da configuração mais permissiva que a leitura (`/24` com bits de host, IPv4 mapeado, escopo `%`) | `desenvolvedor-pleno` | — | aberta | `strict=True` e recusas com mensagem; testes |
+| BL-581 | **F5 (baixa)** — sem teto de entradas no `X-Forwarded-For` (hoje neutralizado pelo limite de cabeçalho do gunicorn) | `desenvolvedor-pleno` | — | aberta | Teto (ex.: 64 entradas) com teste |
+| BL-582 | **F6 (baixa)** — procedimento de implantação do proxy não documentado (descobrir o `REMOTE_ADDR` do proxy; proxy deve acrescentar ao `X-Forwarded-For`; socket Unix sem IP) | `arquiteto-senior` | PE-07 | aberta | Documento de implantação |
+| BL-583 | **O1** — `AGENTS.md` com 29.980 bytes para margem de 30.000 da guarda do Codex: qualquer acréscimo de 21 bytes reprova o build | `arquiteto-senior` | — | aberta | Mover conteúdo para documento apontado, antes do próximo acréscimo |

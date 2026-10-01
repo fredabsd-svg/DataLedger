@@ -142,7 +142,10 @@ DL-057, DL-055, DL-056, DL-054, DL-058.
   (BL-549).
 - **DL-056** (nível 2) — limite de tentativas no login e no cadastro
   (BL-552, sem a titularidade do CNPJ). Limites iniciais são hipótese.
-- **DL-057** (nível 1) — IP real na trilha atrás de proxy confiável (BL-553); implementada e integrada na branch, em auditoria.
+- **DL-057** (nível 1) — IP real na trilha atrás de proxy confiável
+  (BL-553); [auditoria](../auditorias/2026-10-01-dl-057-rodada-1.md)
+  aprovada com ressalvas; em revisão no pull request, merge com a CI verde.
+  Antes da implantação: BL-577 (recusar `0.0.0.0/0`).
 
 **DL-053 — integrada pelo [PR #67](https://github.com/fredabsd-svg/DataLedger/pull/67)**
 em 30/09/2026 (squash `0d68949`), com os quatro checks verdes no último
