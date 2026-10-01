@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% comment %}
+DL-061/CTB-14: formulário de UM campo só — a Coluna da DMPL de uma conta
+EXISTENTE. Molde direto de `conta_classificacao_dlpa.html` (mesma moldura,
+mesmo padrão de erro/ajuda por campo): a tela irmã já provou este desenho, e
+duplicar a explicação em dois lugares faria os dois divergirem na primeira
+edição. A única diferença de forma: as opções vêm AGRUPADAS pelo grupo do
+item 111A da NBC TG 51 (`<optgroup>`), porque são muitas.
+{% endcomment %}
+{% block titulo %}Coluna da DMPL — {{ conta.codigo }} {{ conta.nome }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Plano de contas — {{ empresa.razao_social }}</a></li>
+            <li aria-current="page">Coluna da DMPL — {{ conta.codigo }}</li>
+        </ol>
+        <a class="botao botao--secundario" href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">‹ Voltar para o plano de contas</a>
+    </nav>
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Coluna da DMPL — {{ conta.codigo }} {{ conta.nome }}</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Tipo cadastrado: <strong>{{ conta.get_tipo_display }}</strong>.
+        Coluna atual: <strong>{{ conta.get_classificacao_dmpl_display|default:"Sem coluna na DMPL" }}</strong>.
+        Linha da DLPA: <strong>{{ conta.get_classificacao_dlpa_display|default:"Sem classificação" }}</strong>.
+    </p>
+
+    {% comment %}
+    A coluna é propriedade de APRESENTAÇÃO: trocar com movimento gravado é
+    livre e não altera saldo nenhum; a trilha de auditoria registra quando e
+    por quem. A DMPL de um período passado reflete a classificação VIGENTE na
+    emissão — dito aqui para ninguém mudar a coluna achando que reescreve um
+    documento já entregue.
+    {% endcomment %}
+    <p class="texto-apoio">
+        Só conta de patrimônio líquido tem coluna na DMPL. Mudar a coluna não altera nenhum
+        saldo nem lançamento, fica registrado na trilha de auditoria e vale para qualquer
+        demonstração emitida daqui em diante — inclusive a de períodos passados.
+    </p>
+
+    {% comment %}
+    Mesmo motivo do `conta_form.html`/`conta_classificacao_dlpa.html`:
+    `action` explícito e sem querystring.
+    {% endcomment %}
+    <form method="post"
+          action="{% url 'contabilidade_web:conta_classificacao_dmpl' empresa.id conta.id %}"
+          class="formulario" novalidate>
+        {% csrf_token %}
+        {% comment %}
+        Cada guarda de `Conta.clean()` (só patrimônio líquido; consistência com
+        a linha da DLPA; choices) chega aqui como `form.non_field_errors()` —
+        `classificar_conta_na_dmpl` (`conta_classificacao_dmpl`, views_web.py)
+        nunca julga nada sozinha, só grava e propaga o que o servidor recusar.
+        {% endcomment %}
+        {% if form.non_field_errors %}
+            <div class="mensagem mensagem-error" role="alert">
+                {% for erro in form.non_field_errors %}<p>{{ erro }}</p>{% endfor %}
+            </div>
+        {% endif %}
+        {% for campo in form %}
+            <div class="campo">
+                {{ campo.label_tag }}
+                {{ campo }}
+                {% if campo.help_text %}<p class="texto-apoio" id="{{ campo.auto_id }}_helptext">{{ campo.help_text }}</p>{% endif %}
+                {% if campo.errors %}
+                    <div class="mensagem mensagem-error" id="{{ campo.auto_id }}_error" role="alert">
+                        {% for erro in campo.errors %}<p>{{ erro }}</p>{% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        {% endfor %}
+        <button type="submit">Salvar</button>
+    </form>
+{% endblock %}

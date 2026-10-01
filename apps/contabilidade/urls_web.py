@@ -10,11 +10,15 @@ from apps.contabilidade.views_web import (
     # DL-048/CTB-12: tela irmã de `conta_classificacao_dre` — classificar
     # (ou reclassificar, ou remover) a Linha da DLPA de uma conta existente.
     conta_classificacao_dlpa,
+    # DL-061/CTB-14: idem para a Coluna da DMPL (só conta de patrimônio líquido).
+    conta_classificacao_dmpl,
     conta_classificacao_dre,
     conta_nova,
     diario,
     # DL-048/CTB-13: a própria demonstração.
     dlpa,
+    # DL-061/CTB-14: a própria demonstração.
+    dmpl,
     dre,
     fechamento,
     lancamento_detalhe,
@@ -100,6 +104,18 @@ urlpatterns = [
         "empresas/<int:empresa_id>/plano-de-contas/<int:conta_id>/classificacao-dlpa/",
         conta_classificacao_dlpa,
         name="conta_classificacao_dlpa",
+    ),
+    # DL-061/CTB-14: mesmo padrão curto de "dlpa" — o nome completo
+    # ("Demonstração das Mutações do Patrimônio Líquido") fica no
+    # <h1>/<title>. 'ano'/'mes' viajam por querystring (GET), mesma gramática
+    # da DRE e da DLPA — nunca no caminho da URL.
+    path("empresas/<int:empresa_id>/dmpl/", dmpl, name="dmpl"),
+    # DL-061/CTB-14: classificar a Coluna da DMPL de uma conta existente —
+    # mesmo prefixo e mesmo padrão de caminho curto das telas irmãs.
+    path(
+        "empresas/<int:empresa_id>/plano-de-contas/<int:conta_id>/classificacao-dmpl/",
+        conta_classificacao_dmpl,
+        name="conta_classificacao_dmpl",
     ),
     path("empresas/<int:empresa_id>/conferencia/", conferencia, name="conferencia"),
     # DL-044 (3ª iteração): hub de relatórios (Diário/Razão/Balancete/

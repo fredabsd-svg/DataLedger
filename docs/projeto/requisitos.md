@@ -55,6 +55,22 @@ funcionalidade ou atalho fictício nesta correção.
 
 Plano: [DL-052](../planos/DL-052-integridade-do-livro-e-do-acesso.md).
 
+## DMPL — DL-061
+
+| ID | Categoria | Requisito e origem |
+| --- | --- | --- |
+| RC-151 | Confirmado | Fred, 01/10/2026: *"Deixamos o padrão, pode seguir com a B"*. No sistema de referência o escritório deixa a linha padrão da DMPL e não reparte à mão. Na DMPL do DataLedger, a linha (evento) sai **automaticamente** da outra ponta do lançamento, como na DLPA; marcação manual só na exceção; quando a regra não decide, a emissão é **recusada** com a lista do que falta, nunca presumida. |
+| HI-50 | ~~Hipótese normativa~~ **Confirmada pelo Fred em 01/10/2026 — ver RC-152** | As alíneas "c" e "d" do art. 182, §1º, da Lei 6.404/76 foram revogadas pela Lei 11.638/2007 e não são coluna da DMPL. |
+| RC-152 | Confirmado | Fred, 01/10/2026: as alíneas **"c"** (prêmio na emissão de debêntures) e **"d"** (doações e subvenções para investimento) do art. 182, §1º, foram **revogadas expressamente pelo art. 10 da Lei 11.638/2007**; o art. 1º da mesma lei reescreveu o §1º marcando-as como revogadas; vigência a partir de **01/01/2008** (art. 9º). Reservas de capital vigentes: §1º, "a" (ágio na emissão de ações) e "b" (alienação de partes beneficiárias e bônus de subscrição), mais o §2º (correção monetária do capital realizado, letra morta pela Lei 9.249/95). Substitutos, segundo o Fred: doações e subvenções para investimento transitam pelo resultado (CPC 07) e podem ir à **reserva de incentivos fiscais** (art. 195-A, reserva de lucros); o prêmio na emissão de debêntures passou a ter tratamento de instrumento financeiro, não de PL. Validação profissional do Fred; o texto do Planalto não foi relido nesta sessão (rede bloqueada). |
+| RC-153 | Confirmado | Fred, 01/10/2026: **há cliente que mantém no PL uma conta de "dividendo adicional proposto"** (resposta ao BL-603). A DMPL ganha coluna própria para ela; a destinação de lucros acumulados para essa conta e a aprovação que a transfere para o passivo precisam de linha definida, mantendo a identidade com a DLPA. Base normativa usual citada no mercado (ICPC 08) **não lida em fonte oficial** — PE-75. |
+| RC-154 | Confirmado | Fred, 01/10/2026: *"sim, pode fazer o merge"* — autoriza o merge da fatia 1 da DL-061 (DMPL) com as ressalvas da reconferência (BL-622 a BL-626), com os quatro checks verdes. |
+| RC-155 | Confirmado | Fred, 01/10/2026: *"seguir com a B na M2"*. Lançamento que debita e credita a mesma coluna do PL com eventos opostos (ex.: compra e venda de ações em tesouraria, redução e aumento de capital no mesmo lançamento) é **recusado** na DMPL até a marcação manual da fatia 2, em vez de mostrar o líquido. A subscrição com integralização parcial continua saindo como aumento de capital pelo valor integralizado. Rotina de referência: o sistema de referência resolve isso repartindo o valor à mão na guia DMPL do lançamento (manual, p. 193–194). |
+| PE-75 | Pendência | Ler em fonte oficial a interpretação que trata do dividendo adicional proposto no PL (ICPC 08, no CFC/CPC) antes de citar item no código ou no documento. |
+
+Plano: [DL-061](../planos/DL-061-dmpl.md). Rotina de referência lida no manual do
+sistema de referência em 01/10/2026 (p. 122, 192–194, 616–622, 773–774), entregue pelo
+Fred nesta sessão, fora do repositório.
+
 ## Legenda
 
 | Estado | Significado |
@@ -689,6 +705,11 @@ afirmação no repositório. O erro entrou como *"varrido o texto e não existe"
 artigo estava lá desde 1976.
 
 ### ⚠️ Reservas de CAPITAL que a RC-137 não listou — pendência para a DMPL
+
+⚠️ **CORRIGIDA em 01/10/2026 (RC-152, confirmada pelo Fred):** as alíneas "c" e "d"
+foram **revogadas pelo art. 10 da Lei 11.638/2007**, com vigência em 01/01/2008. As
+duas linhas marcadas abaixo como "entra na DMPL" estão **erradas** e ficam só como
+registro do engano: nenhuma delas é coluna da DMPL.
 
 O item 111A da TG 51 exige **reservas de capital** entre as colunas da DMPL. A RC-137
 lista duas (ágio na emissão de ações; alienação de partes beneficiárias / bônus de

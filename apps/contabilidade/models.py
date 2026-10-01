@@ -681,6 +681,224 @@ NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE = {
 }
 
 
+class GrupoDaDmpl(models.TextChoices):
+    """Os grupos de componentes do patrimônio líquido que a NBC TG 51
+    (item 111A) e a NBC TG 26 (R5) (item 106B) mandam apresentar, na ordem
+    da norma. É o AGRUPAMENTO das colunas da DMPL: a RC-137 do Fred pede
+    uma coluna por TIPO de reserva, e a norma pede GRUPOS — cada coluna
+    declara a que grupo pertence para o documento mostrar as duas coisas
+    sem confundi-las (coluna por tipo é desenho permitido, não obrigação).
+    """
+
+    CAPITAL_SOCIAL = "capital_social", "Capital social"
+    RESERVAS_DE_CAPITAL = "reservas_de_capital", "Reservas de capital"
+    AJUSTES_DE_AVALIACAO_PATRIMONIAL = (
+        "ajustes_de_avaliacao_patrimonial",
+        "Ajustes de avaliação patrimonial",
+    )
+    RESERVAS_DE_LUCROS = "reservas_de_lucros", "Reservas de lucros"
+    ACOES_OU_QUOTAS_EM_TESOURARIA = (
+        "acoes_ou_quotas_em_tesouraria",
+        "Ações ou quotas em tesouraria",
+    )
+    LUCROS_OU_PREJUIZOS_ACUMULADOS = (
+        "lucros_ou_prejuizos_acumulados",
+        "Lucros ou prejuízos acumulados",
+    )
+
+
+class ClassificacaoDmpl(models.TextChoices):
+    """Coluna da Demonstração das Mutações do Patrimônio Líquido (DMPL) —
+    DL-061 (CTB-14 da DL-048), decisão E1 do plano. Fonte: NBC TG 51, item
+    111A (a partir de 01/01/2027), ou NBC TG 26 (R5), item 106B; RC-137 do
+    Fred (28/09/2026: uma coluna por TIPO de reserva).
+
+    Mesmo molde de `ClassificacaoDlpa`: campo FIXO da conta, `null=True`,
+    nunca inferido de código ou nome, e SEM herança de ancestral (a
+    classificação vale para a conta EXATA que recebe o lançamento — a regra
+    D5 da DLPA). A ordem dos membros é a ordem das colunas no documento.
+
+    O que NÃO é coluna, de propósito:
+
+    - a conta "Resultado do exercício" (`classificacao_dlpa =
+      resultado_do_exercicio`) é conta de PASSAGEM do zeramento — o lucro
+      aparece como LINHA da coluna de lucros acumulados;
+    - as reservas de capital do art. 182, §1º, alíneas "c" e "d", da Lei
+      6.404/76 (HI-50 em `docs/projeto/requisitos.md`: hipótese de que
+      foram revogadas pela Lei 11.638/2007; a conferência no Planalto está
+      pendente) e a correção monetária do capital realizado (§2º, letra
+      morta pela Lei 9.249/95, art. 4º, p.ú.). Quem precisar delas antes da
+      conferência classifica a conta fora da DMPL, e a apuração vai
+      declarar a pendência — nunca presumir.
+
+    Os valores das seis reservas de lucros e o de lucros/prejuízos
+    acumulados são IGUAIS aos de `ClassificacaoDlpa` de propósito: é o
+    mesmo fato visto pelos dois lados (RC-137), e a consistência entre as
+    duas classificações é verificada por `COLUNAS_DA_DMPL_ADMITIDAS_PARA_A_
+    CLASSIFICACAO_DLPA`, abaixo.
+    """
+
+    CAPITAL_SOCIAL = "capital_social", "Capital social"
+    AGIO_NA_EMISSAO_DE_ACOES = "agio_na_emissao_de_acoes", "Ágio na emissão de ações"
+    ALIENACAO_DE_PARTES_BENEFICIARIAS_E_BONUS_DE_SUBSCRICAO = (
+        "alienacao_de_partes_beneficiarias_e_bonus_de_subscricao",
+        "Alienação de partes beneficiárias e bônus de subscrição",
+    )
+    AJUSTES_DE_AVALIACAO_PATRIMONIAL = (
+        "ajustes_de_avaliacao_patrimonial",
+        "Ajustes de avaliação patrimonial",
+    )
+    RESERVA_LEGAL = "reserva_legal", "Reserva legal"
+    RESERVA_ESTATUTARIA = "reserva_estatutaria", "Reserva estatutária"
+    RESERVA_PARA_CONTINGENCIAS = (
+        "reserva_para_contingencias",
+        "Reserva para contingências",
+    )
+    RESERVA_DE_INCENTIVOS_FISCAIS = (
+        "reserva_de_incentivos_fiscais",
+        "Reserva de incentivos fiscais",
+    )
+    RESERVA_DE_RETENCAO_DE_LUCROS = (
+        "reserva_de_retencao_de_lucros",
+        "Reserva de retenção de lucros",
+    )
+    RESERVA_DE_LUCROS_A_REALIZAR = (
+        "reserva_de_lucros_a_realizar",
+        "Reserva de lucros a realizar",
+    )
+    ACOES_OU_QUOTAS_EM_TESOURARIA = (
+        "acoes_ou_quotas_em_tesouraria",
+        "Ações ou quotas em tesouraria",
+    )
+    LUCROS_OU_PREJUIZOS_ACUMULADOS = (
+        "lucros_ou_prejuizos_acumulados",
+        "Lucros ou prejuízos acumulados",
+    )
+
+
+# Grupo do item 111A de cada coluna. Fonte ÚNICA do agrupamento; teste
+# derivado exige que as chaves sejam EXATAMENTE `ClassificacaoDmpl.values`.
+GRUPO_DA_CLASSIFICACAO_DMPL = {
+    ClassificacaoDmpl.CAPITAL_SOCIAL: GrupoDaDmpl.CAPITAL_SOCIAL,
+    ClassificacaoDmpl.AGIO_NA_EMISSAO_DE_ACOES: GrupoDaDmpl.RESERVAS_DE_CAPITAL,
+    ClassificacaoDmpl.ALIENACAO_DE_PARTES_BENEFICIARIAS_E_BONUS_DE_SUBSCRICAO: (
+        GrupoDaDmpl.RESERVAS_DE_CAPITAL
+    ),
+    ClassificacaoDmpl.AJUSTES_DE_AVALIACAO_PATRIMONIAL: (
+        GrupoDaDmpl.AJUSTES_DE_AVALIACAO_PATRIMONIAL
+    ),
+    ClassificacaoDmpl.RESERVA_LEGAL: GrupoDaDmpl.RESERVAS_DE_LUCROS,
+    ClassificacaoDmpl.RESERVA_ESTATUTARIA: GrupoDaDmpl.RESERVAS_DE_LUCROS,
+    ClassificacaoDmpl.RESERVA_PARA_CONTINGENCIAS: GrupoDaDmpl.RESERVAS_DE_LUCROS,
+    ClassificacaoDmpl.RESERVA_DE_INCENTIVOS_FISCAIS: GrupoDaDmpl.RESERVAS_DE_LUCROS,
+    ClassificacaoDmpl.RESERVA_DE_RETENCAO_DE_LUCROS: GrupoDaDmpl.RESERVAS_DE_LUCROS,
+    ClassificacaoDmpl.RESERVA_DE_LUCROS_A_REALIZAR: GrupoDaDmpl.RESERVAS_DE_LUCROS,
+    ClassificacaoDmpl.ACOES_OU_QUOTAS_EM_TESOURARIA: GrupoDaDmpl.ACOES_OU_QUOTAS_EM_TESOURARIA,
+    ClassificacaoDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS: GrupoDaDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS,
+}
+
+# As seis reservas de LUCROS na DMPL — espelho de `RESERVAS_DE_LUCROS_DA_DLPA`.
+RESERVAS_DE_LUCROS_DA_DMPL = (
+    ClassificacaoDmpl.RESERVA_LEGAL,
+    ClassificacaoDmpl.RESERVA_ESTATUTARIA,
+    ClassificacaoDmpl.RESERVA_PARA_CONTINGENCIAS,
+    ClassificacaoDmpl.RESERVA_DE_INCENTIVOS_FISCAIS,
+    ClassificacaoDmpl.RESERVA_DE_RETENCAO_DE_LUCROS,
+    ClassificacaoDmpl.RESERVA_DE_LUCROS_A_REALIZAR,
+)
+
+# As duas reservas de CAPITAL da RC-137 (as alíneas "c" e "d" do art. 182,
+# §1º, ficaram de fora: HI-50).
+RESERVAS_DE_CAPITAL_DA_DMPL = (
+    ClassificacaoDmpl.AGIO_NA_EMISSAO_DE_ACOES,
+    ClassificacaoDmpl.ALIENACAO_DE_PARTES_BENEFICIARIAS_E_BONUS_DE_SUBSCRICAO,
+)
+
+# Todas as colunas são do Patrimônio Líquido (E1: "só para conta de tipo
+# PL"). Um dict e não uma regra solta, no molde de `TIPOS_ACEITOS_DA_
+# CLASSIFICACAO_DLPA`: coluna nova sem entrada aqui reprova o teste
+# derivado em vez de aceitar qualquer tipo em silêncio.
+TIPOS_ACEITOS_DA_CLASSIFICACAO_DMPL = {
+    coluna: (TipoConta.PATRIMONIO_LIQUIDO,) for coluna in ClassificacaoDmpl
+}
+
+# CONSISTÊNCIA DLPA × DMPL (E1) — fonte ÚNICA, lida pela guarda de
+# `Conta.clean()` e pela apuração (`apurar_dmpl`). Para cada valor de
+# `ClassificacaoDlpa`, quais colunas da DMPL a MESMA conta pode ter. `None`
+# (conta sem coluna) é sempre admitido aqui: "conta de PL com movimento e
+# sem coluna" é pendência da apuração, não erro de cadastro.
+#
+# - Lucros/prejuízos acumulados e as seis reservas de lucros: a MESMA
+#   coluna. É o que faz a coluna de lucros acumulados da DMPL ser idêntica à
+#   DLPA (E3) — duas contas com leitura diferente nas duas demonstrações
+#   fariam os documentos discordarem em silêncio.
+# - Lucro incorporado ao capital: a conta que recebe o capital.
+# - Resultado do exercício: NENHUMA — é conta de passagem do zeramento, fora
+#   das colunas.
+# - Dividendo e ajuste de exercício anterior: NENHUMA. Quando a conta é de PL
+#   ("dividendos a distribuir", "ajustes de exercícios anteriores"), ela
+#   segue sem coluna e a emissão da DMPL fica VETADA enquanto a conta tiver
+#   saldo ou movimento. Não há o que o contador classificar: a pendência diz
+#   isso (`classificavel = False` + `orientacao`, N4). A decisão de produto
+#   — coluna de "dividendo adicional proposto" (RC-153) — é a BL-603 do
+#   backlog; NÃO está declarada no plano DL-061, só no backlog.
+COLUNAS_DA_DMPL_ADMITIDAS_PARA_A_CLASSIFICACAO_DLPA = {
+    ClassificacaoDlpa.LUCROS_OU_PREJUIZOS_ACUMULADOS: frozenset(
+        {ClassificacaoDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS}
+    ),
+    ClassificacaoDlpa.RESULTADO_DO_EXERCICIO: frozenset(),
+    ClassificacaoDlpa.RESERVA_LEGAL: frozenset({ClassificacaoDmpl.RESERVA_LEGAL}),
+    ClassificacaoDlpa.RESERVA_ESTATUTARIA: frozenset({ClassificacaoDmpl.RESERVA_ESTATUTARIA}),
+    ClassificacaoDlpa.RESERVA_PARA_CONTINGENCIAS: frozenset(
+        {ClassificacaoDmpl.RESERVA_PARA_CONTINGENCIAS}
+    ),
+    ClassificacaoDlpa.RESERVA_DE_INCENTIVOS_FISCAIS: frozenset(
+        {ClassificacaoDmpl.RESERVA_DE_INCENTIVOS_FISCAIS}
+    ),
+    ClassificacaoDlpa.RESERVA_DE_RETENCAO_DE_LUCROS: frozenset(
+        {ClassificacaoDmpl.RESERVA_DE_RETENCAO_DE_LUCROS}
+    ),
+    ClassificacaoDlpa.RESERVA_DE_LUCROS_A_REALIZAR: frozenset(
+        {ClassificacaoDmpl.RESERVA_DE_LUCROS_A_REALIZAR}
+    ),
+    ClassificacaoDlpa.DIVIDENDO: frozenset(),
+    ClassificacaoDlpa.LUCRO_INCORPORADO_AO_CAPITAL: frozenset({ClassificacaoDmpl.CAPITAL_SOCIAL}),
+    ClassificacaoDlpa.AJUSTE_DE_EXERCICIO_ANTERIOR: frozenset(),
+}
+
+
+def divergencia_entre_dlpa_e_dmpl(classificacao_dlpa, classificacao_dmpl):
+    """Devolve a mensagem da divergência entre as duas classificações da
+    MESMA conta, ou `None` se são consistentes (DL-061, E1).
+
+    Só compara quando as DUAS existem: conta sem coluna na DMPL, ou sem
+    linha na DLPA, não tem o que divergir (a falta é pendência da apuração,
+    não erro de cadastro). Valor fora dos enums também devolve `None` — é a
+    guarda de "classificação desconhecida" (ORM direto) que o nomeia, nunca
+    esta.
+    """
+    if not classificacao_dlpa or not classificacao_dmpl:
+        return None
+    admitidas = COLUNAS_DA_DMPL_ADMITIDAS_PARA_A_CLASSIFICACAO_DLPA.get(classificacao_dlpa)
+    if admitidas is None or classificacao_dmpl not in ClassificacaoDmpl.values:
+        return None
+    if classificacao_dmpl in admitidas:
+        return None
+    rotulo_dlpa = ClassificacaoDlpa(classificacao_dlpa).label
+    rotulo_dmpl = ClassificacaoDmpl(classificacao_dmpl).label
+    if not admitidas:
+        return (
+            f'A linha da DLPA "{rotulo_dlpa}" não tem coluna na DMPL, mas esta conta está '
+            f'na coluna "{rotulo_dmpl}". Remova uma das duas classificações.'
+        )
+    colunas_admitidas = " ou ".join(f'"{ClassificacaoDmpl(c).label}"' for c in sorted(admitidas))
+    return (
+        f'A linha da DLPA "{rotulo_dlpa}" só combina com a coluna {colunas_admitidas} da DMPL, '
+        f'mas esta conta está na coluna "{rotulo_dmpl}". A DLPA e a DMPL leriam a mesma conta '
+        "de formas diferentes."
+    )
+
+
 class Conta(models.Model):
     """Conta do plano de contas de uma empresa, organizada em hierarquia.
 
@@ -732,6 +950,17 @@ class Conta(models.Model):
         null=True,
         blank=True,
     )
+    # DL-061/CTB-14: coluna da DMPL (NBC TG 51, item 111A) — o QUARTO campo
+    # de classificação do mesmo padrão, mesmas razões dos anteriores
+    # (`null=True`/`blank=True`, nunca inferido, sem herança). Só para conta
+    # de Patrimônio Líquido (ver `ClassificacaoDmpl`).
+    classificacao_dmpl = models.CharField(
+        "classificação (coluna da DMPL)",
+        max_length=60,
+        choices=ClassificacaoDmpl.choices,
+        null=True,
+        blank=True,
+    )
     aceita_lancamento = models.BooleanField(
         "aceita lançamento",
         default=True,
@@ -776,6 +1005,16 @@ class Conta(models.Model):
             models.CheckConstraint(
                 condition=~models.Q(classificacao_dlpa=""),
                 name="ck_conta_classificacao_dlpa_nao_vazia",
+            ),
+            # DL-061/CTB-14: mesma defesa de BANCO (DE-008, camada 1) das
+            # duas anteriores, desde o dia um do campo: `""` nunca é um
+            # estado válido, e sem esta constraint ele apareceria como
+            # coluna DESCONHECIDA na apuração da DMPL em vez de "sem
+            # coluna". `Conta.clean()` normaliza `""` → `None` no caminho
+            # validado.
+            models.CheckConstraint(
+                condition=~models.Q(classificacao_dmpl=""),
+                name="ck_conta_classificacao_dmpl_nao_vazia",
             ),
         ]
 
@@ -875,6 +1114,9 @@ class Conta(models.Model):
         # um valor que nunca foi escolha de ninguém.
         if self.classificacao_dlpa == "":
             self.classificacao_dlpa = None
+        # DL-061/CTB-14: a coluna da DMPL, na mesma batida e pelo mesmo motivo.
+        if self.classificacao_dmpl == "":
+            self.classificacao_dmpl = None
 
         # Achado B4 da auditoria rodada 1 (DL-038, R5): a recusa de
         # contabilidade por partidas dobradas para empresa em modo
@@ -977,6 +1219,33 @@ class Conta(models.Model):
                     f"tipo desta conta: só se aplica a contas de tipo "
                     f"{rotulos_tipos_aceitos_dlpa} (Lei 6.404/76, art. 186)."
                 )
+
+        # DL-061/CTB-14 (E1): a coluna da DMPL só existe para Patrimônio
+        # Líquido (NBC TG 51, item 111A) — MESMO padrão das guardas acima
+        # (`.get(...)` com `None`: valor fora do enum, só alcançável por
+        # ORM/SQL direto, não estoura `KeyError`; é a apuração que o nomeia).
+        if self.classificacao_dmpl:
+            tipos_aceitos_dmpl = TIPOS_ACEITOS_DA_CLASSIFICACAO_DMPL.get(self.classificacao_dmpl)
+            if tipos_aceitos_dmpl is not None and self.tipo not in tipos_aceitos_dmpl:
+                rotulo_classificacao_dmpl = ClassificacaoDmpl(self.classificacao_dmpl).label
+                rotulos_tipos_aceitos_dmpl = " ou ".join(
+                    TipoConta(tipo).label for tipo in tipos_aceitos_dmpl
+                )
+                raise ValidationError(
+                    f'A coluna da DMPL "{rotulo_classificacao_dmpl}" não é compatível com o '
+                    f"tipo desta conta: só se aplica a contas de tipo "
+                    f"{rotulos_tipos_aceitos_dmpl} (NBC TG 51, item 111A)."
+                )
+
+        # DL-061 (E1): a DLPA e a DMPL não podem ler a MESMA conta de formas
+        # diferentes — é o que garante a coluna de lucros acumulados idêntica
+        # à DLPA (E3). A regra mora em `divergencia_entre_dlpa_e_dmpl`, que a
+        # apuração também usa; aqui só se traduz em `ValidationError`.
+        divergencia = divergencia_entre_dlpa_e_dmpl(
+            self.classificacao_dlpa, self.classificacao_dmpl
+        )
+        if divergencia is not None:
+            raise ValidationError(divergencia)
 
         # Impede o ciclo NA ORIGEM (achado 6 da auditoria DL-015, rodada 1):
         # sem esta checagem, atribuir como pai uma conta descendente da
@@ -1730,6 +1999,14 @@ class ParametroContabilEmpresa(models.Model):
         on_delete=models.PROTECT,
         related_name="+",
         verbose_name="conta de (-) prejuízos acumulados",
+    )
+    # DL-061 (E7): adoção ANTECIPADA da NBC TG 51. A norma vale por padrão
+    # para exercícios iniciados a partir de 01/01/2027; a entidade que a
+    # adota antes marca aqui, na vigência que cobre o INÍCIO do exercício.
+    # Só muda a norma CITADA nas demonstrações (`norma_das_demonstracoes`),
+    # nunca um valor — por isso é editável com trilha, sem nova vigência.
+    adota_nbc_tg_51_antecipadamente = models.BooleanField(
+        "adota a NBC TG 51 antecipadamente", default=False
     )
     vigencia_inicio = models.DateField("vigência (início)")
     vigencia_fim = models.DateField("vigência (fim)", null=True, blank=True)

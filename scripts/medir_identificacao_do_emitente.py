@@ -596,12 +596,18 @@ SELETOR_IDENTIFICACAO_DO_DOCUMENTO_FILHOS = ".identificacao-do-documento p"
 # Piso de regressão, MESMA lógica de `TELAS_MINIMAS_COM_TIMBRE_ESPERADAS`
 # (ver o comentário completo lá sobre por que um piso pequeno e
 # versionado, ao lado da derivação que cresce sozinha): Balanço (DL-034),
-# DRE (DL-045) e DLPA (DL-048/CTB-13) são classe 2 hoje. Um módulo novo
+# DRE (DL-045), DLPA (DL-048/CTB-13) e DMPL (DL-061/CTB-14) são classe 2
+# hoje. Um módulo novo
 # que ganhe demonstração própria (Fiscal, Folha) e o comentário deste piso
 # não crescer junto é erro visível, revisado — nunca divergência silenciosa
 # entre duas cópias.
 TELAS_MINIMAS_COM_IDENTIFICACAO_DO_DOCUMENTO_ESPERADAS = frozenset(
-    {"contabilidade_web:balanco", "contabilidade_web:dre", "contabilidade_web:dlpa"}
+    {
+        "contabilidade_web:balanco",
+        "contabilidade_web:dre",
+        "contabilidade_web:dlpa",
+        "contabilidade_web:dmpl",
+    }
 )
 
 # DL-046: piso SEPARADO, NUNCA somado ao de cima. O Livro Caixa também
@@ -831,6 +837,7 @@ def _preparar_empresa_classe_2(escritorio):
 
     from apps.contabilidade.models import (
         ClassificacaoDlpa,
+        ClassificacaoDmpl,
         ClassificacaoDre,
         ClassificacaoPatrimonial,
         Conta,
@@ -855,7 +862,7 @@ def _preparar_empresa_classe_2(escritorio):
         # novo nem passa por aqui, o ramo logo abaixo cria tudo). Sem esta
         # linha, uma base já semeada manteria a DLPA em veto permanente e o
         # piso novo reprovaria a própria semente antiga.
-        Conta.objects.get_or_create(
+        conta_lucros, _ = Conta.objects.get_or_create(
             empresa=empresa_existente,
             codigo="3",
             defaults={
@@ -864,8 +871,18 @@ def _preparar_empresa_classe_2(escritorio):
                 "natureza": NaturezaConta.CREDORA,
                 "aceita_lancamento": True,
                 "classificacao_dlpa": ClassificacaoDlpa.LUCROS_OU_PREJUIZOS_ACUMULADOS,
+                "classificacao_dmpl": ClassificacaoDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS,
             },
         )
+        # DL-061/CTB-14: o MESMO buraco de idempotência, um passo depois — a
+        # conta "3" de uma execução anterior à DMPL já existe (o `defaults`
+        # acima só vale na criação) e está sem coluna: a DMPL ficaria em
+        # veto permanente (`nenhuma_coluna_classificada`) e o piso novo
+        # reprovaria a própria semente antiga. Só preenche quando está vazia
+        # (nunca sobrescreve uma classificação feita por quem usa a base).
+        if conta_lucros.classificacao_dmpl is None:
+            conta_lucros.classificacao_dmpl = ClassificacaoDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS
+            conta_lucros.save(update_fields=["classificacao_dmpl"])
         return empresa_existente, conta_existente
 
     D = NaturezaConta.DEVEDORA
@@ -960,6 +977,15 @@ def _preparar_empresa_classe_2(escritorio):
         natureza=C,
         aceita_lancamento=True,
         classificacao_dlpa=ClassificacaoDlpa.LUCROS_OU_PREJUIZOS_ACUMULADOS,
+        # DL-061/CTB-14: a MESMA razão da DLPA, para a DMPL — sem coluna
+        # classificada a DMPL fica em veto permanente
+        # (`nenhuma_coluna_classificada`) e o bloco de identificação nunca
+        # sai. A DLPA e a DMPL precisam concordar na conta (a apuração acusa
+        # divergência), então é a coluna de lucros ou prejuízos acumulados.
+        # É a ÚNICA conta de patrimônio líquido do cenário e não recebe
+        # lançamento, então nenhuma outra precisa de coluna e a DMPL emite
+        # só com os saldos (estrutura com zero é resposta certa).
+        classificacao_dmpl=ClassificacaoDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS,
     )
     caixa = Conta.objects.create(
         empresa=empresa,

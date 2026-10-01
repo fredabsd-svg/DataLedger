@@ -120,6 +120,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-058](../planos/DL-058-pequenas-fugas-de-informacao.md) | Pequenas fugas de informação (BL-554, BL-555) | Integrada (PR #72) — auditoria aprovada com ressalvas; BL-592 a BL-596; DE-096 |
 | [DL-059](../planos/DL-059-trilha-do-convite-e-eventos-sem-ip.md) | Trilha do convite e eventos sem IP (BL-560, BL-566, BL-579) | Integrada (PR #73) — auditoria aprovada com ressalvas; BL-597 a BL-601 |
 | [DL-060](../planos/DL-060-confirmacao-da-cascata.md) | A reabertura em cascata confirma exatamente os meses mostrados (BL-588, BL-589) | Integrada (PR #74) — reconferência aprovada com ressalvas; BL-602 |
+| [DL-061](../planos/DL-061-dmpl.md) | DMPL, etapa CTB-14 da DL-048 (RC-151) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -135,7 +136,19 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 (PR #66 a #74). Desenvolvidas em até 4 cópias isoladas em paralelo (RC-149)
 e integradas **uma por vez** na branch `claude/zealous-goldberg-jr5ggu` →
 `main`, cada uma com auditoria aprovada e os quatro checks verdes (RC-150).
-Nenhuma etapa em andamento.
+
+**Em andamento: DL-061 — DMPL** (CTB-14 da DL-048), escolhida pelo Fred em
+01/10/2026. Linha automática pela contrapartida, como na DLPA (RC-151); manual do
+sistema de referência lido (p. 122, 192–194, 616–622, 773–774). Fatia 1
+(servidor e tela) integrada na branch; [auditoria rodada 1](../auditorias/2026-10-01-dl-061-rodada-1.md)
+**reprovou** (N1 e N2 altas: evento errado em vez de veto); rodada única de correção
+integrada (`40e47f5`); [reconferência](../auditorias/2026-10-01-dl-061-reconferencia.md)
+**aprovada com ressalvas** (BL-622 a BL-626); merge **autorizado pelo Fred** (RC-154), em
+revisão no pull request, com a CI verde;
+merge só depois da auditoria e da CI verde. Pontos abertos: BL-603 a BL-607.
+Logo depois da fatia 1, numa etapa curta: coluna de dividendo adicional proposto
+(RC-153, BL-603), texto verdadeiro do veto (M3, BL-624) e veto dos lançamentos com
+eventos opostos na mesma coluna (RC-155, BL-623). HI-50 confirmada pelo Fred (RC-152): alíneas "c" e "d" revogadas.
 
 - **DL-054** — **integrada pelo PR #70** (squash `e7b85aa`).
 - **DL-055** — **integrada pelo PR #69** (squash `9ceda53`).

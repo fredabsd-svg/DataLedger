@@ -70,7 +70,7 @@ ROTAS_WEB = _rotas_com_empresa_id(contabilidade_urls_web, "contabilidade_web")
 # Prova de que a derivação encontrou algo de verdade — se `urls.py`/
 # `urls_web.py` for esvaziado por engano, o teste abaixo falha alto em vez
 # de "passar" varrendo zero rotas (vacuidade).
-def test_a_derivacao_encontrou_as_vinte_e_uma_rotas_web_e_as_dezessete_da_api():
+def test_a_derivacao_encontrou_as_vinte_e_tres_rotas_web_e_as_dezessete_da_api():
     # DL-043 fatia 2 (servidor): três rotas novas na API (parâmetro
     # contábil: listar/criar e encerrar vigência; zeramento do resultado).
     # 10 -> 13 do lado da API, sem contrapartida na tela ainda.
@@ -110,7 +110,15 @@ def test_a_derivacao_encontrou_as_vinte_e_uma_rotas_web_e_as_dezessete_da_api():
     # fatia deixou declaradas para depois — `DlpaView` (GET) e
     # `ContaClassificacaoDlpaView` (PATCH) — 15 -> 17 do lado da API. Nenhuma
     # rota nova na tela: a D8 é paridade, não superfície nova.
-    assert len(ROTAS_WEB) == 21, ROTAS_WEB
+    #
+    # DL-061/CTB-14 (fatia 1, tela): DUAS rotas novas na tela — "dmpl" (a
+    # própria demonstração) e "conta_classificacao_dmpl" (GET formulário, POST
+    # grava) — 21 -> 23 do lado da tela. NENHUMA rota nova na API nesta
+    # fatia (a API de leitura e de classificação da DMPL é a fatia 2 do
+    # plano). A marca de adoção antecipada da NBC TG 51 NÃO é rota nova: é
+    # uma ação (`acao=…`) da própria `parametros_contabeis`, que já existia
+    # e já é varrida aqui.
+    assert len(ROTAS_WEB) == 23, ROTAS_WEB
     assert len(ROTAS_API) == 17, ROTAS_API
 
 

@@ -50,12 +50,17 @@ from django.views.decorators.http import require_http_methods, require_safe
 
 from apps.auditoria.services import registrar
 from apps.contabilidade.models import (
+    # DL-061/CTB-14: coluna da DMPL (NBC TG 51, item 111A) — quarto campo do
+    # mesmo padrão. Usada pela tela `dmpl` e pela tela de classificar conta
+    # (`conta_classificacao_dmpl`, opções agrupadas pelo grupo do 111A).
+    GRUPO_DA_CLASSIFICACAO_DMPL,
     GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL,
     TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
     # DL-048/CTB-12: linha da DLPA (art. 186) — terceiro campo do mesmo
     # padrão. Usado pela tela `dlpa` (rótulos das linhas e do formulário),
     # pela tela de classificar conta e pela humanização das pendências.
     ClassificacaoDlpa,
+    ClassificacaoDmpl,
     # DL-045, fatia 3: linha da DRE (art. 187) — mesmo desenho de
     # `ClassificacaoPatrimonial`, logo abaixo. Usada pela tela da DRE
     # (`dre`/`_montar_linhas_da_dre`, mais abaixo) e pelo formulário de
@@ -76,6 +81,7 @@ from apps.contabilidade.models import (
     Competencia,
     Conta,
     EstadoCompetencia,
+    GrupoDaDmpl,
     GrupoDaLei,
     LancamentoContabil,
     NaturezaConta,
@@ -103,6 +109,10 @@ from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
 # formulário. `data_maxima_lancamento` é FUNÇÃO porque "hoje + N dias" se
 # move: congelá-la num import daria um formulário com teto de ontem.
 from apps.contabilidade.services import (
+    # DL-061: títulos humanos de cada lista de pendência da DMPL — fonte
+    # ÚNICA no serviço (a tela só acrescenta a AÇÃO que resolve); uma cópia
+    # escrita aqui divergiria na primeira edição.
+    _TITULOS_DAS_PENDENCIAS_DA_DMPL,
     DATA_MINIMA_LANCAMENTO,
     LIMITE_PARTIDAS_POR_LANCAMENTO,
     ChaveIdempotenciaConflitante,
@@ -130,10 +140,15 @@ from apps.contabilidade.services import (
     # DL-048/CTB-13: apuração da DLPA — mesma família de nome da DRE,
     # mesmo contrato de snapshot e de "quem chama verifica permissão".
     apurar_dlpa,
+    # DL-061/CTB-14: apuração da DMPL — mesmo contrato de snapshot e de
+    # "quem chama verifica permissão" da DLPA.
+    apurar_dmpl,
     apurar_dre,
     apurar_razao,
     # DL-048: decisão de emissão da DLPA, no servidor (a tela só obedece).
     avaliar_emissao_da_dlpa,
+    # DL-061: decisão de emissão da DMPL, no servidor (a tela só obedece).
+    avaliar_emissao_da_dmpl,
     avaliar_emissao_da_dre,
     avaliar_emissao_do_balancete,
     # DL-045, correção da rodada 1 de auditoria (A7): a porta de serviço
@@ -146,9 +161,15 @@ from apps.contabilidade.services import (
     # mesmo desenho de `classificar_conta_na_dre` (guarda em
     # `Conta.clean()` + trilha na MESMA transação), nunca uma segunda cópia.
     classificar_conta_na_dlpa,
+    # DL-061: porta ÚNICA de gravação da coluna da DMPL (guarda em
+    # `Conta.clean()` + trilha na MESMA transação).
+    classificar_conta_na_dmpl,
     classificar_conta_na_dre,
     criar_lancamento,
     data_maxima_lancamento,
+    # DL-061: marca de adoção antecipada da NBC TG 51 (com trilha) — a tela
+    # de parâmetros contábeis só chama, nunca grava a marca por conta própria.
+    definir_adocao_antecipada_da_nbc_tg_51,
     encerrar_competencia,
     encerrar_vigencia_de_parametro_contabil,
     # DL-045 fatia 3: função PURA (sem consulta) que devolve o bloco de
@@ -1196,6 +1217,116 @@ def conta_classificacao_dlpa(request, empresa_id, conta_id):
     )
 
 
+def _opcoes_da_coluna_da_dmpl_por_grupo():
+    """Opções do `<select>` da coluna da DMPL, AGRUPADAS pelo grupo do item
+    111A da NBC TG 51 (106B da R5) — `<optgroup>` nativo, sem JavaScript.
+
+    Derivada de `GRUPO_DA_CLASSIFICACAO_DMPL` (models.py): a ordem dos grupos
+    e das colunas é a do enum, e uma coluna nova entra aqui sozinha. O
+    grupo é só ORGANIZAÇÃO da lista (36 rótulos soltos são mais difíceis de
+    achar); o valor gravado continua sendo a coluna, nunca o grupo.
+    """
+    por_grupo = {}
+    for coluna in ClassificacaoDmpl:
+        grupo = GRUPO_DA_CLASSIFICACAO_DMPL[coluna]
+        por_grupo.setdefault(grupo, []).append((coluna.value, coluna.label))
+    return [("", "Sem coluna na DMPL")] + [
+        (GrupoDaDmpl(grupo).label, opcoes) for grupo, opcoes in por_grupo.items()
+    ]
+
+
+class ClassificacaoDmplForm(forms.Form):
+    """Formulário de UM campo só — a Coluna da DMPL de uma conta EXISTENTE
+    (DL-061/CTB-14, no molde de `ClassificacaoDlpaForm`). Não é um
+    `ModelForm`: a gravação passa SEMPRE por `classificar_conta_na_dmpl`
+    (services.py), que chama `full_clean()` e carrega as guardas de
+    `Conta.clean()` (só conta de Patrimônio Líquido; consistência com a
+    linha da DLPA) + a trilha de auditoria. Devolve `None` para "Sem
+    coluna" (nunca `""` — normalização na view, como na DLPA).
+    """
+
+    classificacao_dmpl = forms.ChoiceField(
+        label="Coluna da DMPL",
+        choices=_opcoes_da_coluna_da_dmpl_por_grupo,
+        required=False,
+        help_text=(
+            "Cada conta de patrimônio líquido que a DMPL deve mostrar precisa de uma "
+            "coluna (NBC TG 51, item 111A; NBC TG 26 (R5), item 106B). Reservas de "
+            "lucros e lucros ou prejuízos acumulados precisam ter a mesma classificação "
+            "na DLPA e na DMPL — o servidor recusa a divergência. A coluna vale para "
+            "esta conta exata: subconta não herda a classificação da mãe."
+        ),
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def conta_classificacao_dmpl(request, empresa_id, conta_id):
+    """Classifica (ou reclassifica, ou remove) a Coluna da DMPL de uma conta
+    EXISTENTE — DL-061/CTB-14: a porta de TELA no molde de
+    `conta_classificacao_dlpa`. Chamada pelo veto da tela `dmpl` (cada conta
+    pendente ganha link direto) e pelo Plano de contas.
+
+    Autorização: `_pode_escriturar` (MESMO papel da classificação da DLPA e
+    da DRE — nenhuma permissão nova); filtro `empresa=empresa` — conta de
+    outra empresa/escritório dá 404, nunca confirma existência.
+
+    A GRAVAÇÃO passa inteira por `classificar_conta_na_dmpl`; esta view só
+    traduz `ValidationError` para `form.add_error(None, ...)` e re-renderiza
+    com 200 (recusa de regra é a tela respondendo, nunca um 500). O
+    `refresh_from_db()` em caso de recusa restaura o valor REALMENTE
+    gravado — o serviço muta a instância antes do `full_clean()` recusar.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite classificar a coluna da DMPL nesta empresa."
+        )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    conta = get_object_or_404(Conta, pk=conta_id, empresa=empresa)
+
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, _CONTRATO_DO_FORMULARIO_DE_CLASSIFICACAO_DMPL)
+        except DadoNaoContratado as exc:
+            messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+            return render(
+                request,
+                "contabilidade/conta_classificacao_dmpl.html",
+                {"empresa": empresa, "conta": conta, "form": ClassificacaoDmplForm(request.POST)},
+                status=400,
+            )
+
+        form = ClassificacaoDmplForm(request.POST)
+        if form.is_valid():
+            classificacao = form.cleaned_data["classificacao_dmpl"] or None
+            try:
+                classificar_conta_na_dmpl(
+                    conta=conta, classificacao=classificacao, usuario=request.user, request=request
+                )
+            except DjangoValidationError as exc:
+                conta.refresh_from_db()
+                for mensagem in mensagens_da_validacao_django(exc):
+                    form.add_error(None, mensagem)
+            else:
+                messages.success(request, f"Coluna da DMPL de “{conta}” atualizada com sucesso.")
+                return redirect("contabilidade_web:plano_de_contas", empresa_id=empresa.id)
+    else:
+        form = ClassificacaoDmplForm(initial={"classificacao_dmpl": conta.classificacao_dmpl or ""})
+
+    return render(
+        request,
+        "contabilidade/conta_classificacao_dmpl.html",
+        {"empresa": empresa, "conta": conta, "form": form},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Lançamento (critérios 10 e 11)
 # ---------------------------------------------------------------------------
@@ -1933,6 +2064,16 @@ _CONTRATO_DO_FORMULARIO_DE_CLASSIFICACAO_DLPA = ContratoDeRequisicao(
     aceita_querystring=False,
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na classificação da linha da DLPA",
+)
+
+
+# DL-061/CTB-14: o mesmo contrato de um campo para a tela da DMPL.
+_CONTRATO_DO_FORMULARIO_DE_CLASSIFICACAO_DMPL = ContratoDeRequisicao(
+    campos=frozenset({"csrfmiddlewaretoken", "classificacao_dmpl"}),
+    aceita_arquivo=False,
+    aceita_querystring=False,
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na classificação da coluna da DMPL",
 )
 
 
@@ -4547,6 +4688,664 @@ def dlpa(request, empresa_id):
 
 
 # ---------------------------------------------------------------------------
+# DL-061 — DMPL (Demonstração das Mutações do Patrimônio Líquido): tela irmã
+# da DLPA (`dlpa`, acima). Mesmo esqueleto — autorização de leitura, recusa
+# de livro-caixa, veto do SERVIDOR com pendências nomeadas e link de correção
+# só para quem escritura, bloco de identificação repetido em cada página
+# impressa (classe "demonstração", NBC TG 26 (R5) item 51 / NBC TG 51 item
+# 27) — e uma diferença de forma: a DLPA tem UMA coluna de valor; a DMPL tem
+# uma por componente do patrimônio líquido (item 111A / 106B), agrupadas.
+# ---------------------------------------------------------------------------
+
+# Acima deste número de colunas de componente (fora a de Total), a DMPL
+# impressa sai em PAISAGEM (`body.pagina-dmpl-impressao`, base.css). Com até
+# quatro, as seis colunas somadas (histórico + componentes + Total) cabem em
+# A4 retrato com a tipografia de 11 px do piso de legibilidade; acima disso a
+# tabela passaria da folha e o navegador CORTARIA o que sobrasse (o mesmo
+# defeito medido no demonstrativo anual do carnê-leão). Número escolhido para
+# a folha, não regra contábil — por isso mora na tela, não no serviço.
+_COLUNAS_DA_DMPL_QUE_CABEM_EM_RETRATO = 4
+
+# Quantos lançamentos de origem uma linha de pendência lista por extenso; o
+# resto vira "e mais N" (a lista completa está no Diário). Evita um veto de
+# centenas de linhas que esconda a ação que resolve.
+_LANCAMENTOS_LISTADOS_POR_PENDENCIA_DA_DMPL = 5
+
+ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DMPL_POR_LISTA = {
+    "nenhuma_coluna_classificada": (
+        "Classifique, no plano de contas, as contas do patrimônio líquido que a DMPL deve "
+        "mostrar (botão “Coluna da DMPL” de cada conta de patrimônio líquido)."
+    ),
+    "contas_do_patrimonio_liquido_sem_coluna": (
+        "Dê uma coluna da DMPL a cada conta listada (link ao lado): o patrimônio líquido do "
+        "Balanço inclui essas contas e a demonstração, sem coluna, não as mostraria."
+    ),
+    "contrapartidas_sem_classificacao": (
+        "Classifique a conta listada (link ao lado): o lançamento move uma coluna do "
+        "patrimônio líquido contra ela e a DMPL não consegue decidir de que evento se trata "
+        "— o produto não adivinha o evento e nunca reparte valor por presunção."
+    ),
+    "pares_de_colunas_sem_regra": (
+        "A DMPL só atribui evento a pares de colunas conhecidos (lucros acumulados para "
+        "reserva, reserva para lucros acumulados, reservas ou lucros para capital). Confira "
+        "os lançamentos listados; se o movimento estiver correto, este par ainda não é "
+        "atendido pela DMPL e a competência não pode ser emitida até que seja."
+    ),
+    "lancamentos_ambiguos": (
+        "Divida cada lançamento listado em um por evento (estorne e lance de novo): a DMPL "
+        "não rateia um valor entre eventos."
+    ),
+    "contas_com_classificacao_dlpa_e_dmpl_divergentes": (
+        "Escolha, para cada conta listada, classificações compatíveis na DLPA e na DMPL "
+        "(links ao lado): as duas demonstrações precisam concordar com o saldo da conta."
+    ),
+    "contas_com_classificacao_dmpl_desconhecida": (
+        "Reclassifique cada conta listada com uma das opções válidas do campo “Coluna da "
+        "DMPL” — o valor gravado não existe mais no cadastro."
+    ),
+    # N11 (auditoria DL-061, rodada 1): a causa CONHECIDA vem primeiro. Conta
+    # RETIFICADORA do patrimônio líquido (capital a integralizar, ações em
+    # tesouraria) cadastrada FORA do grupo "Patrimônio Líquido" do plano de
+    # contas: o Balanço a soma pelo grupo em que ela está e a DMPL a subtrai
+    # pela natureza (BL-604, ainda aberta). Enquanto a BL-604 existir, dizer
+    # só "não deveria acontecer em dado íntegro" manda o contador procurar
+    # um erro que não existe nos lançamentos.
+    "diferenca_de_fechamento": (
+        "O saldo final da coluna não bate com o saldo das contas dela no Balanço da mesma "
+        "data. Causa mais provável: conta retificadora do patrimônio líquido (por exemplo, "
+        "capital a integralizar ou ações em tesouraria) cadastrada FORA do grupo "
+        "“Patrimônio Líquido” do plano de contas — o Balanço e a DMPL a tratam de formas "
+        "diferentes. Confira no plano de contas se toda conta do patrimônio líquido, "
+        "retificadoras inclusive, está dentro desse grupo. Se estiver, confira os "
+        "lançamentos pelo Razão e se há subconta movimentada: a diferença é o sinal de "
+        "dado inconsistente."
+    ),
+}
+
+_TITULOS_DOS_AVISOS_DA_DMPL = {
+    "resultado_nao_transferido": "Resultado do exercício ainda não zerado",
+    "resultado_na_conta_de_passagem": (
+        "Resultado do exercício na conta de passagem, ainda não transferido"
+    ),
+}
+
+# Âncora do bloco de aviso (a faixa "pronta para emissão" aponta para ele).
+ANCORA_DO_AVISO_DA_DMPL = "aviso-da-dmpl"
+
+# Quando a conta de PL não aceita coluna e o servidor não trouxe orientação
+# (`orientacao` ausente no item), a tela ainda diz que NÃO há ação de coluna a
+# fazer — nunca devolve a pessoa a um link que o servidor recusa.
+_ORIENTACAO_PADRAO_CONTA_SEM_COLUNA_POSSIVEL = (
+    "Esta conta não aceita coluna na DMPL; a emissão desta competência fica "
+    "impedida enquanto ela existir no patrimônio líquido."
+)
+
+
+def _links_de_lancamentos_da_pendencia(empresa, ids, lancamentos_por_id):
+    """Links de conferência (sempre visíveis a quem lê) para os lançamentos
+    de uma pendência — até `_LANCAMENTOS_LISTADOS_POR_PENDENCIA_DA_DMPL`; o
+    excedente é devolvido como contagem ("e mais N"). Lançamento ausente do
+    mapa (outra empresa, defesa em profundidade DL-058/B2) é omitido.
+    """
+    visiveis = [i for i in dict.fromkeys(ids) if i in lancamentos_por_id]
+    links = [
+        {
+            "rotulo": f"lançamento de {lancamentos_por_id[id_lancamento]['descricao']}",
+            "url": reverse(
+                "contabilidade_web:lancamento_detalhe", args=[empresa.id, id_lancamento]
+            ),
+            "correcao": False,
+        }
+        for id_lancamento in visiveis[:_LANCAMENTOS_LISTADOS_POR_PENDENCIA_DA_DMPL]
+    ]
+    return links, len(visiveis) - len(links)
+
+
+def _listas_de_pendencia_dmpl_para_contexto(emissao, empresa, pode_escriturar):
+    """O veto da DMPL pronto para o template: cada lista com título humano,
+    a AÇÃO que resolve e, por item, o texto, os links e (diferença de
+    fechamento) as contas citadas.
+
+    O formato de cada item é o de `apurar_dmpl["pendencias"]` (services.py).
+    Link de CORREÇÃO (classificar a conta) só existe para quem escritura —
+    quem só lê vê a pendência e o link de CONFERÊNCIA do lançamento, nunca um
+    convite a uma ação que o servidor recusaria; a autorização de verdade é
+    do servidor (`conta_classificacao_dmpl`/`_dlpa`).
+
+    UMA consulta para os lançamentos de todas as listas e UMA para os tipos
+    das contas citadas — nunca uma por linha.
+    """
+    listas = emissao["listas_pendentes"]
+    ids_de_lancamento = set()
+    ids_de_conta = set()
+    for itens in listas.values():
+        for item in itens:
+            ids_de_lancamento.update(item.get("lancamentos", []))
+            if item.get("lancamento_id"):
+                ids_de_lancamento.add(item["lancamento_id"])
+            if item.get("conta_id"):
+                ids_de_conta.add(item["conta_id"])
+    lancamentos_por_id = _lancamentos_da_dlpa_por_id(ids_de_lancamento, empresa)
+    tipo_por_conta = (
+        dict(Conta.objects.filter(empresa=empresa, id__in=ids_de_conta).values_list("id", "tipo"))
+        if ids_de_conta
+        else {}
+    )
+
+    def _link_da_coluna(conta_id):
+        return {
+            "rotulo": "definir a coluna da DMPL",
+            "url": reverse(
+                "contabilidade_web:conta_classificacao_dmpl", args=[empresa.id, conta_id]
+            ),
+            "correcao": True,
+        }
+
+    def _link_da_linha_da_dlpa(conta_id):
+        return {
+            "rotulo": "definir a linha da DLPA",
+            "url": reverse(
+                "contabilidade_web:conta_classificacao_dlpa", args=[empresa.id, conta_id]
+            ),
+            "correcao": True,
+        }
+
+    resultado = []
+    for nome, itens in listas.items():
+        linhas = []
+        tem_conta_sem_coluna_possivel = False
+        tem_conta_com_coluna_possivel = False
+        for item in itens:
+            links = []
+            contas = []
+            orientacao = ""
+            resto = 0
+            if nome == "nenhuma_coluna_classificada":
+                texto = item["mensagem"]
+            elif nome == "contas_do_patrimonio_liquido_sem_coluna":
+                texto = (
+                    f"Conta {item['conta']} — {item['nome']}: saldo no início do exercício "
+                    f"{_saldo_entre_parenteses(item['saldo_inicial'])}"
+                    + (", com movimento no exercício." if item["movimento_no_exercicio"] else ".")
+                )
+                # N4 (auditoria DL-061, rodada 1): só há link de coluna quando
+                # o SERVIDOR diz que a conta PODE receber uma (`classificavel`).
+                # Conta classificada como dividendo ou ajuste de exercício
+                # anterior na DLPA não admite nenhuma coluna — o servidor
+                # recusa qualquer uma —, e o link levaria a uma ação sem saída.
+                # Nesse caso a tela mostra a `orientacao` do servidor. Item sem
+                # a chave (contrato antigo) mantém o comportamento anterior.
+                if item.get("classificavel", True):
+                    links.append(_link_da_coluna(item["conta_id"]))
+                    tem_conta_com_coluna_possivel = True
+                else:
+                    orientacao = (
+                        item.get("orientacao") or _ORIENTACAO_PADRAO_CONTA_SEM_COLUNA_POSSIVEL
+                    )
+                    tem_conta_sem_coluna_possivel = True
+            elif nome == "contrapartidas_sem_classificacao":
+                texto = (
+                    f"Conta {item['conta']} — {item['nome']}: {item['mensagem']} "
+                    f"(coluna afetada: {item['coluna_titulo']}; "
+                    f"{len(set(item['lancamentos']))} lançamento(s))"
+                )
+                links.append(_link_da_linha_da_dlpa(item["conta_id"]))
+                # A coluna só se aplica a conta de patrimônio líquido — o
+                # servidor recusaria o link para qualquer outra.
+                if tipo_por_conta.get(item["conta_id"]) == TipoConta.PATRIMONIO_LIQUIDO:
+                    links.append(_link_da_coluna(item["conta_id"]))
+                de_origem, resto = _links_de_lancamentos_da_pendencia(
+                    empresa, item["lancamentos"], lancamentos_por_id
+                )
+                links.extend(de_origem)
+            elif nome == "pares_de_colunas_sem_regra":
+                texto = (
+                    f"Movimento de “{item['origem_titulo']}” para “{item['destino_titulo']}” "
+                    f"({len(set(item['lancamentos']))} lançamento(s))"
+                )
+                links, resto = _links_de_lancamentos_da_pendencia(
+                    empresa, item["lancamentos"], lancamentos_por_id
+                )
+            elif nome == "lancamentos_ambiguos":
+                data = item["data"]
+                texto = (
+                    f"Lançamento de {date_format(data, 'd/m/Y') if data else 'data não encontrada'}"
+                    f" (colunas: {', '.join(item['colunas'])}). {item['mensagem']}"
+                )
+                links, resto = _links_de_lancamentos_da_pendencia(
+                    empresa, [item["lancamento_id"]], lancamentos_por_id
+                )
+            elif nome == "contas_com_classificacao_dlpa_e_dmpl_divergentes":
+                texto = f"Conta {item['conta']} — {item['nome']}: {item['mensagem']}"
+                links.append(_link_da_coluna(item["conta_id"]))
+                links.append(_link_da_linha_da_dlpa(item["conta_id"]))
+            elif nome == "contas_com_classificacao_dmpl_desconhecida":
+                texto = (
+                    f"Conta {item['conta']} — {item['nome']}: a coluna gravada "
+                    f"(“{item['classificacao_dmpl']}”) não existe mais no cadastro."
+                )
+                links.append(_link_da_coluna(item["conta_id"]))
+            elif nome == "diferenca_de_fechamento":
+                if item["coluna"] == "total":
+                    texto = (
+                        "Total do patrimônio líquido: soma das colunas na DMPL "
+                        f"{_saldo_entre_parenteses(item['saldo_na_dmpl'])}, contas de "
+                        "passagem (resultado do exercício) "
+                        f"{_saldo_entre_parenteses(item['saldo_contas_de_passagem'])}, "
+                        "patrimônio líquido no Balanço "
+                        f"{_saldo_entre_parenteses(item['saldo_no_balanco'])} — diferença "
+                        f"{_saldo_entre_parenteses(item['diferenca'])}."
+                    )
+                else:
+                    texto = (
+                        f"Coluna “{item['titulo']}”: saldo final na DMPL "
+                        f"{_saldo_entre_parenteses(item['saldo_na_dmpl'])}, saldo no Balanço "
+                        f"{_saldo_entre_parenteses(item['saldo_no_balanco'])} — diferença "
+                        f"{_saldo_entre_parenteses(item['diferenca'])}."
+                    )
+                    contas = [
+                        f"Conta {conta['conta']} — {conta['nome']}: saldo no Balanço "
+                        f"{_saldo_entre_parenteses(conta['saldo'])}"
+                        for conta in item.get("contas", [])
+                    ]
+            else:
+                # Lista nova sem tratamento nunca quebra a tela: sai o dict
+                # cru, que denuncia a lacuna (mesmo `.get` falho da DLPA).
+                texto = str(item)
+            if not pode_escriturar:
+                links = [link for link in links if not link["correcao"]]
+            linhas.append(
+                {
+                    "texto": texto,
+                    "links": links,
+                    "resto": resto,
+                    "contas": contas,
+                    "orientacao": orientacao,
+                }
+            )
+        acao = ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DMPL_POR_LISTA.get(
+            nome, f"Ação não cadastrada para a pendência '{nome}' — avise o suporte."
+        )
+        if tem_conta_sem_coluna_possivel:
+            # A ação padrão manda "dar uma coluna a cada conta listada": falsa
+            # para a conta que não aceita nenhuma (N4). Ela passa a dizer qual
+            # conta tem link e que as demais seguem a orientação própria.
+            acao = (
+                (
+                    "Dê uma coluna da DMPL às contas que têm o link ao lado. "
+                    if tem_conta_com_coluna_possivel
+                    else ""
+                )
+                + "As contas com orientação própria não aceitam coluna: siga a orientação "
+                "indicada em cada uma. O patrimônio líquido do Balanço inclui todas elas e a "
+                "demonstração, sem coluna, não as mostraria."
+            )
+        resultado.append(
+            {
+                "titulo": _TITULOS_DAS_PENDENCIAS_DA_DMPL.get(nome, nome),
+                "linhas": linhas,
+                "acao": acao,
+            }
+        )
+    return resultado
+
+
+def _saldo_total_na_conta_de_passagem(avisos):
+    """Soma dos itens do aviso `resultado_na_conta_de_passagem` (N3), ou `None`
+    sem aviso. Contrato do servidor: lista de `{"valor": Decimal, "contas":
+    [{"conta_id", "conta", "nome", "saldo"}]}`. O valor é o SALDO da(s)
+    conta(s) de passagem — o mesmo que a conciliação soma ao total das
+    colunas para chegar ao patrimônio líquido do Balanço.
+    """
+    itens = avisos.get("resultado_na_conta_de_passagem") or []
+    if not itens:
+        return None
+    return sum((item["valor"] for item in itens), Decimal("0"))
+
+
+def _nota_do_resultado_na_conta_de_passagem(avisos, data_fim):
+    """A NOTA que sai NO PAPEL quando há saldo na conta de passagem (decisão
+    do arquiteto-senior, reversível, sobre o achado N3 da auditoria DL-061).
+
+    Por que no papel: o total da demonstração fica ABAIXO (ou acima) do
+    patrimônio líquido do Balanço pelo valor desse saldo — a conciliação
+    fecha porque soma a conta de passagem, mas o leitor do documento só tem
+    a tabela na mão, e um total diferente do Balanço sem explicação parece
+    erro. Sem o aviso, nada no papel (devolve `None`).
+    """
+    saldo = _saldo_total_na_conta_de_passagem(avisos)
+    if saldo is None:
+        return None
+    valor = _saldo_entre_parenteses(saldo)
+    return {
+        "valor": valor,
+        "texto": (
+            f"Há saldo de R$ {valor} na conta de resultado do exercício, ainda não "
+            "transferido para lucros ou prejuízos acumulados"
+            + (" (valor entre parênteses é saldo devedor)" if saldo < 0 else "")
+            + ". Por isso o total desta demonstração difere do patrimônio líquido do "
+            f"Balanço Patrimonial de {date_format(data_fim, 'd/m/Y')} nesse valor."
+        ),
+    }
+
+
+def _listas_de_aviso_da_dmpl_para_contexto(avisos, empresa=None):
+    """Avisos da DMPL (nunca vetam), no mesmo formato das pendências e
+    presentes nos DOIS desfechos da tela (emitida com aviso, ou vetada por
+    outro motivo com o aviso também presente) — mesmo critério da DLPA
+    (DE-070). Sem `acao`: aviso não se resolve, se CONFERE.
+
+    `resultado_na_conta_de_passagem` (N3) mostra o valor e cada conta de
+    passagem com o saldo dela, e aponta onde conferir (Diário e Fechamento).
+    """
+    listas = []
+    for nome, itens in avisos.items():
+        if nome == "resultado_nao_transferido":
+            linhas = [
+                {
+                    "detalhe": (
+                        "Ainda há resultado sem zerar: "
+                        f"{_valor_ptbr(abs(item['valor']))}. A DMPL mostra o movimento "
+                        "gravado — feito o zeramento da competência, o resultado do "
+                        "exercício entra na linha “Resultado do exercício”, na coluna de "
+                        "lucros ou prejuízos acumulados."
+                    )
+                }
+                for item in itens
+            ]
+        elif nome == "resultado_na_conta_de_passagem":
+            linhas = [
+                {
+                    "detalhe": (
+                        f"Há saldo de R$ {_saldo_entre_parenteses(item['valor'])} na conta de "
+                        "resultado do exercício, ainda não transferido para lucros ou "
+                        "prejuízos acumulados. A DMPL não tem coluna para essa conta: o total "
+                        "dela difere do patrimônio líquido do Balanço exatamente por esse "
+                        "valor (a conferência abaixo mostra a conta de passagem). Confira no "
+                        "Diário se a transferência foi lançada ou foi estornada, e no "
+                        "Fechamento a situação do zeramento."
+                    ),
+                    "contas": [
+                        f"Conta {conta['conta']} — {conta['nome']}: saldo "
+                        f"{_saldo_entre_parenteses(conta['saldo'])}"
+                        for conta in item.get("contas", [])
+                    ],
+                    "links": (
+                        [
+                            {
+                                "rotulo": "abrir o Diário",
+                                "url": reverse("contabilidade_web:diario", args=[empresa.id]),
+                            },
+                            {
+                                "rotulo": "abrir o Fechamento",
+                                "url": reverse("contabilidade_web:fechamento", args=[empresa.id]),
+                            },
+                        ]
+                        if empresa is not None
+                        else []
+                    ),
+                }
+                for item in itens
+            ]
+        else:
+            linhas = [{"detalhe": str(item)} for item in itens]
+        listas.append({"titulo": _TITULOS_DOS_AVISOS_DA_DMPL.get(nome, nome), "linhas": linhas})
+    return listas
+
+
+def _montar_tabela_da_dmpl(dmpl, empresa):
+    """A tabela IMPRESSA da DMPL (linhas × colunas), a partir do que
+    `apurar_dmpl` já ordenou — a ordem das linhas (E4) e a das colunas
+    (item 111A) vêm do SERVIÇO; aqui só se agrupa o cabeçalho, se formata
+    (`_valor_dre`: pt-BR, negativo entre parênteses, RC-90) e se liga cada
+    célula com valor aos lançamentos que a formaram.
+
+    - **Cabeçalho em dois níveis.** Cada coluna traz o grupo do item 111A.
+      Um grupo com UMA coluna de título igual ao dele ("Capital social")
+      vira uma célula só, de duas linhas de altura (`fundido`); com várias
+      ("Reservas de lucros"), vira um cabeçalho de grupo sobre as colunas.
+    - **Célula sem lançamento de origem** (linha de evento) sai "—", não
+      "0,00": o zero com que a apuração preenche as colunas sem movimento
+      não é um valor apurado. As linhas de SALDO sempre trazem o valor (um
+      saldo zero é informação). Uma célula com lançamentos cujo efeito
+      líquido deu zero mostra "0,00" e a origem, para o contador ver de onde
+      veio.
+    - **Rastreabilidade por célula**: cada célula com origem recebe uma
+      âncora para a lista de lançamentos de baixo (`origens`). A lista é
+      conferência de BANCADA — não sai no papel.
+    UMA consulta para todos os lançamentos da tabela.
+    """
+    colunas = dmpl["colunas"]
+    grupos = []
+    for coluna in colunas:
+        if grupos and grupos[-1]["chave"] == coluna["grupo"]:
+            grupos[-1]["colunas"].append(coluna)
+        else:
+            grupos.append(
+                {"chave": coluna["grupo"], "titulo": coluna["grupo_titulo"], "colunas": [coluna]}
+            )
+    colunas_do_segundo_nivel = []
+    for grupo in grupos:
+        grupo["fundido"] = (
+            len(grupo["colunas"]) == 1 and grupo["colunas"][0]["titulo"] == grupo["titulo"]
+        )
+        if not grupo["fundido"]:
+            colunas_do_segundo_nivel.extend(grupo["colunas"])
+
+    todos_os_ids = {
+        id_lancamento
+        for linha in dmpl["linhas"]
+        for ids in linha["lancamentos"].values()
+        for id_lancamento in ids
+    }
+    lancamentos_por_id = _lancamentos_da_dlpa_por_id(todos_os_ids, empresa)
+
+    linhas = []
+    origens = []
+    for linha in dmpl["linhas"]:
+        eh_saldo = linha["chave"] in ("saldo_inicial", "saldo_final")
+        celulas = []
+        for coluna in colunas:
+            ids = [
+                i for i in linha["lancamentos"].get(coluna["chave"], []) if i in lancamentos_por_id
+            ]
+            if not (eh_saldo or ids):
+                celulas.append(None)
+                continue
+            valor = _valor_dre(linha["valores"][coluna["chave"]])
+            ancora = f"origem-{linha['chave']}-{coluna['chave']}" if ids else None
+            celulas.append(
+                {
+                    "valor": valor,
+                    "ancora": ancora,
+                    "coluna": coluna["titulo"],
+                    "linha": linha["titulo"],
+                }
+            )
+            if ids:
+                origens.append(
+                    {
+                        "ancora": ancora,
+                        "linha": linha["titulo"],
+                        "coluna": coluna["titulo"],
+                        "valor": valor,
+                        "lancamentos": [
+                            {
+                                "descricao": lancamentos_por_id[i]["descricao"],
+                                "url": reverse(
+                                    "contabilidade_web:lancamento_detalhe", args=[empresa.id, i]
+                                ),
+                            }
+                            for i in ids
+                        ],
+                    }
+                )
+        linhas.append(
+            {
+                "chave": linha["chave"],
+                "titulo": linha["titulo"],
+                "eh_saldo": eh_saldo,
+                "celulas": celulas,
+                "total": _valor_dre(linha["total"]),
+            }
+        )
+
+    por_coluna = dmpl["conciliacao"]["por_coluna"]
+    total = dmpl["conciliacao"]["total"]
+    return {
+        "colunas": colunas,
+        "grupos": grupos,
+        "colunas_do_segundo_nivel": colunas_do_segundo_nivel,
+        # Histórico + componentes + Total: a largura do bloco de identificação.
+        "quantidade_de_colunas_da_tabela": len(colunas) + 2,
+        "linhas": linhas,
+        "tem_movimento": len(dmpl["linhas"]) > 2,
+        "origens": origens,
+        "conferencia": {
+            "por_coluna": [
+                {
+                    "titulo": coluna["titulo"],
+                    "na_dmpl": _valor_dre(por_coluna[coluna["chave"]]["saldo_na_dmpl"]),
+                    "no_balanco": _valor_dre(por_coluna[coluna["chave"]]["saldo_no_balanco"]),
+                    "diferenca": _valor_dre(por_coluna[coluna["chave"]]["diferenca"]),
+                }
+                for coluna in colunas
+            ],
+            "total": {
+                "na_dmpl": _valor_dre(total["saldo_na_dmpl"]),
+                "de_passagem": _valor_dre(total["saldo_contas_de_passagem"]),
+                "no_balanco": _valor_dre(total["saldo_no_balanco"]),
+                "diferenca": _valor_dre(total["diferenca"]),
+            },
+        },
+    }
+
+
+@login_required
+@require_safe
+def dmpl(request, empresa_id):
+    """Demonstração das Mutações do Patrimônio Líquido (DL-061/CTB-14) —
+    tela no molde de `dlpa`: MESMA autorização de leitura (`_pode_ler`),
+    mesma recusa de livro-caixa, mesmo veto do servidor com pendências
+    nomeadas, mesma competência e navegação por mês, mesmo bloco de
+    identificação em cada página impressa.
+
+    Período: EXERCÍCIO (ano civil, HI-28) até a competência pedida. O
+    início vem do CONTEXTO da apuração (`data_inicio_exercicio`) — nunca
+    "01/01/{ano}" escrito no template. O bloco de identificação cita a norma
+    escolhida pelo SERVIDOR (`norma`: R5, TG 51 ou adoção antecipada); a
+    tela não compara data nenhuma.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler a contabilidade desta empresa."
+        )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    # O link de correção do veto só aparece para quem PODE ESCRITURAR — vale
+    # para TODOS os `render()` desta view.
+    pode_escriturar = _pode_escriturar(request)
+    contexto = {"empresa": empresa, "pode_escriturar": pode_escriturar}
+
+    ano, mes, erro_competencia = _competencia_dre_do_formulario(request)
+    if erro_competencia:
+        messages.error(request, erro_competencia)
+        return render(request, "contabilidade/dmpl.html", contexto, status=400)
+
+    ano_anterior, mes_anterior = _competencia_adjacente(ano, mes, -1)
+    ano_seguinte, mes_seguinte = _competencia_adjacente(ano, mes, 1)
+    contexto.update(
+        {
+            "ano": ano,
+            "mes": mes,
+            "data_referencia": date(ano, mes, 1),
+            # Link só quando a competência adjacente é VÁLIDA: perto da borda
+            # da faixa some, em vez de levar a um 400 (mesmo R10 da DRE).
+            "ano_anterior": ano_anterior
+            if _ano_mes_de_competencia_valido(ano_anterior, mes_anterior)
+            else None,
+            "mes_anterior": mes_anterior,
+            "ano_seguinte": ano_seguinte
+            if _ano_mes_de_competencia_valido(ano_seguinte, mes_seguinte)
+            else None,
+            "mes_seguinte": mes_seguinte,
+        }
+    )
+
+    # Estado VAZIO: empresa sem NENHUMA conta — nada para classificar ainda.
+    empresa_tem_plano_de_contas = Conta.objects.filter(empresa=empresa).exists()
+    contexto["empresa_tem_plano_de_contas"] = empresa_tem_plano_de_contas
+    if not empresa_tem_plano_de_contas:
+        return render(request, "contabilidade/dmpl.html", contexto)
+
+    try:
+        dmpl_apurada = apurar_dmpl(empresa=empresa, ano=ano, mes=mes)
+    except HierarquiaInconsistente as exc:
+        messages.error(request, str(exc))
+        return render(request, "contabilidade/dmpl.html", contexto, status=409)
+
+    emissao = avaliar_emissao_da_dmpl(dmpl_apurada)
+
+    rotulo_inscricao, inscricao_formatada = rotulo_e_inscricao_da_empresa(empresa)
+    contexto.update(
+        {
+            "identificacao": identificacao_da_demonstracao(),
+            "rotulo_inscricao": rotulo_inscricao,
+            "inscricao_formatada": inscricao_formatada,
+            "timbre_linhas": empresa.escritorio.linhas_do_timbre,
+            # O período coberto tem DUAS pontas e a inicial vem da apuração.
+            "data_inicio_exercicio": dmpl_apurada["data_inicio_exercicio"],
+            "data_fim": dmpl_apurada["data_fim"],
+            "norma": dmpl_apurada["norma"],
+        }
+    )
+
+    # Avisos nos DOIS desfechos (fora do if/else do veto), só na tela.
+    contexto["listas_apenas_aviso"] = _listas_de_aviso_da_dmpl_para_contexto(
+        emissao["avisos"], empresa
+    )
+    contexto["ancora_do_aviso"] = ANCORA_DO_AVISO_DA_DMPL
+    # N3: saldo na conta de passagem tem, além do aviso de tela, uma NOTA no papel
+    # (só no desfecho emitido — vetada, a demonstração nem é montada).
+    contexto["tem_aviso_de_passagem"] = bool(
+        emissao["avisos"].get("resultado_na_conta_de_passagem")
+    )
+
+    if not emissao["pode_emitir"]:
+        # Havendo QUALQUER pendência a tela NÃO monta a demonstração — só o
+        # que falta, nomeado, com link de correção. 200, não erro de
+        # protocolo: a tela respondeu "pode emitir? → não".
+        contexto.update(
+            {
+                "pode_emitir": False,
+                "listas_pendentes": _listas_de_pendencia_dmpl_para_contexto(
+                    emissao, empresa, pode_escriturar
+                ),
+            }
+        )
+        return render(request, "contabilidade/dmpl.html", contexto)
+
+    tabela = _montar_tabela_da_dmpl(dmpl_apurada, empresa)
+    contexto.update(
+        {
+            "pode_emitir": True,
+            "tabela": tabela,
+            "nota_do_resultado_na_conta_de_passagem": _nota_do_resultado_na_conta_de_passagem(
+                emissao["avisos"], dmpl_apurada["data_fim"]
+            ),
+            "imprime_em_paisagem": len(tabela["colunas"]) > _COLUNAS_DA_DMPL_QUE_CABEM_EM_RETRATO,
+        }
+    )
+    return render(request, "contabilidade/dmpl.html", contexto)
+
+
+# ---------------------------------------------------------------------------
 # Conferência
 # ---------------------------------------------------------------------------
 
@@ -4864,6 +5663,17 @@ def relatorios(request, empresa_id):
             "titulo": "DLPA",
             "descricao": "Movimento dos lucros ou prejuízos acumulados no exercício.",
             "url": reverse("contabilidade_web:dlpa", args=[empresa.id]),
+        },
+        # DL-061/CTB-14: oitavo cartão — mutações de cada componente do
+        # patrimônio líquido no exercício, em colunas. Mesmo molde dos
+        # anteriores (permissão/recusa já checadas acima, ícone PRÓPRIO no
+        # sprite de templates/base.html).
+        {
+            "chave": "dmpl",
+            "icone": "dmpl",
+            "titulo": "DMPL",
+            "descricao": "Mutações de cada componente do patrimônio líquido no exercício.",
+            "url": reverse("contabilidade_web:dmpl", args=[empresa.id]),
         },
         {
             "chave": "conferencia",
@@ -5269,6 +6079,18 @@ CONTRATO_PARAMETRO_CONTABIL_WEB = ContratoDeRequisicao(
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="no cadastro de parâmetro contábil",
 )
+# DL-061/CTB-14: a marca de adoção antecipada da NBC TG 51 é uma AÇÃO da mesma
+# URL (`parametros_contabeis`, POST com `acao=adocao_antecipada_nbc_tg_51`),
+# não uma rota nova: ela altera uma vigência que a tela já lista, e o
+# discriminador evita uma terceira porta para a mesma permissão. Contrato
+# PRÓPRIO (campos diferentes dos do registro de vigência — nunca um contrato
+# reaproveitado com campo a mais, que a varredura não alcança).
+ACAO_ADOCAO_ANTECIPADA_DA_NBC_TG_51 = "adocao_antecipada_nbc_tg_51"
+CONTRATO_ADOCAO_ANTECIPADA_DA_NBC_TG_51_WEB = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "acao", "vigencia_id", "adota"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na marca de adoção antecipada da NBC TG 51",
+)
 CONTRATO_ENCERRAR_VIGENCIA_PARAMETRO_CONTABIL_WEB = ContratoDeRequisicao(
     campos={"csrfmiddlewaretoken"},
     cabecalhos_ignorados=("Idempotency-Key",),
@@ -5279,6 +6101,79 @@ CONTRATO_ZERAR_RESULTADO_WEB = ContratoDeRequisicao(
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="no zeramento do resultado",
 )
+
+
+def _marcar_adocao_antecipada_da_nbc_tg_51(request, empresa):
+    """Liga ou desliga a marca de adoção antecipada da NBC TG 51 numa
+    vigência de parâmetro contábil da empresa (DL-061, E7). Chamada por
+    `parametros_contabeis` DEPOIS de conferir `_pode_fechar_competencia`;
+    sempre redireciona de volta à tela (PRG), com a mensagem do resultado.
+
+    A gravação, a trilha e a recusa de livro-caixa são do serviço
+    (`definir_adocao_antecipada_da_nbc_tg_51`); a vigência é buscada
+    filtrando pela `empresa` da requisição — id de vigência de outra empresa
+    dá 404, nunca confirma existência. A data entregue ao serviço é o INÍCIO
+    da vigência: qualquer data dentro dela identifica a mesma linha, e é a
+    que a tela mostra ao usuário.
+    """
+    destino = redirect("contabilidade_web:parametros_contabeis", empresa_id=empresa.id)
+    try:
+        recusar_dado_nao_contratado(request, CONTRATO_ADOCAO_ANTECIPADA_DA_NBC_TG_51_WEB)
+    except DadoNaoContratado as exc:
+        messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+        return destino
+
+    vigencia_id = _identificador_de_cliente(request.POST.get("vigencia_id"))
+    if vigencia_id is None:
+        messages.error(request, "Vigência inválida: nada foi alterado.")
+        return destino
+    vigencia = get_object_or_404(ParametroContabilEmpresa, pk=vigencia_id, empresa=empresa)
+
+    # Só "1" (marcar) e "0" (desmarcar): qualquer outro valor é recusado em
+    # vez de virar "desmarcar" por omissão.
+    valor = request.POST.get("adota")
+    if valor not in ("0", "1"):
+        messages.error(request, "Opção inválida: nada foi alterado.")
+        return destino
+    adota = valor == "1"
+    antes = vigencia.adota_nbc_tg_51_antecipadamente
+    inicio = date_format(vigencia.vigencia_inicio, "d/m/Y")
+
+    try:
+        definir_adocao_antecipada_da_nbc_tg_51(
+            empresa=empresa,
+            data_inicio_exercicio=vigencia.vigencia_inicio,
+            adota=adota,
+            usuario=request.user,
+            request=request,
+        )
+    except (ParametroContabilInvalido, CompetenciaOperacaoRecusada) as exc:
+        messages.error(request, str(exc))
+        return destino
+
+    if antes == adota:
+        messages.info(
+            request,
+            f"A vigência iniciada em {inicio} já estava "
+            f"{'marcada' if adota else 'desmarcada'}: nada foi alterado.",
+        )
+    elif adota:
+        messages.success(
+            request,
+            f"Adoção antecipada da NBC TG 51 marcada na vigência iniciada em {inicio}. "
+            "Efeito: as demonstrações dos exercícios que começam nesta vigência, anteriores "
+            "à vigência obrigatória da norma, passam a citar a NBC TG 51 em vez da NBC TG 26 "
+            "(R5). Nenhum saldo nem lançamento muda.",
+        )
+    else:
+        messages.success(
+            request,
+            f"Adoção antecipada da NBC TG 51 desmarcada na vigência iniciada em {inicio}. "
+            "Efeito: as demonstrações dos exercícios que começam nesta vigência, anteriores "
+            "à vigência obrigatória da norma, voltam a citar a NBC TG 26 (R5). Nenhum saldo "
+            "nem lançamento muda.",
+        )
+    return destino
 
 
 @login_required
@@ -5319,6 +6214,12 @@ def parametros_contabeis(request, empresa_id):
                 "— essa ação exige administrador ou gestor (RC-102 por analogia com "
                 "o fechamento de competência). Fale com um deles.",
             )
+        # A permissão acima vale para as DUAS ações desta URL (registrar
+        # vigência e marcar a adoção antecipada): a marca é alteração de
+        # parâmetro contábil, então segue a regra da tela — administrador ou
+        # gestor — e não a de classificar conta.
+        if request.POST.get("acao") == ACAO_ADOCAO_ANTECIPADA_DA_NBC_TG_51:
+            return _marcar_adocao_antecipada_da_nbc_tg_51(request, empresa)
         try:
             recusar_dado_nao_contratado(request, CONTRATO_PARAMETRO_CONTABIL_WEB)
         except DadoNaoContratado as exc:

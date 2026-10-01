@@ -82,6 +82,14 @@ mesma regra de servidor de antes, só reposicionada.
                         classificada. "—" para conta sem linha.
                         {% endcomment %}
                         <th scope="col">Linha da DLPA</th>
+                        {% comment %}
+                        DL-061/CTB-14: coluna irmã das duas de cima — a
+                        coluna da DMPL cadastrada em cada conta de
+                        patrimônio líquido (`Conta.classificacao_dmpl`).
+                        "—" para conta sem coluna (conta de qualquer outro
+                        tipo não tem coluna na DMPL).
+                        {% endcomment %}
+                        <th scope="col">Coluna da DMPL</th>
                         <th scope="col">Situação</th>
                         {% if pode_escriturar %}<th scope="col">Ações</th>{% endif %}
                     </tr>
@@ -97,9 +105,12 @@ mesma regra de servidor de antes, só reposicionada.
                             <td>{% if linha.conta.aceita_lancamento %}Sim{% else %}Não{% endif %}</td>
                             <td>{{ linha.conta.get_classificacao_dre_display|default:"—" }}</td>
                             <td>{{ linha.conta.get_classificacao_dlpa_display|default:"—" }}</td>
+                            <td>{{ linha.conta.get_classificacao_dmpl_display|default:"—" }}</td>
                             <td>{% if linha.conta.ativo %}Ativa{% else %}Inativa{% endif %}</td>
                             {% if pode_escriturar %}
                                 <td>
+                                    {# DL-061: até três botões por linha — `.acoes-de-linha` (DE-084) em vez de botões soltos que a célula estreita empilharia sem espaço. #}
+                                    <div class="acoes-de-linha acoes-de-linha--sem-quebra">
                                     {% comment %}
                                     DL-045, correção da rodada 1 de
                                     auditoria (A7): só conta de RESULTADO
@@ -133,6 +144,22 @@ mesma regra de servidor de antes, só reposicionada.
                                        href="{% url 'contabilidade_web:conta_classificacao_dlpa' empresa.id linha.conta.id %}">
                                         Linha da DLPA
                                     </a>
+                                    {% comment %}
+                                    DL-061/CTB-14: só conta de PATRIMÔNIO
+                                    LÍQUIDO tem coluna na DMPL (E1; mesma
+                                    lógica do botão da DRE, que só aparece
+                                    para Receita/Despesa) — o botão nem
+                                    aparece para as demais, em vez de convidar
+                                    a um clique que o servidor sempre
+                                    recusaria.
+                                    {% endcomment %}
+                                    {% if linha.conta.tipo == "patrimonio_liquido" %}
+                                        <a class="botao botao--secundario botao--pequeno"
+                                           href="{% url 'contabilidade_web:conta_classificacao_dmpl' empresa.id linha.conta.id %}">
+                                            Coluna da DMPL
+                                        </a>
+                                    {% endif %}
+                                    </div>
                                 </td>
                             {% endif %}
                         </tr>

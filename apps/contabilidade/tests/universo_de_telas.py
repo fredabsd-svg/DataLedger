@@ -66,6 +66,12 @@ NOMES_DE_TELA_DE_CONTABILIDADE = {
     # padrão (só o POST passa por `Conta.clean()`, via `classificar_conta_
     # na_dlpa`). Reaproveita `cenario["caixa"]`, como a irmã.
     "conta_classificacao_dlpa": "contabilidade_web:conta_classificacao_dlpa",
+    # DL-061/CTB-14: a irmã da DMPL (Coluna da DMPL de uma conta EXISTENTE) —
+    # MESMA permissão e MESMO comportamento no GET: renderiza 200 para
+    # qualquer conta do cenário padrão (só o POST passa por `Conta.clean()`,
+    # que recusa conta fora do patrimônio líquido, via `classificar_conta_na_
+    # dmpl`). Reaproveita `cenario["caixa"]`, como as irmãs.
+    "conta_classificacao_dmpl": "contabilidade_web:conta_classificacao_dmpl",
     "diario": "contabilidade_web:diario",
     "razao": "contabilidade_web:razao",
     "balancete": "contabilidade_web:balancete",
@@ -90,6 +96,12 @@ NOMES_DE_TELA_DE_CONTABILIDADE = {
     # acumulados_classificada` veta): a tela RESPONDE corretamente "não, e
     # eis o porquê", nunca 500 — a mesma garantia das duas irmãs.
     "dlpa": "contabilidade_web:dlpa",
+    # DL-061/CTB-14: MESMA classe da DLPA logo acima — sob o `cenario` PADRÃO
+    # deste módulo (nenhuma conta de patrimônio líquido com coluna), a DMPL
+    # renderiza 200 no estado "não pode ser emitida"
+    # (`nenhuma_coluna_classificada` veta): a tela RESPONDE "não, e eis o
+    # porquê", nunca 500.
+    "dmpl": "contabilidade_web:dmpl",
     "conferencia": "contabilidade_web:conferencia",
     "lancamento_novo": "contabilidade_web:lancamento_novo",
     "lancamento_detalhe": "contabilidade_web:lancamento_detalhe",
@@ -190,6 +202,8 @@ def _urls_de_contabilidade(cenario):
         # DL-048/CTB-12: mesmíssimos args da irmã — a tela só precisa de
         # empresa + conta, e `cenario["caixa"]` é a conta padrão.
         "conta_classificacao_dlpa": ([empresa_id, cenario["caixa"].id], ""),
+        # DL-061/CTB-14: mesmíssimos args das irmãs — empresa + conta.
+        "conta_classificacao_dmpl": ([empresa_id, cenario["caixa"].id], ""),
         "diario": ([empresa_id], periodo),
         "razao": ([empresa_id, cenario["caixa"].id], periodo),
         "balancete": ([empresa_id], periodo),
@@ -204,6 +218,8 @@ def _urls_de_contabilidade(cenario):
         # DL-048/CTB-13: sem querystring — mesma convenção da DRE (mês
         # corrente como referência; a DLPA mostra o exercício até ele).
         "dlpa": ([empresa_id], ""),
+        # DL-061/CTB-14: sem querystring — mesma convenção da DLPA.
+        "dmpl": ([empresa_id], ""),
         "conferencia": ([empresa_id], ""),
         "lancamento_novo": ([empresa_id], ""),
         "lancamento_detalhe": ([empresa_id, cenario["lancamento"].id], ""),

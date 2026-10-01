@@ -106,6 +106,9 @@ lucro do exercício − destinações (reservas, dividendos) = saldo final.
 
 ### 3. CTB-14 — DMPL (Demonstração das Mutações do Patrimônio Líquido)
 
+➡️ **Planejada e em execução como [DL-061](DL-061-dmpl.md)** (01/10/2026), com a RC-151
+(linha automática pela contrapartida) e a HI-50 (alíneas "c" e "d" do art. 182, §1º).
+
 Uma coluna por conta do PL, uma linha por tipo de evento (saldo inicial, aumento de
 capital, lucro do exercício, constituição de reserva, distribuição, saldo final).
 
@@ -191,6 +194,10 @@ primeira ao posto da segunda é a mesma classe de defeito do BL-514: garantia qu
 produto não dá, descrita como se desse.
 
 #### Colunas de reservas de CAPITAL que a RC-137 não listou
+
+⚠️ **CORRIGIDO em 01/10/2026 (RC-152):** "prêmio na emissão de debêntures" e "doações e
+subvenções para investimento" foram **revogadas** pelo art. 10 da Lei 11.638/2007 e
+**não** entram na DMPL. A afirmação "as duas primeiras entram", abaixo, está errada.
 
 ⚠️ **Pendência para a DMPL.** A RC-137 lista ágio na emissão de ações e
 alienação de partes beneficiárias/bônus de subscrição. A lei tem **três** reservas de
