@@ -87,6 +87,20 @@ def chave_do_usuario(texto: str) -> str:
     ).hexdigest()
 
 
+def resumo_do_usuario(texto: str) -> str:
+    """Prefixo (16 hex) de `chave_do_usuario`, o que a trilha de auditoria grava.
+
+    Função ÚNICA do "resumo do usuário digitado" (DL-058/B3 + DL-056): o limitador
+    e a trilha de falha de login (`apps.accounts.signals`) usam o mesmo valor,
+    com a mesma normalização e a mesma chave (`SECRET_KEY`), então o evento
+    `login.falha`, o `login.bloqueado` e a linha de `TentativaDeAcesso` se
+    correlacionam. O texto nunca vai para a trilha porque pode ser uma senha
+    digitada no campo errado; 16 hex bastam para reconhecer a mesma tentativa
+    repetida sem permitir confirmar candidatos offline (HMAC com segredo).
+    """
+    return chave_do_usuario(texto)[:16]
+
+
 @dataclass(frozen=True)
 class Reserva:
     """Tentativas reservadas por uma requisição; `devolver` desfaz o IP dela."""

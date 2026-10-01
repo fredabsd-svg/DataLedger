@@ -78,6 +78,17 @@ def test_b3_prefixo_depende_do_segredo_da_aplicacao(client, usuario, settings):
     assert antes != depois
 
 
+def test_b3_trilha_e_limitador_usam_o_mesmo_resumo_do_usuario(client, usuario):
+    """Integração DL-058 + DL-056: o resumo gravado em `login.falha` é o mesmo
+    da chave do limitador (mesma normalização, mesma SECRET_KEY)."""
+    from apps.accounts.limite_tentativas import chave_do_usuario
+
+    client.post(reverse("login"), {"username": "  Fulano-Inexistente ", "password": "x"})
+
+    (registro,) = _falhas()
+    assert registro.detalhes["username_hmac"] == chave_do_usuario("fulano-inexistente")[:16]
+
+
 def test_b3_falha_com_usuario_existente_grava_o_nome_da_conta_sem_senha(client, usuario):
     client.post(reverse("login"), {"username": "ana", "password": SENHA_NO_CAMPO_ERRADO})
 
