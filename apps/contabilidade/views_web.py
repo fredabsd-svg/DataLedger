@@ -4362,7 +4362,7 @@ def _listas_de_aviso_da_dlpa_para_contexto(avisos):
     return listas
 
 
-def _lancamentos_da_dlpa_por_id(ids):
+def _lancamentos_da_dlpa_por_id(ids, empresa):
     """Os lançamentos que originaram as linhas da DLPA, indexados por id.
 
     **UMA consulta para todas as linhas**, nunca uma por linha: a
@@ -4374,6 +4374,12 @@ def _lancamentos_da_dlpa_por_id(ids):
     A descrição é data + histórico, o que basta para o contador
     localizar o lançamento no Diário/Razão; nada de conteúdo sensível
     entra no documento além do que já está nas linhas.
+
+    DL-058/B2 — defesa em profundidade: a consulta filtra TAMBÉM pela
+    `empresa` da requisição. Os ids vêm da apuração, que já é por empresa;
+    mas esta função recebe uma lista de ids crua, e um id que escapasse (de
+    outra empresa ou de outro escritório) traria data e histórico alheios
+    para o documento impresso. Id de outra empresa é simplesmente omitido.
     """
     if not ids:
         return {}
@@ -4383,11 +4389,13 @@ def _lancamentos_da_dlpa_por_id(ids):
             "historico": lancamento.historico,
             "descricao": f"{date_format(lancamento.data, 'd/m/Y')} — {lancamento.historico}",
         }
-        for lancamento in LancamentoContabil.objects.filter(id__in=ids).order_by("data", "id")
+        for lancamento in LancamentoContabil.objects.filter(empresa=empresa, id__in=ids).order_by(
+            "data", "id"
+        )
     }
 
 
-def _montar_linhas_da_dlpa(dlpa_apurada):
+def _montar_linhas_da_dlpa(dlpa_apurada, empresa):
     """Linhas IMPRESSAS da DLPA, a partir da lista que `apurar_dlpa` já
     ordenou pelo art. 186 — a ordem e a estrutura vêm do SERVIÇO (é lá que
     a lei fixa os incisos); aqui só se formata valor em pt-BR (`_valor_dre`:
@@ -4408,7 +4416,7 @@ def _montar_linhas_da_dlpa(dlpa_apurada):
         linha["chave"]: linha.get("lancamentos", []) for linha in dlpa_apurada["linhas"]
     }
     todos_os_ids = {id_lancamento for ids in ids_por_linha.values() for id_lancamento in ids}
-    lancamentos_por_id = _lancamentos_da_dlpa_por_id(todos_os_ids)
+    lancamentos_por_id = _lancamentos_da_dlpa_por_id(todos_os_ids, empresa)
     return [
         {
             "chave": linha["chave"],
@@ -4534,7 +4542,7 @@ def dlpa(request, empresa_id):
         )
         return render(request, "contabilidade/dlpa.html", contexto)
 
-    contexto.update({"pode_emitir": True, "linhas": _montar_linhas_da_dlpa(dlpa_apurada)})
+    contexto.update({"pode_emitir": True, "linhas": _montar_linhas_da_dlpa(dlpa_apurada, empresa)})
     return render(request, "contabilidade/dlpa.html", contexto)
 
 
