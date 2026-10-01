@@ -2066,17 +2066,31 @@ Rodada única de correção em andamento; depois, reconferência final (AGENTS.m
 
 | ID | Item | Responsável | Depende de | Estado | Critério de aceite |
 | --- | --- | --- | --- | --- | --- |
-| BL-608 | **N1 (alta)** — coluna única com contrapartidas de sentidos opostos gera eventos que não aconteceram | `desenvolvedor-pleno` | — | corrigido em `40e47f5`, em reconferência | Casos 1 e P4 da auditoria |
-| BL-609 | **N2 (alta)** — classificação da DLPA da contrapartida decide a linha em qualquer coluna e sentido | `desenvolvedor-pleno` | — | corrigido em `40e47f5`, em reconferência | Caso 2 da auditoria |
-| BL-610 | **N3 (média)** — saldo na conta de passagem sem aviso (plano E5) | `desenvolvedor-pleno`, `especialista-frontend` | — | corrigido em `40e47f5`, em reconferência | Caso 3; aviso na tela e nota no papel |
-| BL-611 | **N4 (média)** — conta de PL de dividendo/ajuste: pendência orienta para ação que o servidor recusa | `desenvolvedor-pleno`, `especialista-frontend` | BL-603 | corrigido em `40e47f5`, em reconferência | Caso 4 |
-| BL-612 | **N5 (média/baixa)** — impressão de 12 colunas encosta na borda direita | `especialista-frontend` | — | corrigido em `40e47f5`, em reconferência | Caso 5 |
-| BL-613 | **N6 (baixa)** — marca de adoção antecipada sem efeito em vigência iniciada depois de 01/01 | `desenvolvedor-pleno` | — | corrigido em `40e47f5`, em reconferência | Caso 6 |
-| BL-614 | **N7 (baixa)** — identidade com a DLPA quebra com débito e crédito na mesma coluna e no mesmo lançamento | `desenvolvedor-pleno` | — | corrigido em `40e47f5`, em reconferência | Caso 7 |
-| BL-615 | **N8 (baixa)** — cancelamento de ações em tesouraria sem regra | `desenvolvedor-pleno` | — | corrigido em `40e47f5`, em reconferência | Pares capital/reservas → tesouraria |
-| BL-616 | **N9 (baixa)** — lacunas de teste (mutantes N02 e N10, propriedade P4) | `desenvolvedor-pleno`, `especialista-frontend` | — | corrigido em `40e47f5`, em reconferência | Casos 8 e 9 |
-| BL-617 | **N10 (baixa)** — tela de parâmetros rola na horizontal a 390 px | `especialista-frontend` | — | corrigido em `40e47f5`, em reconferência | Caso 10 |
-| BL-618 | **N11 (baixa)** — mensagem de diferença de fechamento não cita a causa conhecida (BL-604) | `especialista-frontend` | — | corrigido em `40e47f5`, em reconferência | Dica na mensagem |
+| BL-608 | **N1 (alta)** — coluna única com contrapartidas de sentidos opostos gera eventos que não aconteceram | `desenvolvedor-pleno` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Casos 1 e P4 da auditoria |
+| BL-609 | **N2 (alta)** — classificação da DLPA da contrapartida decide a linha em qualquer coluna e sentido | `desenvolvedor-pleno` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Caso 2 da auditoria |
+| BL-610 | **N3 (média)** — saldo na conta de passagem sem aviso (plano E5) | `desenvolvedor-pleno`, `especialista-frontend` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Caso 3; aviso na tela e nota no papel |
+| BL-611 | **N4 (média)** — conta de PL de dividendo/ajuste: pendência orienta para ação que o servidor recusa | `desenvolvedor-pleno`, `especialista-frontend` | BL-603 | corrigido em `40e47f5` e **reconferido** (fechado) | Caso 4 |
+| BL-612 | **N5 (média/baixa)** — impressão de 12 colunas encosta na borda direita | `especialista-frontend` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Caso 5 |
+| BL-613 | **N6 (baixa)** — marca de adoção antecipada sem efeito em vigência iniciada depois de 01/01 | `desenvolvedor-pleno` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Caso 6 |
+| BL-614 | **N7 (baixa)** — identidade com a DLPA quebra com débito e crédito na mesma coluna e no mesmo lançamento | `desenvolvedor-pleno` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Caso 7 |
+| BL-615 | **N8 (baixa)** — cancelamento de ações em tesouraria sem regra | `desenvolvedor-pleno` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Pares capital/reservas → tesouraria |
+| BL-616 | **N9 (baixa)** — lacunas de teste (mutantes N02 e N10, propriedade P4) | `desenvolvedor-pleno`, `especialista-frontend` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Casos 8 e 9 |
+| BL-617 | **N10 (baixa)** — tela de parâmetros rola na horizontal a 390 px | `especialista-frontend` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Caso 10 |
+| BL-618 | **N11 (baixa)** — mensagem de diferença de fechamento não cita a causa conhecida (BL-604) | `especialista-frontend` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Dica na mensagem |
 | BL-619 | Admin edita a coluna da DMPL sem trilha (pré-existente, mesmo padrão da DRE e da DLPA) | `desenvolvedor-pleno` | — | aberta | Trilha também pelo admin, ou campo só leitura no admin |
 | BL-620 | Reclassificar a conta reescreve DMPL de período já entregue; sem documento emitido congelado (pré-existente, DE-086) | `arquiteto-senior` | Fred | aberta — decisão do Fred | Decidir se o escritório precisa de documento emitido congelado |
 | BL-621 | Em folha de paisagem, o Chromium não repete o bloco de identificação do emitente (`<thead>`) numa segunda folha; hoje a DMPL cabe numa folha, mas comparativo ou mais linhas exigiriam encolher o bloco (achado na correção da DL-061) | `especialista-frontend` | — | aberta | Identificação repetida em DMPL de duas folhas de paisagem, medida no navegador |
+
+## Reconferência da DL-061 — APROVADA COM RESSALVAS (2026-10-01)
+
+Relatório integral em [2026-10-01-dl-061-reconferencia.md](../auditorias/2026-10-01-dl-061-reconferencia.md).
+N1 a N11 fechados. Ressalvas abaixo; esta foi a última rodada (AGENTS.md §3.1).
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-622 | **M1 (baixa, pré-existente na DLPA)** — lançamento que debita e credita lucros e prejuízos acumulados junto de contrapartidas classificadas faz a DLPA fabricar linhas opostas; a DMPL está certa, e a identidade do critério 2 tem essa exceção | `desenvolvedor-pleno` | — | aberta | DLPA sem linhas fabricadas nesse caso, ou exceção documentada e vetada; ensaio P3 com 24 sementes como teste |
+| BL-623 | **M2 (baixa, decisão do Fred)** — o líquido por coluna apaga o bruto quando o mesmo lançamento compra e vende tesouraria ou reduz e aumenta capital | `arquiteto-senior` | Fred | aberta — **decisão do Fred** | Manter o líquido declarado, ou vetar o lançamento com eventos opostos na mesma coluna |
+| BL-624 | **M3 (média)** — o estorno do lançamento vetado não libera a DMPL, e a mensagem manda "estornar" ou "dividir o lançamento" (efetivado é imutável) | `desenvolvedor-pleno` | — | aberta — **prioritária** | Texto verdadeiro (a saída é a marcação manual da fatia 2), com teste; avaliar reconhecer o par estornado |
+| BL-625 | **M4 (baixa)** — a dica da diferença com o Balanço aponta a retificadora mesmo quando a causa é conta de PL sem coluna listada acima | `especialista-frontend` | — | aberta | Dica condicionada, com teste de tela |
+| BL-626 | Validação contábil do Fred das escolhas da DMPL: nota impressa do resultado não transferido; cancelamento de tesouraria em "alienação ou cancelamento"; subscrição parcial como aumento líquido; lucros e prejuízos na mesma coluna; ordem das linhas; reserva de capital incorporada ao capital como "aumento de capital com reservas e lucros" | `arquiteto-senior` | Fred | aberta — **validação do Fred** | Cada escolha confirmada ou revertida |
+

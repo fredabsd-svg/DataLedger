@@ -321,5 +321,8 @@ Conferência: 100.000 + 20.000 + 25.000 − 10.000 + 3.000 − 2.000 = 136.000.
   - propriedade P4 e ensaio diferencial DLPA × DMPL versionados.
 - **Limite novo registrado:** em paisagem, o Chromium não repete a identificação do
   emitente numa segunda folha. Hoje a DMPL cabe numa folha (BL-621).
-- **Reconferência:** pendente.
+- [Reconferência](../auditorias/2026-10-01-dl-061-reconferencia.md): **APROVADA COM
+  RESSALVAS**, parecer final. N1 a N11 fechados com evidência executada; DLPA idêntica
+  em três versões; ensaio estrito com 870 DMPL emitidas sem violação. Ressalvas: BL-622
+  a BL-625 (M1 a M4) e a validação contábil do Fred (BL-626).
 
