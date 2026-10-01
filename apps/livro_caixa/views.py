@@ -71,6 +71,7 @@ from apps.livro_caixa.services import (
     FechamentoMesCaixaRecusado,
     LancamentoCaixaInvalido,
     MesCaixaEncerrado,
+    ReaberturaExigeCascata,
     apurar_livro_caixa,
     criar_conta_livro_caixa,
     criar_lancamento_caixa,
@@ -78,6 +79,7 @@ from apps.livro_caixa.services import (
     estado_dos_meses_caixa,
     estornar_lancamento_caixa,
     reabrir_mes_caixa,
+    reabrir_mes_caixa_em_cascata,
 )
 from apps.tenancy.models import Papel
 from apps.tenancy.permissions import TemEscritorioAtivo, papel_permitido
@@ -539,14 +541,15 @@ class PodeFecharMesCaixa(BasePermission):
 
 
 # Encerrar é rota de AÇÃO: o mês vem da URL, sem corpo — mesmo desenho do
-# fechamento de competência. Reabrir tem um único campo, `motivo`.
+# fechamento de competência. Reabrir tem dois campos: `motivo` (obrigatório) e
+# `cascata` (DL-054, booleano opcional, padrão falso).
 CONTRATO_POST_ENCERRAR_MES_CAIXA = ContratoDeRequisicao(
     campos=frozenset(),
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="no encerramento de mês do livro-caixa",
 )
 CONTRATO_POST_REABRIR_MES_CAIXA = ContratoDeRequisicao(
-    campos={"motivo"},
+    campos={"motivo", "cascata"},
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na reabertura de mês do livro-caixa",
 )
@@ -631,9 +634,28 @@ class EncerrarMesCaixaView(EmpresaEscopadaLivroCaixaMixin, APIView):
 
 
 class ReabrirMesCaixaView(EmpresaEscopadaLivroCaixaMixin, APIView):
-    """`POST .../meses/<ano>/<mes>/reabrir/` com `{"motivo": "..."}` — reabre
-    o mês (DL-053, critérios 3 e 4). 400 sem motivo; 409 se o mês está
-    aberto."""
+    """`POST .../meses/<ano>/<mes>/reabrir/` — reabre o mês (DL-053, critérios
+    3 e 4; cascata: DL-054, RC-148).
+
+    Corpo: `{"motivo": "<texto, obrigatório>", "cascata": <bool, opcional,
+    padrão false>}`. Só esses dois campos; qualquer outro é 400.
+
+    - `cascata=false`: reabre só o mês. Se houver mês ENCERRADO depois dele no
+      mesmo ano, responde 409 sem alterar nada, com `detail` (mensagem
+      legível) e `meses_encerrados_posteriores` (`[{"ano": 2026, "mes": 2},
+      ...]`, crescente) — a tela usa a lista para oferecer a cascata.
+    - `cascata=true`: reabre o mês e TODOS os encerrados posteriores do ano,
+      numa transação, com o mesmo motivo e um registro de trilha por mês.
+
+    200: o estado do mês pedido (mesmo formato de `GET .../meses/`) mais
+    `meses_reabertos`, lista desse mesmo formato com todos os meses reabertos
+    pelo ato, em ordem crescente (um item na reabertura simples).
+    400: corpo inválido (motivo vazio/longo/com caractere nulo/não texto,
+    `cascata` que não seja booleano, campo desconhecido), `ano`/`mes` fora da
+    faixa, empresa fora do modo livro-caixa. 403: papel sem permissão de
+    fechar mês. 404: empresa de outro escritório. 409: o mês pedido não está
+    encerrado; ou exige cascata (acima); ou a espera pelo lock estourou.
+    """
 
     permission_classes = [TemEscritorioAtivo, PodeFecharMesCaixa]
 
@@ -645,8 +667,15 @@ class ReabrirMesCaixaView(EmpresaEscopadaLivroCaixaMixin, APIView):
         motivo = dados.get("motivo")
         if motivo is not None and not isinstance(motivo, str):
             raise DRFValidationError("O campo 'motivo' deve ser texto.")
+        # `cascata` só aceita booleano JSON verdadeiro/falso: "true", 1 ou null
+        # seriam uma reabertura em lote decidida por coerção — a cascata reabre
+        # vários meses encerrados, então a intenção tem de ser inequívoca.
+        cascata = dados.get("cascata", False)
+        if not isinstance(cascata, bool):
+            raise DRFValidationError("O campo 'cascata' deve ser verdadeiro ou falso.")
+        reabrir = reabrir_mes_caixa_em_cascata if cascata else reabrir_mes_caixa
         try:
-            reabrir_mes_caixa(
+            resultado = reabrir(
                 empresa=empresa,
                 ano=ano,
                 mes=mes,
@@ -656,11 +685,25 @@ class ReabrirMesCaixaView(EmpresaEscopadaLivroCaixaMixin, APIView):
             )
         except FechamentoMesCaixaInvalido as exc:
             raise DRFValidationError(str(exc)) from exc
+        except ReaberturaExigeCascata as exc:
+            return Response(
+                {
+                    "detail": str(exc),
+                    "meses_encerrados_posteriores": [{"ano": exc.ano, "mes": m} for m in exc.meses],
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         except FechamentoMesCaixaRecusado as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
-        return Response(
-            _mes_caixa_depois_da_transicao(empresa, ano, mes), status=status.HTTP_200_OK
-        )
+        reabertos = resultado if isinstance(resultado, list) else [resultado]
+        # Relido do banco, no formato da consulta: a resposta é o que ficou
+        # gravado, não os objetos em memória.
+        estado_do_ano = estado_dos_meses_caixa(empresa=empresa, ano=ano)
+        corpo = _mes_caixa_como_dict(estado_do_ano[mes - 1])
+        corpo["meses_reabertos"] = [
+            _mes_caixa_como_dict(estado_do_ano[linha.mes - 1]) for linha in reabertos
+        ]
+        return Response(corpo, status=status.HTTP_200_OK)
 
 
 # ---------------------------------------------------------------------------

@@ -55,8 +55,10 @@ class ChaveIdempotenciaConflitanteCaixa(Exception):
 
 class MesCaixaEncerrado(Exception):
     """Lançamento ou estorno recusado: o mês de destino do livro-caixa está
-    encerrado (DL-053, RC-145). A correção é reabrir o mês (com motivo) —
-    exatamente o procedimento da RC-130.
+    encerrado (DL-053, RC-145) — ou um mês POSTERIOR do mesmo ano está, e o
+    encadeamento do carnê-leão faria o lançamento alterar o resultado dele
+    (DL-054, RC-148). A correção é reabrir o mês (com motivo) — exatamente o
+    procedimento da RC-130.
 
     Deliberadamente distinta de `LancamentoCaixaInvalido`: o corpo do
     lançamento é válido; o que recusa é o ESTADO do mês em que ele cairia.
@@ -542,48 +544,99 @@ def recusar_dependentes_que_alteram_mes_encerrado(*, empresa, antes, depois):
     _recusar_se_dependentes_alteram_mes_encerrado(empresa=empresa, antes=antes, depois=depois)
 
 
-def _recusar_se_mes_caixa_encerrado(*, empresa, data, e_estorno):
-    """A TRAVA de `criar_lancamento_caixa` (critérios 1 e 2 da DL-053).
+def _adquirir_locks_dos_meses_do_ano(*, empresa_id, ano, a_partir_do_mes, exclusivo):
+    """Lock consultivo de cada mês de `a_partir_do_mes` a dezembro de `ano`, em
+    ORDEM CRESCENTE (DL-054, RC-148).
 
-    Pede o lock do mês em modo compartilhado e só então lê o estado; se
-    `encerrado`, levanta `MesCaixaEncerrado` (409) nomeando mês e empresa. A
-    condição é `estado != ABERTO` (não `== ENCERRADO`): estado desconhecido
-    bloqueia, nunca libera. Mês sem linha é aberto.
+    Por que o ano inteiro daqui em diante: o carnê-leão se encadeia de janeiro a
+    dezembro (excesso de livro-caixa, crédito do exterior e saldo abaixo de
+    R$ 10,00 passam de um mês para o seguinte), então gravar em M altera o
+    resultado de TODO mês posterior do mesmo ano. A trava do lançamento lê o
+    estado desses meses; para o fechamento de um deles não terminar entre essa
+    leitura e a gravação, o lançamento toma o lock compartilhado de cada um
+    (`encerrar_mes_caixa` toma o exclusivo do mês que fecha, e os dois se
+    excluem). Uma reabertura toma o exclusivo dos mesmos meses, pelo mesmo
+    motivo no sentido inverso.
+
+    A ordem crescente é o que impede deadlock: todo quem toma mais de um lock
+    de mês os toma na mesma ordem, e quem toma um só (encerrar) não segura
+    nenhum outro de mês. Propaga `OperationalError`; quem chama traduz.
+    """
+    for mes in range(a_partir_do_mes, 13):
+        _adquirir_lock_do_mes(empresa_id=empresa_id, ano=ano, mes=mes, exclusivo=exclusivo)
+
+
+def _recusar_se_mes_caixa_encerrado(*, empresa, data, e_estorno):
+    """A TRAVA de `criar_lancamento_caixa` (critérios 1 e 2 da DL-053 e
+    critérios 1 e 2 da DL-054 — RC-145, RC-148).
+
+    Recusa quando o mês do lançamento OU qualquer mês POSTERIOR do mesmo
+    ano-calendário está encerrado. O segundo caso é o encadeamento do
+    carnê-leão: um lançamento em janeiro muda o resultado de fevereiro, e
+    fevereiro encerrado é um resultado entregue que não pode mudar em silêncio
+    (achado E1 da auditoria da DL-053: uma despesa de R$ 2.000,00 em janeiro
+    baixava o imposto de fevereiro encerrado de R$ 1.016,27 para R$ 466,27).
+    É a mesma regra conservadora dos dependentes (RC-147): sem recalcular a
+    apuração, qualquer mês encerrado adiante no ano recusa. Só o ANO importa —
+    o encadeamento é anual, então mês encerrado de outro ano não recusa.
+
+    Pede o lock compartilhado do mês e de todos os posteriores do ano (ver
+    `_adquirir_locks_dos_meses_do_ano`) e só então lê o estado. A condição é
+    `estado != ABERTO` (não `== ENCERRADO`): estado desconhecido bloqueia,
+    nunca libera. Mês sem linha é aberto. A mensagem nomeia o PRIMEIRO mês
+    encerrado alcançado.
 
     Para o estorno, `data` é a do lançamento ORIGINAL (DE-091 item 4), então
     estornar lançamento de mês encerrado exige reabri-lo — a RC-130.
     """
     try:
-        _adquirir_lock_do_mes(empresa_id=empresa.id, ano=data.year, mes=data.month, exclusivo=False)
+        _adquirir_locks_dos_meses_do_ano(
+            empresa_id=empresa.id, ano=data.year, a_partir_do_mes=data.month, exclusivo=False
+        )
     except OperationalError as exc:
         if not _e_falha_de_espera_de_lock(exc):
             raise
         # Só parâmetros já em memória na mensagem: a transação está abortada
         # pelo estouro do lock, e qualquer consulta aqui falharia.
         raise MesCaixaOcupado(
-            f"O mês {data.month:02d}/{data.year} do livro-caixa de {empresa} está sendo "
-            "encerrado ou reaberto por outra operação agora; não foi possível confirmar o "
-            "estado dele a tempo. Tente novamente em instantes."
+            f"O mês {data.month:02d}/{data.year} do livro-caixa de {empresa}, ou um mês "
+            "seguinte do mesmo ano, está sendo encerrado ou reaberto por outra operação agora; "
+            "não foi possível confirmar o estado dele a tempo. Tente novamente em instantes."
         ) from exc
 
-    estado = (
-        FechamentoMesCaixa.objects.filter(empresa=empresa, ano=data.year, mes=data.month)
-        .values_list("estado", flat=True)
+    primeiro_encerrado = (
+        FechamentoMesCaixa.objects.filter(empresa=empresa, ano=data.year, mes__gte=data.month)
+        .exclude(estado=EstadoMesCaixa.ABERTO)
+        .order_by("mes")
+        .values_list("mes", flat=True)
         .first()
     )
-    if estado is not None and estado != EstadoMesCaixa.ABERTO:
-        mes_ano = f"{data.month:02d}/{data.year}"
+    if primeiro_encerrado is None:
+        return
+
+    mes_do_lancamento = f"{data.month:02d}/{data.year}"
+    if primeiro_encerrado == data.month:
         if e_estorno:
             raise MesCaixaEncerrado(
-                f"O mês {mes_ano} do livro-caixa de {empresa} está encerrado; não é possível "
-                "estornar lançamento dele. Reabra o mês (informando o motivo) para corrigir "
-                "o lançamento no mês original."
+                f"O mês {mes_do_lancamento} do livro-caixa de {empresa} está encerrado; não é "
+                "possível estornar lançamento dele. Reabra o mês (informando o motivo) para "
+                "corrigir o lançamento no mês original."
             )
         raise MesCaixaEncerrado(
-            f"O mês {mes_ano} do livro-caixa de {empresa} está encerrado; não é possível "
-            "gravar lançamento nele. Reabra o mês (informando o motivo) ou lance em um "
+            f"O mês {mes_do_lancamento} do livro-caixa de {empresa} está encerrado; não é "
+            "possível gravar lançamento nele. Reabra o mês (informando o motivo) ou lance em um "
             "mês aberto."
         )
+
+    mes_encerrado = f"{primeiro_encerrado:02d}/{data.year}"
+    acao = "estornar lançamento de" if e_estorno else "gravar lançamento em"
+    raise MesCaixaEncerrado(
+        f"O mês {mes_encerrado} do livro-caixa de {empresa} está encerrado e o carnê-leão dele "
+        f"depende de {mes_do_lancamento} (o excesso de livro-caixa e o saldo passam de um mês "
+        f"para o seguinte no ano); não é possível {acao} {mes_do_lancamento} sem alterar um "
+        f"resultado encerrado. Reabra {mes_encerrado} e os meses encerrados seguintes do ano "
+        "(informando o motivo) antes de corrigir."
+    )
 
 
 @transaction.atomic
@@ -775,7 +828,8 @@ def criar_lancamento_caixa(
     # DL-053: a TRAVA do mês encerrado. Depois de toda a validação e da
     # checagem de idempotência (uma repetição idempotente devolve o lançamento
     # que JÁ existe e não grava nada, então não precisa da trava), e ANTES de
-    # qualquer INSERT. O lock compartilhado do mês é mantido até o fim desta
+    # qualquer INSERT. Os locks compartilhados do mês e dos posteriores do ano
+    # (DL-054: o carnê-leão se encadeia) são mantidos até o fim desta
     # transação (inclui a trilha), que é o que impede um fechamento concorrente
     # de commitar entre esta leitura do estado e a gravação do lançamento.
     _recusar_se_mes_caixa_encerrado(empresa=empresa, data=data, e_estorno=estorno_de is not None)
@@ -1126,23 +1180,11 @@ def encerrar_mes_caixa(*, empresa, ano, mes, usuario, request=None):
     return fechamento
 
 
-@transaction.atomic
-def reabrir_mes_caixa(*, empresa, ano, mes, usuario, motivo, request=None):
-    """Reabre o mês (ano, mes) do livro-caixa da empresa: `encerrado -> aberto`.
-
-    `motivo` é OBRIGATÓRIO (critério 4): vazio, só espaço, com caractere
-    nulo ou acima de `TAMANHO_MAXIMO_MOTIVO_REABERTURA` é recusado
-    (`FechamentoMesCaixaInvalido`, 400) ANTES de qualquer lock — erro de
-    entrada, não de estado. Reabrir mês que está aberto (ou que nunca foi
-    fechado) é recusado (`FechamentoMesCaixaRecusado`, 409), sem efeito.
-
-    A linha NÃO é apagada: `estado` volta a `aberto` e `reaberto_em`/
-    `reaberto_por`/`motivo_reabertura` são gravados. A trilha
-    (`fechamento_mes_caixa.reaberto`) leva o motivo e o fechamento que está
-    sendo desfeito (`fechado_por_anterior`/`fechado_em_anterior`), na mesma
-    transação — reabertura é o ato mais afiado do período e nunca pode
-    acontecer sem rastro.
-    """
+def _normalizar_motivo_da_reabertura(motivo):
+    """Valida e normaliza o motivo (critério 4 da DL-053, também na cascata da
+    DL-054): vazio, só espaço, com caractere nulo ou acima de
+    `TAMANHO_MAXIMO_MOTIVO_REABERTURA` é recusado (`FechamentoMesCaixaInvalido`,
+    400) ANTES de qualquer lock — erro de entrada, não de estado."""
     if motivo is not None and not isinstance(motivo, str):
         raise FechamentoMesCaixaInvalido("O motivo da reabertura deve ser texto.")
     motivo_normalizado = (motivo or "").strip()
@@ -1159,24 +1201,56 @@ def reabrir_mes_caixa(*, empresa, ano, mes, usuario, motivo, request=None):
             f"O motivo da reabertura tem {len(motivo_normalizado)} caracteres; o máximo "
             f"é {TAMANHO_MAXIMO_MOTIVO_REABERTURA}."
         )
-    _validar_empresa_ano_mes_do_fechamento(empresa=empresa, ano=ano, mes=mes, usuario=usuario)
-    fechamento = _travar_mes_para_transicao(empresa=empresa, ano=ano, mes=mes)
+    return motivo_normalizado
 
-    if fechamento is None or fechamento.estado != EstadoMesCaixa.ENCERRADO:
-        raise FechamentoMesCaixaRecusado(
-            f"Só é possível reabrir um mês encerrado; o mês {mes:02d}/{ano} do livro-caixa "
-            f"de {empresa} está aberto. Nada foi alterado."
+
+def _travar_meses_do_ano_para_reabertura(*, empresa, ano, a_partir_do_mes):
+    """Locks consultivos EXCLUSIVOS de `a_partir_do_mes` a dezembro, em ordem
+    crescente, e `FOR UPDATE` nas linhas existentes desses meses (também em
+    ordem crescente). Devolve `{mes: linha}` só dos meses que têm linha (mês sem
+    linha é aberto). Estouro de `lock_timeout`/deadlock vira
+    `FechamentoMesCaixaTravado` (409).
+
+    Por que todos os meses até dezembro e não só os encerrados: o conjunto de
+    meses encerrados só pode ser lido com segurança DEPOIS de travar (um
+    encerramento concorrente o mudaria), e o lock exclusivo de um mês que
+    ninguém mexe custa nada. Travar o ano inteiro daqui em diante, na mesma
+    ordem do lançamento (`_adquirir_locks_dos_meses_do_ano`), elimina o
+    deadlock e garante que o conjunto lido é o que será reaberto."""
+    try:
+        _adquirir_locks_dos_meses_do_ano(
+            empresa_id=empresa.id, ano=ano, a_partir_do_mes=a_partir_do_mes, exclusivo=True
         )
+        linhas = (
+            FechamentoMesCaixa.objects.select_for_update()
+            .filter(empresa=empresa, ano=ano, mes__gte=a_partir_do_mes)
+            .order_by("mes")
+        )
+        return {linha.mes: linha for linha in linhas}
+    except OperationalError as exc:
+        if not _e_falha_de_espera_de_lock(exc):
+            raise
+        raise FechamentoMesCaixaTravado(
+            f"O mês {a_partir_do_mes:02d}/{ano} do livro-caixa de {empresa}, ou um mês seguinte "
+            "do mesmo ano, está sendo alterado por outra operação agora (um lançamento, "
+            "fechamento ou reabertura em andamento); não foi possível travá-lo a tempo. Nada "
+            "foi gravado. Tente novamente em instantes."
+        ) from exc
 
+
+def _reabrir_linha(*, fechamento, empresa, usuario, motivo, agora, request, extras_da_trilha):
+    """Reabre UMA linha já travada e já conferida como encerrada, e grava o
+    registro de trilha dela — mesma forma para a reabertura simples e para cada
+    mês da cascata."""
     # Capturados ANTES do `save()`: o fechamento que está sendo desfeito
     # deixa de ser o estado atual da linha, e a trilha precisa dele.
     fechado_por_anterior = fechamento.fechado_por_id
     fechado_em_anterior = fechamento.fechado_em
 
     fechamento.estado = EstadoMesCaixa.ABERTO
-    fechamento.reaberto_em = timezone.now()
+    fechamento.reaberto_em = agora
     fechamento.reaberto_por = usuario
-    fechamento.motivo_reabertura = motivo_normalizado
+    fechamento.motivo_reabertura = motivo
     fechamento.save(update_fields=["estado", "reaberto_em", "reaberto_por", "motivo_reabertura"])
     registrar(
         acao="fechamento_mes_caixa.reaberto",
@@ -1185,15 +1259,146 @@ def reabrir_mes_caixa(*, empresa, ano, mes, usuario, motivo, request=None):
         objeto=fechamento,
         request=request,
         detalhes={
-            "ano": ano,
-            "mes": mes,
+            "ano": fechamento.ano,
+            "mes": fechamento.mes,
             "empresa_id": empresa.id,
-            "motivo": motivo_normalizado,
+            "motivo": motivo,
             "fechado_por_anterior": fechado_por_anterior,
             "fechado_em_anterior": fechado_em_anterior.isoformat(),
+            **extras_da_trilha,
         },
     )
-    return fechamento
+
+
+class ReaberturaExigeCascata(FechamentoMesCaixaRecusado):
+    """Reabrir só o mês pedido foi recusado porque há meses ENCERRADOS depois
+    dele no mesmo ano (DL-054, RC-148): o carnê-leão deles depende dele, e um
+    mês reaberto sozinho não poderia receber lançamento (a trava do lançamento
+    recusa enquanto houver mês posterior encerrado). O caminho é reabrir em
+    cascata (`reabrir_mes_caixa_em_cascata`) ou reabrir os posteriores antes.
+    É um 409 de estado, como toda `FechamentoMesCaixaRecusado`; `ano` e
+    `meses` (inteiros, crescentes) deixam a tela oferecer a cascata sem
+    reinterpretar a mensagem."""
+
+    def __init__(self, mensagem, *, ano, meses):
+        super().__init__(mensagem)
+        self.ano = ano
+        self.meses = tuple(meses)
+
+
+def _reabrir_mes_e_posteriores(*, empresa, ano, mes, usuario, motivo, request, em_cascata):
+    """Núcleo da reabertura (simples e em cascata). Precisa rodar dentro de uma
+    transação. Devolve a lista das linhas reabertas, em ordem crescente de mês
+    (na reabertura simples, só a do mês pedido)."""
+    motivo_normalizado = _normalizar_motivo_da_reabertura(motivo)
+    _validar_empresa_ano_mes_do_fechamento(empresa=empresa, ano=ano, mes=mes, usuario=usuario)
+    linhas = _travar_meses_do_ano_para_reabertura(empresa=empresa, ano=ano, a_partir_do_mes=mes)
+
+    fechamento = linhas.get(mes)
+    if fechamento is None or fechamento.estado != EstadoMesCaixa.ENCERRADO:
+        raise FechamentoMesCaixaRecusado(
+            f"Só é possível reabrir um mês encerrado; o mês {mes:02d}/{ano} do livro-caixa "
+            f"de {empresa} está aberto. Nada foi alterado."
+        )
+
+    # Mesma condição da trava do lançamento: `!= ABERTO`, estado desconhecido
+    # conta como encerrado.
+    posteriores = [
+        m for m in sorted(linhas) if m > mes and linhas[m].estado != EstadoMesCaixa.ABERTO
+    ]
+    if posteriores and not em_cascata:
+        lista = ", ".join(f"{m:02d}/{ano}" for m in posteriores)
+        um_so = len(posteriores) == 1
+        raise ReaberturaExigeCascata(
+            f"O mês {mes:02d}/{ano} do livro-caixa de {empresa} não pode ser reaberto sozinho: "
+            f"{'o mês' if um_so else 'os meses'} {lista} "
+            f"{'está encerrado' if um_so else 'estão encerrados'} e o carnê-leão se encadeia "
+            "ao longo do ano, então dependem deste mês. Reabra em cascata (este mês e os "
+            "encerrados seguintes do ano, com um só motivo) ou reabra antes os meses "
+            "posteriores. Nada foi alterado.",
+            ano=ano,
+            meses=posteriores,
+        )
+
+    a_reabrir = [mes, *posteriores]
+    extras = {"cascata": True, "mes_de_origem": mes} if em_cascata else {}
+    agora = timezone.now()
+    for mes_a_reabrir in a_reabrir:
+        _reabrir_linha(
+            fechamento=linhas[mes_a_reabrir],
+            empresa=empresa,
+            usuario=usuario,
+            motivo=motivo_normalizado,
+            agora=agora,
+            request=request,
+            extras_da_trilha=extras,
+        )
+    return [linhas[m] for m in a_reabrir]
+
+
+@transaction.atomic
+def reabrir_mes_caixa(*, empresa, ano, mes, usuario, motivo, request=None):
+    """Reabre o mês (ano, mes) do livro-caixa da empresa: `encerrado -> aberto`.
+
+    `motivo` é OBRIGATÓRIO (critério 4): vazio, só espaço, com caractere
+    nulo ou acima de `TAMANHO_MAXIMO_MOTIVO_REABERTURA` é recusado
+    (`FechamentoMesCaixaInvalido`, 400) ANTES de qualquer lock — erro de
+    entrada, não de estado. Reabrir mês que está aberto (ou que nunca foi
+    fechado) é recusado (`FechamentoMesCaixaRecusado`, 409), sem efeito.
+
+    DL-054 (RC-148): se existir mês ENCERRADO depois deste no mesmo ano, reabrir
+    só este é recusado com `ReaberturaExigeCascata` (409, subclasse de
+    `FechamentoMesCaixaRecusado`; a mensagem lista os meses). Para reabri-los
+    junto, use `reabrir_mes_caixa_em_cascata`.
+
+    A linha NÃO é apagada: `estado` volta a `aberto` e `reaberto_em`/
+    `reaberto_por`/`motivo_reabertura` são gravados. A trilha
+    (`fechamento_mes_caixa.reaberto`) leva o motivo e o fechamento que está
+    sendo desfeito (`fechado_por_anterior`/`fechado_em_anterior`), na mesma
+    transação — reabertura é o ato mais afiado do período e nunca pode
+    acontecer sem rastro.
+
+    Concorrência: lock exclusivo do mês e dos posteriores do ano, em ordem
+    crescente (ver `_travar_meses_do_ano_para_reabertura`).
+    """
+    return _reabrir_mes_e_posteriores(
+        empresa=empresa,
+        ano=ano,
+        mes=mes,
+        usuario=usuario,
+        motivo=motivo,
+        request=request,
+        em_cascata=False,
+    )[0]
+
+
+@transaction.atomic
+def reabrir_mes_caixa_em_cascata(*, empresa, ano, mes, usuario, motivo, request=None):
+    """Reabre o mês (ano, mes) E todos os meses ENCERRADOS posteriores do
+    mesmo ano, num único ato (DL-054, RC-148) — o procedimento da RC-130 quando
+    o carnê-leão se encadeia: corrigir janeiro exige que fevereiro e março
+    encerrados também voltem a ser abertos, porque o resultado deles muda.
+
+    Tudo na MESMA transação, com UM motivo: cada mês reaberto ganha o mesmo
+    `motivo_reabertura` e o seu próprio registro de trilha
+    (`fechamento_mes_caixa.reaberto`, como na reabertura simples) com
+    `cascata=True` e `mes_de_origem` (o mês que o usuário pediu). Se qualquer
+    gravação ou a trilha falhar, NENHUM mês é reaberto.
+
+    O mês pedido precisa estar encerrado (senão `FechamentoMesCaixaRecusado`,
+    409, como na reabertura simples); meses abertos entre ele e dezembro ficam
+    como estão. Mesmas validações e mesmas exceções de `reabrir_mes_caixa`.
+    Devolve as linhas reabertas, em ordem crescente de mês.
+    """
+    return _reabrir_mes_e_posteriores(
+        empresa=empresa,
+        ano=ano,
+        mes=mes,
+        usuario=usuario,
+        motivo=motivo,
+        request=request,
+        em_cascata=True,
+    )
 
 
 def _nome_do_usuario_do_fechamento(usuario):

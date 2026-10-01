@@ -238,9 +238,15 @@ def test_limites_do_mes_ultimo_e_primeiro_dia_e_virada_de_ano(cenario):
     with pytest.raises(MesCaixaEncerrado):
         _lancar(cenario, date(2026, 1, 31))
 
-    # Os vizinhos continuam abertos: 30/11/2025 e 01/02/2026.
-    assert _lancar(cenario, date(2025, 11, 30)).pk
+    # O vizinho POSTERIOR continua aberto: 01/02/2026.
     assert _lancar(cenario, date(2026, 2, 1)).pk
+    # DL-054 (RC-148): 30/11/2025 era aceito aqui na DL-053, mas dezembro/2025
+    # está encerrado e o carnê-leão se encadeia dentro do ano, então lançar em
+    # novembro alteraria um resultado encerrado — agora é recusado. A virada do
+    # ano continua isolando: o encerramento de 01/2026 não alcança 2025.
+    with pytest.raises(MesCaixaEncerrado) as erro:
+        _lancar(cenario, date(2025, 11, 30))
+    assert "12/2025" in str(erro.value)
 
 
 def test_encerrar_um_mes_nao_afeta_outro_mes_nem_outra_empresa(cenario):
