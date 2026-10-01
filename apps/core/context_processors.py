@@ -47,6 +47,7 @@ from django.urls import reverse
 
 from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
 from apps.empresas.models import Empresa
+from apps.empresas.permissoes import papel_pode_ler_carteira
 from apps.empresas.views import PodeGerenciarEmpresa
 from apps.fiscal.permissoes import papel_pode_consultar_documentos
 
@@ -199,6 +200,11 @@ def navegacao_do_menu(request):
     contexto = {
         "pode_ler_contabilidade_no_menu": papel_pode_ler_contabilidade(papel),
         "pode_consultar_fiscal_no_menu": papel_pode_consultar_documentos(papel),
+        # DL-055: o servidor recusa (403) o cadastro de empresas a quem não lê
+        # a carteira (hoje, o CLIENTE). Esta flag só evita CONVIDAR a uma
+        # tela que o usuário não pode abrir — mesma função que a API usa
+        # (`apps.empresas.permissoes`), nunca uma lista de papéis no template.
+        "pode_ler_carteira_no_menu": papel_pode_ler_carteira(papel),
         # Reaproveita a MESMA permissão DRF que `apps.empresas.views.
         # criar_empresa` já usa (`PodeGerenciarEmpresa`, definida ali) —
         # traduzida para fora do protocolo DRF com `.has_permission(request,

@@ -53,12 +53,15 @@ def test_papel_gestor_pode_criar_empresa_e_gera_auditoria(client, escritorio):
     ).exists()
 
 
-def test_papel_cliente_ainda_pode_listar_empresas(client, escritorio):
+def test_papel_cliente_nao_lista_empresas(client, escritorio):
+    # DL-055 (DE-020 §4): antes, o CLIENTE listava a carteira inteira do
+    # escritório (200). Matriz completa em test_dl055_cliente_nao_ve_carteira.py.
     Empresa.objects.create(escritorio=escritorio, razao_social="Empresa A", cnpj="11122233000183")
     _usuario_com_papel(Papel.CLIENTE, escritorio, "cliente")
     client.login(username="cliente", password="senha-forte-123")
 
     response = client.get(reverse("empresas:api-lista"))
 
-    assert response.status_code == 200
-    assert len(response.json()) == 1
+    assert response.status_code == 403
+    assert "Empresa A" not in response.content.decode()
+    assert "11122233000183" not in response.content.decode()

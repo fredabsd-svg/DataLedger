@@ -1914,7 +1914,7 @@ BL-544 a BL-546 entram nesta etapa; os demais ficam registrados para depois.
 | BL-546 | **M1 (média)** — estorno gravado antes e fora da transação da trilha | `desenvolvedor-pleno` | — | concluída (DL-052) | Critério 6 do plano |
 | BL-547 | Token do convite sai da URL (hoje fica em log de acesso e histórico do navegador) — HI-48 | `desenvolvedor-pleno` | BL-544 | aberta | Link sem token no caminho; token não aparece em log de acesso |
 | BL-548 | Cadastro não confirma o e-mail do usuário; a amarração do convite ao e-mail é parcial sem isso — HI-47 | `desenvolvedor-pleno` | — | aberta | Conta só vincula convite depois de e-mail confirmado |
-| BL-549 | **M2 (média)** — papel Cliente recebe 200 na lista de empresas e vê razão social e CNPJ/CPF dos demais clientes (`apps/empresas/views.py` GETs), contra a DE-020 §4 | `desenvolvedor-pleno` | — | em desenvolvimento (DL-055) | Matriz de papéis nos GETs de empresa; Cliente vê só a própria |
+| BL-549 | **M2 (média)** — papel Cliente recebe 200 na lista de empresas e vê razão social e CNPJ/CPF dos demais clientes (`apps/empresas/views.py` GETs), contra a DE-020 §4 | `desenvolvedor-pleno` | — | concluída (DL-055) | Matriz de papéis nos GETs de empresa; Cliente vê só a própria |
 | BL-550 | **M3 (média)** — reclassificar conta na DRE/DLPA altera demonstração de competência encerrada ou entregue; analista consegue | `desenvolvedor-pleno` | — | aberta | Reclassificação com movimento em competência encerrada → 409, ou classificação por vigência |
 | BL-551 | **M4 (média)** — livro-caixa sem trava de período: lançamento posterior muda carnê-leão já apurado | `desenvolvedor-pleno` | — | em desenvolvimento (DL-053) | **PE-73 respondida (RC-145): pode ter fechamento de mês.** Lançamento e estorno em mês fechado → recusados em toda porta, banco inalterado; fechar/reabrir por administrador ou gestor (RC-146), com trilha |
 | BL-552 | **M5 (média)** — sem limite de tentativas no login e no cadastro; cadastro de escritório não prova titularidade do CNPJ | `desenvolvedor-pleno` | — | em desenvolvimento (DL-056, só o limite; titularidade do CNPJ espera o Fred) | Limite por IP e por conta com teste; decisão sobre titularidade levada ao Fred |
@@ -1984,3 +1984,15 @@ Integrada com as ressalvas abaixo (RC-150): nenhuma muda o escopo aprovado.
 | BL-581 | **F5 (baixa)** — sem teto de entradas no `X-Forwarded-For` (hoje neutralizado pelo limite de cabeçalho do gunicorn) | `desenvolvedor-pleno` | — | aberta | Teto (ex.: 64 entradas) com teste |
 | BL-582 | **F6 (baixa)** — procedimento de implantação do proxy não documentado (descobrir o `REMOTE_ADDR` do proxy; proxy deve acrescentar ao `X-Forwarded-For`; socket Unix sem IP) | `arquiteto-senior` | PE-07 | aberta | Documento de implantação |
 | BL-583 | **O1** — `AGENTS.md` com 29.980 bytes para margem de 30.000 da guarda do Codex: qualquer acréscimo de 21 bytes reprova o build | `arquiteto-senior` | — | aberta | Mover conteúdo para documento apontado, antes do próximo acréscimo |
+
+## Auditoria da DL-055 — rodada 1, APROVADA COM RESSALVAS (2026-10-01)
+
+Relatório integral em [2026-10-01-dl-055-rodada-1.md](../auditorias/2026-10-01-dl-055-rodada-1.md).
+Integrada com as ressalvas abaixo (RC-150).
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-584 | **G1 (média, pré-existente)** — telas da contabilidade e do livro-caixa respondem 403 para empresa existente e 404 para inexistente ao papel sem leitura: o Cliente enumera quantas empresas o escritório tem (sem nome nem CNPJ). 61 combinações de rota e método | `desenvolvedor-pleno` | — | aberta | Papel checado antes de resolver a empresa; teste derivado do urlconf exige a mesma resposta para id existente e inexistente |
+| BL-585 | **G2 (baixa, latente)** — separar "quem lê a carteira" de "quem lê a contabilidade" não é mudar uma linha: o Início (`apps/tenancy/views.py` ~790), a fila de atenção e os seletores de módulo usam a regra da contabilidade | `desenvolvedor-pleno` | — | aberta | Usar `papel_pode_ler_carteira` onde o dado exibido é cadastro; teste com as listas divergentes |
+| BL-586 | **G3 (baixa)** — o Início do Cliente fica quase vazio, sem explicar o que o papel pode fazer | `especialista-frontend` | Fred | aberta — **decisão de produto do Fred** | Estado vazio do papel sem módulo, com texto aprovado |
+| BL-587 | Tabela "Empresas da carteira" do Início passa da largura a 390 px (pré-existente, medido nas auditorias da DL-055) | `especialista-frontend` | — | aberta | Sem rolagem horizontal a 390 px, medido no navegador |

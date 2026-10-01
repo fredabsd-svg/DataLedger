@@ -30,3 +30,21 @@ demais papéis mantêm exatamente o acesso atual.
 3. Id existente e inexistente devolvem a mesma resposta ao CLIENTE.
 4. Escrita já recusada ao CLIENTE continua recusada.
 5. Suíte completa verde em PostgreSQL.
+
+## Evidências e integração
+
+- Servidor (`desenvolvedor-pleno`): `apps/empresas/permissoes.py` com
+  `PAPEIS_QUE_LEEM_CARTEIRA` apontando para a mesma lista da contabilidade;
+  403 ao Cliente em toda leitura da API e das telas de empresas, inclusive a
+  troca de seção, que antes revelava a existência do id.
+- Tela (`especialista-frontend`): menu, links de troca, indicador e atalhos
+  do Início e botão da página 403 coerentes para quem não lê a carteira.
+- Dois testes antigos mudaram de expectativa porque afirmavam o defeito
+  ("o Cliente lista empresas"); a auditoria confirmou que não é afrouxamento.
+- [Auditoria rodada 1](../auditorias/2026-10-01-dl-055-rodada-1.md):
+  **aprovada com ressalvas** — varredura de 95 rotas e 6.251 requisições do
+  Cliente sem nenhum dado de empresa; os outros 5 papéis idênticos; 12
+  mutações detectadas; suíte com 3.963 aprovados e a falha conhecida de
+  Python 3.13. Ressalvas no backlog: BL-584 a BL-587.
+- Decisão registrada: DE-095.
+

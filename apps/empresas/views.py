@@ -42,6 +42,7 @@ from apps.empresas.models import (
     RegimeTributario,
     TipoInscricao,
 )
+from apps.empresas.permissoes import PodeLerCarteira, papel_pode_ler_carteira
 from apps.empresas.serializers import (
     EmpresaSerializer,
     EstabelecimentoSerializer,
@@ -61,9 +62,10 @@ from apps.empresas.services import (
 from apps.tenancy.models import Papel
 from apps.tenancy.permissions import TemEscritorioAtivo, papel_permitido
 
-# Criação/alteração de cadastro é restrita a quem administra o escritório;
-# consulta continua liberada a qualquer papel vinculado (ver get_permissions
-# e as views de leitura, que só exigem TemEscritorioAtivo).
+# Criação/alteração de cadastro é restrita a quem administra o escritório.
+# Consulta é restrita a quem pode ler a carteira (DL-055,
+# `apps.empresas.permissoes`): o papel CLIENTE não lê o cadastro de nenhuma
+# empresa, pela API nem pela tela.
 PodeGerenciarEmpresa = papel_permitido(Papel.ADMINISTRADOR, Papel.GESTOR)
 
 
@@ -214,7 +216,10 @@ CONTRATO_EXCLUSAO_DE_REGIME = ContratoDeRequisicao(
 
 
 class EmpresaQuerySetMixin:
-    permission_classes = [TemEscritorioAtivo]
+    # DL-055: `PodeLerCarteira` vale para TODOS os métodos e vem ANTES de
+    # qualquer consulta ao banco, então o CLIENTE recebe o mesmo 403 para
+    # id existente e inexistente (nenhum oráculo de existência).
+    permission_classes = [TemEscritorioAtivo, PodeLerCarteira]
 
     def get_queryset(self):
         # Isolamento: sempre filtrado pelo escritório ativo da requisição,
@@ -439,7 +444,7 @@ class EmpresaDetailView(EmpresaQuerySetMixin, generics.RetrieveUpdateAPIView):
 
 
 class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPIView):
-    permission_classes = [TemEscritorioAtivo]
+    permission_classes = [TemEscritorioAtivo, PodeLerCarteira]  # DL-055
     serializer_class = EstabelecimentoSerializer
 
     def get_permissions(self):
@@ -553,7 +558,7 @@ class EstabelecimentoListCreateView(EmpresaEscopadaMixin, generics.ListCreateAPI
 
 
 class HistoricoRegimeTributarioListCreateView(EmpresaEscopadaMixin, generics.ListAPIView):
-    permission_classes = [TemEscritorioAtivo]
+    permission_classes = [TemEscritorioAtivo, PodeLerCarteira]  # DL-055
     serializer_class = HistoricoRegimeTributarioSerializer
 
     def get_permissions(self):
@@ -656,7 +661,10 @@ class HistoricoRegimeTributarioDetailView(EmpresaEscopadaMixin, APIView):
     mostrado botão.
     """
 
-    permission_classes = [TemEscritorioAtivo, PodeGerenciarEmpresa]
+    # DL-055: `PodeLerCarteira` explícito, mesmo sendo implicado por
+    # `PodeGerenciarEmpresa`, para que mudar quem gerencia nunca reabra a
+    # leitura do CLIENTE e para o 403 seguir a mesma mensagem das outras rotas.
+    permission_classes = [TemEscritorioAtivo, PodeLerCarteira, PodeGerenciarEmpresa]
 
     def delete(self, request, empresa_id, registro_id):
         empresa = self.get_empresa()
@@ -713,11 +721,23 @@ def _mascara_cpf(cpf):
     return f"{cpf[0:3]}.{cpf[3:6]}.{cpf[6:9]}-{cpf[9:11]}"
 
 
+def _recusar_leitura_da_carteira(request):
+    """403 da tela para o papel que não lê o cadastro de empresas (DL-055).
+
+    A mensagem é fixa e não carrega nada da requisição nem do banco: nenhum
+    nome, CNPJ ou id volta para quem foi recusado.
+    """
+    contexto = {"mensagem": "Seu papel não permite consultar o cadastro de empresas."}
+    return render(request, "erros/sem_permissao.html", contexto, status=403)
+
+
 @login_required
 @require_safe
 def lista_empresas(request):
     if request.escritorio is None:
         return render(request, "empresas/sem_escritorio.html")
+    if not papel_pode_ler_carteira(request.papel):
+        return _recusar_leitura_da_carteira(request)
     empresas = list(Empresa.objects.filter(escritorio=request.escritorio))
     # Formatação de apresentação (CNPJ/CPF mascarado) feita aqui, na view, e
     # não em template tag própria: esta etapa não tem permissão para criar
@@ -928,6 +948,10 @@ def trocar_empresa_na_secao(request):
     """
     if request.escritorio is None:
         return render(request, "empresas/sem_escritorio.html")
+    # DL-055: ANTES de resolver `empresa_id`. Com a checagem depois, o
+    # CLIENTE distinguiria empresa existente (redirect) de inexistente (404).
+    if not papel_pode_ler_carteira(request.papel):
+        return _recusar_leitura_da_carteira(request)
 
     try:
         empresa_id = para_id(request.GET.get("empresa_id"))

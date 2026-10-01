@@ -20,7 +20,9 @@ faixa, ao lado — repeti-lo como subtítulo seria a mesma duplicação que a
 {% endblock %}
 {% block acoes_pagina %}
     {% if escritorio_ativo %}
-        <a class="botao botao--secundario" href="{% url 'empresas:lista' %}">Ver empresas</a>
+        {% if pode_ler_carteira_no_menu %}
+            <a class="botao botao--secundario" href="{% url 'empresas:lista' %}">Ver empresas</a>
+        {% endif %}
     {% elif not escritorios %}
         {% comment %} DL-018 — primeira superfície para o usuário sem
         vínculo: ele próprio cria o escritório (DE-042, HI-1 + HI-2). O
@@ -105,7 +107,9 @@ faixa, ao lado — repeti-lo como subtítulo seria a mesma duplicação que a
             <h2 id="titulo-modulos" class="visualmente-oculto">Módulos</h2>
             <div class="grade-de-modulos">
                 {% for modulo in modulos %}
-                    {% if modulo.planejado %}
+                    {% if modulo.chave == "empresas" and not pode_ler_carteira_no_menu %}
+                        {# DL-055: o tile "Empresas" levaria o CLIENTE a um 403. #}
+                    {% elif modulo.planejado %}
                         <span class="tile-de-modulo tile-de-modulo--planejado">
                             <svg class="tile-de-modulo__icone" aria-hidden="true"><use href="#icone-{{ modulo.icone }}"></use></svg>
                             <span class="tile-de-modulo__titulo">{{ modulo.titulo }}</span>
