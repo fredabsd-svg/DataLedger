@@ -326,3 +326,20 @@ Conferência: 100.000 + 20.000 + 25.000 − 10.000 + 3.000 − 2.000 = 136.000.
   em três versões; ensaio estrito com 870 DMPL emitidas sem violação. Ressalvas: BL-622
   a BL-625 (M1 a M4) e a validação contábil do Fred (BL-626).
 
+## Consulta ao manual sobre as ressalvas da reconferência (01/10/2026)
+
+Paráfrase, sem cópia. O manual responde **rotina**; norma continua com o Fred.
+
+| Ressalva | O que o sistema de referência faz | Consequência aqui |
+| --- | --- | --- |
+| M2 — eventos opostos no mesmo lançamento (BL-623) | Sem ajuste manual, o valor inteiro vai para o tipo **padrão** do grupo. Não veta e não mostra o líquido por evento. A saída é repartir o valor à mão na guia DMPL do lançamento, que aceita valores parciais em lançamentos com vários débitos e créditos (p. 193–194). | A saída real é a marcação manual da fatia 2. Até lá, recusar é mais fiel à RC-151 do que publicar o líquido. Recomendação ao Fred: vetar. |
+| M3 — o estorno não libera (BL-624) | O lançamento pode ser consultado, editado e excluído (p. 775). A classificação da DMPL pode ser refeita por utilitário (p. 773–774). | Aqui o livro é imutável. A correção é a marcação guardada fora do livro (fatia 2), e o texto atual, que manda estornar ou dividir, está errado. |
+| Nota impressa do resultado não transferido (BL-626) | A DMPL aceita uma "declaração final" configurada pelo escritório, com variáveis, impressa no fim ou em todas as folhas (p. 619; parâmetros, p. 344). | Imprimir texto explicativo no documento é prática do sistema de referência. A nossa nota é automática e só aparece quando há saldo. |
+| Ordem das linhas e colunas (BL-626) | Grupos, subgrupos e tipos de lançamento são montados pelo escritório. Não há ordem fixa. Há opção de imprimir a estrutura sem movimento e o saldo do período anterior (p. 616–622). | A ordem fixa do E4 é escolha de produto, a validar pelo Fred. |
+| Lucros e prejuízos na mesma coluna (BL-626) | A estrutura da DLPA tem um tipo único "lucros/prejuízos", com rótulo diferente para lucro e para prejuízo (p. 609–610). | Apoia a coluna única. |
+| Documento emitido congelado (BL-620) | A DMPL pode sair como anexo do Diário, do Razão ou do Balanço, com número do livro e folha (p. 301–306). O documento fica fixado no livro. | O congelamento vem com o módulo de livros, que ainda não existe. |
+| Identidade DLPA × DMPL (M1, BL-622) | A DLPA tem estrutura própria, ligada a contas ou com valores informados à mão (p. 606–608). Não há garantia de identidade com a DMPL. | A identidade daqui é mais forte que a do sistema de referência. A M1 é defeito da nossa DLPA. |
+
+Cancelamento de ações em tesouraria e reserva de capital incorporada ao capital: o
+manual não define, porque a estrutura é livre. Ficam com o Fred.
+
