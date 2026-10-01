@@ -6,6 +6,8 @@ from django.contrib.auth.forms import AuthenticationForm
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 
+from apps.accounts import limite_tentativas
+from apps.auditoria.services import registrar
 from apps.empresas.validators import normalizar_cnpj, validar_cnpj
 from apps.tenancy.models import Escritorio
 
@@ -87,7 +89,13 @@ class CadastroForm(forms.Form):
 
 
 class LoginForm(AuthenticationForm):
-    """Preserva usuários legados e aceita variação de caixa do novo login por e-mail."""
+    """Preserva usuários legados e aceita variação de caixa do novo login por e-mail.
+
+    Também aplica o limite de tentativas (DL-056): a tentativa é reservada
+    ANTES de `authenticate` (ver `apps.accounts.limite_tentativas`) e, acima do
+    limite, recusada com a MESMA mensagem do login inválido — sem verificar a
+    senha, sem dizer se o usuário existe e sem dizer que há bloqueio.
+    """
 
     def clean(self):
         username = self.cleaned_data.get("username", "")
@@ -98,4 +106,24 @@ class LoginForm(AuthenticationForm):
             canonical = username.lower()
             if Usuario.objects.filter(username=canonical, email__iexact=canonical).exists():
                 self.cleaned_data["username"] = canonical
-        return super().clean()
+        # Sem usuário e senha o Django nem chama `authenticate`: não há
+        # tentativa de senha a limitar.
+        reserva = None
+        if username and self.cleaned_data.get("password"):
+            reserva, motivo = limite_tentativas.reservar_tentativa_de_login(self.request, username)
+            if reserva is None:
+                # Só o HASH do usuário vai para a trilha, nunca o texto digitado
+                # (pode ser uma senha no campo errado — BL-555/B3).
+                registrar(
+                    acao="login.bloqueado",
+                    request=self.request,
+                    detalhes={
+                        "motivo": motivo,
+                        "usuario_hash": limite_tentativas.chave_do_usuario(username)[:16],
+                    },
+                )
+                raise self.get_invalid_login_error()
+        resultado = super().clean()
+        if reserva is not None:
+            limite_tentativas.confirmar_sucesso_de_login(reserva)
+        return resultado
