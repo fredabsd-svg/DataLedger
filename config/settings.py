@@ -353,6 +353,16 @@ LIMITE_TENTATIVAS_CADASTRO_JANELA_SEGUNDOS = 60 * 60
 # autenticação e permissões próprias nas etapas de fundação e de cada módulo.
 
 REST_FRAMEWORK = {
+    # DL-058/B4: autenticação da API declarada, só por sessão. Sem esta
+    # chave o DRF assume Session + Basic, e o Basic ficava ligado sem que
+    # nada no produto o usasse (conferido: nenhuma view, teste ou integração
+    # envia `Authorization`). Basic aceitaria usuário e senha em CADA
+    # requisição, fora do login auditado e do que a DL-056 limita. Se um
+    # dia houver cliente de API (token, MCP), ele entra aqui por decisão
+    # explícita, não por herança do padrão.
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],

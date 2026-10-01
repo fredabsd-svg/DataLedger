@@ -119,7 +119,7 @@ class LoginForm(AuthenticationForm):
                     request=self.request,
                     detalhes={
                         "motivo": motivo,
-                        "usuario_hash": limite_tentativas.chave_do_usuario(username)[:16],
+                        "usuario_hash": limite_tentativas.resumo_do_usuario(username),
                     },
                 )
                 raise self.get_invalid_login_error()

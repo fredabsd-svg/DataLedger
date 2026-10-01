@@ -12,6 +12,14 @@ from apps.contabilidade.models import (
 )
 from apps.core.identificadores import IdentificadorInvalido, para_id
 
+# DL-058/B1: UMA mensagem só para "a conta pai não é utilizável aqui", seja
+# o id de outra empresa (de outro escritório, inclusive) ou inexistente.
+# Antes, o id alheio recebia "deve pertencer à mesma empresa" e o
+# inexistente recebia 'Invalid pk "N" - object does not exist.' — a
+# diferença entre as duas respostas dizia a quem testava ids que o id
+# existia em algum lugar (enumeração de contas de outros escritórios).
+MENSAGEM_CONTA_PAI_INVALIDA = "A conta pai deve pertencer à mesma empresa."
+
 
 class _ContaPaiField(serializers.PrimaryKeyRelatedField):
     """`PrimaryKeyRelatedField` que julga o identificador com `para_id`
@@ -27,7 +35,27 @@ class _ContaPaiField(serializers.PrimaryKeyRelatedField):
     ponto onde isso pode ser interceptado: `validate_conta_pai` (abaixo)
     já recebe o valor DEPOIS de resolvido para uma instância de `Conta` —
     tarde demais para julgar o texto/número original.
+
+    DL-058/B1: o queryset é restrito à empresa do escopo da requisição, e a
+    mensagem de "não existe" é a MESMA da conta de outra empresa — ver
+    `MENSAGEM_CONTA_PAI_INVALIDA`.
     """
+
+    default_error_messages = {
+        **serializers.PrimaryKeyRelatedField.default_error_messages,
+        "does_not_exist": MENSAGEM_CONTA_PAI_INVALIDA,
+    }
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        empresa = self.context.get("empresa")
+        if empresa is None:
+            # Sem empresa no contexto NÃO se restringe aqui: quem falha
+            # fechado nesse caso é `validate_conta_pai` (erro de uso do
+            # serializer, 400 explícito). Restringir a "nenhuma conta"
+            # esconderia o esquecimento atrás da mensagem de id inválido.
+            return queryset
+        return queryset.filter(empresa=empresa)
 
     def to_internal_value(self, data):
         try:
@@ -169,10 +197,11 @@ class ContaSerializer(serializers.ModelSerializer):
         achado BL-40 (DE-008). A validação precisa ser repetida aqui, na
         fronteira da API, contra a empresa resolvida pela view a partir do
         escopo da requisição (`EmpresaEscopadaMixin.get_empresa()`), nunca
-        contra um `empresa_id` que o cliente possa enviar. O queryset do campo
-        continua sem restrição (`Conta.objects.all()`, padrão do
-        `ModelSerializer`) porque a comparação depende do contexto da
-        requisição, não é algo expressável só pelo dado do formulário.
+        contra um `empresa_id` que o cliente possa enviar. O `queryset` declarado
+        no campo continua `Conta.objects.all()` (a empresa só existe no
+        contexto da requisição), mas `_ContaPaiField.get_queryset` o restringe
+        à empresa do contexto (DL-058/B1) — esta checagem fica como segunda
+        camada, e a fail-closed de contexto sem empresa mora aqui.
         """
         if value is None:
             return value
@@ -192,7 +221,10 @@ class ContaSerializer(serializers.ModelSerializer):
                 "não do cliente da API — reporte ao desenvolvedor."
             )
         if value.empresa_id != empresa.id:
-            raise serializers.ValidationError("A conta pai deve pertencer à mesma empresa.")
+            # Defesa em profundidade: o campo já restringe o queryset à
+            # empresa (DL-058/B1), então este ramo só alcança quem chamar
+            # o validador com uma instância já resolvida. Mesma mensagem.
+            raise serializers.ValidationError(MENSAGEM_CONTA_PAI_INVALIDA)
 
         # Impede o ciclo NA ORIGEM também nesta camada (achado 6, DE-008:
         # invariante contábil não mora só em `Model.clean()`, porque o DRF
