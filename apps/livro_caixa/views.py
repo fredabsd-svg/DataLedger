@@ -542,14 +542,15 @@ class PodeFecharMesCaixa(BasePermission):
 
 # Encerrar é rota de AÇÃO: o mês vem da URL, sem corpo — mesmo desenho do
 # fechamento de competência. Reabrir tem dois campos: `motivo` (obrigatório) e
-# `cascata` (DL-054, booleano opcional, padrão falso).
+# `cascata` (DL-054, booleano opcional, padrão falso) e `meses_confirmados`
+# (DL-060: lista de `{ano, mes}`, obrigatória com `cascata=true`).
 CONTRATO_POST_ENCERRAR_MES_CAIXA = ContratoDeRequisicao(
     campos=frozenset(),
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="no encerramento de mês do livro-caixa",
 )
 CONTRATO_POST_REABRIR_MES_CAIXA = ContratoDeRequisicao(
-    campos={"motivo", "cascata"},
+    campos={"motivo", "cascata", "meses_confirmados"},
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na reabertura de mês do livro-caixa",
 )
@@ -564,6 +565,43 @@ def _validar_ano_mes_da_url(ano, mes):
         raise DRFValidationError(
             f"'ano' inválido: {ano} — deve estar entre {_ANO_MINIMO} e {_ANO_MAXIMO}."
         )
+
+
+def _meses_confirmados_da_requisicao(dados):
+    """Lê `meses_confirmados` da reabertura em cascata (DL-060): lista de
+    objetos `{"ano": int, "mes": int}`, SEM outras chaves e sem repetição.
+    Devolve um `frozenset` de `(ano, mes)`. Ausente ou malformado é 400 — a
+    cascata reabre meses encerrados e só vale para o conjunto que o cliente
+    declara ter visto; um padrão ("todos") reabriria o que ninguém confirmou.
+    Lista vazia é válida e confirma "não há meses posteriores encerrados"."""
+    if "meses_confirmados" not in dados:
+        raise DRFValidationError(
+            "Com 'cascata' verdadeiro, informe 'meses_confirmados': a lista de "
+            '{"ano": ..., "mes": ...} dos meses encerrados posteriores que serão reabertos.'
+        )
+    bruto = dados["meses_confirmados"]
+    if not isinstance(bruto, list):
+        raise DRFValidationError("O campo 'meses_confirmados' deve ser uma lista.")
+    confirmados = set()
+    for item in bruto:
+        if not isinstance(item, dict) or set(item) != {"ano", "mes"}:
+            raise DRFValidationError(
+                "Cada item de 'meses_confirmados' deve ser um objeto com exatamente 'ano' e 'mes'."
+            )
+        ano_item, mes_item = item["ano"], item["mes"]
+        # `bool` é subclasse de `int`: `true` não pode virar janeiro/ano 1.
+        if any(isinstance(v, bool) or not isinstance(v, int) for v in (ano_item, mes_item)):
+            raise DRFValidationError("'ano' e 'mes' de 'meses_confirmados' devem ser inteiros.")
+        if not (1 <= mes_item <= 12) or not (_ANO_MINIMO <= ano_item <= _ANO_MAXIMO):
+            raise DRFValidationError(
+                f"Mês fora da faixa em 'meses_confirmados': {ano_item}-{mes_item}."
+            )
+        if (ano_item, mes_item) in confirmados:
+            raise DRFValidationError(
+                f"Mês repetido em 'meses_confirmados': {ano_item}-{mes_item:02d}."
+            )
+        confirmados.add((ano_item, mes_item))
+    return frozenset(confirmados)
 
 
 def _mes_caixa_como_dict(mes):
@@ -638,20 +676,27 @@ class ReabrirMesCaixaView(EmpresaEscopadaLivroCaixaMixin, APIView):
     3 e 4; cascata: DL-054, RC-148).
 
     Corpo: `{"motivo": "<texto, obrigatório>", "cascata": <bool, opcional,
-    padrão false>}`. Só esses dois campos; qualquer outro é 400.
+    padrão false>, "meses_confirmados": [{"ano": 2026, "mes": 2}, ...]}`.
+    `meses_confirmados` é OBRIGATÓRIO com `cascata=true` (DL-060) e proibido
+    sem ela; qualquer outro campo é 400.
 
     - `cascata=false`: reabre só o mês. Se houver mês ENCERRADO depois dele no
       mesmo ano, responde 409 sem alterar nada, com `detail` (mensagem
       legível) e `meses_encerrados_posteriores` (`[{"ano": 2026, "mes": 2},
       ...]`, crescente) — a tela usa a lista para oferecer a cascata.
-    - `cascata=true`: reabre o mês e TODOS os encerrados posteriores do ano,
-      numa transação, com o mesmo motivo e um registro de trilha por mês.
+    - `cascata=true`: reabre o mês e os encerrados posteriores do ano, numa
+      transação, com o mesmo motivo e um registro de trilha por mês — mas só
+      se `meses_confirmados` for EXATAMENTE o conjunto de encerrados
+      posteriores no momento do ato (lido sob lock). Se divergir (mês
+      encerrado a mais ou reaberto a menos desde que o cliente os viu),
+      responde 409 sem alterar nada, com `meses_encerrados_posteriores` ATUAL.
 
     200: o estado do mês pedido (mesmo formato de `GET .../meses/`) mais
     `meses_reabertos`, lista desse mesmo formato com todos os meses reabertos
     pelo ato, em ordem crescente (um item na reabertura simples).
     400: corpo inválido (motivo vazio/longo/com caractere nulo/não texto,
-    `cascata` que não seja booleano, campo desconhecido), `ano`/`mes` fora da
+    `cascata` que não seja booleano, `meses_confirmados` ausente com cascata,
+    malformado ou presente sem cascata, campo desconhecido), `ano`/`mes` fora da
     faixa, empresa fora do modo livro-caixa. 403: papel sem permissão de
     fechar mês. 404: empresa de outro escritório. 409: o mês pedido não está
     encerrado; ou exige cascata (acima); ou a espera pelo lock estourou.
@@ -673,7 +718,16 @@ class ReabrirMesCaixaView(EmpresaEscopadaLivroCaixaMixin, APIView):
         cascata = dados.get("cascata", False)
         if not isinstance(cascata, bool):
             raise DRFValidationError("O campo 'cascata' deve ser verdadeiro ou falso.")
-        reabrir = reabrir_mes_caixa_em_cascata if cascata else reabrir_mes_caixa
+        argumentos = {}
+        if cascata:
+            reabrir = reabrir_mes_caixa_em_cascata
+            argumentos["meses_confirmados"] = _meses_confirmados_da_requisicao(dados)
+        else:
+            if "meses_confirmados" in dados:
+                raise DRFValidationError(
+                    "'meses_confirmados' só se aplica com 'cascata' verdadeiro."
+                )
+            reabrir = reabrir_mes_caixa
         try:
             resultado = reabrir(
                 empresa=empresa,
@@ -682,6 +736,7 @@ class ReabrirMesCaixaView(EmpresaEscopadaLivroCaixaMixin, APIView):
                 usuario=request.user,
                 motivo=motivo,
                 request=request,
+                **argumentos,
             )
         except FechamentoMesCaixaInvalido as exc:
             raise DRFValidationError(str(exc)) from exc

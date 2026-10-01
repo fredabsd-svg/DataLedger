@@ -1278,7 +1278,11 @@ class ReaberturaExigeCascata(FechamentoMesCaixaRecusado):
     cascata (`reabrir_mes_caixa_em_cascata`) ou reabrir os posteriores antes.
     É um 409 de estado, como toda `FechamentoMesCaixaRecusado`; `ano` e
     `meses` (inteiros, crescentes) deixam a tela oferecer a cascata sem
-    reinterpretar a mensagem."""
+    reinterpretar a mensagem.
+
+    DL-060: também é a recusa da cascata cuja confirmação (`meses_confirmados`)
+    não bate com os encerrados posteriores atuais; nesse caso `meses` é a lista
+    ATUAL, para o usuário confirmar de novo."""
 
     def __init__(self, mensagem, *, ano, meses):
         super().__init__(mensagem)
@@ -1286,11 +1290,57 @@ class ReaberturaExigeCascata(FechamentoMesCaixaRecusado):
         self.meses = tuple(meses)
 
 
-def _reabrir_mes_e_posteriores(*, empresa, ano, mes, usuario, motivo, request, em_cascata):
+def _normalizar_meses_confirmados(meses_confirmados):
+    """Normaliza o conjunto de meses que o usuário confirmou ver (DL-060) para
+    um `frozenset` de `(ano, mes)` inteiros. Recusa (`FechamentoMesCaixaInvalido`,
+    400) o que não for um conjunto/lista/tupla de pares de inteiros — `bool`
+    incluído, porque `True` é `1` em Python e viraria "janeiro" por coerção. É
+    erro de entrada e acontece ANTES de qualquer lock."""
+    if isinstance(meses_confirmados, (str, bytes)) or not hasattr(meses_confirmados, "__iter__"):
+        raise FechamentoMesCaixaInvalido(
+            "Os meses confirmados para a reabertura em cascata devem ser uma lista de (ano, mês)."
+        )
+    normalizados = set()
+    for item in meses_confirmados:
+        if (
+            not isinstance(item, (tuple, list))
+            or len(item) != 2
+            or any(isinstance(parte, bool) or not isinstance(parte, int) for parte in item)
+        ):
+            raise FechamentoMesCaixaInvalido(
+                "Cada mês confirmado para a reabertura em cascata deve ser um par de inteiros "
+                "(ano, mês)."
+            )
+        normalizados.add((item[0], item[1]))
+    return frozenset(normalizados)
+
+
+def _mensagem_de_confirmacao_divergente(*, empresa, ano, mes, confirmados, atuais):
+    """Texto do 409 da cascata cuja confirmação não bate com o estado atual:
+    diz o que foi confirmado, o que existe agora e que nada foi alterado."""
+
+    def _em_texto(conjunto):
+        if not conjunto:
+            return "nenhum mês"
+        return ", ".join(f"{m:02d}/{a}" for a, m in sorted(conjunto))
+
+    return (
+        f"Os meses encerrados depois de {mes:02d}/{ano} no livro-caixa de {empresa} mudaram "
+        f"desde que a lista foi mostrada. Confirmado: {_em_texto(confirmados)}. "
+        f"Agora: {_em_texto(atuais)}. Nada foi alterado. "
+        "Confira a lista atual e confirme de novo."
+    )
+
+
+def _reabrir_mes_e_posteriores(
+    *, empresa, ano, mes, usuario, motivo, request, em_cascata, meses_confirmados=None
+):
     """Núcleo da reabertura (simples e em cascata). Precisa rodar dentro de uma
     transação. Devolve a lista das linhas reabertas, em ordem crescente de mês
-    (na reabertura simples, só a do mês pedido)."""
+    (na reabertura simples, só a do mês pedido). Na cascata, `meses_confirmados`
+    é obrigatório (ver `reabrir_mes_caixa_em_cascata`)."""
     motivo_normalizado = _normalizar_motivo_da_reabertura(motivo)
+    confirmados = _normalizar_meses_confirmados(meses_confirmados) if em_cascata else None
     _validar_empresa_ano_mes_do_fechamento(empresa=empresa, ano=ano, mes=mes, usuario=usuario)
     linhas = _travar_meses_do_ano_para_reabertura(empresa=empresa, ano=ano, a_partir_do_mes=mes)
 
@@ -1319,6 +1369,27 @@ def _reabrir_mes_e_posteriores(*, empresa, ano, mes, usuario, motivo, request, e
             ano=ano,
             meses=posteriores,
         )
+
+    if em_cascata:
+        # DL-060 (achado H1 da auditoria da DL-054): a cascata reabre mês
+        # encerrado, possivelmente já pago ou entregue, então só vale para os
+        # meses que a pessoa VIU e confirmou. Entre a tela (ou a consulta) e
+        # este POST outra pessoa pode ter encerrado mais um mês — reabri-lo
+        # seria reabrir sem consentimento — ou reaberto um dos mostrados — e
+        # o ato deixaria de ser o que foi confirmado. Por isso o conjunto
+        # confirmado é comparado, IGUAL (a mais ou a menos), com o conjunto
+        # lido AQUI, depois dos locks: antes deles um encerramento concorrente
+        # ainda poderia mudá-lo. Divergiu: nada é alterado e a lista ATUAL
+        # volta no erro para o usuário confirmar de novo.
+        atuais = frozenset((ano, m) for m in posteriores)
+        if confirmados != atuais:
+            raise ReaberturaExigeCascata(
+                _mensagem_de_confirmacao_divergente(
+                    empresa=empresa, ano=ano, mes=mes, confirmados=confirmados, atuais=atuais
+                ),
+                ano=ano,
+                meses=posteriores,
+            )
 
     a_reabrir = [mes, *posteriores]
     extras = {"cascata": True, "mes_de_origem": mes} if em_cascata else {}
@@ -1373,7 +1444,9 @@ def reabrir_mes_caixa(*, empresa, ano, mes, usuario, motivo, request=None):
 
 
 @transaction.atomic
-def reabrir_mes_caixa_em_cascata(*, empresa, ano, mes, usuario, motivo, request=None):
+def reabrir_mes_caixa_em_cascata(
+    *, empresa, ano, mes, usuario, motivo, meses_confirmados, request=None
+):
     """Reabre o mês (ano, mes) E todos os meses ENCERRADOS posteriores do
     mesmo ano, num único ato (DL-054, RC-148) — o procedimento da RC-130 quando
     o carnê-leão se encadeia: corrigir janeiro exige que fevereiro e março
@@ -1389,6 +1462,13 @@ def reabrir_mes_caixa_em_cascata(*, empresa, ano, mes, usuario, motivo, request=
     409, como na reabertura simples); meses abertos entre ele e dezembro ficam
     como estão. Mesmas validações e mesmas exceções de `reabrir_mes_caixa`.
     Devolve as linhas reabertas, em ordem crescente de mês.
+
+    DL-060: `meses_confirmados` (OBRIGATÓRIO, sem padrão) é o conjunto de
+    `(ano, mes)` posteriores que quem pediu viu e confirmou. Se o conjunto de
+    encerrados posteriores lido sob lock for diferente (a mais ou a menos), a
+    cascata é recusada com `ReaberturaExigeCascata` (409, `meses` = lista
+    atual) sem alterar nada. Conjunto vazio confirma "não há posteriores".
+    Formato inválido: `FechamentoMesCaixaInvalido` (400).
     """
     return _reabrir_mes_e_posteriores(
         empresa=empresa,
@@ -1398,6 +1478,7 @@ def reabrir_mes_caixa_em_cascata(*, empresa, ano, mes, usuario, motivo, request=
         motivo=motivo,
         request=request,
         em_cascata=True,
+        meses_confirmados=meses_confirmados,
     )
 
 

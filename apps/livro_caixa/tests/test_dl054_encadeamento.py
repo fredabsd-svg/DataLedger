@@ -141,14 +141,36 @@ def _despesa(c, data, valor):
     )
 
 
-def _cascata(c, *, mes=1, motivo=_MOTIVO, usuario=None, empresa=None):
+def _encerrados_posteriores(empresa, mes, ano=2026):
+    """O que a tela mostraria agora: (ano, mes) dos encerrados depois de `mes`."""
+    return frozenset(
+        (ano, f.mes)
+        for f in FechamentoMesCaixa.objects.filter(
+            empresa=empresa, ano=ano, mes__gt=mes, estado=EstadoMesCaixa.ENCERRADO
+        )
+    )
+
+
+def _cascata(c, *, mes=1, motivo=_MOTIVO, usuario=None, empresa=None, meses_confirmados=None):
+    """Reabre em cascata. DL-060: a cascata exige a lista confirmada; por padrão
+    ela é a lista EXATA do momento (quem viu a tela e confirmou), e quem testa a
+    divergência passa `meses_confirmados` explícito."""
+    empresa = empresa or c["empresa"]
+    if meses_confirmados is None:
+        meses_confirmados = _encerrados_posteriores(empresa, mes)
     return reabrir_mes_caixa_em_cascata(
-        empresa=empresa or c["empresa"],
+        empresa=empresa,
         ano=2026,
         mes=mes,
         usuario=usuario or c["gestor"],
         motivo=motivo,
+        meses_confirmados=meses_confirmados,
     )
+
+
+def _confirmados(*meses, ano=2026):
+    """Corpo `meses_confirmados` da API (DL-060)."""
+    return [{"ano": ano, "mes": mes} for mes in meses]
 
 
 def _estados(empresa, ano=2026):
@@ -518,7 +540,12 @@ def test_cascata_sem_usuario_e_recusada_sem_efeito(cenario):
     fotografia = _fotografia(cenario["empresa"])
     with pytest.raises(FechamentoMesCaixaInvalido):
         reabrir_mes_caixa_em_cascata(
-            empresa=cenario["empresa"], ano=2026, mes=1, usuario=None, motivo=_MOTIVO
+            empresa=cenario["empresa"],
+            ano=2026,
+            mes=1,
+            usuario=None,
+            motivo=_MOTIVO,
+            meses_confirmados={(2026, 2)},
         )
     assert _fotografia(cenario["empresa"]) == fotografia
 
@@ -570,7 +597,11 @@ def test_api_com_cascata_reabre_tudo_e_devolve_o_contrato(cenario):
     usuario = _usuario(Papel.ADMINISTRADOR, cenario["escritorio_a"])
     cliente = _cliente_logado(usuario)
 
-    resposta = _reabrir_api(cliente, cenario["empresa"].id, {"motivo": _MOTIVO, "cascata": True})
+    resposta = _reabrir_api(
+        cliente,
+        cenario["empresa"].id,
+        {"motivo": _MOTIVO, "cascata": True, "meses_confirmados": _confirmados(2, 3)},
+    )
 
     assert resposta.status_code == 200, resposta.content
     corpo = resposta.json()
@@ -609,7 +640,11 @@ def test_api_cascata_por_papel_e_banco_inalterado_quando_negado(cenario, papel):
     cliente = _cliente_logado(usuario)
     fotografia = _fotografia(cenario["empresa"])
 
-    resposta = _reabrir_api(cliente, cenario["empresa"].id, {"motivo": _MOTIVO, "cascata": True})
+    resposta = _reabrir_api(
+        cliente,
+        cenario["empresa"].id,
+        {"motivo": _MOTIVO, "cascata": True, "meses_confirmados": _confirmados(2, 3)},
+    )
 
     if papel in _PODEM_FECHAR:
         assert resposta.status_code == 200, resposta.content
@@ -630,7 +665,11 @@ def test_api_cascata_sem_login_e_recusada(cenario):
     _encerrar_varios(cenario, [1, 2])
     fotografia = _fotografia(cenario["empresa"])
     anonimo = Client(raise_request_exception=False)
-    resposta = _reabrir_api(anonimo, cenario["empresa"].id, {"motivo": _MOTIVO, "cascata": True})
+    resposta = _reabrir_api(
+        anonimo,
+        cenario["empresa"].id,
+        {"motivo": _MOTIVO, "cascata": True, "meses_confirmados": _confirmados(2)},
+    )
     assert resposta.status_code in (401, 403)
     assert _fotografia(cenario["empresa"]) == fotografia
 
@@ -640,7 +679,11 @@ def test_api_cascata_de_outro_escritorio_da_404_e_nao_muda_nada(cenario):
     fotografia = _fotografia(cenario["empresa"])
     intruso = _cliente_logado(_usuario(Papel.ADMINISTRADOR, cenario["escritorio_b"]))
 
-    resposta = _reabrir_api(intruso, cenario["empresa"].id, {"motivo": _MOTIVO, "cascata": True})
+    resposta = _reabrir_api(
+        intruso,
+        cenario["empresa"].id,
+        {"motivo": _MOTIVO, "cascata": True, "meses_confirmados": _confirmados(2, 3)},
+    )
 
     assert resposta.status_code == 404
     assert "02/2026" not in resposta.content.decode()
@@ -653,7 +696,11 @@ def test_api_cascata_de_uma_empresa_nao_reabre_a_irma_do_mesmo_escritorio(cenari
     _encerrar(cenario, mes=2, empresa=cenario["empresa_irma"])
     gestor = _cliente_logado(_usuario(Papel.GESTOR, cenario["escritorio_a"]))
 
-    resposta = _reabrir_api(gestor, cenario["empresa"].id, {"motivo": _MOTIVO, "cascata": True})
+    resposta = _reabrir_api(
+        gestor,
+        cenario["empresa"].id,
+        {"motivo": _MOTIVO, "cascata": True, "meses_confirmados": _confirmados(2)},
+    )
 
     assert resposta.status_code == 200
     assert set(_estados(cenario["empresa_irma"]).values()) == {EstadoMesCaixa.ENCERRADO}
@@ -663,7 +710,9 @@ def test_api_cascata_de_uma_empresa_nao_reabre_a_irma_do_mesmo_escritorio(cenari
 def test_api_cascata_de_empresa_em_modo_contabilidade_da_400(cenario):
     gestor = _cliente_logado(_usuario(Papel.GESTOR, cenario["escritorio_a"]))
     resposta = _reabrir_api(
-        gestor, cenario["empresa_contabilidade"].id, {"motivo": _MOTIVO, "cascata": True}
+        gestor,
+        cenario["empresa_contabilidade"].id,
+        {"motivo": _MOTIVO, "cascata": True, "meses_confirmados": []},
     )
     assert resposta.status_code == 400
     assert not FechamentoMesCaixa.objects.exists()
@@ -672,13 +721,13 @@ def test_api_cascata_de_empresa_em_modo_contabilidade_da_400(cenario):
 @pytest.mark.parametrize(
     "corpo",
     [
-        {"cascata": True},
-        {"cascata": True, "motivo": ""},
-        {"cascata": True, "motivo": "   "},
-        {"cascata": True, "motivo": None},
-        {"cascata": True, "motivo": ["a"]},
-        {"cascata": True, "motivo": "x" * 1001},
-        {"cascata": True, "motivo": "a\x00b"},
+        {"meses_confirmados": _confirmados(2, 3), "cascata": True},
+        {"meses_confirmados": _confirmados(2, 3), "cascata": True, "motivo": ""},
+        {"meses_confirmados": _confirmados(2, 3), "cascata": True, "motivo": "   "},
+        {"meses_confirmados": _confirmados(2, 3), "cascata": True, "motivo": None},
+        {"meses_confirmados": _confirmados(2, 3), "cascata": True, "motivo": ["a"]},
+        {"meses_confirmados": _confirmados(2, 3), "cascata": True, "motivo": "x" * 1001},
+        {"meses_confirmados": _confirmados(2, 3), "cascata": True, "motivo": "a\x00b"},
     ],
 )
 def test_api_cascata_sem_motivo_valido_da_400_e_nao_muda_nada(cenario, corpo):
@@ -713,7 +762,12 @@ def test_api_continua_recusando_campo_nao_contratado_junto_com_cascata(cenario):
     resposta = _reabrir_api(
         gestor,
         cenario["empresa"].id,
-        {"motivo": _MOTIVO, "cascata": True, "meses": [1, 2, 3, 4]},
+        {
+            "motivo": _MOTIVO,
+            "cascata": True,
+            "meses_confirmados": _confirmados(2),
+            "meses": [1, 2, 3, 4],
+        },
     )
 
     assert resposta.status_code == 400
@@ -725,7 +779,11 @@ def test_api_cascata_de_mes_aberto_da_409_sem_lista_de_posteriores(cenario):
     fotografia = _fotografia(cenario["empresa"])
     gestor = _cliente_logado(_usuario(Papel.GESTOR, cenario["escritorio_a"]))
 
-    resposta = _reabrir_api(gestor, cenario["empresa"].id, {"motivo": _MOTIVO, "cascata": True})
+    resposta = _reabrir_api(
+        gestor,
+        cenario["empresa"].id,
+        {"motivo": _MOTIVO, "cascata": True, "meses_confirmados": _confirmados(3)},
+    )
 
     assert resposta.status_code == 409
     assert "meses_encerrados_posteriores" not in resposta.json()
@@ -801,7 +859,12 @@ def test_espera_por_mes_posterior_que_estoura_o_lock_timeout_vira_409_e_nao_grav
         assert "Tente novamente" in str(ocupado.value)
         with pytest.raises(FechamentoMesCaixaTravado):
             reabrir_mes_caixa_em_cascata(
-                empresa=c["empresa"], ano=2026, mes=1, usuario=c["gestor"], motivo=_MOTIVO
+                empresa=c["empresa"],
+                ano=2026,
+                mes=1,
+                usuario=c["gestor"],
+                motivo=_MOTIVO,
+                meses_confirmados=frozenset(),
             )
     finally:
         liberar.set()
@@ -955,7 +1018,12 @@ def test_cascata_em_andamento_faz_o_lancamento_em_janeiro_esperar_e_depois_ser_a
     with _pausando("fechamento_mes_caixa.reaberto") as (dentro, liberar):
         reabrir, res_reabrir = _rodar_em_thread(
             lambda: reabrir_mes_caixa_em_cascata(
-                empresa=c["empresa"], ano=2026, mes=1, usuario=c["gestor"], motivo=_MOTIVO
+                empresa=c["empresa"],
+                ano=2026,
+                mes=1,
+                usuario=c["gestor"],
+                motivo=_MOTIVO,
+                meses_confirmados={(2026, 2), (2026, 3)},
             )
         )
         assert dentro.wait(timeout=30)
@@ -988,11 +1056,16 @@ def test_duas_cascatas_e_um_fechamento_simultaneos_terminam_sem_deadlock_e_sem_e
         encerrar_mes_caixa(empresa=c["empresa"], ano=2026, mes=mes, usuario=c["gestor"])
     barreira = threading.Barrier(3)
 
-    def _cascata_de(mes):
+    def _cascata_de(mes, confirmados):
         def _corpo():
             barreira.wait(timeout=30)
             return reabrir_mes_caixa_em_cascata(
-                empresa=c["empresa"], ano=2026, mes=mes, usuario=c["gestor"], motivo=_MOTIVO
+                empresa=c["empresa"],
+                ano=2026,
+                mes=mes,
+                usuario=c["gestor"],
+                motivo=_MOTIVO,
+                meses_confirmados=confirmados,
             )
 
         return _corpo
@@ -1001,8 +1074,8 @@ def test_duas_cascatas_e_um_fechamento_simultaneos_terminam_sem_deadlock_e_sem_e
         barreira.wait(timeout=30)
         return encerrar_mes_caixa(empresa=c["empresa"], ano=2026, mes=2, usuario=c["gestor"])
 
-    t1, r1 = _rodar_em_thread(_cascata_de(1))
-    t2, r2 = _rodar_em_thread(_cascata_de(3))
+    t1, r1 = _rodar_em_thread(_cascata_de(1, {(2026, 3), (2026, 5)}))
+    t2, r2 = _rodar_em_thread(_cascata_de(3, {(2026, 5)}))
     t3, r3 = _rodar_em_thread(_fechar_fevereiro)
     _esperar(t1, t2, t3)
 
@@ -1012,3 +1085,96 @@ def test_duas_cascatas_e_um_fechamento_simultaneos_terminam_sem_deadlock_e_sem_e
         # deadlock ou estouro de lock não.
         assert erro is None or isinstance(erro, FechamentoMesCaixaRecusado), resultado
         assert not isinstance(erro, FechamentoMesCaixaTravado), resultado
+
+    # Estado final (achado H2 da auditoria da DL-054): o nome promete "sem
+    # estado misto", então o estado é afirmado, não só a ausência de deadlock.
+    # Só existem dois desfechos seriais legítimos. Exatamente UMA cascata vence:
+    # se a de janeiro vence, a de março encontra março já aberto e é recusada;
+    # se a de março vence, a de janeiro encontra a lista confirmada ({março,
+    # maio}) diferente da atual ({}) e é recusada. Fevereiro é sempre encerrado.
+    assert "erro" not in r3, r3
+    vencedoras = [r for r in (r1, r2) if "erro" not in r]
+    assert len(vencedoras) == 1, (r1, r2)
+    estados = _estados(c["empresa"])
+    aberto, encerrado = EstadoMesCaixa.ABERTO, EstadoMesCaixa.ENCERRADO
+    if "erro" not in r1:
+        assert estados == {1: aberto, 2: encerrado, 3: aberto, 5: aberto}, estados
+        meses_reabertos = [1, 3, 5]
+    else:
+        assert estados == {1: encerrado, 2: encerrado, 3: aberto, 5: aberto}, estados
+        meses_reabertos = [3, 5]
+    # A trilha de reabertura tem um registro por mês EFETIVAMENTE reaberto, e a
+    # cascata recusada não deixa rastro de reabertura.
+    trilha = RegistroAuditoria.objects.filter(acao="fechamento_mes_caixa.reaberto")
+    assert sorted(r.detalhes["mes"] for r in trilha) == meses_reabertos
+    assert FechamentoMesCaixa.objects.filter(
+        empresa=c["empresa"], reaberto_em__isnull=False
+    ).count() == len(meses_reabertos)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_reabrir_simples_em_andamento_faz_o_encerramento_posterior_esperar():
+    """H2 da auditoria da DL-054: a reabertura SIMPLES de janeiro (março ainda
+    sem registro) segura o lock exclusivo de janeiro a dezembro. O encerramento
+    de março, que chega durante a reabertura, espera esse lock e só então
+    encerra: nunca há março encerrado "por baixo" de uma reabertura que já
+    decidiu que não havia posteriores."""
+    c = _cenario_commitado()
+    encerrar_mes_caixa(empresa=c["empresa"], ano=2026, mes=1, usuario=c["gestor"])
+
+    with _pausando("fechamento_mes_caixa.reaberto") as (dentro, liberar):
+        reabrir, res_reabrir = _rodar_em_thread(
+            lambda: reabrir_mes_caixa(
+                empresa=c["empresa"], ano=2026, mes=1, usuario=c["gestor"], motivo=_MOTIVO
+            )
+        )
+        assert dentro.wait(timeout=30), "a reabertura nunca chegou à pausa"
+
+        fechar, res_fechar = _rodar_em_thread(
+            lambda: encerrar_mes_caixa(empresa=c["empresa"], ano=2026, mes=3, usuario=c["gestor"])
+        )
+        time.sleep(_PAUSA_CURTA)
+        assert fechar.is_alive(), "o encerramento de março não esperou a reabertura de janeiro"
+        assert not FechamentoMesCaixa.objects.filter(empresa=c["empresa"], mes=3).exists()
+
+        liberar.set()
+        _esperar(reabrir, fechar)
+
+    assert "erro" not in res_reabrir, res_reabrir
+    assert "erro" not in res_fechar, res_fechar
+    assert _estados(c["empresa"]) == {1: EstadoMesCaixa.ABERTO, 3: EstadoMesCaixa.ENCERRADO}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_encerramento_posterior_em_andamento_faz_a_reabertura_simples_ser_recusada():
+    """H2, o inverso: o encerramento de março chegou primeiro e segura o lock
+    de março. A reabertura simples de janeiro espera esse lock e, ao entrar,
+    LÊ março encerrado: é recusada com `ReaberturaExigeCascata` e janeiro
+    continua encerrado. Sem o lock dos posteriores ela leria "sem posteriores"
+    antes do commit de março e reabriria janeiro por baixo de março."""
+    c = _cenario_commitado()
+    encerrar_mes_caixa(empresa=c["empresa"], ano=2026, mes=1, usuario=c["gestor"])
+
+    with _pausando("fechamento_mes_caixa.encerrado") as (dentro, liberar):
+        fechar, res_fechar = _rodar_em_thread(
+            lambda: encerrar_mes_caixa(empresa=c["empresa"], ano=2026, mes=3, usuario=c["gestor"])
+        )
+        assert dentro.wait(timeout=30), "o encerramento de março nunca chegou à pausa"
+
+        reabrir, res_reabrir = _rodar_em_thread(
+            lambda: reabrir_mes_caixa(
+                empresa=c["empresa"], ano=2026, mes=1, usuario=c["gestor"], motivo=_MOTIVO
+            )
+        )
+        time.sleep(_PAUSA_CURTA)
+        assert reabrir.is_alive(), "a reabertura de janeiro não esperou o encerramento de março"
+        assert _estados(c["empresa"]) == {1: EstadoMesCaixa.ENCERRADO}
+
+        liberar.set()
+        _esperar(fechar, reabrir)
+
+    assert "erro" not in res_fechar, res_fechar
+    assert isinstance(res_reabrir.get("erro"), ReaberturaExigeCascata), res_reabrir
+    assert res_reabrir["erro"].meses == (3,)
+    assert _estados(c["empresa"]) == {1: EstadoMesCaixa.ENCERRADO, 3: EstadoMesCaixa.ENCERRADO}
+    assert not RegistroAuditoria.objects.filter(acao="fechamento_mes_caixa.reaberto").exists()

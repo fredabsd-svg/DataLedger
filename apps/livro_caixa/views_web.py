@@ -2102,8 +2102,12 @@ _CONTRATO_ENCERRAR_MES_CAIXA = ContratoDeRequisicao(
 )
 _CONTRATO_REABRIR_MES_CAIXA = ContratoDeRequisicao(
     # `confirmar_cascata` (DL-054): a caixa de confirmação da reabertura em
-    # cascata; só o valor "1" confirma.
-    campos=frozenset({"csrfmiddlewaretoken", "ano", "mes", "motivo", "confirmar_cascata"}),
+    # cascata; só o valor "1" confirma. `meses_confirmados` (DL-060): campo
+    # oculto com os meses que a tela MOSTROU (`AAAA-MM,AAAA-MM`); é o que o
+    # servidor compara com o estado atual. Qualquer outro campo é recusado.
+    campos=frozenset(
+        {"csrfmiddlewaretoken", "ano", "mes", "motivo", "confirmar_cascata", "meses_confirmados"}
+    ),
     aceita_arquivo=False,
     aceita_querystring=False,
     cabecalhos_ignorados=("Idempotency-Key",),
@@ -2343,7 +2347,25 @@ def mes_caixa_reabrir(request, empresa_id):
         # encerrado depois deste — a tela nunca reabre vários meses por
         # inferência.
         em_cascata = request.POST.get("confirmar_cascata") == "1"
-        reabrir = reabrir_mes_caixa_em_cascata if em_cascata else reabrir_mes_caixa
+        argumentos = {}
+        reabrir = reabrir_mes_caixa
+        if em_cascata:
+            reabrir = reabrir_mes_caixa_em_cascata
+            try:
+                # DL-060: a cascata vale só para os meses que a tela mostrou.
+                argumentos["meses_confirmados"] = _meses_confirmados_do_formulario(
+                    request.POST.get("meses_confirmados")
+                )
+            except ValueError as exc:
+                # Campo oculto adulterado ou ausente: erro de formulário (400),
+                # nada gravado; o formulário volta com a lista atual.
+                messages.error(request, str(exc))
+                contexto = _contexto_da_acao_de_fechamento(empresa, ano, mes)
+                contexto["motivo"] = motivo
+                contexto.update(_contexto_da_reabertura(empresa, ano, mes))
+                return render(
+                    request, "livro_caixa/fechamento_mes_reabrir.html", contexto, status=400
+                )
         try:
             resultado = reabrir(
                 empresa=empresa,
@@ -2352,6 +2374,7 @@ def mes_caixa_reabrir(request, empresa_id):
                 usuario=request.user,
                 motivo=motivo,
                 request=request,
+                **argumentos,
             )
         except FechamentoMesCaixaInvalido as exc:
             # Motivo em branco (ou longo demais) é erro de FORMULÁRIO: a tela
@@ -2362,9 +2385,12 @@ def mes_caixa_reabrir(request, empresa_id):
             contexto.update(_contexto_da_reabertura(empresa, ano, mes))
             return render(request, "livro_caixa/fechamento_mes_reabrir.html", contexto, status=400)
         except ReaberturaExigeCascata as exc:
-            # Corrida: a tela de reabertura simples foi aberta antes de outro
-            # mês ser encerrado depois deste. Nada foi gravado; o formulário
-            # volta com o motivo digitado, a lista ATUAL e a explicação — 409
+            # Corrida: a tela foi aberta antes de outro mês ser encerrado
+            # depois deste (reabertura simples), ou a lista confirmada na
+            # cascata deixou de ser a atual (mês encerrado a mais ou reaberto
+            # a menos — DL-060). Nada foi gravado; o formulário volta com o
+            # motivo digitado, a lista ATUAL (e a caixa de confirmação
+            # desmarcada, para confirmar de novo) e a explicação — 409
             # (conflito de ESTADO), nunca 500.
             messages.error(request, str(exc))
             contexto = _contexto_da_acao_de_fechamento(empresa, ano, mes)
@@ -2407,6 +2433,34 @@ def mes_caixa_reabrir(request, empresa_id):
     return render(request, "livro_caixa/fechamento_mes_reabrir.html", contexto)
 
 
+_MES_CONFIRMADO_DO_FORMULARIO = re.compile(r"([0-9]{4})-(0[1-9]|1[0-2])")
+
+
+def _meses_confirmados_do_formulario(valor):
+    """Lê o campo oculto `meses_confirmados` (`AAAA-MM,AAAA-MM`, DL-060) e
+    devolve o `frozenset` de `(ano, mes)`. Campo AUSENTE ou item fora do
+    formato (só dígitos ASCII, mês 01-12, sem espaço, sem repetição) levanta
+    `ValueError` com mensagem para o usuário: o campo é do servidor para o
+    servidor, e a cascata nunca assume "todos" quando ele falta. Campo
+    presente e vazio é válido — o formulário mostrou nenhum mês posterior."""
+    if valor is None:
+        raise ValueError(
+            "A confirmação não trouxe a lista dos meses mostrados. Nada foi alterado; "
+            "confirme a reabertura de novo."
+        )
+    confirmados = set()
+    for texto in valor.split(",") if valor else []:
+        achado = _MES_CONFIRMADO_DO_FORMULARIO.fullmatch(texto)
+        item = (int(achado[1]), int(achado[2])) if achado else None
+        if item is None or item in confirmados:
+            raise ValueError(
+                "A lista dos meses confirmados está em formato inválido. Nada foi alterado; "
+                "confirme a reabertura de novo."
+            )
+        confirmados.add(item)
+    return frozenset(confirmados)
+
+
 def _contexto_da_reabertura(empresa, ano, mes):
     """O que a tela de reabertura mostra sobre o estado ATUAL: quem encerrou o
     mês e quando (para a pessoa saber o que está desfazendo) e, na DL-054
@@ -2421,6 +2475,7 @@ def _contexto_da_reabertura(empresa, ano, mes):
     posteriores = [
         {
             "texto": f"{outro['mes']:02d}/{outro['ano']}",
+            "valor": f"{outro['ano']}-{outro['mes']:02d}",
             "fechado_por_nome": outro["fechado_por_nome"],
             "fechado_em": outro["fechado_em"],
         }
@@ -2432,6 +2487,9 @@ def _contexto_da_reabertura(empresa, ano, mes):
         "fechado_em": estado["fechado_em"],
         "meses_posteriores": posteriores,
         "meses_posteriores_texto": _lista_em_texto(m["texto"] for m in posteriores),
+        # Campo oculto do formulário (DL-060): exatamente os meses acima, no
+        # formato que `_meses_confirmados_do_formulario` lê.
+        "meses_posteriores_valor": ",".join(m["valor"] for m in posteriores),
         "meses_a_reabrir_texto": _lista_em_texto(
             [f"{mes:02d}/{ano}", *(m["texto"] for m in posteriores)]
         ),
