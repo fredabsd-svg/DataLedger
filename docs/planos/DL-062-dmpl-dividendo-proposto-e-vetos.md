@@ -112,3 +112,34 @@ do grupo só aparece quando a diferença é a única pendência.
 - Marcação manual por lançamento e API: fatia 2, BL-605.
 - Linhas fabricadas na DLPA (M1, BL-622).
 - Validação contábil do Fred: BL-626.
+
+## Evidências e integração (01/10/2026)
+
+- **Tela** (`especialista-frontend`, cópia isolada; commit integrado `a6e7f39`):
+  - G4 com mutantes mortos;
+  - testes provando que a tela segue o contrato (coluna, grupo e linha novos, sem lista fixa);
+  - DMPL de 13 colunas em 1 folha A4 paisagem, xMax 813 pt de 842 pt (10 mm de margem), letra mantida em 11 px;
+  - a ação de `lancamentos_ambiguos` não manda mais dividir lançamento efetivado.
+- **Servidor** (`desenvolvedor-pleno`, cópia isolada; commits integrados `7e5684f` e `36168d1`):
+  - G1: coluna e linha novas;
+  - identidade com a DLPA pela soma (`linhas_da_dmpl_que_somam_a_linha_da_dlpa`);
+  - migração 0019, só de escolhas;
+  - G2: condições (a) e (b) nas cinco colunas, mantendo a exceção da subscrição;
+  - G3: par lançamento + estorno, com `_e_o_estorno_exato` e mensagens novas;
+  - mutantes mortos em todas as regras.
+- **Desvio aceito pelo `arquiteto-senior`, G3 (iii):** o par só sai da atribuição de
+  linhas quando a regra **não** decide um dos dois lançamentos. Tirar todo par
+  quebraria a identidade linha a linha com a DLPA em pares que ela detalha (ex.:
+  constituição de reserva estornada) e um teste existente. Par decidido mantém as duas
+  pontas, como antes.
+- **Limite declarado:** quando o par neutralizado é um lançamento vetado que mexe em
+  lucros e reservas, a DLPA ainda mostra duas linhas opostas de reserva (líquido zero),
+  que a DMPL não mostra. Saldos e somas são iguais; só o detalhe por linha difere. É a
+  mesma causa da M1 (BL-622, defeito da DLPA). O caso tem teste dedicado.
+- **Verificação na integração (`36168d1`, Python 3.13 local):**
+  - `ruff` limpo, `makemigrations --check` sem mudanças;
+  - suíte completa com 4.596 aprovados;
+  - 2 falhas conhecidas desta máquina: a de Python 3.13 e a soma de AGENTS.md das
+    cópias de trabalho dos agentes.
+- **Auditoria:** **pendente** (nível 1), sobre o commit integrado.
+

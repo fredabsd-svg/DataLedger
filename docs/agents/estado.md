@@ -150,13 +150,18 @@ manual sobre as ressalvas registradas no [plano](../planos/DL-061-dmpl.md).
 **Em andamento: [DL-062](../planos/DL-062-dmpl-dividendo-proposto-e-vetos.md)** —
 coluna de dividendo adicional proposto (RC-153), veto dos lançamentos com eventos
 opostos na mesma coluna (RC-155) e saída pelo estorno com mensagens verdadeiras (M3,
-BL-624), mais a dica M4 (BL-625). Em implementação (servidor e tela em cópias
-isoladas); quando integrada, a linha abaixo indica o commit a auditar.
+BL-624), mais a dica M4 (BL-625). **Implementada e integrada na branch, ainda
+sem auditoria.** Versão a auditar: commit `36168d1` (servidor `7e5684f` + `36168d1`,
+tela `a6e7f39`), com suíte completa local de 4.596 aprovados e só as duas falhas
+conhecidas desta máquina. Desvio aceito e limite declarado no
+[plano](../planos/DL-062-dmpl-dividendo-proposto-e-vetos.md#evidências-e-integração-01102026).
 
 **Para retomar noutra sessão:**
 
 1. Ler este arquivo, o plano da DL-062 e as duas auditorias da DL-061.
-2. Seguir o fluxo nível 1: auditoria independente da versão integrada da DL-062 →
+2. **Próximo passo concreto:** acionar o `auditor-qa` sobre o commit `36168d1`
+   (ou o HEAD da branch, se só docs mudarem depois). Seguir o fluxo nível 1: auditoria
+   independente da versão integrada da DL-062 →
    no máximo uma rodada de correção → reconferência final → PR → merge com os quatro
    checks verdes. O merge da DL-062 **ainda não foi autorizado** pelo Fred.
 3. Na branch, depois de cada squash na `main`, fazer o merge da `main` com
