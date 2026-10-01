@@ -141,7 +141,8 @@ e integradas **uma por vez** na branch `claude/zealous-goldberg-jr5ggu` →
 01/10/2026. Linha automática pela contrapartida, como na DLPA (RC-151); manual do
 sistema de referência lido (p. 122, 192–194, 616–622, 773–774). Fatia 1
 (servidor e tela) integrada na branch; [auditoria rodada 1](../auditorias/2026-10-01-dl-061-rodada-1.md)
-**reprovou** (N1 e N2 altas: evento errado em vez de veto); rodada única de correção em andamento;
+**reprovou** (N1 e N2 altas: evento errado em vez de veto); rodada única de correção
+integrada (`40e47f5`), em **reconferência final**;
 merge só depois da auditoria e da CI verde. Pontos abertos: BL-603 a BL-607.
 Logo depois da fatia 1: coluna de dividendo adicional proposto (RC-153,
 BL-603). HI-50 confirmada pelo Fred (RC-152): alíneas "c" e "d" revogadas.

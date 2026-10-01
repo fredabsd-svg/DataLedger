@@ -290,5 +290,36 @@ Conferência: 100.000 + 20.000 + 25.000 − 10.000 + 3.000 − 2.000 = 136.000.
   - medição real no Chromium: `contabilidade_web:dmpl` passou nos dois ramos da semente;
   - 390 px sem rolagem horizontal da página;
   - impressão em 1 página A4 paisagem com 12 colunas.
-- **Auditoria:** pendente (nível 1).
+- [Auditoria rodada 1](../auditorias/2026-10-01-dl-061-rodada-1.md): **REPROVADA**. N1 e
+  N2 (alta) atribuíam evento errado em vez de vetar; N3 a N11, de média e baixa
+  gravidade.
+- **Rodada única de correção** (servidor e tela em paralelo, em cópias isoladas;
+  integrada em `40e47f5`). Decisões do `arquiteto-senior`, reversíveis:
+  - **N1:** na coluna única, as contrapartidas sem classificação decisiva são somadas,
+    e o líquido vira uma linha só, pela coluna e pela direção;
+  - **N2:**
+    - a classificação da DLPA só decide a linha onde faz sentido: resultado e ajuste
+      só em lucros acumulados; dividendo só em lucros e nas reservas de lucros;
+    - dividendo positivo em reserva vira pendência, salvo estorno;
+  - **N3:** aviso de saldo na conta de passagem, na tela, e **nota no papel** com o
+    valor e a diferença para o PL do Balanço;
+  - **N4:** a pendência diz se a conta aceita coluna e orienta quando não aceita;
+  - **N6:** a marca de adoção antecipada é recusada quando não teria efeito;
+  - **N7:** débito e crédito na mesma coluna com outra partida é vetado **só nas
+    reservas de lucros**, onde a DLPA detalha item a item. Nas demais colunas vale o
+    líquido (ex.: subscrição com integralização parcial = aumento de capital);
+  - **N8:** cancelamento de ações em tesouraria contra capital ou reservas usa a linha
+    "alienação ou cancelamento";
+  - **N5:** margem de 8 mm na paisagem, com a tabela de 12 colunas cabendo sem
+    reduzir a letra;
+  - **N10** e **N11** ajustados na tela.
+- **Verificação na integração** (Python 3.13 local):
+  - suíte completa com 4.513 aprovados;
+  - 2 falhas conhecidas desta máquina: a de Python 3.13 e a soma de AGENTS.md das
+    cópias de trabalho dos agentes;
+  - os 317 testes da DMPL e da DLPA verdes;
+  - propriedade P4 e ensaio diferencial DLPA × DMPL versionados.
+- **Limite novo registrado:** em paisagem, o Chromium não repete a identificação do
+  emitente numa segunda folha. Hoje a DMPL cabe numa folha (BL-621).
+- **Reconferência:** pendente.
 
