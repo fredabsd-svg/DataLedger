@@ -119,7 +119,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-056](../planos/DL-056-limite-de-tentativas.md) | Limite de tentativas no login e no cadastro (BL-552) | Integrada (PR #71) — nível 2; limites são hipótese a validar |
 | [DL-058](../planos/DL-058-pequenas-fugas-de-informacao.md) | Pequenas fugas de informação (BL-554, BL-555) | Integrada (PR #72) — auditoria aprovada com ressalvas; BL-592 a BL-596; DE-096 |
 | [DL-059](../planos/DL-059-trilha-do-convite-e-eventos-sem-ip.md) | Trilha do convite e eventos sem IP (BL-560, BL-566, BL-579) | Integrada (PR #73) — auditoria aprovada com ressalvas; BL-597 a BL-601 |
-| [DL-060](../planos/DL-060-confirmacao-da-cascata.md) | A reabertura em cascata confirma exatamente os meses mostrados (BL-588, BL-589) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-060](../planos/DL-060-confirmacao-da-cascata.md) | A reabertura em cascata confirma exatamente os meses mostrados (BL-588, BL-589) | Integrada (PR #74) — reconferência aprovada com ressalvas; BL-602 |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -131,13 +131,11 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 
 ## Próximo passo
 
-**Quatro etapas em desenvolvimento em paralelo (30/09/2026)**, por
-instrução do Fred de até 4 agentes simultâneos (RC-149), cada uma em cópia
-isolada do repositório e integrada **uma por vez** na branch
-`claude/zealous-goldberg-jr5ggu` → `main`. O Fred autorizou o merge de cada
-uma com a auditoria aprovada e a CI verde (RC-150). Última da leva:
-a DL-060 (H1 e H2 da auditoria da DL-054; reconferência aprovada com
-ressalvas).
+**Leva de 30/09 a 01/10/2026 concluída: DL-052 a DL-060 integradas**
+(PR #66 a #74). Desenvolvidas em até 4 cópias isoladas em paralelo (RC-149)
+e integradas **uma por vez** na branch `claude/zealous-goldberg-jr5ggu` →
+`main`, cada uma com auditoria aprovada e os quatro checks verdes (RC-150).
+Nenhuma etapa em andamento.
 
 - **DL-054** — **integrada pelo PR #70** (squash `e7b85aa`).
 - **DL-055** — **integrada pelo PR #69** (squash `9ceda53`).
@@ -146,11 +144,8 @@ ressalvas).
   canal real: o login Basic autenticava em duas rotas da API, fora do limite
   de tentativas.
 - **DL-059** — **integrada pelo PR #73** (squash `5149cc4`).
-- **DL-060** (nível 1) — a reabertura em cascata confirma exatamente os
-  meses mostrados (BL-588, BL-589);
-  [reconferência](../auditorias/2026-10-01-dl-060-reconferencia.md) aprovada
-  com ressalvas (BL-602); em revisão no pull request, merge com a CI verde.
-  A API de reabrir em cascata passou a exigir `meses_confirmados`.
+- **DL-060** — **integrada pelo PR #74** (squash `8a9a45b`). A API de
+  reabrir em cascata passou a exigir `meses_confirmados`.
 - **DL-057** — **integrada pelo PR #68** (squash `49f118d`). Antes da
   implantação: BL-577 (recusar `0.0.0.0/0`).
 
@@ -181,7 +176,17 @@ a trilha; usuário se desativa, não se apaga (RC-144).
 com ressalvas. Limite aceito: a trava de partida nova protege contra escrita
 acidental, não contra quem escreve SQL direto (BL-569).
 
-**Fila depois das DL-054 a DL-057, sujeita ao Fred:**
+**Decisões abertas desta leva (só o Fred):**
+
+- Manter ou rever a DE-086 (reclassificação da DRE em mês encerrado, BL-550).
+- Confirmar os limites da DL-056 (5 por usuário e 20 por IP em 15 min; 5
+  cadastros por IP por hora) — hoje são hipótese.
+- Texto do Início do papel Cliente (BL-586).
+
+**Antes da implantação:** BL-577 (recusar `0.0.0.0/0` nos proxies
+confiáveis) e PE-07 (backup e restauração).
+
+**Fila seguinte, sujeita ao Fred:**
 
 1. **DL-048, CTB-14 (DMPL)** — nível 1. A DLPA (CTB-12 + CTB-13) está
    integrada pelo PR #59 e a API dela (D8) pelo PR #62. Decisões do Fred de
