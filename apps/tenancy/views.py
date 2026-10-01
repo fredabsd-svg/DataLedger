@@ -201,6 +201,7 @@ class EscritorioAtivoView(APIView):
                 acao="escritorio.ativado",
                 usuario=request.user,
                 escritorio=escritorio,
+                request=request,  # DL-059 (BL-579): origem (IP) na trilha
             )
         request.session["escritorio_id"] = escritorio_id
         return Response({"status": "ok"})
@@ -878,7 +879,12 @@ def ativar_escritorio(request):
         # (fora do escopo do BL-14, registro como pendência para DL futura).
         with transaction.atomic():
             escritorio = Escritorio.objects.get(pk=escritorio_id_valido)
-            registrar(acao="escritorio.ativado", usuario=request.user, escritorio=escritorio)
+            registrar(
+                acao="escritorio.ativado",
+                usuario=request.user,
+                escritorio=escritorio,
+                request=request,  # DL-059 (BL-579): origem (IP) na trilha
+            )
         request.session["escritorio_id"] = escritorio_id_valido
         messages.success(request, f"Escritório ativo: {escritorio.nome}.")
     else:
@@ -953,6 +959,7 @@ def bootstrap_primeiro_acesso(request):
                 usuario=request.user,
                 nome=nome,
                 cnpj=cnpj,
+                request=request,
             )
         except PrimeiroEscritorioJaExiste:
             messages.error(request, "Você já tem escritório ativo.")
@@ -1006,6 +1013,7 @@ def emitir_convite(request):
             escritorio=escritorio,
             email_convidado=email,
             convidador=request.user,
+            request=request,
         )
     except ConvidanteNaoEhAdministrador:
         messages.error(
@@ -1054,7 +1062,7 @@ def aceitar_convite(request, token: str):
             return redirect("tenancy:painel")
 
         try:
-            aceitar_convite_e_criar_vinculo(token=token, usuario=request.user)
+            aceitar_convite_e_criar_vinculo(token=token, usuario=request.user, request=request)
         except ConviteInvalido as exc:
             # A mensagem da exceção é escrita para o usuário final (prazo
             # vencido, e-mail divergente ou convite inexistente/consumido)
@@ -1069,8 +1077,9 @@ def aceitar_convite(request, token: str):
         return redirect("tenancy:painel")
 
     convite = ConviteEscritorio.objects.filter(token=token).first()
-    # A tela só oferece "Aceitar" se o serviço aceitaria: convite dentro do
-    # prazo e emitido para o e-mail de quem está logado. O template não
+    # A tela só oferece "Aceitar" se o serviço aceitaria: convite ainda não
+    # consumido (DL-059, BL-560), dentro do prazo e emitido para o e-mail de
+    # quem está logado. O template não
     # recebe nem mostra o e-mail do convite.
     email_confere = convite is not None and convite_e_do_usuario(convite, request.user)
     return render(

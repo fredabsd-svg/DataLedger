@@ -187,6 +187,9 @@ def test_recusa_nao_grava_trilha_de_aceite(cenario):
             aceitar_convite_e_criar_vinculo(token=convite.token, usuario=convidada)
 
     assert not RegistroAuditoria.objects.filter(acao="convite.escritorio.aceito").exists()
+    # DL-059 (BL-566): a recusa NÃO deixa o evento de aceite, mas deixa o seu
+    # próprio (o teste antigo afirmava que a recusa não deixava trilha nenhuma).
+    assert RegistroAuditoria.objects.filter(acao="convite.escritorio.recusado").count() == 1
 
 
 # --- telas ------------------------------------------------------------------

@@ -57,7 +57,19 @@ class ConviteInvalido(Exception):
     """Token inexistente, já consumido, expirado (mais de 7 dias) ou
     apresentado por usuário cujo e-mail não é o do convidado. A
     mensagem nunca revela a qual e-mail o convite pertence. A view traduz
-    para mensagem ao usuário e redirecionamento ao painel."""
+    para mensagem ao usuário e redirecionamento ao painel.
+
+    DL-059 (BL-566): quando a recusa vem de um convite que EXISTE, a exceção
+    carrega `motivo` (um dos `MOTIVO_*`) e `convite`, para o serviço gravar o
+    evento de recusa na trilha sem interpretar o texto da mensagem. Token
+    inexistente ou já consumido não tem convite a apontar: `motivo` e
+    `convite` ficam `None` e nada é gravado (o token nunca vai para a
+    trilha)."""
+
+    def __init__(self, mensagem, *, motivo=None, convite=None):
+        super().__init__(mensagem)
+        self.motivo = motivo
+        self.convite = convite
 
 
 class ConviteTokenColidiu(Exception):
@@ -80,6 +92,7 @@ def criar_primeiro_escritorio_e_vinculo_admin(
     usuario,
     nome: str,
     cnpj: str,
+    request=None,
 ) -> ResultadoBootstrap:
     """Operação atômica: cria o primeiro escritório e vincula o usuário
     como ADMINISTRADOR. Falha se o usuário já tem escritório.
@@ -117,6 +130,9 @@ def criar_primeiro_escritorio_e_vinculo_admin(
             "via": "primeiro_acesso",
             "papel_atribuido": Papel.ADMINISTRADOR,
         },
+        # DL-059 (BL-579): `request` opcional só para a trilha gravar a origem (IP);
+        # chamadas sem request (shell, importador) seguem funcionando, sem IP.
+        request=request,
     )
     return ResultadoBootstrap(escritorio=escritorio, vinculo=vinculo)
 
@@ -128,6 +144,7 @@ def emitir_convite_para_escritorio(
     email_convidado: str,
     convidador,
     papel_inicial: str = Papel.ANALISTA,
+    request=None,
 ) -> ConviteEscritorio:
     """Convite escrito pelo ADMINISTRADOR do escritório para o e-mail do
     segundo funcionário. Token opaco (32 chars base64-url), com prazo de 7
@@ -166,6 +183,7 @@ def emitir_convite_para_escritorio(
         usuario=convidador,
         escritorio=escritorio,
         detalhes={"convite_id": convite.id, "email_convidado": email_convidado},
+        request=request,  # DL-059 (BL-579): origem (IP) na trilha
     )
     return convite
 
@@ -192,6 +210,12 @@ def convite_e_do_usuario(convite: ConviteEscritorio, usuario) -> bool:
     return bool(email_do_usuario) and email_do_usuario == normalizar_email(convite.email)
 
 
+# DL-059 (BL-566): valores de `detalhes["motivo"]` do evento
+# `convite.escritorio.recusado`.
+MOTIVO_VENCIDO = "vencido"
+MOTIVO_EMAIL_DIVERGENTE = "email_divergente"
+MOTIVO_JA_VINCULADO = "ja_vinculado"
+
 MENSAGEM_CONVITE_EXPIRADO = (
     "Este convite venceu (vale 7 dias a partir da emissão). "
     "Peça ao administrador do escritório para emitir outro."
@@ -206,8 +230,7 @@ MENSAGEM_CONVITE_DE_OUTRO_EMAIL = (
 )
 
 
-@transaction.atomic
-def aceitar_convite_e_criar_vinculo(*, token: str, usuario) -> ResultadoAceitacao:
+def aceitar_convite_e_criar_vinculo(*, token: str, usuario, request=None) -> ResultadoAceitacao:
     """Usuário autenticado apresenta token de convite e ganha o vínculo
     com o papel que o convite carrega.
 
@@ -219,7 +242,40 @@ def aceitar_convite_e_criar_vinculo(*, token: str, usuario) -> ResultadoAceitaca
     maiúsculas nem de espaços nas pontas); ou o usuário já tem vínculo com o
     escritório do convite. As recusas por prazo e por
     e-mail usam mensagens próprias, e a de e-mail não diz a qual e-mail
-    o convite pertence (DL-052, A2)."""
+    o convite pertence (DL-052, A2).
+
+    DL-059 (BL-566): cada recusa de um convite existente deixa o evento
+    `convite.escritorio.recusado` (`convite_id` e `motivo`, nunca o e-mail)
+    — token apresentado por quem não deveria ou fora do prazo é sinal útil
+    de incidente. `request` é opcional e só informa a origem (IP) à trilha.
+
+    Por que a gravação fica AQUI, fora da transação: a recusa é uma exceção
+    levantada de dentro de `_aceitar_em_transacao` (`@transaction.atomic`),
+    e uma exceção desfaz a transação inteira, levando junto qualquer
+    `registrar` feito antes do `raise`. Então a transação interna só
+    decide e levanta; este envoltório captura `ConviteInvalido` já DEPOIS
+    do rollback e grava o evento numa operação própria. Nenhum vínculo
+    nem consumo existe nesse ponto (a recusa vem antes de qualquer escrita),
+    de modo que o evento de recusa nunca coexiste com o de aceite."""
+    try:
+        return _aceitar_em_transacao(token=token, usuario=usuario, request=request)
+    except ConviteInvalido as recusa:
+        if recusa.motivo is not None:
+            registrar(
+                acao="convite.escritorio.recusado",
+                usuario=usuario,
+                escritorio=recusa.convite.escritorio,
+                detalhes={"convite_id": recusa.convite.id, "motivo": recusa.motivo},
+                request=request,
+            )
+        raise
+
+
+@transaction.atomic
+def _aceitar_em_transacao(*, token: str, usuario, request=None) -> ResultadoAceitacao:
+    """Decide e executa o aceite numa transação; ver
+    `aceitar_convite_e_criar_vinculo` para o contrato e para o motivo de a
+    trilha de recusa ficar fora daqui."""
     convite = (
         ConviteEscritorio.objects.select_for_update()
         .filter(token=token, consumido_em__isnull=True)
@@ -228,16 +284,18 @@ def aceitar_convite_e_criar_vinculo(*, token: str, usuario) -> ResultadoAceitaca
     if convite is None:
         raise ConviteInvalido("Convite inexistente, expirado ou já consumido.")
     if convite.expirado:
-        raise ConviteInvalido(MENSAGEM_CONVITE_EXPIRADO)
+        raise ConviteInvalido(MENSAGEM_CONVITE_EXPIRADO, motivo=MOTIVO_VENCIDO, convite=convite)
     if not convite_e_do_usuario(convite, usuario):
-        raise ConviteInvalido(MENSAGEM_CONVITE_DE_OUTRO_EMAIL)
+        raise ConviteInvalido(
+            MENSAGEM_CONVITE_DE_OUTRO_EMAIL, motivo=MOTIVO_EMAIL_DIVERGENTE, convite=convite
+        )
     # DL-052 rodada 1 (D5): quem já tem vínculo (ativo ou não) com o escritório
     # violaria `unico_vinculo_usuario_escritorio` — antes isso virava
     # `IntegrityError` (500). Recusa de negócio, convite NÃO consumido.
     if VinculoUsuarioEscritorio.objects.filter(
         usuario=usuario, escritorio=convite.escritorio
     ).exists():
-        raise ConviteInvalido(MENSAGEM_JA_VINCULADO)
+        raise ConviteInvalido(MENSAGEM_JA_VINCULADO, motivo=MOTIVO_JA_VINCULADO, convite=convite)
 
     vinculo = VinculoUsuarioEscritorio.objects.create(
         usuario=usuario,
@@ -254,5 +312,6 @@ def aceitar_convite_e_criar_vinculo(*, token: str, usuario) -> ResultadoAceitaca
         usuario=usuario,
         escritorio=convite.escritorio,
         detalhes={"convite_id": convite.id, "papel_atribuido": convite.papel_inicial},
+        request=request,  # DL-059 (BL-579): origem (IP) na trilha
     )
     return ResultadoAceitacao(vinculo=vinculo, convite=convite)

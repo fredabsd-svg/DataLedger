@@ -10,6 +10,9 @@ DL-044 (Fase B): título migra para a faixa branca do topo.
 {% block content %}
     {% if not convite %}
         <p>Este convite é inexistente, expirou ou já foi consumido.</p>
+    {% elif convite.consumido_em %}
+        {# DL-059 (BL-560): convite já usado não oferece "Aceitar" (o POST recusaria) e não diz por quem. #}
+        <p>Este convite já foi usado e não pode ser aceito de novo. Se você precisa de acesso ao escritório, peça ao ADMINISTRADOR para emitir outro convite.</p>
     {% elif convite.expirado %}
         <p>Este convite venceu (vale 7 dias a partir da emissão). Peça ao ADMINISTRADOR do seu escritório para emitir outro.</p>
     {% elif not email_confere %}
