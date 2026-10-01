@@ -544,6 +544,20 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "para `None`); só ORM/SQL direto, fora de qualquer requisição de "
         'cliente, alcançaria esta constraint com `""`.'
     ),
+    # DL-061/CTB-14: constraint NOVA no dia um do campo `classificacao_dmpl`,
+    # pelo mesmo motivo das duas de cima. Os caminhos de cliente que gravam
+    # o campo hoje são só o serviço `classificar_conta_na_dmpl`
+    # (`full_clean()`) e o admin (idem); a tela e a API chegam com a fatia
+    # do `especialista-frontend`/fatia 2, e também passam por `Conta.clean()`
+    # (o topo do método normaliza `""` para `None`).
+    "ck_conta_classificacao_dmpl_nao_vazia": (
+        "`CheckConstraint` de `Conta.classificacao_dmpl` (DL-061/CTB-14): "
+        'recusa `""` (string vazia) — só `NULL` ou um valor de '
+        "`ClassificacaoDmpl`. Todos os caminhos de cliente que gravam o "
+        'campo passam por `Conta.clean()` (topo do método normaliza `""` '
+        "para `None`); só ORM/SQL direto, fora de qualquer requisição de "
+        'cliente, alcançaria esta constraint com `""`.'
+    ),
     # DL-046 (fatia 1): domínio de `ContaLivroCaixa.natureza` — mesmo
     # motivo de `empresa_modo_escrituracao_valido` acima (achado B8/
     # DL-038): `choices=` no campo só vale para form/serializer, nunca

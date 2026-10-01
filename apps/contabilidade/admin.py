@@ -78,7 +78,8 @@ class ContaAdmin(admin.ModelAdmin):
     # admin exigia abrir conta por conta.
     # DL-048/CTB-12: a terceira classificação entra nas MESMAS duas listas,
     # desde o dia um — mesma razão das duas acima, sem esperar auditoria
-    # para descobrir que o campo era invisível.
+    # para descobrir que o campo era invisível. DL-061/CTB-14: a coluna da
+    # DMPL (quarta classificação) idem.
     list_display = [
         "codigo",
         "nome",
@@ -87,6 +88,7 @@ class ContaAdmin(admin.ModelAdmin):
         "classificacao_patrimonial",
         "classificacao_dre",
         "classificacao_dlpa",
+        "classificacao_dmpl",
         "empresa",
         "aceita_lancamento",
         "ativo",
@@ -101,6 +103,8 @@ class ContaAdmin(admin.ModelAdmin):
         ("classificacao_dre", admin.EmptyFieldListFilter),
         "classificacao_dlpa",
         ("classificacao_dlpa", admin.EmptyFieldListFilter),
+        "classificacao_dmpl",
+        ("classificacao_dmpl", admin.EmptyFieldListFilter),
     ]
     search_fields = ["codigo", "nome"]
 
