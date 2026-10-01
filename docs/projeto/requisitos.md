@@ -55,6 +55,17 @@ funcionalidade ou atalho fictício nesta correção.
 
 Plano: [DL-052](../planos/DL-052-integridade-do-livro-e-do-acesso.md).
 
+## DMPL — DL-061
+
+| ID | Categoria | Requisito e origem |
+| --- | --- | --- |
+| RC-151 | Confirmado | Fred, 01/10/2026: *"Deixamos o padrão, pode seguir com a B"*. No sistema de referência o escritório deixa a linha padrão da DMPL e não reparte à mão. Na DMPL do DataLedger, a linha (evento) sai **automaticamente** da outra ponta do lançamento, como na DLPA; marcação manual só na exceção; quando a regra não decide, a emissão é **recusada** com a lista do que falta, nunca presumida. |
+| HI-50 | Hipótese normativa | As alíneas **"c"** (prêmio na emissão de debêntures) e **"d"** (doações e subvenções para investimento) do art. 182, §1º, da Lei 6.404/76 foram **revogadas pela Lei 11.638/2007** e não são reserva de capital nem coluna da DMPL. Base: a tabela de constantes desta página (consulta de 28/09/2026), que já registra a revogação, e fontes secundárias de 01/10/2026 ([LegJur](https://www.legjur.com/legislacao/art/lei_00064041976-182), [JuruáDocs](https://www.juruadocs.com/legislacao/art/lei_00064041976-182)). **Contradiz** a seção "Reservas de CAPITAL que a RC-137 não listou", de 29/09/2026, que manda as duas entrarem na DMPL. O Planalto ficou bloqueado pela rede nesta sessão; a conferência em fonte oficial e a validação são do Fred. Até lá, as duas **não** viram coluna. |
+
+Plano: [DL-061](../planos/DL-061-dmpl.md). Rotina de referência lida no manual do
+sistema de referência em 01/10/2026 (p. 122, 192–194, 616–622, 773–774), entregue pelo
+Fred nesta sessão, fora do repositório.
+
 ## Legenda
 
 | Estado | Significado |
@@ -689,6 +700,11 @@ afirmação no repositório. O erro entrou como *"varrido o texto e não existe"
 artigo estava lá desde 1976.
 
 ### ⚠️ Reservas de CAPITAL que a RC-137 não listou — pendência para a DMPL
+
+⚠️ **Contestada em 01/10/2026 pela HI-50:** a tabela de constantes acima registra que as
+alíneas "c" e "d" foram revogadas pela Lei 11.638/2007. Se isso se confirmar em fonte
+oficial, as duas linhas marcadas como "entra na DMPL" abaixo estão erradas. Até a
+conferência, a DMPL **não** as cria como coluna.
 
 O item 111A da TG 51 exige **reservas de capital** entre as colunas da DMPL. A RC-137
 lista duas (ágio na emissão de ações; alienação de partes beneficiárias / bônus de

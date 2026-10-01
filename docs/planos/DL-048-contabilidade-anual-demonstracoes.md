@@ -106,6 +106,9 @@ lucro do exercício − destinações (reservas, dividendos) = saldo final.
 
 ### 3. CTB-14 — DMPL (Demonstração das Mutações do Patrimônio Líquido)
 
+➡️ **Planejada e em execução como [DL-061](DL-061-dmpl.md)** (01/10/2026), com a RC-151
+(linha automática pela contrapartida) e a HI-50 (alíneas "c" e "d" do art. 182, §1º).
+
 Uma coluna por conta do PL, uma linha por tipo de evento (saldo inicial, aumento de
 capital, lucro do exercício, constituição de reserva, distribuição, saldo final).
 
