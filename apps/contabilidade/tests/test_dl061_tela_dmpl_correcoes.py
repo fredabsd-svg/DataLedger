@@ -339,28 +339,31 @@ def test_sem_orientacao_do_servidor_a_tela_ainda_nao_oferece_o_link(client, monk
     assert "Esta conta não aceita coluna na DMPL" in _texto(html)
 
 
-def test_integracao_conta_de_pl_classificada_como_dividendo_nao_recebe_link_de_coluna(client):
-    """Caso 4 do auditor, com a apuração REAL: conta de PL classificada como
-    dividendo na DLPA e movimentada. O servidor a marca como não
-    classificável; a tela não oferece o link e traz a orientação."""
+def test_integracao_conta_de_pl_classificada_como_ajuste_nao_recebe_link_de_coluna(client):
+    """Caso 4 do auditor, com a apuração REAL: conta de PL cuja classificação da
+    DLPA não admite nenhuma coluna e que foi movimentada. O servidor a marca como
+    não classificável; a tela não oferece o link e traz a orientação.
+
+    DL-062 (G1, RC-153): este teste usava a conta de DIVIDENDO, que agora é
+    classificável (na coluna "dividendo adicional proposto"). A intenção do caso
+    é a mesma e passou para o ajuste de exercício anterior, que segue sem
+    coluna. O link da conta de dividendo é da tela do DL-062."""
     empresa, contas, _ = _caso_a()
-    dividendo = _conta(
+    ajuste = _conta(
         empresa,
         "3.5",
-        "Dividendos Propostos (PL)",
+        "Ajustes de Exercícios Anteriores (PL)",
         PL,
         D,
-        dlpa=ClassificacaoDlpa.DIVIDENDO,
+        dlpa=ClassificacaoDlpa.AJUSTE_DE_EXERCICIO_ANTERIOR,
         pai=contas["pl"],
     )
-    _lancar(
-        empresa, date(2026, 3, 15), "Dividendos propostos", dividendo, contas["caixa"], "100.00"
-    )
+    _lancar(empresa, date(2026, 3, 15), "Ajuste mantido no PL", ajuste, contas["caixa"], "100.00")
     _entrar(client, empresa, Papel.GESTOR)
     html = client.get(_url(empresa)).content.decode()
-    assert "Conta 3.5 — Dividendos Propostos (PL)" in html
+    assert "Conta 3.5 — Ajustes de Exercícios Anteriores (PL)" in html
     assert (
-        reverse("contabilidade_web:conta_classificacao_dmpl", args=[empresa.id, dividendo.id])
+        reverse("contabilidade_web:conta_classificacao_dmpl", args=[empresa.id, ajuste.id])
         not in html
     )
     assert "Como resolver:" in html
