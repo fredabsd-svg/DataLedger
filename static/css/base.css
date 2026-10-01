@@ -3846,7 +3846,36 @@ button:disabled {
     body.pagina-dmpl-impressao .tabela-dmpl th,
     body.pagina-dmpl-impressao .tabela-dmpl td {
         font-size: var(--tipo-2xs);
-        padding: var(--esp-1);
+        padding: var(--esp-1) var(--esp-1) var(--esp-1) 0;
+    }
+
+    /* DL-062 — a 13ª coluna ("Dividendo adicional proposto"). Com 12 colunas a
+       tabela já ocupava a folha inteira (986 px de 1.054 px úteis, sem os
+       respiros do `width: 100%`); a 13ª a levou a 1.106 px e o "Total" passou da
+       margem direita (medido no Chromium real). Só o que NÃO é conteúdo foi
+       cortado, em dois pontos, e a tipografia continua no piso de 11 px: nunca
+       se reduz a letra para caber.
+
+       a) LARGURA: o respiro ESQUERDO de cada célula (4 px × 14 colunas). Os
+          valores são alinhados à direita, então o que separa duas colunas é o
+          respiro direito da primeira (continua 4 px) — o ")" de um negativo não
+          encosta no valor vizinho. A coluna de histórico, de texto à esquerda,
+          conserva o respiro esquerdo. A tabela passa a medir 1.050 px (cabe nos
+          1.054 px úteis).
+       b) ALTURA: a nova linha e o cabeçalho de grupo de três linhas empurravam a
+          última nota para uma SEGUNDA folha, sem a identificação do emitente
+          (que só se repete com a tabela). O respiro vertical das linhas do CORPO
+          cai de 4 px para 2 px (metade do token, `calc`, sem medida solta); o
+          cabeçalho de coluna conserva os 4 px. Ganho medido: ~33 pt de 595. */
+    body.pagina-dmpl-impressao .tabela-dmpl tbody th.cabecalho-de-linha,
+    body.pagina-dmpl-impressao .tabela-dmpl thead tr:not(.linha-identificacao-do-documento) th:first-child {
+        padding-left: var(--esp-1);
+    }
+
+    body.pagina-dmpl-impressao .tabela-dmpl tbody th,
+    body.pagina-dmpl-impressao .tabela-dmpl tbody td {
+        padding-top: calc(var(--esp-1) / 2);
+        padding-bottom: calc(var(--esp-1) / 2);
     }
 
     /* N5 — largura. A margem da página (`@page dmpl-paisagem`) já é a

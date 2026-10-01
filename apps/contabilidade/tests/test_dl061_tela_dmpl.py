@@ -707,7 +707,6 @@ def _veto_lancamento_ambiguo():
     )
     return empresa, [
         "Lançamento de 27/03/2026 (colunas:",
-        "Divida o lançamento em um por evento",
         reverse("contabilidade_web:lancamento_detalhe", args=[empresa.id, ambiguo.id]),
     ]
 
@@ -782,9 +781,13 @@ def test_cada_pendencia_veta_a_tela_nomeia_o_que_falta_e_a_acao_que_resolve(clie
     html = resposta.content.decode()
     assert "A DMPL NÃO pode ser emitida nesta competência" in html
     assert _TITULOS_DAS_PENDENCIAS_DA_DMPL[lista] in html
-    assert (
-        views_web.ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DMPL_POR_LISTA[lista].split(" (link")[0] in html
-    )
+    acao = views_web.ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DMPL_POR_LISTA[lista]
+    if lista == "diferenca_de_fechamento":
+        # DL-062/G4: o cenário desta lista tem também uma subconta de PL movimentada e sem
+        # coluna; com as duas pendências juntas a ação é a que aponta para a conta listada
+        # acima (a da retificadora fora do grupo é testada, sozinha, em test_dl062_tela_dmpl).
+        acao = views_web.ACAO_DA_DIFERENCA_DE_FECHAMENTO_COM_CONTA_SEM_COLUNA
+    assert acao.split(" (link")[0] in html
     for trecho in esperado:
         assert trecho in html, (lista, trecho)
     # E a demonstração NÃO é montada: nem tabela, nem total, nem faixa de pronto.
@@ -827,7 +830,7 @@ def test_link_de_conferencia_do_lancamento_aparece_para_quem_so_le(client):
     empresa, esperado = _veto_lancamento_ambiguo()
     _entrar(client, empresa, Papel.PARALEGAL)
     html = client.get(_url(empresa)).content.decode()
-    assert esperado[2] in html, "abrir o lançamento é leitura, não correção"
+    assert esperado[-1] in html, "abrir o lançamento é leitura, não correção"
 
 
 def test_o_veto_lista_so_alguns_lancamentos_por_extenso_e_conta_o_resto(client):

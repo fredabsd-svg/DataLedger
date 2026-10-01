@@ -4731,9 +4731,12 @@ ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DMPL_POR_LISTA = {
         "os lançamentos listados; se o movimento estiver correto, este par ainda não é "
         "atendido pela DMPL e a competência não pode ser emitida até que seja."
     ),
+    # DL-062/G3: lançamento efetivado não se altera, então "dividir" não é
+    # uma ação que a tela ofereça; o procedimento rastreável do projeto é
+    # estornar e relançar CADA evento em lançamento próprio.
     "lancamentos_ambiguos": (
-        "Divida cada lançamento listado em um por evento (estorne e lance de novo): a DMPL "
-        "não rateia um valor entre eventos."
+        "Lançamento efetivado não se altera: estorne o lançamento listado e lance de novo "
+        "cada evento em um lançamento próprio. A DMPL não rateia um valor entre eventos."
     ),
     "contas_com_classificacao_dlpa_e_dmpl_divergentes": (
         "Escolha, para cada conta listada, classificações compatíveis na DLPA e na DMPL "
@@ -4761,6 +4764,21 @@ ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DMPL_POR_LISTA = {
         "dado inconsistente."
     ),
 }
+
+# G4 (DL-062, achado M4 da reconferência da DL-061): quando a diferença com o
+# Balanço vem ACOMPANHADA da pendência de conta de PL sem coluna, a causa já
+# está nomeada na lista de cima — a conta sem coluna entra no PL do Balanço e
+# não entra em nenhuma coluna. Mandar procurar a retificadora fora do grupo
+# (texto de `diferenca_de_fechamento`, acima) levaria o contador à causa
+# errada num caso comum. A dica da retificadora só vale quando a diferença é a
+# única pendência. Não é uma lista nova de pendência (por isso mora fora do
+# dicionário acima, cujas chaves o teste confere contra o serviço).
+ACAO_DA_DIFERENCA_DE_FECHAMENTO_COM_CONTA_SEM_COLUNA = (
+    "A diferença provavelmente decorre da(s) conta(s) listada(s) acima, sem coluna na "
+    "DMPL: o Balanço soma essas contas ao patrimônio líquido e a demonstração, sem "
+    "coluna, não as mostra. Dê coluna a cada uma e confira de novo — se a diferença "
+    "persistir, esta mensagem passa a indicar a outra causa possível."
+)
 
 _TITULOS_DOS_AVISOS_DA_DMPL = {
     "resultado_nao_transferido": "Resultado do exercício ainda não zerado",
@@ -4980,6 +4998,10 @@ def _listas_de_pendencia_dmpl_para_contexto(emissao, empresa, pode_escriturar):
                 "indicada em cada uma. O patrimônio líquido do Balanço inclui todas elas e a "
                 "demonstração, sem coluna, não as mostraria."
             )
+        if nome == "diferenca_de_fechamento" and listas.get(
+            "contas_do_patrimonio_liquido_sem_coluna"
+        ):
+            acao = ACAO_DA_DIFERENCA_DE_FECHAMENTO_COM_CONTA_SEM_COLUNA
         resultado.append(
             {
                 "titulo": _TITULOS_DAS_PENDENCIAS_DA_DMPL.get(nome, nome),
