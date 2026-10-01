@@ -707,6 +707,7 @@ def _veto_lancamento_ambiguo():
     )
     return empresa, [
         "Lançamento de 27/03/2026 (colunas:",
+        "estorne-o e lance de novo cada evento em um lançamento separado",
         reverse("contabilidade_web:lancamento_detalhe", args=[empresa.id, ambiguo.id]),
     ]
 

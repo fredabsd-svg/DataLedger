@@ -2,7 +2,7 @@ import calendar
 import hashlib
 import json
 import warnings
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -6123,6 +6123,10 @@ _LINHA_CONSTITUICAO_DE_RESERVAS = "constituicao_de_reservas"
 _LINHA_REVERSAO_DE_RESERVAS = "reversao_de_reservas"
 _LINHA_CAPITAL_COM_RESERVAS_E_LUCROS = "aumento_de_capital_com_reservas_e_lucros"
 _LINHA_DIVIDENDOS = "dividendos"
+# DL-062 (G1, RC-153): a PROPOSTA de dividendo adicional, que sai dos lucros
+# acumulados e entra na coluna de mesmo nome. Logo depois de "Dividendos" na
+# ordem. A APROVAÇÃO (a coluna nova para o passivo) é a linha "Dividendos".
+_LINHA_DIVIDENDO_ADICIONAL_PROPOSTO = "dividendo_adicional_proposto"
 _LINHA_SALDO_FINAL = "saldo_final"
 
 _TITULOS_DAS_LINHAS_DA_DMPL = {
@@ -6139,6 +6143,7 @@ _TITULOS_DAS_LINHAS_DA_DMPL = {
     _LINHA_REVERSAO_DE_RESERVAS: "Reversão de reservas",
     _LINHA_CAPITAL_COM_RESERVAS_E_LUCROS: "Aumento de capital com reservas e lucros",
     _LINHA_DIVIDENDOS: "Dividendos",
+    _LINHA_DIVIDENDO_ADICIONAL_PROPOSTO: "Dividendo adicional proposto",
     _LINHA_SALDO_FINAL: "Saldo no fim do período",
 }
 
@@ -6158,15 +6163,36 @@ def linha_da_dmpl_equivalente_a_linha_da_dlpa(chave_da_linha_da_dlpa):
     """A linha da DMPL que espelha uma linha da DLPA (tabela do plano DL-061,
     E3), ou `None` para as linhas que não têm par (saldos).
 
-    É a fonte do teste de IDENTIDADE entre as duas demonstrações — e a que a
-    apuração usa para a contrapartida de lucros acumulados que a DLPA já
-    classificou (resultado, dividendos, ajuste de exercício anterior).
+    É a que a apuração usa para a contrapartida EXTERNA que a DLPA já
+    classificou (resultado, dividendos, ajuste de exercício anterior). Para o
+    TESTE DE IDENTIDADE entre as duas demonstrações, na coluna de lucros, use
+    `linhas_da_dmpl_que_somam_a_linha_da_dlpa`: a linha de dividendo da DLPA
+    tem DUAS linhas na DMPL (DL-062, G1).
     """
     if chave_da_linha_da_dlpa.startswith("transferencia:"):
         return _LINHA_CONSTITUICAO_DE_RESERVAS
     if chave_da_linha_da_dlpa.startswith("reversao:"):
         return _LINHA_REVERSAO_DE_RESERVAS
     return _LINHA_DA_DMPL_DAS_LINHAS_FIXAS_DA_DLPA.get(chave_da_linha_da_dlpa)
+
+
+def linhas_da_dmpl_que_somam_a_linha_da_dlpa(chave_da_linha_da_dlpa):
+    """As linhas da DMPL cuja célula, na coluna de lucros acumulados, SOMAM o
+    valor da linha da DLPA (identidade do critério 2 do plano DL-061, com a
+    exceção do DL-062, G1): `()` para as que não têm par (saldos).
+
+    A DLPA mostra "dividendo" uma vez só, art. 186, III — tanto o dividendo
+    pago ou declarado quanto a PROPOSTA de dividendo adicional. A DMPL os
+    separa: "Dividendos" e "Dividendo adicional proposto". Só a linha de
+    dividendo da DLPA tem duas; as demais continuam uma a uma, e é isso que
+    impede a soma de afrouxar a identidade das outras linhas.
+    """
+    equivalente = linha_da_dmpl_equivalente_a_linha_da_dlpa(chave_da_linha_da_dlpa)
+    if equivalente is None:
+        return ()
+    if equivalente == _LINHA_DIVIDENDOS:
+        return (_LINHA_DIVIDENDOS, _LINHA_DIVIDENDO_ADICIONAL_PROPOSTO)
+    return (equivalente,)
 
 
 # Colunas de origem aceitas no "aumento de capital com reservas e lucros": os
@@ -6201,7 +6227,11 @@ def _linha_do_par_de_colunas(origem, destino):
     - capital social ou reservas (de capital ou de lucros) → tesouraria:
       cancelamento das ações ou quotas em tesouraria (N8) — a tesouraria é
       retificadora: o crédito nela diminui as ações em tesouraria, enquanto o
-      débito na coluna de origem diminui o PL de onde o cancelamento sai.
+      débito na coluna de origem diminui o PL de onde o cancelamento sai;
+    - lucros acumulados → dividendo adicional proposto: a PROPOSTA (DL-062,
+      G1). O caminho de volta (dividendo adicional proposto → lucros) NÃO tem
+      regra e vira par sem regra: a norma que o trataria (PE-75) não foi lida
+      em fonte oficial, e na dúvida a RC-151 manda recusar.
     """
     if (
         origem == ClassificacaoDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS
@@ -6213,6 +6243,11 @@ def _linha_do_par_de_colunas(origem, destino):
         and destino == ClassificacaoDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS
     ):
         return _LINHA_REVERSAO_DE_RESERVAS
+    if (
+        origem == ClassificacaoDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS
+        and destino == ClassificacaoDmpl.DIVIDENDO_ADICIONAL_PROPOSTO
+    ):
+        return _LINHA_DIVIDENDO_ADICIONAL_PROPOSTO
     if destino == ClassificacaoDmpl.CAPITAL_SOCIAL and origem in (
         _ORIGENS_DE_AUMENTO_DE_CAPITAL_COM_RESERVAS
     ):
@@ -6230,7 +6265,9 @@ def _linha_do_par_de_colunas(origem, destino):
 # acontecer: o resultado do exercício e o ajuste de exercício anterior são
 # movimentos dos lucros acumulados; o dividendo sai dos lucros acumulados ou de
 # uma reserva de lucros (qualquer sinal: o sinal contrário é o estorno, e é o
-# que mantém a coluna de lucros idêntica à DLPA). Em qualquer outra coluna a
+# que mantém a coluna de lucros idêntica à DLPA) ou do dividendo adicional
+# proposto, onde a APROVAÇÃO (a conta vai para o passivo) é a linha de
+# dividendos, com efeito negativo (DL-062, G1). Em qualquer outra coluna a
 # contrapartida é uma conta externa comum ("dividendos a pagar" capitalizado é
 # AUMENTO DE CAPITAL, não "dividendos").
 _COLUNAS_ONDE_A_CLASSIFICACAO_DA_DLPA_DECIDE_A_LINHA = {
@@ -6241,15 +6278,54 @@ _COLUNAS_ONDE_A_CLASSIFICACAO_DA_DLPA_DECIDE_A_LINHA = {
         {ClassificacaoDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS}
     ),
     ClassificacaoDlpa.DIVIDENDO: frozenset(
-        {ClassificacaoDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS} | set(RESERVAS_DE_LUCROS_DA_DMPL)
+        {
+            ClassificacaoDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS,
+            ClassificacaoDmpl.DIVIDENDO_ADICIONAL_PROPOSTO,
+        }
+        | set(RESERVAS_DE_LUCROS_DA_DMPL)
     ),
 }
+
+# Colunas onde o dividendo, como contrapartida externa, só é a linha de
+# dividendos com efeito NEGATIVO (a coluna diminui: pagamento com a reserva,
+# aprovação da proposta). Com efeito positivo é pendência, salvo estorno: nos
+# lucros acumulados vale qualquer sinal (a DLPA também o mostra).
+_COLUNAS_ONDE_O_DIVIDENDO_POSITIVO_E_PENDENCIA = frozenset(
+    {ClassificacaoDmpl.DIVIDENDO_ADICIONAL_PROPOSTO} | set(RESERVAS_DE_LUCROS_DA_DMPL)
+)
 
 # Colunas em que a contrapartida externa SEM classificação decisiva não tem
 # regra por direção: o evento é destinação ou ajuste, e quem diz qual é a
 # classificação da conta (D3 da DLPA). Cada contrapartida vira pendência.
 _COLUNAS_SEM_REGRA_POR_DIRECAO = frozenset(
-    {ClassificacaoDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS} | set(RESERVAS_DE_LUCROS_DA_DMPL)
+    {
+        ClassificacaoDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS,
+        ClassificacaoDmpl.DIVIDENDO_ADICIONAL_PROPOSTO,
+    }
+    | set(RESERVAS_DE_LUCROS_DA_DMPL)
+)
+
+# G3 (DL-062) — o que a tela diz quando a regra não decide e o lançamento
+# efetivado não se altera. Uma frase só, para os dois vetos que a repetem.
+_SAIDA_PELO_ESTORNO = (
+    "O lançamento efetivado não se altera: estorne-o e lance de novo cada evento em um "
+    "lançamento separado. Para o que nem assim se resolver, a marcação manual por lançamento "
+    "virá na fatia 2 da DMPL."
+)
+
+# G2 (DL-062, RC-155): colunas onde o lançamento com itens a débito E a
+# crédito (eventos opostos) é vetado quando o líquido apagaria o bruto. São as
+# que NÃO são vetadas pelo N7 e que usam o efeito líquido: capital, reservas
+# de capital, ajustes de avaliação e tesouraria. Lucros acumulados fica fora (a
+# DLPA também soma os itens) e o dividendo adicional proposto também (toda
+# contrapartida externa dele já é pendência).
+_COLUNAS_ONDE_EVENTOS_OPOSTOS_SAO_VETADOS = frozenset(
+    {
+        ClassificacaoDmpl.CAPITAL_SOCIAL,
+        ClassificacaoDmpl.AJUSTES_DE_AVALIACAO_PATRIMONIAL,
+        ClassificacaoDmpl.ACOES_OU_QUOTAS_EM_TESOURARIA,
+    }
+    | set(RESERVAS_DE_CAPITAL_DA_DMPL)
 )
 
 _DECIDIDA_PELA_CLASSIFICACAO = "linha"
@@ -6272,12 +6348,14 @@ def _tratamento_da_contrapartida_externa(conta, coluna, efeito_na_coluna, *, e_e
       todas as livres da coluna, por coluna e direção
       (`_linha_pela_coluna_e_direcao`, N1).
 
-    **Dividendo com efeito POSITIVO numa reserva de lucros** (`D Dividendos a
-    pagar / C Reserva legal`): só é a linha de dividendos quando é o ESTORNO
-    de um dividendo pago com a reserva. Fora disso o evento não é decidível
-    (reconstituição de reserva com dividendo declarado?) e vira pendência: na
-    dúvida, a RC-151 manda recusar, nunca presumir. Nos lucros acumulados
-    vale qualquer sinal, porque a DLPA também o mostra.
+    **Dividendo com efeito POSITIVO numa reserva de lucros ou no dividendo
+    adicional proposto** (`D Dividendos a pagar / C Reserva legal`): só é a
+    linha de dividendos quando é o ESTORNO do que saiu da coluna. Fora disso
+    o evento não é decidível (reconstituição de reserva com dividendo
+    declarado? desistência da proposta?) e vira pendência: na dúvida, a
+    RC-151 manda recusar, nunca presumir. Nos lucros acumulados vale qualquer
+    sinal, porque a DLPA também o mostra. No dividendo adicional proposto, o
+    efeito NEGATIVO é a aprovação (G1).
     """
     situacao, chave = _classificar_contrapartida_pela_dlpa(conta, -efeito_na_coluna)
     if situacao != _CLASSIFICADA_NA_DLPA:
@@ -6296,16 +6374,16 @@ def _tratamento_da_contrapartida_externa(conta, coluna, efeito_na_coluna, *, e_e
         return _LIVRE, None
     if (
         chave == ClassificacaoDlpa.DIVIDENDO
-        and coluna in RESERVAS_DE_LUCROS_DA_DMPL
+        and coluna in _COLUNAS_ONDE_O_DIVIDENDO_POSITIVO_E_PENDENCIA
         and efeito_na_coluna > 0
         and not e_estorno
     ):
         rotulo_coluna = ClassificacaoDmpl(coluna).label
         return _PENDENTE, (
             f'A conta é de dividendos, mas o lançamento AUMENTA a coluna "{rotulo_coluna}": '
-            "dividendo que volta a uma reserva de lucros só é a linha de dividendos quando é o "
-            "estorno do dividendo pago com ela, e este lançamento não é estorno. A regra não "
-            "decide o evento; estorne o dividendo original ou divida o lançamento."
+            "dividendo que volta a essa coluna só é a linha de dividendos quando é o estorno do "
+            "que saiu dela, e este lançamento não é estorno. A regra não decide o evento. "
+            f"{_SAIDA_PELO_ESTORNO}"
         )
     return _DECIDIDA_PELA_CLASSIFICACAO, linha_da_dmpl_equivalente_a_linha_da_dlpa(chave)
 
@@ -6354,6 +6432,24 @@ def _motivo_sem_regra_por_direcao(coluna):
     )
 
 
+def _e_o_estorno_exato(itens_do_original, itens_do_estorno):
+    """O estorno inverte item a item o original: mesmas contas e valores, com
+    débito e crédito trocados. É o que `estornar_lancamento` sempre produz; a
+    conferência existe porque o par só pode sair da atribuição de linhas se a
+    soma dos dois for ZERO em toda coluna — senão a DMPL perderia valor."""
+
+    def _assinatura(itens, *, invertido):
+        trocas = {TipoPartida.DEBITO: TipoPartida.CREDITO, TipoPartida.CREDITO: TipoPartida.DEBITO}
+        return Counter(
+            (item.conta_id, trocas[item.tipo] if invertido else item.tipo, item.valor)
+            for item in itens
+        )
+
+    return _assinatura(itens_do_original, invertido=True) == _assinatura(
+        itens_do_estorno, invertido=False
+    )
+
+
 def _atribuir_lancamento_as_linhas_da_dmpl(*, itens, coluna_de, contas, e_estorno=False):
     """Distribui UM lançamento nas células (linha × coluna) da DMPL — o
     coração da leitura (E2). Devolve `(celulas, movimento, problemas)`:
@@ -6386,10 +6482,17 @@ def _atribuir_lancamento_as_linhas_da_dmpl(*, itens, coluna_de, contas, e_estorn
        é ambígua — a DLPA lê cada item de reserva e a DMPL somaria por coluna,
        e as duas discordariam na quebra. É o único caso em que a DLPA detalha
        item a item. Lucros acumulados fica de fora (a DLPA TAMBÉM soma os itens
-       das contas sujeito); capital, reservas de capital, ajustes de avaliação
-       e tesouraria não aparecem na DLPA e usam o efeito LÍQUIDO da coluna
-       (subscrição + integralização no mesmo lançamento é aumento de capital
-       líquido). A subscrição pura (só a coluna) também fica de fora.
+       das contas sujeito). A subscrição pura (só a coluna) também fica de fora.
+       **AMBÍGUO (G2, RC-155):** capital, reservas de capital, ajustes de
+       avaliação e tesouraria usam o efeito LÍQUIDO da coluna, mas o líquido
+       apaga o bruto quando o lançamento tem, na MESMA coluna, itens a débito E
+       a crédito e também (a) contrapartidas de FORA das colunas nos dois lados
+       ou (b) a mesma conta da coluna a débito e a crédito (compra e venda de
+       tesouraria, redução e aumento de capital no mesmo lançamento). A
+       subscrição com integralização parcial (`D Caixa 500 / D Capital a
+       integralizar 500 / C Capital 1.000`) NÃO cai aqui: as contrapartidas
+       externas estão de um lado só e as contas da coluna são diferentes — é
+       aumento de capital líquido de 500,00.
     1. UMA coluna só movimentada: cada contrapartida externa com classificação
        DLPA decisiva dá a sua linha (identidade com a DLPA); as demais NÃO
        decidem uma a uma — o LÍQUIDO delas decide a linha, por coluna e
@@ -6411,6 +6514,8 @@ def _atribuir_lancamento_as_linhas_da_dmpl(*, itens, coluna_de, contas, e_estorn
     liquido = {}
     externos = []
     lados_da_coluna = defaultdict(set)
+    lados_da_conta_na_coluna = defaultdict(lambda: defaultdict(set))
+    lados_dos_externos = set()
     itens_da_coluna = defaultdict(int)
     total_de_itens = 0
     for item in itens:
@@ -6423,9 +6528,11 @@ def _atribuir_lancamento_as_linhas_da_dmpl(*, itens, coluna_de, contas, e_estorn
         if coluna is not None:
             liquido[coluna] = liquido.get(coluna, zero) + efeito
             lados_da_coluna[coluna].add(item.tipo)
+            lados_da_conta_na_coluna[coluna][item.conta_id].add(item.tipo)
             itens_da_coluna[coluna] += 1
         else:
             externos.append((conta, efeito))
+            lados_dos_externos.add(item.tipo)
 
     movimento = dict(liquido)
     ativas = {coluna: valor for coluna, valor in liquido.items() if valor != zero}
@@ -6442,9 +6549,30 @@ def _atribuir_lancamento_as_linhas_da_dmpl(*, itens, coluna_de, contas, e_estorn
             and total_de_itens > itens_da_coluna[coluna]
         )
     ]
-    if mistas:
+    # G2 (RC-155): eventos opostos na mesma coluna de efeito líquido.
+    # (a) contrapartidas de fora das colunas nos DOIS lados, ou (b) a mesma
+    # conta da coluna nos dois lados. Cada condição sozinha basta; a coluna
+    # precisa, além disso, ter débito E crédito.
+    contrapartidas_externas_nos_dois_lados = len(lados_dos_externos) > 1
+    opostas = [
+        coluna
+        for coluna, lados in lados_da_coluna.items()
+        if (
+            coluna in _COLUNAS_ONDE_EVENTOS_OPOSTOS_SAO_VETADOS
+            and len(lados) > 1
+            and (
+                contrapartidas_externas_nos_dois_lados
+                or any(
+                    len(lados_da_conta) > 1
+                    for lados_da_conta in lados_da_conta_na_coluna[coluna].values()
+                )
+            )
+        )
+    ]
+    vetadas = mistas + opostas
+    if vetadas:
         problemas.append(
-            {"tipo": "ambiguo", "colunas": mistas + [c for c in ativas if c not in mistas]}
+            {"tipo": "ambiguo", "colunas": vetadas + [c for c in ativas if c not in vetadas]}
         )
         return celulas, movimento, problemas
 
@@ -6562,19 +6690,16 @@ _LISTAS_DE_AVISO_DA_DMPL = ("resultado_nao_transferido", "resultado_na_conta_de_
 def _orientacao_para_conta_de_pl_sem_coluna(conta):
     """O que dizer ao contador sobre uma conta de PL que a DMPL não consegue
     receber em nenhuma coluna (N4). Só para classificação da DLPA que o mapa de
-    consistência liga a NENHUMA coluna. A decisão de produto (coluna de
-    dividendo adicional proposto, ajuste mantido no PL) é o BL-603: até lá a
-    única saída é fora da DMPL."""
+    consistência liga a NENHUMA coluna — hoje, o ajuste de exercício anterior.
+    O dividendo ganhou a coluna "dividendo adicional proposto" (DL-062, G1) e
+    por isso é classificável: não passa por aqui. A decisão de produto para o
+    ajuste mantido no PL segue no BL-603: até lá a única saída é fora da
+    DMPL."""
     rotulo = ClassificacaoDlpa(conta.classificacao_dlpa).label
     base = (
         f'A conta de patrimônio líquido classificada na DLPA como "{rotulo}" ainda não tem '
         "coluna na DMPL, e a classificação da DLPA dela não admite nenhuma. "
     )
-    if conta.classificacao_dlpa == ClassificacaoDlpa.DIVIDENDO:
-        return base + (
-            "Mova-a para o passivo, se for dividendo a pagar, ou aguarde a coluna de dividendo "
-            "adicional proposto (BL-603)."
-        )
     return base + (
         "Aguarde a coluna própria (BL-603) ou mantenha a conta sem saldo nem movimento no "
         "exercício."
@@ -6612,6 +6737,19 @@ def apurar_dmpl(*, empresa, ano, mes):
     `_saldo_anterior_por_conta`, `_itens_dos_lancamentos_do_exercicio_que_
     tocam` e `_classificar_contrapartida_pela_dlpa` são as funções que
     `apurar_dlpa` também chama.
+
+    **Par lançamento + estorno (DL-062, G3).** O lançamento e o seu estorno,
+    quando os dois caem em `[data_inicio_exercicio, data_fim]` e a regra não
+    decide um deles (há pendência), saem juntos da atribuição de linhas:
+    nenhuma célula, nenhuma pendência, nenhuma origem. O movimento por coluna
+    continua somado e é zero pelo par. Estorno depois da data final: o
+    lançamento conta sozinho e a pendência fica. Par que a regra decide mantém
+    as duas pontas (identidade com a DLPA, que divide as reservas por
+    direção).
+
+    **Dividendo adicional proposto (DL-062, G1).** Proposta (lucros → coluna
+    nova) é a linha "Dividendo adicional proposto"; aprovação (coluna nova →
+    passivo de dividendos) é a linha "Dividendos", com a coluna negativa.
 
     **Conciliação (E5) — exigência DERIVADA do item 106(d) da NBC TG 26 (R5)
     (107(c) da TG 51), NÃO citação literal de nenhum item.** Dois caminhos
@@ -6826,14 +6964,52 @@ def apurar_dmpl(*, empresa, ano, mes):
         itens_por_lancamento = defaultdict(list)
         for item in itens:
             itens_por_lancamento[item.lancamento_id].append(item)
-        # Lançamentos que são ESTORNO de outro: só o dividendo que volta a uma
-        # reserva de lucros precisa saber (`_tratamento_da_contrapartida_externa`).
-        # UMA consulta, qualquer que seja o número de lançamentos.
-        ids_de_estorno = set(
+        # Lançamentos que são ESTORNO de outro, e de qual. UMA consulta,
+        # qualquer que seja o número de lançamentos. Servem a duas regras:
+        # o dividendo que volta a uma coluna (`_tratamento_da_contrapartida_
+        # externa`) e o PAR lançamento + estorno (G3, abaixo).
+        original_do_estorno = dict(
             LancamentoContabil.objects.filter(
                 empresa=empresa, id__in=list(itens_por_lancamento), estorno_de__isnull=False
-            ).values_list("id", flat=True)
+            ).values_list("id", "estorno_de_id")
         )
+        ids_de_estorno = set(original_do_estorno)
+        # Cada lançamento é atribuído UMA vez; o par (G3) é decidido depois,
+        # sobre os resultados.
+        atribuicoes = {
+            lancamento_id: _atribuir_lancamento_as_linhas_da_dmpl(
+                itens=itens_do_lancamento,
+                coluna_de=coluna_de,
+                contas=contas,
+                e_estorno=lancamento_id in ids_de_estorno,
+            )
+            for lancamento_id, itens_do_lancamento in itens_por_lancamento.items()
+        }
+        # G3 (DL-062, M3 da reconferência): o par L + E sai junto da atribuição
+        # de linhas quando (i) os DOIS caem no período apurado
+        # (`itens_por_lancamento` só tem lançamentos de [data_inicio,
+        # data_fim]), (ii) E é o inverso exato de L e (iii) a regra NÃO decide
+        # um dos dois (há problema). A soma do par é zero em toda coluna, e é
+        # isso que faz o procedimento rastreável do projeto (estornar e relançar
+        # cada evento em lançamento próprio) liberar a emissão. Se o estorno
+        # cair DEPOIS da data final, L conta sozinho e o veto persiste naquele
+        # período. O movimento por coluna segue somado (zero pelo par).
+        #
+        # A condição (iii) é deliberada: par que a regra decide CONTINUA
+        # mostrando as duas pontas (ex.: a constituição de reserva estornada
+        # aparece como "reversão"). A DLPA divide as reservas por DIREÇÃO
+        # (`transferencia:<r>` × `reversao:<r>`), então tirar o par decidido
+        # faria a coluna de lucros divergir dela linha a linha (E3).
+        lancamentos_do_par_neutralizado = set()
+        for id_do_estorno, id_do_original in original_do_estorno.items():
+            if (
+                id_do_original in atribuicoes
+                and (atribuicoes[id_do_original][2] or atribuicoes[id_do_estorno][2])
+                and _e_o_estorno_exato(
+                    itens_por_lancamento[id_do_original], itens_por_lancamento[id_do_estorno]
+                )
+            ):
+                lancamentos_do_par_neutralizado.update((id_do_estorno, id_do_original))
 
         valores = defaultdict(lambda: defaultdict(lambda: zero))
         lancamentos_da_celula = defaultdict(lambda: defaultdict(list))
@@ -6841,15 +7017,11 @@ def apurar_dmpl(*, empresa, ano, mes):
         sem_linha = {}
         pares_sem_regra = {}
         ids_ambiguos = {}
-        for lancamento_id, itens_do_lancamento in itens_por_lancamento.items():
-            celulas, movimento_do_lancamento, problemas = _atribuir_lancamento_as_linhas_da_dmpl(
-                itens=itens_do_lancamento,
-                coluna_de=coluna_de,
-                contas=contas,
-                e_estorno=lancamento_id in ids_de_estorno,
-            )
+        for lancamento_id, (celulas, movimento_do_lancamento, problemas) in atribuicoes.items():
             for coluna, valor in movimento_do_lancamento.items():
                 movimento[coluna] += valor
+            if lancamento_id in lancamentos_do_par_neutralizado:
+                continue
             for linha, coluna, valor in celulas:
                 valores[linha][coluna] += valor
                 lancamentos_da_celula[linha][coluna].append(lancamento_id)
@@ -6904,10 +7076,10 @@ def apurar_dmpl(*, empresa, ano, mes):
                     else None,
                     "colunas": titulos,
                     "mensagem": (
-                        "O lançamento movimenta várias colunas do patrimônio líquido, ou debita "
-                        "e credita a mesma coluna junto com outras partidas, e a regra não "
-                        "atribui cada valor a uma linha só. Divida o lançamento em um por "
-                        "evento."
+                        "O lançamento movimenta várias colunas do patrimônio líquido, ou tem "
+                        "itens a débito e a crédito na mesma coluna junto com outras partidas, "
+                        "e a regra não atribui cada valor a uma linha só. "
+                        f"{_SAIDA_PELO_ESTORNO}"
                     ),
                 }
                 for lancamento_id, titulos in ids_ambiguos.items()

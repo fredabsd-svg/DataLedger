@@ -45,7 +45,6 @@ from apps.contabilidade.services import (
     avaliar_emissao_da_dmpl,
     definir_adocao_antecipada_da_nbc_tg_51,
     estornar_lancamento,
-    linha_da_dmpl_equivalente_a_linha_da_dlpa,
     norma_das_demonstracoes,
     registrar_parametro_contabil,
 )
@@ -71,6 +70,7 @@ from apps.contabilidade.tests.test_dl061_dmpl import (
     _linha,
     _pendencias_nao_vazias,
     _plano_basico,
+    comparar_lucros_da_dmpl_com_as_linhas_da_dlpa,
 )
 
 pytestmark = pytest.mark.django_db
@@ -298,14 +298,14 @@ _NOMES_DO_ENSAIO = (
 )
 
 
-def _itens_aleatorios(rnd, contas):
+def _itens_aleatorios(rnd, contas, nomes=_NOMES_DO_ENSAIO):
     """Um lançamento de partidas dobradas válido: 1 a 3 débitos e 1 a 3
     créditos, valores inteiros múltiplos de 100 que fecham. Pode repetir uma
     conta nos dois lados (a coluna debitada e creditada no mesmo lançamento
     é justamente o caso N7)."""
     n_debitos, n_creditos = rnd.randint(1, 3), rnd.randint(1, 3)
-    debitos = rnd.sample(_NOMES_DO_ENSAIO, n_debitos)
-    creditos = rnd.sample(_NOMES_DO_ENSAIO, n_creditos)
+    debitos = rnd.sample(nomes, n_debitos)
+    creditos = rnd.sample(nomes, n_creditos)
     total = rnd.randint(max(n_debitos, n_creditos), 60)
 
     def _repartir(n):
@@ -323,19 +323,20 @@ def _descrever(itens):
     return " ".join(f"{lado}:{conta.codigo}:{valor}" for conta, lado, valor in itens)
 
 
-def _ensaiar(semente, quantidade, conferir):
+def _ensaiar(semente, quantidade, conferir, *, plano=None, nomes=_NOMES_DO_ENSAIO):
     """Gera `quantidade` lançamentos aleatórios (semente FIXA), um por vez e
     ISOLADO — cada um é apurado sozinho dentro de um ponto de salvamento que é
     desfeito, de modo que a DMPL só enxerga aquele lançamento. `conferir(
     itens, dmpl)` devolve a lista de violações. Devolve `(violacoes,
-    emitidas)`."""
+    emitidas)`. `plano` e `nomes` permitem ampliar o plano (o DL-062 acrescenta
+    a conta do dividendo adicional proposto)."""
     rnd = random.Random(semente)
     empresa = _empresa(f"Ensaio {semente}")
-    contas = _plano_do_ensaio(empresa)
+    contas = (plano or _plano_do_ensaio)(empresa)
     violacoes = []
     emitidas = 0
     for _ in range(quantidade):
-        itens = _itens_aleatorios(rnd, contas)
+        itens = _itens_aleatorios(rnd, contas, nomes)
         with transaction.atomic():
             _lancar_itens(empresa, date(2026, 2, 10), "ensaio", itens)
             dmpl = apurar_dmpl(empresa=empresa, ano=ANO, mes=MES)
@@ -613,7 +614,11 @@ def test_n3_saldo_devedor_na_passagem_e_negativo_e_so_lista_conta_com_saldo():
 # ---------------------------------------------------------------------------
 
 
-def test_n4_conta_de_pl_de_dividendo_ou_ajuste_nao_e_classificavel_e_traz_orientacao():
+def test_n4_conta_de_pl_de_ajuste_nao_e_classificavel_e_traz_orientacao():
+    """DL-062 (G1, RC-153): a conta de PL com DLPA "dividendo" deixou de ser
+    não classificável (ganhou a coluna "dividendo adicional proposto"); só o
+    ajuste de exercício anterior segue sem coluna. A versão anterior deste
+    teste esperava o dividendo aqui, com a orientação "mova para o passivo"."""
     empresa, contas, _ = _caso_a()
     proposto = _conta(
         empresa,
@@ -641,12 +646,13 @@ def test_n4_conta_de_pl_de_dividendo_ou_ajuste_nao_e_classificavel_e_traz_orient
         e["conta"]: e for e in dmpl["pendencias"]["contas_do_patrimonio_liquido_sem_coluna"]
     }
     assert set(entradas) == {"3.8", "3.9", "3.10"}
-    for codigo in ("3.8", "3.9"):
-        assert entradas[codigo]["classificavel"] is False, codigo
-        orientacao = entradas[codigo]["orientacao"]
-        assert isinstance(orientacao, str) and "BL-603" in orientacao
-        assert "ainda não tem coluna na DMPL" in orientacao
-    assert "passivo" in entradas["3.8"]["orientacao"]
+    orientacao = entradas["3.9"]["orientacao"]
+    assert entradas["3.9"]["classificavel"] is False
+    assert isinstance(orientacao, str) and "BL-603" in orientacao
+    assert "ainda não tem coluna na DMPL" in orientacao
+    # O dividendo é classificável na coluna nova, sem orientação de saída.
+    assert entradas["3.8"]["classificavel"] is True
+    assert entradas["3.8"]["orientacao"] == ""
     assert entradas["3.10"]["classificavel"] is True
     assert entradas["3.10"]["orientacao"] == ""
 
@@ -660,10 +666,9 @@ def test_n4_classificavel_e_derivado_do_mapa_de_consistencia_da_dlpa_e_da_dmpl()
         for dlpa, colunas in COLUNAS_DA_DMPL_ADMITIDAS_PARA_A_CLASSIFICACAO_DLPA.items()
         if not colunas
     }
-    assert nao_classificaveis >= {
-        ClassificacaoDlpa.DIVIDENDO,
-        ClassificacaoDlpa.AJUSTE_DE_EXERCICIO_ANTERIOR,
-    }
+    # DL-062 (G1): o dividendo saiu desta lista (a coluna nova o admite).
+    assert nao_classificaveis >= {ClassificacaoDlpa.AJUSTE_DE_EXERCICIO_ANTERIOR}
+    assert ClassificacaoDlpa.DIVIDENDO not in nao_classificaveis
     for dlpa in ClassificacaoDlpa.values:
         if dlpa == ClassificacaoDlpa.RESULTADO_DO_EXERCICIO:
             continue  # conta de passagem: nunca entra na pendência.
@@ -909,18 +914,7 @@ def _conferir_identidade_linha_a_linha(empresa, dmpl):
         divergencias.append("saldo inicial")
     if dmpl["saldo_final"]["valores"][LUCROS] != dlpa["saldo_final"]:
         divergencias.append("saldo final")
-    esperado = {}
-    for linha in dlpa["linhas"]:
-        if linha["chave"] in ("saldo_inicial", "saldo_final"):
-            continue
-        equivalente = linha_da_dmpl_equivalente_a_linha_da_dlpa(linha["chave"])
-        esperado[equivalente] = esperado.get(equivalente, Decimal("0")) + linha["valor"]
-    encontrado = {
-        linha["chave"]: linha["valores"][LUCROS]
-        for linha in dmpl["linhas"]
-        if linha["chave"] not in ("saldo_inicial", "saldo_final") and linha["valores"][LUCROS] != 0
-    }
-    esperado = {chave: valor for chave, valor in esperado.items() if valor != 0}
+    esperado, encontrado = comparar_lucros_da_dmpl_com_as_linhas_da_dlpa(dlpa, dmpl)
     if encontrado != esperado:
         divergencias.append(("linhas", encontrado, esperado))
     return divergencias

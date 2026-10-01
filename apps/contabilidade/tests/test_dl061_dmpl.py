@@ -64,7 +64,7 @@ from apps.contabilidade.services import (
     criar_lancamento,
     definir_adocao_antecipada_da_nbc_tg_51,
     estornar_lancamento,
-    linha_da_dmpl_equivalente_a_linha_da_dlpa,
+    linhas_da_dmpl_que_somam_a_linha_da_dlpa,
     norma_das_demonstracoes,
     registrar_parametro_contabil,
     zerar_resultado,
@@ -402,8 +402,14 @@ def test_as_colunas_estao_na_ordem_dos_grupos_do_item_111a():
     indices = [ordem_dos_grupos.index(GRUPO_DA_CLASSIFICACAO_DMPL[c].value) for c in COL]
     assert indices == sorted(indices)
     assert list(COL.values)[0] == "capital_social"
-    assert list(COL.values)[-1] == "lucros_ou_prejuizos_acumulados"
-    assert len(COL.values) == 12
+    # DL-062 (G1): a coluna do dividendo adicional proposto é a última, no
+    # grupo "demais contas exigidas", DEPOIS de lucros ou prejuízos acumulados.
+    assert list(COL.values)[-2:] == [
+        "lucros_ou_prejuizos_acumulados",
+        "dividendo_adicional_proposto",
+    ]
+    assert list(GrupoDaDmpl.values)[-1] == "demais_contas_exigidas"
+    assert len(COL.values) == 13
 
 
 def test_as_seis_reservas_de_lucros_da_dmpl_espelham_as_da_dlpa():
@@ -675,6 +681,7 @@ def test_a_ordem_e_os_titulos_das_linhas_sao_os_da_decisao_e4():
         "reversao_de_reservas",
         "aumento_de_capital_com_reservas_e_lucros",
         "dividendos",
+        "dividendo_adicional_proposto",
         "saldo_final",
     ]
 
@@ -684,25 +691,42 @@ def test_a_ordem_e_os_titulos_das_linhas_sao_os_da_decisao_e4():
 # ---------------------------------------------------------------------------
 
 
+def comparar_lucros_da_dmpl_com_as_linhas_da_dlpa(dlpa, dmpl):
+    """`(esperado, encontrado)`: o valor de cada linha da DLPA contra o das
+    linhas da DMPL que a espelham NA COLUNA DE LUCROS, só os diferentes de zero.
+
+    A chave é o GRUPO de linhas da DMPL (tupla): a linha de dividendo da DLPA
+    corresponde à SOMA de "Dividendos" e "Dividendo adicional proposto"
+    (DL-062, G1); toda outra linha continua uma a uma. Linha da DMPL com valor
+    nos lucros que NENHUMA linha da DLPA espelha entra sozinha e reprova.
+    """
+    esperado = {}
+    for linha in dlpa["linhas"]:
+        if linha["chave"] in ("saldo_inicial", "saldo_final"):
+            continue
+        grupo = linhas_da_dmpl_que_somam_a_linha_da_dlpa(linha["chave"])
+        assert grupo, linha["chave"]
+        esperado[grupo] = esperado.get(grupo, _dec("0")) + linha["valor"]
+    encontrado = {}
+    for linha in dmpl["linhas"]:
+        if linha["chave"] in ("saldo_inicial", "saldo_final"):
+            continue
+        grupo = next((g for g in esperado if linha["chave"] in g), (linha["chave"],))
+        encontrado[grupo] = encontrado.get(grupo, _dec("0")) + linha["valores"][LUCROS]
+    return (
+        {grupo: valor for grupo, valor in esperado.items() if valor != 0},
+        {grupo: valor for grupo, valor in encontrado.items() if valor != 0},
+    )
+
+
 def _conferir_identidade_com_a_dlpa(empresa, mes=MES):
     dlpa = apurar_dlpa(empresa=empresa, ano=ANO, mes=mes)
     dmpl = _apurar(empresa, mes=mes)
     assert dmpl["saldo_inicial"]["valores"][LUCROS] == dlpa["saldo_inicial"]
     assert dmpl["saldo_final"]["valores"][LUCROS] == dlpa["saldo_final"]
 
-    esperado = {}
-    for linha in dlpa["linhas"]:
-        if linha["chave"] in ("saldo_inicial", "saldo_final"):
-            continue
-        equivalente = linha_da_dmpl_equivalente_a_linha_da_dlpa(linha["chave"])
-        assert equivalente is not None, linha["chave"]
-        esperado[equivalente] = esperado.get(equivalente, _dec("0")) + linha["valor"]
-    encontrado = {
-        linha["chave"]: linha["valores"][LUCROS]
-        for linha in dmpl["linhas"]
-        if linha["chave"] not in ("saldo_inicial", "saldo_final") and linha["valores"][LUCROS] != 0
-    }
-    assert encontrado == {chave: valor for chave, valor in esperado.items() if valor != 0}
+    esperado, encontrado = comparar_lucros_da_dmpl_com_as_linhas_da_dlpa(dlpa, dmpl)
+    assert encontrado == esperado
     return dlpa, dmpl
 
 
