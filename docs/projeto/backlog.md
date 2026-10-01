@@ -1914,11 +1914,11 @@ BL-544 a BL-546 entram nesta etapa; os demais ficam registrados para depois.
 | BL-546 | **M1 (média)** — estorno gravado antes e fora da transação da trilha | `desenvolvedor-pleno` | — | concluída (DL-052) | Critério 6 do plano |
 | BL-547 | Token do convite sai da URL (hoje fica em log de acesso e histórico do navegador) — HI-48 | `desenvolvedor-pleno` | BL-544 | aberta | Link sem token no caminho; token não aparece em log de acesso |
 | BL-548 | Cadastro não confirma o e-mail do usuário; a amarração do convite ao e-mail é parcial sem isso — HI-47 | `desenvolvedor-pleno` | — | aberta | Conta só vincula convite depois de e-mail confirmado |
-| BL-549 | **M2 (média)** — papel Cliente recebe 200 na lista de empresas e vê razão social e CNPJ/CPF dos demais clientes (`apps/empresas/views.py` GETs), contra a DE-020 §4 | `desenvolvedor-pleno` | — | aberta | Matriz de papéis nos GETs de empresa; Cliente vê só a própria |
+| BL-549 | **M2 (média)** — papel Cliente recebe 200 na lista de empresas e vê razão social e CNPJ/CPF dos demais clientes (`apps/empresas/views.py` GETs), contra a DE-020 §4 | `desenvolvedor-pleno` | — | em desenvolvimento (DL-055) | Matriz de papéis nos GETs de empresa; Cliente vê só a própria |
 | BL-550 | **M3 (média)** — reclassificar conta na DRE/DLPA altera demonstração de competência encerrada ou entregue; analista consegue | `desenvolvedor-pleno` | — | aberta | Reclassificação com movimento em competência encerrada → 409, ou classificação por vigência |
 | BL-551 | **M4 (média)** — livro-caixa sem trava de período: lançamento posterior muda carnê-leão já apurado | `desenvolvedor-pleno` | — | em desenvolvimento (DL-053) | **PE-73 respondida (RC-145): pode ter fechamento de mês.** Lançamento e estorno em mês fechado → recusados em toda porta, banco inalterado; fechar/reabrir por administrador ou gestor (RC-146), com trilha |
-| BL-552 | **M5 (média)** — sem limite de tentativas no login e no cadastro; cadastro de escritório não prova titularidade do CNPJ | `desenvolvedor-pleno` | — | aberta | Limite por IP e por conta com teste; decisão sobre titularidade levada ao Fred |
-| BL-553 | **M6 (média)** — IP da trilha é sempre `REMOTE_ADDR` (o do proxy em produção) | `desenvolvedor-pleno` | — | aberta | IP real com lista de proxies confiáveis configurável; teste com e sem proxy |
+| BL-552 | **M5 (média)** — sem limite de tentativas no login e no cadastro; cadastro de escritório não prova titularidade do CNPJ | `desenvolvedor-pleno` | — | em desenvolvimento (DL-056, só o limite; titularidade do CNPJ espera o Fred) | Limite por IP e por conta com teste; decisão sobre titularidade levada ao Fred |
+| BL-553 | **M6 (média)** — IP da trilha é sempre `REMOTE_ADDR` (o do proxy em produção) | `desenvolvedor-pleno` | — | em desenvolvimento (DL-057) | IP real com lista de proxies confiáveis configurável; teste com e sem proxy |
 | BL-554 | **B1 (baixa)** — mensagem de `conta_pai` distingue id de outro escritório de id inexistente (enumeração) | `desenvolvedor-pleno` | — | aberta | Mesma mensagem nos dois casos, com teste |
 | BL-555 | **B2/B3/B4 (baixa)** — consulta de lançamentos por `id__in` sem filtro de empresa na DLPA web; `login.falha` grava o usuário digitado (pode ser a senha); `REST_FRAMEWORK` sem `DEFAULT_AUTHENTICATION_CLASSES` explícito | `desenvolvedor-pleno` | — | aberta | Filtro de empresa; usuário digitado só se existir ou mascarado; classes de autenticação declaradas |
 | BL-556 | CI não audita dependências, segredos, cobertura nem outras versões de Python (promete 3.12+, testa só 3.14) | `arquiteto-senior` | — | aberta | Nível 3: decidir o mínimo útil e ligar |
@@ -1964,8 +1964,23 @@ E1 depende de decisão do Fred (PE-74) e bloqueia o merge; E2 a E5 ficam abaixo.
 
 | ID | Item | Responsável | Depende de | Estado | Critério de aceite |
 | --- | --- | --- | --- | --- | --- |
-| BL-572 | **E1 (média)** — lançamento ou estorno em mês aberto muda o carnê-leão de mês posterior encerrado do mesmo ano; reabrir um mês não considera os meses encerrados depois dele | `desenvolvedor-pleno` | — | planejada (DL-054) | **Decidido pelo Fred (RC-148):** lançar/estornar recusado com mês posterior encerrado no mesmo ano; reabertura em cascata com motivo único e trilha |
+| BL-572 | **E1 (média)** — lançamento ou estorno em mês aberto muda o carnê-leão de mês posterior encerrado do mesmo ano; reabrir um mês não considera os meses encerrados depois dele | `desenvolvedor-pleno` | — | em desenvolvimento (DL-054) | **Decidido pelo Fred (RC-148):** lançar/estornar recusado com mês posterior encerrado no mesmo ano; reabertura em cascata com motivo único e trilha |
 | BL-573 | **E2 (baixa)** — trocar a empresa de livro-caixa para contabilidade ignora meses encerrados e deixa fechamento órfão | `desenvolvedor-pleno` | — | aberta | Troca recusada com mês encerrado, ou comportamento documentado, com teste |
 | BL-574 | **E3 (baixa)** — o formulário de lançamento só avisa em texto o mês encerrado (a recusa é do servidor) e o aviso omite anos anteriores ao passado | `especialista-frontend` | — | aberta | Aviso cobre todo ano com mês encerrado, com teste de renderização |
 | BL-575 | **E4 (baixa)** — comentários com referência errada (`models.py` cita "decisão 6" para fora do escopo; teste de atalhos diz que a tela ainda não existe) | `desenvolvedor-pleno` | — | aberta | Referências corrigidas |
 | BL-576 | **E5 (informativo)** — reverter a migração 0010 apaga os fechamentos e reabre todos os meses sem trilha | `arquiteto-senior` | — | aberta | Aviso no procedimento de reversão: exportar fechamentos e comunicar o escritório antes |
+
+## Auditoria da DL-057 — rodada 1, APROVADA COM RESSALVAS (2026-10-01)
+
+Relatório integral em [2026-10-01-dl-057-rodada-1.md](../auditorias/2026-10-01-dl-057-rodada-1.md).
+Integrada com as ressalvas abaixo (RC-150): nenhuma muda o escopo aprovado.
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-577 | **F1 (média)** — `DJANGO_PROXIES_CONFIAVEIS` aceita `0.0.0.0/0` e `::/0` (qualquer cliente forja o IP) e redes largas sem aviso. O padrão (lista vazia) é seguro | `desenvolvedor-pleno` | — | aberta — **obrigatória antes da implantação** | Subida recusa `/0`; aviso do `check` para redes largas; teste |
+| BL-578 | **F2 (média)** — a varredura de leitura de IP cobre só `apps/auditoria` e três marcas fixas | `desenvolvedor-pleno` | — | planejada (integração da DL-056) | Guarda derivada sobre todo `apps/` (AST); DL-056 usando `ip_do_cliente`; mutações M8 a M10 reprovam |
+| BL-579 | **F3 (baixa, pré-existente)** — seis eventos gravados sem IP (`escritorio.ativado`, convite emitido/aceito, primeiro acesso, envio fiscal recebido) | `desenvolvedor-pleno` | — | aberta | `request` ou IP passado em cada chamador, com teste por evento |
+| BL-580 | **F4 (baixa)** — validação da configuração mais permissiva que a leitura (`/24` com bits de host, IPv4 mapeado, escopo `%`) | `desenvolvedor-pleno` | — | aberta | `strict=True` e recusas com mensagem; testes |
+| BL-581 | **F5 (baixa)** — sem teto de entradas no `X-Forwarded-For` (hoje neutralizado pelo limite de cabeçalho do gunicorn) | `desenvolvedor-pleno` | — | aberta | Teto (ex.: 64 entradas) com teste |
+| BL-582 | **F6 (baixa)** — procedimento de implantação do proxy não documentado (descobrir o `REMOTE_ADDR` do proxy; proxy deve acrescentar ao `X-Forwarded-For`; socket Unix sem IP) | `arquiteto-senior` | PE-07 | aberta | Documento de implantação |
+| BL-583 | **O1** — `AGENTS.md` com 29.980 bytes para margem de 30.000 da guarda do Codex: qualquer acréscimo de 21 bytes reprova o build | `arquiteto-senior` | — | aberta | Mover conteúdo para documento apontado, antes do próximo acréscimo |

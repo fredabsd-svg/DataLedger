@@ -28,6 +28,14 @@ específicas, não integrantes permanentes**:
 | `auxiliar-implementacao` | Mudanças delimitadas em arquivos atribuídos, com testes | `sonnet` | sim | não |
 | `auxiliar-verificacao` | Verificação independente, sem corrigir | `sonnet` | não | não |
 
+**Paralelismo — instrução do Fred, 30/09/2026 (RC-149):** até **4 agentes
+simultâneos**, cada um num item independente, em cópia isolada do repositório
+(`isolation: worktree`), com área de arquivos declarada e **sem envio ao
+GitHub**. O `arquiteto-senior` integra um por vez na branch de trabalho, com
+teste e revisão; o nível 1 mantém auditoria independente. A pasta
+`.claude/worktrees/` fica fora do Git por `.git/info/exclude`. Substitui a
+política inicial de dois auxiliares simultâneos por responsável.
+
 **Economia de modelo — instrução do Fred, 30/09/2026 (RC-143):** *"sempre use o
 sonnet 5.5 para codar e subagente para economizar (até o haiku se achar que ele
 dá conta)"*. Só o `arquiteto-senior`, que orquestra, roda em `opus`. Todo
