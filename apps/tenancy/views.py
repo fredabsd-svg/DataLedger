@@ -30,6 +30,7 @@ from apps.core.requisicao import (
     recusar_dado_nao_contratado,
 )
 from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
+from apps.empresas.permissoes import papel_pode_ler_carteira
 from apps.fiscal.models import LoteDeRecepcao
 from apps.fiscal.permissoes import (
     papel_pode_consultar_documentos,
@@ -426,19 +427,24 @@ def _indicadores_do_painel(*, escritorio, papel):
     clicáveis, cada um levando à tela que resolve ou explica o número
     (nunca um número solto sem ação, o anti-padrão "dashboard de KPI"
     que a DL-042 já evitava na fila de atenção — aqui o mesmo princípio
-    se aplica ao indicador). "Empresas ativas" não depende de papel
-    (visível a qualquer um que veja o Início); os outros três seguem a
+    se aplica ao indicador). "Empresas ativas" segue
+    `papel_pode_ler_carteira` (DL-055: o CLIENTE não o vê); os outros três seguem a
     MESMA permissão que a fila de atenção já aplica a cada domínio.
     """
-    indicadores = [
-        {
-            "chave": "empresas-ativas",
-            "titulo": "Empresas ativas",
-            "total": Empresa.objects.filter(escritorio=escritorio, ativo=True).count(),
-            "url": reverse("empresas:lista"),
-            "nivel": None,
-        }
-    ]
+    indicadores = []
+    # DL-055: o total da carteira e o link para a lista são dado de cadastro de
+    # empresas, que o servidor recusa (403) a quem não lê a carteira (CLIENTE).
+    # Sem a leitura, o indicador não aparece — nem o número, nem o link.
+    if papel_pode_ler_carteira(papel):
+        indicadores.append(
+            {
+                "chave": "empresas-ativas",
+                "titulo": "Empresas ativas",
+                "total": Empresa.objects.filter(escritorio=escritorio, ativo=True).count(),
+                "url": reverse("empresas:lista"),
+                "nivel": None,
+            }
+        )
 
     if papel_pode_ler_contabilidade(papel):
         hoje = timezone.localdate()

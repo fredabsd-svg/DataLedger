@@ -113,7 +113,10 @@ def test_criar_empresa_sem_permissao_usa_template_proprio_com_link_de_volta(clie
     conteudo = resposta.content.decode()
     # Nada de texto cru sem contexto: precisa de explicação e caminho de volta.
     assert "Sem permissão" in conteudo
-    assert reverse("empresas:lista") in conteudo
+    # DL-055: o CLIENTE não abre a lista de empresas (403), então o caminho de
+    # volta é o Início; apontar para a lista o levaria a outro 403.
+    assert f'href="{reverse("tenancy:painel")}"' in conteudo
+    assert reverse("empresas:lista") not in conteudo
     assert not Empresa.objects.exists()
 
 

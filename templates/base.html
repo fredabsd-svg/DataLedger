@@ -395,6 +395,13 @@
                                 <span class="rotulo-menu">Início</span> <kbd class="tecla" aria-hidden="true">Alt+P</kbd>
                             </a>
                         </li>
+                        {% comment %}
+                        DL-055: quem não lê a carteira (CLIENTE) não recebe o
+                        convite para "Empresas" — o servidor responderia 403.
+                        Sem esse item nem o de cadastrar, o grupo inteiro sai
+                        (um menu vazio seria só ruído).
+                        {% endcomment %}
+                        {% if pode_ler_carteira_no_menu or pode_cadastrar_empresa_no_menu %}
                         <li class="menu-modulo">
                             <details class="menu-dropdown">
                                 <summary {% if request.resolver_match.namespace == "empresas" %}aria-current="page"{% endif %}>
@@ -402,12 +409,14 @@
                                     <span class="rotulo-menu">Cadastros</span>
                                 </summary>
                                 <ul>
+                                    {% if pode_ler_carteira_no_menu %}
                                     <li>
                                         <a href="{% url 'empresas:lista' %}" accesskey="m" aria-keyshortcuts="Alt+M"
                                            {% if request.resolver_match.view_name == "empresas:lista" %}aria-current="page"{% endif %}>
                                             Empresas <kbd class="tecla" aria-hidden="true">Alt+M</kbd>
                                         </a>
                                     </li>
+                                    {% endif %}
                                     {% if pode_cadastrar_empresa_no_menu %}
                                         <li>
                                             {% if request.resolver_match.view_name == "empresas:criar" %}
@@ -420,6 +429,7 @@
                                 </ul>
                             </details>
                         </li>
+                        {% endif %}
 
                         {% comment %}
                         DL-046, fatia 1: "Livro-caixa" ocupa o MESMO slot de
@@ -699,12 +709,16 @@
                                                     </div>
                                                 {% endwith %}
                                             {% endif %}
+                                            {% if pode_ler_carteira_no_menu %}
                                             <p class="menu-dropdown__acao-secundaria">
                                                 <a href="{% url 'empresas:lista' %}?secao={{ request.resolver_match.url_name }}">Trocar de empresa</a>
                                             </p>
+                                            {% endif %}
                                         {% else %}
                                             <p class="texto-apoio">Escolha uma empresa para ver a contabilidade ou o livro-caixa.</p>
+                                            {% if pode_ler_carteira_no_menu %}
                                             <p><a href="{% url 'empresas:lista' %}">Ir para Empresas</a></p>
+                                            {% endif %}
                                         {% endif %}
                                     </div>
                                 </details>
