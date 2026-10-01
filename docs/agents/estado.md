@@ -116,7 +116,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-053](../planos/DL-053-fechamento-do-livro-caixa.md) | Fechamento de mês do livro-caixa (RC-145, RC-146, RC-147) | Integrada (PR #67) — auditoria aprovada com ressalvas; limite do encadeamento fechado pela DL-054 |
 | [DL-054](../planos/DL-054-encadeamento-do-fechamento.md) | Mês encerrado congelado contra o encadeamento do carnê-leão (RC-148) | Integrada (PR #70) — auditoria aprovada com ressalvas; H1 e H2 na DL-060 |
 | [DL-055](../planos/DL-055-cliente-nao-ve-a-carteira.md) | O papel Cliente não vê o cadastro de empresas (BL-549) | Integrada (PR #69) — auditoria aprovada com ressalvas; BL-584 a BL-587; DE-095 |
-| [DL-056](../planos/DL-056-limite-de-tentativas.md) | Limite de tentativas no login e no cadastro (BL-552) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-056](../planos/DL-056-limite-de-tentativas.md) | Limite de tentativas no login e no cadastro (BL-552) | Integrada (PR #71) — nível 2; limites são hipótese a validar |
+| [DL-058](../planos/DL-058-pequenas-fugas-de-informacao.md) | Pequenas fugas de informação (BL-554, BL-555) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -133,14 +134,17 @@ instrução do Fred de até 4 agentes simultâneos (RC-149), cada uma em cópia
 isolada do repositório e integrada **uma por vez** na branch
 `claude/zealous-goldberg-jr5ggu` → `main`. O Fred autorizou o merge de cada
 uma com a auditoria aprovada e a CI verde (RC-150). Integração prevista:
-DL-056, DL-058, DL-059 (as duas últimas já auditadas, aprovadas com
-ressalvas) e depois a DL-060 (H1 e H2 da auditoria da DL-054).
+DL-058, DL-059 (auditada, aprovada com ressalvas) e a DL-060 (H1 e H2 da
+auditoria da DL-054; auditada, em correção única).
 
 - **DL-054** — **integrada pelo PR #70** (squash `e7b85aa`).
 - **DL-055** — **integrada pelo PR #69** (squash `9ceda53`).
-- **DL-056** (nível 2) — limite de tentativas no login e no cadastro
-  (BL-552, sem a titularidade do CNPJ), usando o IP da DL-057; em revisão no
-  pull request, merge com a CI verde. Limites iniciais são hipótese.
+- **DL-056** — **integrada pelo PR #71** (squash `25c37ba`).
+- **DL-058** (nível 1) — pequenas fugas de informação (BL-554, BL-555);
+  [auditoria](../auditorias/2026-10-01-dl-058-rodada-1.md) aprovada com
+  ressalvas; em revisão no pull request, merge com a CI verde. Fechou um
+  canal real: o login Basic autenticava em duas rotas da API, fora do limite
+  de tentativas.
 - **DL-057** — **integrada pelo PR #68** (squash `49f118d`). Antes da
   implantação: BL-577 (recusar `0.0.0.0/0`).
 

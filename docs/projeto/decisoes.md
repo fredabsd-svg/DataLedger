@@ -5144,3 +5144,20 @@ acesso restrito à própria empresa entra em etapa própria, e separar as duas
 listas exige acompanhar os pontos do BL-585. Reversível; o Fred pode
 revertê-la.
 
+## DE-096 — Trilha de falha de login: nome da conta existente, resumo do texto inexistente
+
+Data: 2026-10-01. Responsável: `arquiteto-senior`, na DL-058 (B3, achado J3).
+
+Quando o login falha, a trilha grava o nome digitado **só se ele corresponder
+a uma conta existente** (comparação sem diferença de maiúsculas); caso
+contrário grava um resumo (HMAC com `SECRET_KEY`, 16 caracteres) que não
+permite recuperar o texto. O objetivo é não gravar uma senha digitada no
+campo de usuário.
+
+**Consequência aceita:** quem lê a trilha distingue tentativa em conta
+existente de tentativa em conta inexistente. A resposta pública do login
+continua idêntica nos dois casos (medido na auditoria), então isso não
+permite enumerar usuários por fora. O texto gravado para conta existente é o
+digitado (por exemplo `ANA` para a conta `ana`), não o nome canônico — pode
+ser trocado pelo canônico numa etapa futura sem efeito sobre a segurança.
+

@@ -1919,8 +1919,8 @@ BL-544 a BL-546 entram nesta etapa; os demais ficam registrados para depois.
 | BL-551 | **M4 (média)** — livro-caixa sem trava de período: lançamento posterior muda carnê-leão já apurado | `desenvolvedor-pleno` | — | em desenvolvimento (DL-053) | **PE-73 respondida (RC-145): pode ter fechamento de mês.** Lançamento e estorno em mês fechado → recusados em toda porta, banco inalterado; fechar/reabrir por administrador ou gestor (RC-146), com trilha |
 | BL-552 | **M5 (média)** — sem limite de tentativas no login e no cadastro; cadastro de escritório não prova titularidade do CNPJ | `desenvolvedor-pleno` | — | parte 1 concluída (DL-056); titularidade do CNPJ espera o Fred | Limite por IP e por conta com teste; decisão sobre titularidade levada ao Fred |
 | BL-553 | **M6 (média)** — IP da trilha é sempre `REMOTE_ADDR` (o do proxy em produção) | `desenvolvedor-pleno` | — | em desenvolvimento (DL-057) | IP real com lista de proxies confiáveis configurável; teste com e sem proxy |
-| BL-554 | **B1 (baixa)** — mensagem de `conta_pai` distingue id de outro escritório de id inexistente (enumeração) | `desenvolvedor-pleno` | — | aberta | Mesma mensagem nos dois casos, com teste |
-| BL-555 | **B2/B3/B4 (baixa)** — consulta de lançamentos por `id__in` sem filtro de empresa na DLPA web; `login.falha` grava o usuário digitado (pode ser a senha); `REST_FRAMEWORK` sem `DEFAULT_AUTHENTICATION_CLASSES` explícito | `desenvolvedor-pleno` | — | aberta | Filtro de empresa; usuário digitado só se existir ou mascarado; classes de autenticação declaradas |
+| BL-554 | **B1 (baixa)** — mensagem de `conta_pai` distingue id de outro escritório de id inexistente (enumeração) | `desenvolvedor-pleno` | — | concluída (DL-058) | Mesma mensagem nos dois casos, com teste |
+| BL-555 | **B2/B3/B4 (baixa)** — consulta de lançamentos por `id__in` sem filtro de empresa na DLPA web; `login.falha` grava o usuário digitado (pode ser a senha); `REST_FRAMEWORK` sem `DEFAULT_AUTHENTICATION_CLASSES` explícito | `desenvolvedor-pleno` | — | concluída (DL-058) | Filtro de empresa; usuário digitado só se existir ou mascarado; classes de autenticação declaradas |
 | BL-556 | CI não audita dependências, segredos, cobertura nem outras versões de Python (promete 3.12+, testa só 3.14) | `arquiteto-senior` | — | aberta | Nível 3: decidir o mínimo útil e ligar |
 | BL-557 | `contabilidade/services.py` com 6.154 linhas; `apurar_saldos` (660), `criar_lancamento` (413); `views_web.lancamento_novo` (529) | `desenvolvedor-pleno` | — | aberta | Refatoração por fatia, sem mudança de comportamento, com a suíte como rede |
 | BL-558 | Dependências circulares entre apps: `core` importa contabilidade, fiscal e livro_caixa (`module_homes.py`); `tenancy` importa fiscal; `views_web` importa símbolo privado de `views` | `arquiteto-senior` | — | aberta | Camadas definidas e uma guarda derivada de import |
@@ -2008,3 +2008,16 @@ Integrada com as ressalvas abaixo (RC-150); H1 e H2 viram a DL-060.
 | BL-589 | **H2 (baixa)** — faltam testes de corrida "reabrir sem cascata × encerrar mês posterior" e a asserção de estado final no teste de duas cascatas | `desenvolvedor-pleno` | — | planejada (DL-060) | Casos propostos na auditoria; a mutação sem o lock dos posteriores reprova |
 | BL-590 | **H3 (baixa)** — a tela filtra `estado=encerrado` e o serviço `!= aberto`; divergiriam com um terceiro estado | `especialista-frontend` | — | aberta | Mesmo critério nos dois, com teste |
 | BL-591 | **H4 (baixa)** — comentário da margem do `lock_timeout` (`config/settings.py`) supõe um lock por requisição; o lançamento agora toma até 12 | `desenvolvedor-pleno` | — | aberta | Comentário atualizado com a nova conta, ou medição |
+
+## Auditoria da DL-058 — rodada 1, APROVADA COM RESSALVAS (2026-10-01)
+
+Relatório integral em [2026-10-01-dl-058-rodada-1.md](../auditorias/2026-10-01-dl-058-rodada-1.md).
+Integrada com as ressalvas abaixo (RC-150). BL-554 e BL-555 concluídos.
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-592 | **J1 (baixa)** — a restrição por empresa no `queryset` do campo `conta_pai` não tem teste que a derrube | `desenvolvedor-pleno` | — | aberta | Teste proposto na auditoria; a mutação sem o filtro reprova |
+| BL-593 | **J2 (baixa)** — a trilha usa `username_hmac` em `login.falha` e `usuario_hash` em `login.bloqueado` para o mesmo valor | `desenvolvedor-pleno` | — | aberta | Uma chave só, com teste de correlação |
+| BL-594 | **J4 (baixa)** — os testes de ponta a ponta do Basic passam sem a correção; falta teste nas rotas que de fato aceitavam Basic | `desenvolvedor-pleno` | — | aberta | Teste em `/api/escritorios/` e `/api/escritorio-ativo/` que reprova sem a correção |
+| BL-595 | **J6 (informativo)** — teste do B2 é de função, não de tela | `desenvolvedor-pleno` | — | aberta | Teste de tela se a apuração da DLPA mudar |
+| BL-596 | Verificar se o admin do Django expõe as falhas de login da trilha (não verificado na auditoria) | `auditor-qa` | — | aberta | Inspeção de `apps/auditoria/admin.py` |
