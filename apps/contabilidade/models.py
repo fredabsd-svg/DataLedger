@@ -521,6 +521,17 @@ class ClassificacaoDlpa(models.TextChoices):
         "Reserva de lucros a realizar",
     )
     DIVIDENDO = "dividendo", "Dividendos distribuídos"
+    # BL-603 (RC-153): a destinação de lucros acumulados à conta de "dividendo
+    # adicional proposto" é evento PRÓPRIO, com linha separada de "Dividendos
+    # distribuídos" — a proposta não é distribuição (a conta fica no PL até a
+    # deliberação que a transfere ao passivo). Base: ICPC 08 (R1),
+    # "Contabilização da Proposta de Pagamento de Dividendos" (CVM 683/12; CFC
+    # — ITG 08), identificada em fonte oficial em 02/10/2026 (PE-75: o texto
+    # integral não foi lido, e por isso NENHUM item numerado é citado).
+    DIVIDENDO_ADICIONAL_PROPOSTO = (
+        "dividendo_adicional_proposto",
+        "Dividendo adicional proposto",
+    )
     LUCRO_INCORPORADO_AO_CAPITAL = (
         "lucro_incorporado_ao_capital",
         "Lucro incorporado ao capital",
@@ -592,6 +603,11 @@ TIPOS_ACEITOS_DA_CLASSIFICACAO_DLPA = {
     ClassificacaoDlpa.RESERVA_DE_RETENCAO_DE_LUCROS: (TipoConta.PATRIMONIO_LIQUIDO,),
     ClassificacaoDlpa.RESERVA_DE_LUCROS_A_REALIZAR: (TipoConta.PATRIMONIO_LIQUIDO,),
     ClassificacaoDlpa.DIVIDENDO: (TipoConta.PASSIVO, TipoConta.PATRIMONIO_LIQUIDO),
+    # Dividendo adicional proposto: SÓ Patrimônio Líquido (ICPC 08 (R1): a
+    # proposta além do mínimo obrigatório permanece no PL, em conta
+    # específica, até a deliberação dos acionistas) — diferente de
+    # `DIVIDENDO`, que também aceita "dividendos a pagar" no passivo.
+    ClassificacaoDlpa.DIVIDENDO_ADICIONAL_PROPOSTO: (TipoConta.PATRIMONIO_LIQUIDO,),
     ClassificacaoDlpa.LUCRO_INCORPORADO_AO_CAPITAL: (TipoConta.PATRIMONIO_LIQUIDO,),
     ClassificacaoDlpa.AJUSTE_DE_EXERCICIO_ANTERIOR: tuple(TipoConta.values),
 }
@@ -705,6 +721,11 @@ class GrupoDaDmpl(models.TextChoices):
         "lucros_ou_prejuizos_acumulados",
         "Lucros ou prejuízos acumulados",
     )
+    # BL-603 (RC-153): a coluna "dividendo adicional proposto" não é membro
+    # dos grupos do item 111A/106B — a norma de apresentação não a prevê; a
+    # conta específica vem da ICPC 08 (R1) (PE-75). Grupo próprio, o último,
+    # para o documento não fingir que a coluna pertence a um grupo da norma.
+    FORA_DO_ITEM_111A = "fora_do_item_111a", "Fora dos grupos do item 111A"
 
 
 class ClassificacaoDmpl(models.TextChoices):
@@ -774,6 +795,13 @@ class ClassificacaoDmpl(models.TextChoices):
         "lucros_ou_prejuizos_acumulados",
         "Lucros ou prejuízos acumulados",
     )
+    # BL-603 (RC-153): conta específica de "dividendo adicional proposto"
+    # (ICPC 08 (R1)) — coluna FORA dos grupos do item 111A/106B, que não a
+    # prevê; a última da ordem é apresentada depois de lucros acumulados.
+    DIVIDENDO_ADICIONAL_PROPOSTO = (
+        "dividendo_adicional_proposto",
+        "Dividendo adicional proposto",
+    )
 
 
 # Grupo do item 111A de cada coluna. Fonte ÚNICA do agrupamento; teste
@@ -795,6 +823,7 @@ GRUPO_DA_CLASSIFICACAO_DMPL = {
     ClassificacaoDmpl.RESERVA_DE_LUCROS_A_REALIZAR: GrupoDaDmpl.RESERVAS_DE_LUCROS,
     ClassificacaoDmpl.ACOES_OU_QUOTAS_EM_TESOURARIA: GrupoDaDmpl.ACOES_OU_QUOTAS_EM_TESOURARIA,
     ClassificacaoDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS: GrupoDaDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS,
+    ClassificacaoDmpl.DIVIDENDO_ADICIONAL_PROPOSTO: GrupoDaDmpl.FORA_DO_ITEM_111A,
 }
 
 # As seis reservas de LUCROS na DMPL — espelho de `RESERVAS_DE_LUCROS_DA_DLPA`.
@@ -839,9 +868,10 @@ TIPOS_ACEITOS_DA_CLASSIFICACAO_DMPL = {
 #   ("dividendos a distribuir", "ajustes de exercícios anteriores"), ela
 #   segue sem coluna e a emissão da DMPL fica VETADA enquanto a conta tiver
 #   saldo ou movimento. Não há o que o contador classificar: a pendência diz
-#   isso (`classificavel = False` + `orientacao`, N4). A decisão de produto
-#   — coluna de "dividendo adicional proposto" (RC-153) — é a BL-603 do
-#   backlog; NÃO está declarada no plano DL-061, só no backlog.
+#   isso (`classificavel = False` + `orientacao`, N4). BL-603 (RC-153),
+#   implementada na etapa 2 da DL-061: a conta de PL "dividendo adicional
+#   proposto" ganha a linha e a coluna próprias — ver a entrada
+#   `DIVIDENDO_ADICIONAL_PROPOSTO` abaixo.
 COLUNAS_DA_DMPL_ADMITIDAS_PARA_A_CLASSIFICACAO_DLPA = {
     ClassificacaoDlpa.LUCROS_OU_PREJUIZOS_ACUMULADOS: frozenset(
         {ClassificacaoDmpl.LUCROS_OU_PREJUIZOS_ACUMULADOS}
@@ -862,6 +892,12 @@ COLUNAS_DA_DMPL_ADMITIDAS_PARA_A_CLASSIFICACAO_DLPA = {
         {ClassificacaoDmpl.RESERVA_DE_LUCROS_A_REALIZAR}
     ),
     ClassificacaoDlpa.DIVIDENDO: frozenset(),
+    # BL-603 (RC-153): o par é EXATO (linha da DLPA = coluna da DMPL) — é o
+    # que mantém a identidade por construção: a destinação lê a mesma chave
+    # nas duas demonstrações.
+    ClassificacaoDlpa.DIVIDENDO_ADICIONAL_PROPOSTO: frozenset(
+        {ClassificacaoDmpl.DIVIDENDO_ADICIONAL_PROPOSTO}
+    ),
     ClassificacaoDlpa.LUCRO_INCORPORADO_AO_CAPITAL: frozenset({ClassificacaoDmpl.CAPITAL_SOCIAL}),
     ClassificacaoDlpa.AJUSTE_DE_EXERCICIO_ANTERIOR: frozenset(),
 }

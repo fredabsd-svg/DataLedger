@@ -343,3 +343,181 @@ Paráfrase, sem cópia. O manual responde **rotina**; norma continua com o Fred.
 Cancelamento de ações em tesouraria e reserva de capital incorporada ao capital: o
 manual não define, porque a estrutura é livre. Ficam com o Fred.
 
+## Etapa 2 — ressalvas da reconferência e a coluna da RC-153 (BL-603, BL-623, BL-624)
+
+**Escopo:** a etapa curta prevista depois da fatia 1. **Nível 1** (demonstração
+entregue ao cliente): critérios de aceite, testes de sucesso/erro/limite e
+auditoria independente, com UMA rodada de correção (§3.1 do AGENTS.md).
+**Branch:** `feat/dl-061-ressalvas` → `main`.
+
+| Item | Origem | O que entrega |
+| --- | --- | --- |
+| BL-603 | RC-153 | Coluna "dividendo adicional proposto" na DMPL, linha da destinação e da aprovação, identidade com a DLPA |
+| BL-623 | RC-155 (M2) | Lançamento com eventos opostos na mesma coluna é recusado; subscrição com integralização parcial continua como aumento líquido |
+| BL-624 | M3 | Texto verdadeiro do veto (a saída é a marcação manual da fatia 2), com teste; avaliação do estorno com par exato |
+
+### Base normativa (PE-75), consultada em 02/10/2026
+
+- Página oficial do CPC da **ICPC 08 (R1) — Contabilização da Proposta de
+  Pagamento de Dividendos** (aprovação 01/06/2012; aprovada pela CVM 683/12 e pelo
+  CFC como ITG 08):
+  <https://www.cpc.org.br/CPC/Documentos-Emitidos/Interpretacoes/Interpretacao?Id=17>.
+- A interpretação trata o dividendo proposto **além do mínimo obrigatório** como
+  valor que **permanece no patrimônio líquido, em conta específica do tipo
+  "dividendo adicional proposto", até a deliberação dos acionistas** — paráfrase
+  lida em fonte secundária que reproduz o ato da CVM; o texto oficial é PDF e
+  **não foi lido integralmente** nesta etapa.
+- Por isso **nenhum item numerado é citado** no código nem no documento
+  (regra da PE-75). A PE-75 continua aberta só para a leitura do texto integral;
+  a citação permitida aqui é por NOME da interpretação, com a fonte acima.
+
+### Decisões de desenho (arquiteto-senior, reversíveis)
+
+**E10 — Coluna nova fora dos grupos do item 111A.**
+`ClassificacaoDmpl.DIVIDENDO_ADICIONAL_PROPOSTO` ("Dividendo adicional proposto"),
+última da ordem do enum (após `lucros_ou_prejuizos_acumulados`), num grupo próprio
+`GrupoDaDmpl.FORA_DO_ITEM_111A` ("Fora dos grupos do item 111A"): a coluna não é
+membro dos grupos do 111A/106B e nasce de conta específica prevista pela ICPC 08
+(R1) (RC-153), não de uma linha da norma de apresentação. Só conta de
+Patrimônio Líquido (regra geral das colunas).
+
+**E11 — Linha da destinação e da aprovação (com identidade por construção).**
+Nova classificação `ClassificacaoDlpa.DIVIDENDO_ADICIONAL_PROPOSTO`
+("Dividendo adicional proposto"), só para conta de PL, e par obrigatório
+DLPA `dividendo_adicional_proposto` × DMPL `dividendo_adicional_proposto`
+(`COLUNAS_DA_DMPL_ADMITIDAS_PARA_A_CLASSIFICACAO_DLPA`); `dividendo` continua
+admitindo nenhuma coluna.
+
+| Evento | Lançamento | Linha da DMPL | Células | Linha da DLPA |
+| --- | --- | --- | --- | --- |
+| Destinação (proposta) | `D lucros acumulados / C dividendo adicional proposto` | "Dividendo adicional proposto" (novo par `_linha_do_par_de_colunas`, nos DOIS sentidos) | lucros `(X)`, coluna nova `+X`, total 0,00 | "Dividendo adicional proposto" (X) |
+| Aprovação (transferência ao passivo) | `D dividendo adicional proposto / C dividendos a pagar` | "Dividendos" | coluna nova `(X)`, total `(X)` | nada (não toca a conta sujeito) |
+
+- A aprovação chega à linha "Dividendos" por **dois caminhos que concordam**:
+  contrapartida classificada `dividendo` (aceita em conta de PASSIVO) decide a
+  linha, como na DLPA; contrapartida **sem** classificação cai na regra por
+  direção da coluna nova (`_linha_pela_coluna_e_direcao`): débito = "Dividendos"
+  (o proposto sai do PL); crédito livre **não** tem regra e vira pendência
+  (a única fonte decidida de crédito é o par com os lucros acumulados).
+- A reversão da destinação (`D dividendo adicional proposto / C lucros`) é o
+  mesmo evento com sinal trocado (linha "Dividendo adicional proposto" positiva),
+  como já vale para "dividendos".
+- Ordem das linhas: a nova linha entra **antes** de "Dividendos" na DMPL e antes
+  de "Dividendos distribuídos" na DLPA (a proposta precede a distribuição);
+  na DLPA a linha só é impressa com movimento (como as de reserva).
+- Identidade com a DLPA: `_LINHA_DA_DMPL_DAS_LINHAS_FIXAS_DA_DLPA` ganha o par
+  `dividendo_adicional_proposto → dividendo_adicional_proposto`, e o critério 2
+  vale por construção (mesma chave nas duas apurações).
+
+**E12 — Eventos opostos na mesma coluna (BL-623, RC-155).**
+O veto de coluna mista (N7) deixa de ser só das reservas de lucros:
+
+- **Reservas de lucros:** continua como hoje — debitada e creditada no mesmo
+  lançamento, com outra partida, é ambígua (a DLPA detalha item a item, M1).
+- **Capital, reservas de capital, ajustes de avaliação, tesouraria e a coluna
+  nova:** o lançamento que debita e credita a mesma coluna com outra partida
+  fora dela é recusado **quando os dois lados têm contas de MESMA natureza
+  cadastrada** — é o sinal de eventos opostos (aquisição × alienação de
+  tesouraria; redução × aumento de capital): o líquido publicaria um número que
+  não é evento nenhum.
+- **Naturezas opostas nos dois lados não vetam:** é o par conta principal ×
+  retificadora do MESMO evento — a subscrição com integralização parcial
+  (`D capital a integralizar` devedora × `C capital social` credora) continua
+  saindo como "Aumento de capital" pelo valor integralizado, e a subscrição pura
+  continua com efeito zero.
+- **Lucros acumulados continua de fora** (a DLPA também soma os itens; a exceção
+  da identidade é o M1, BL-622).
+- O veto cai em `lancamentos_ambiguos`, com motivo "eventos_opostos" nomeando a
+  coluna, e a mensagem diz a verdade (E13).
+- **Endurecimento da correção (achado A2 da auditoria da etapa 2):** na coluna
+  de tesouraria o veto vale SEMPRE para débito e crédito com outra partida — a
+  direção define eventos opostos por construção (débito = aquisição, crédito =
+  alienação) e não existe par conta × retificadora de um mesmo evento ali (a E1
+  não tem membro contra). O capital continua julgando pela natureza, porque a
+  subscrição contra a retificadora é exatamente o par que a RC-155 manda manter
+  líquido; o residual de natureza cadastrada fora do padrão no capital está
+  registrado como BL-627, para validação do Fred.
+
+**E13 — Texto verdadeiro do veto (BL-624).** As três mensagens
+(`services.py` do dividendo positivo em reserva e dos lançamentos ambíguos;
+ação da lista em `views_web.py`) deixam de mandar "estornar" ou "dividir o
+lançamento" — o lançamento efetivado não se altera e o estorno não libera a
+emissão. A saída dita é a **marcação manual por lançamento (fatia 2, BL-605)**.
+
+**E14 — Estorno com par exato: avaliado, fica para a fatia 2.** Reconhecer o par
+lançamento + estorno exigiria netting entre lançamentos em TODOS os vetos
+(ambíguo, eventos opostos, dividendo em reserva) para o comportamento ficar
+coerente, e hoje as células do par também não se completam — é exatamente o
+mecanismo da marcação manual (BL-605), que é a exceção aprovada na RC-151.
+Registrado como decisão; a BL-605 continua sendo a saída.
+
+### Critérios de aceite (etapa 2)
+
+1. **BL-603:** o cenário do cliente da RC-153 (conta de PL "dividendo adicional
+   proposto" movimentada) passa de **emissão vetada** a emitível, com as duas
+   linhas acima e valores ao centavo; destinação e aprovação aparecem em linhas
+   DIFERENTES (o bruto não é apagado).
+2. Identidade DLPA × DMPL mantida: mesmo saldo inicial, mesmo saldo final e cada
+   linha da DLPA no evento correspondente da DMPL, agora incluindo a linha nova;
+   a suíte da DLPA passa sem mudar expectativa.
+3. Conciliação com o Balanço fecha com a coluna nova (saldo final por coluna e
+   total); divergência veta e nomeia.
+4. Padrão de consistência: DLPA `dividendo_adicional_proposto` só combina com a
+   coluna `dividendo_adicional_proposto`; tipo fora de PL é recusado no
+   `clean()`; divergência veta a emissão nomeando a conta.
+5. **BL-623:** os dois cenários da M2 (compra e venda de tesouraria; redução e
+   aumento de capital) são **recusados** (`lancamentos_ambiguos`, motivo
+   eventos opostos), com o movimento líquido da coluna ainda correto; a
+   subscrição com integralização parcial continua como "Aumento de capital" pelo
+   valor integralizado e a subscrição pura continua sem pendência.
+6. **BL-624:** após estornar o lançamento vetado, a mensagem não contém
+   "estorne" nem "divida o lançamento" e diz que a saída é a marcação manual da
+   fatia 2 (BL-605); a ação da tela também; os textos antigos não voltam.
+7. Permissões, isolamento entre empresas e trilha: inalterados (a coluna usa os
+   mesmos caminhos); `Decimal` em todo o cálculo; negativo entre parênteses.
+8. `ruff`, `manage.py check`, `makemigrations --check`, suíte completa e
+   `validate-docs.ps1` limpos; migração nova só de `choices`, se o Django gerar.
+
+### Cenários de teste obrigatórios
+
+- Destinação e aprovação (as duas linhas), aprovação com contrapartida
+  classificada `dividendo` e com contrapartida sem classificação; crédito livre
+  na coluna nova vira pendência; par sem regra envolvendo a coluna nova veta;
+  reversão da destinação com sinal trocado; conta reclassificada libera a
+  emissão do cenário da N4.
+- M2: tesouraria comprada e vendida no mesmo lançamento (veto); capital reduzido
+  e aumentado no mesmo lançamento (veto); subscrição com integralização parcial
+  (líquido); subscrição pura (efeito zero); duas contas da mesma natureza nos
+  dois lados (veto); conta principal × retificadora (não veta).
+- M3: estorno do dividendo positivo em reserva e estorno do lançamento ambíguo —
+  a mensagem diz a verdade; literal dos textos novos.
+
+### Fora do escopo desta etapa
+
+- Marcação manual por lançamento e API da DMPL (fatia 2, BL-605) — incluído o
+  reconhecimento de par estornado (E14).
+- BL-622 (M1, defeito da DLPA), BL-625 (M4), BL-604, BL-606, BL-607, BL-620,
+  BL-621 seguem abertas, com responsável no backlog.
+- Comparativo com exercício anterior, dividendo por ação (E8), fatias C e D da
+  DL-027: inalterados.
+
+### Evidências e integração (etapa 2)
+
+- **Implementado** em `feat/dl-061-ressalvas`: coluna e linha novas (DLPA e
+  DMPL), par exato de classificações, regra de eventos opostos (BL-623) com o
+  endurecimento da tesouraria, textos verdadeiros do veto (BL-624), migração
+  `0019_dl061_etapa2_dividendo_adicional_proposto` (só `choices`), 22 testes
+  novos e 4 expectativas atualizadas (cada uma porque o comportamento pedido
+  mudou, todas listadas na auditoria).
+- **Testado:** 314 aprovados e 3 pulados (PDF/navegador, preexistentes) nos 7
+  arquivos afetados; suíte completa com 4.321 aprovados e as 165 falhas
+  **idênticas às da cópia limpa da `main`** (ambiente: SQLite em vez de
+  PostgreSQL, Windows, poppler ausente — comparação registrada na entrega);
+  migração aplicada em banco vazio; `ruff check`, `ruff format --check`,
+  `manage.py check`, `makemigrations --check` e `validate-docs` limpos.
+- [Auditoria independente e reconferência](../auditorias/2026-10-02-dl-061-etapa-2-auditoria-e-reconferencia.md):
+  rodada única **APROVADA COM RESSALVAS** (A1 formato, A2 limite da
+  propriedade, A3 guarda de texto), correção única aplicada e reconferência
+  **APROVADA** — ciclo do §3.1 encerrado. Os números da RC-153 conferiram ao
+  centavo com o cálculo à mão do auditor (sondas S1–S6).
+

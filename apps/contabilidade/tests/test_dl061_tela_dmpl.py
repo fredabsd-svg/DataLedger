@@ -707,7 +707,10 @@ def _veto_lancamento_ambiguo():
     )
     return empresa, [
         "Lançamento de 27/03/2026 (colunas:",
-        "Divida o lançamento em um por evento",
+        # BL-624 (M3): o texto deixa de mandar dividir o lançamento (o
+        # efetivado é imutável) e diz a saída real — expectativa atualizada
+        # na etapa 2 da DL-061.
+        "a saída prevista é a marcação manual do lançamento",
         reverse("contabilidade_web:lancamento_detalhe", args=[empresa.id, ambiguo.id]),
     ]
 
