@@ -644,9 +644,16 @@ def test_n4_conta_de_pl_de_dividendo_ou_ajuste_nao_e_classificavel_e_traz_orient
     for codigo in ("3.8", "3.9"):
         assert entradas[codigo]["classificavel"] is False, codigo
         orientacao = entradas[codigo]["orientacao"]
-        assert isinstance(orientacao, str) and "BL-603" in orientacao
+        assert isinstance(orientacao, str)
         assert "ainda não tem coluna na DMPL" in orientacao
-    assert "passivo" in entradas["3.8"]["orientacao"]
+    # BL-603 (RC-153) entregou a coluna de "dividendo adicional proposto":
+    # a orientação do dividendo deixa de mandar esperar e aponta as duas
+    # saídas reais (expectativa atualizada na etapa 2 da DL-061).
+    orientacao_dividendo = entradas["3.8"]["orientacao"]
+    assert "passivo" in orientacao_dividendo
+    assert "Dividendo adicional proposto" in orientacao_dividendo
+    assert "aguarde" not in orientacao_dividendo.lower()
+    assert "sem saldo nem movimento" in entradas["3.9"]["orientacao"]
     assert entradas["3.10"]["classificavel"] is True
     assert entradas["3.10"]["orientacao"] == ""
 

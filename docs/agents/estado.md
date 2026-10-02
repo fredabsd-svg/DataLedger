@@ -138,17 +138,22 @@ e integradas **uma por vez** na branch `claude/zealous-goldberg-jr5ggu` →
 `main`, cada uma com auditoria aprovada e os quatro checks verdes (RC-150).
 
 **Em andamento: DL-061 — DMPL** (CTB-14 da DL-048), escolhida pelo Fred em
-01/10/2026. Linha automática pela contrapartida, como na DLPA (RC-151); manual do
-sistema de referência lido (p. 122, 192–194, 616–622, 773–774). Fatia 1
-(servidor e tela) integrada na branch; [auditoria rodada 1](../auditorias/2026-10-01-dl-061-rodada-1.md)
-**reprovou** (N1 e N2 altas: evento errado em vez de veto); rodada única de correção
-integrada (`40e47f5`); [reconferência](../auditorias/2026-10-01-dl-061-reconferencia.md)
-**aprovada com ressalvas** (BL-622 a BL-626); merge **autorizado pelo Fred** (RC-154), em
-revisão no pull request, com a CI verde;
-merge só depois da auditoria e da CI verde. Pontos abertos: BL-603 a BL-607.
-Logo depois da fatia 1, numa etapa curta: coluna de dividendo adicional proposto
-(RC-153, BL-603), texto verdadeiro do veto (M3, BL-624) e veto dos lançamentos com
-eventos opostos na mesma coluna (RC-155, BL-623). HI-50 confirmada pelo Fred (RC-152): alíneas "c" e "d" revogadas.
+01/10/2026. Linha automática pela contrapartida, como na DLPA (RC-151); manual
+do sistema de referência lido (p. 122, 192–194, 616–622, 773–774). Fatia 1
+integrada pelo **PR #76** (auditoria rodada 1 reprovou, rodada única de
+correção `40e47f5`, reconferência aprovada com ressalvas BL-622 a BL-626; merge
+autorizado pelo Fred, RC-154). **Etapa 2 concluída em 02/10/2026** — a etapa
+curta prevista depois da fatia 1, na branch `feat/dl-061-ressalvas`: coluna de
+dividendo adicional proposto (RC-153, BL-603), veto dos lançamentos com eventos
+opostos na mesma coluna (RC-155, BL-623) e texto verdadeiro do veto (M3,
+BL-624). [Auditoria independente e
+reconferência](../auditorias/2026-10-02-dl-061-etapa-2-auditoria-e-reconferencia.md):
+rodada única com correção, **APROVADA**. PR **#77** em aberto para merge
+(`feat/dl-061-ressalvas` → `main`); o merge depende de ordem do Fred e dos
+checks verdes. Pontos abertos:
+BL-604 a BL-607, BL-622, BL-625, **BL-627** (residual da propriedade de eventos
+opostos no capital — validação do Fred) e a validação contábil **BL-626**.
+HI-50 confirmada pelo Fred (RC-152): alíneas "c" e "d" revogadas.
 
 - **DL-054** — **integrada pelo PR #70** (squash `e7b85aa`).
 - **DL-055** — **integrada pelo PR #69** (squash `9ceda53`).

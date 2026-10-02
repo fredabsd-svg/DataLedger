@@ -397,13 +397,19 @@ def test_os_mapas_cobrem_exatamente_o_enum():
 def test_as_colunas_estao_na_ordem_dos_grupos_do_item_111a():
     """E1: capital; reservas de capital; ajustes; reservas de lucros;
     tesouraria; lucros/prejuízos. A ordem dos membros do enum é a ordem das
-    colunas no documento — grupo nenhum reaparece depois de outro começar."""
+    colunas no documento — grupo nenhum reaparece depois de outro começar.
+
+    BL-603 (RC-153): a coluna "dividendo adicional proposto" vem POR ÚLTIMO,
+    no grupo próprio "Fora dos grupos do item 111A" — a norma de apresentação
+    não a prevê, e a coluna entra depois de lucros acumulados (expectativa
+    atualizada na etapa 2 da DL-061, junto com a coluna)."""
     ordem_dos_grupos = list(GrupoDaDmpl.values)
     indices = [ordem_dos_grupos.index(GRUPO_DA_CLASSIFICACAO_DMPL[c].value) for c in COL]
     assert indices == sorted(indices)
     assert list(COL.values)[0] == "capital_social"
-    assert list(COL.values)[-1] == "lucros_ou_prejuizos_acumulados"
-    assert len(COL.values) == 12
+    assert list(COL.values)[-1] == "dividendo_adicional_proposto"
+    assert list(COL.values)[-2] == "lucros_ou_prejuizos_acumulados"
+    assert len(COL.values) == 13
 
 
 def test_as_seis_reservas_de_lucros_da_dmpl_espelham_as_da_dlpa():
@@ -661,6 +667,9 @@ def test_contrato_do_retorno_tem_as_chaves_documentadas():
 
 
 def test_a_ordem_e_os_titulos_das_linhas_sao_os_da_decisao_e4():
+    # BL-603 (RC-153): "dividendo_adicional_proposto" entra ANTES de
+    # "dividendos" (a proposta precede a distribuição) — expectativa
+    # atualizada na etapa 2 da DL-061, junto com a linha.
     assert list(_TITULOS_DAS_LINHAS_DA_DMPL) == [
         "saldo_inicial",
         "ajustes_de_exercicios_anteriores",
@@ -674,6 +683,7 @@ def test_a_ordem_e_os_titulos_das_linhas_sao_os_da_decisao_e4():
         "constituicao_de_reservas",
         "reversao_de_reservas",
         "aumento_de_capital_com_reservas_e_lucros",
+        "dividendo_adicional_proposto",
         "dividendos",
         "saldo_final",
     ]

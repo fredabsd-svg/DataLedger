@@ -4726,14 +4726,16 @@ ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DMPL_POR_LISTA = {
         "— o produto não adivinha o evento e nunca reparte valor por presunção."
     ),
     "pares_de_colunas_sem_regra": (
-        "A DMPL só atribui evento a pares de colunas conhecidos (lucros acumulados para "
-        "reserva, reserva para lucros acumulados, reservas ou lucros para capital). Confira "
-        "os lançamentos listados; se o movimento estiver correto, este par ainda não é "
-        "atendido pela DMPL e a competência não pode ser emitida até que seja."
+        "A DMPL só atribui evento a pares de colunas conhecidos (lucros acumulados ↔ reservas "
+        "de lucros, reservas ou lucros → capital social, capital e reservas → tesouraria, e "
+        "lucros acumulados ↔ dividendo adicional proposto). Confira os lançamentos listados; se "
+        "o movimento estiver correto, este par ainda não é atendido pela DMPL e a competência "
+        "não pode ser emitida até que seja."
     ),
     "lancamentos_ambiguos": (
-        "Divida cada lançamento listado em um por evento (estorne e lance de novo): a DMPL "
-        "não rateia um valor entre eventos."
+        "A DMPL não rateia um valor entre eventos. O lançamento efetivado não se altera, e o "
+        "estorno dele não libera esta emissão: enquanto a marcação manual por lançamento não "
+        "existir (fatia 2 — BL-605), o lançamento listado fica fora da emissão."
     ),
     "contas_com_classificacao_dlpa_e_dmpl_divergentes": (
         "Escolha, para cada conta listada, classificações compatíveis na DLPA e na DMPL "
