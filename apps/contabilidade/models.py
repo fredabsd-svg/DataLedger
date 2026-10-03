@@ -1925,6 +1925,137 @@ class ItemLancamento(models.Model):
         )
 
 
+class MarcacaoDmpl(models.Model):
+    """Marcação manual de UM lançamento numa célula (linha × coluna) da DMPL.
+
+    DL-061, fatia 2 (BL-605), decisões E15–E17 do plano. É a "guia DMPL" do
+    sistema de referência, e é a EXCEÇÃO prevista pela RC-151: quando a regra
+    automática de linha (`_atribuir_lancamento_as_linhas_da_dmpl`,
+    services.py) não decide o evento, o contador reparte o efeito do
+    lançamento à mão entre as células e a emissão deixa de ser vetada.
+
+    **Guardada FORA do livro (E15):** nada é gravado em `LancamentoContabil`
+    nem em `ItemLancamento` — o lançamento efetivado é imutável (e os
+    gatilhos da DL-052 recusariam qualquer UPDATE). A marcação é
+    RECLASSIFICAÇÃO DA LEITURA: muda ONDE o valor aparece na demonstração,
+    nunca QUANTO existe. Por isso `apurar_dmpl` só a aceita quando o conjunto
+    reproduz exatamente o `movimento` do lançamento (E16) — ver
+    `salvar_marcacoes_da_dmpl` (services.py).
+
+    Campos, no molde dos modelos vizinhos:
+
+    - `lancamento` (`PROTECT`): o livro efetivado não se apaga, e apagar o
+      lançamento levaria junto a marcação que explica a emissão de um
+      documento entregue ao cliente;
+    - `empresa`: a MESMA do lançamento (conferida em `clean()`), para o
+      isolamento entre empresas valer já na consulta
+      (`MarcacaoDmpl.objects.filter(empresa=...)` em `apurar_dmpl`);
+    - `linha`: chave de `_TITULOS_DAS_LINHAS_DA_DMPL` (services.py), menos as
+      duas linhas de saldo (ver `clean()`);
+    - `coluna`: `ClassificacaoDmpl`, a coluna da conta classificada;
+    - `valor` (`Decimal`): o efeito da marcação na coluna (crédito − débito),
+      ≠ 0 — a marcação de valor zero não descreve evento nenhum e só
+      confundiria a soma por coluna;
+    - autoria (`criado_por`, DL-052: usuário se DESATIVA, não se apaga —
+      `PROTECT`) e `criado_em`, como `LancamentoContabil`.
+
+    ⚠️ A validação de linha/coluna/valor mora em `clean()` (com import
+    TARDIO de `services`, para não fechar o ciclo services → models →
+    services) e é o que o serviço roda em `full_clean()` antes de gravar —
+    uma fonte só da regra, alcançada também pelo admin/`ModelForm`.
+    """
+
+    lancamento = models.ForeignKey(
+        LancamentoContabil, on_delete=models.PROTECT, related_name="marcacoes_dmpl"
+    )
+    empresa = models.ForeignKey(Empresa, on_delete=models.PROTECT, related_name="marcacoes_dmpl")
+    linha = models.CharField("linha da DMPL", max_length=60)
+    coluna = models.CharField("coluna da DMPL", max_length=60, choices=ClassificacaoDmpl.choices)
+    valor = models.DecimalField("valor", max_digits=18, decimal_places=2)
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "marcação da DMPL"
+        verbose_name_plural = "marcações da DMPL"
+        ordering = ["id"]
+        constraints = [
+            # E15/contrato do conjunto: cada linha × coluna aparece UMA vez
+            # por lançamento. Duas marcações para a mesma célula se
+            # sobrepõem em `apurar_dmpl` e tornariam a soma por coluna
+            # ambígua de ler na trilha; o serviço já recusa a duplicata
+            # ANTES do INSERT — esta é a defesa de banco (DE-008, camada 1)
+            # contra `bulk_create()`/SQL direto. O par de células de uma
+            # MESMA coluna em LINHAS diferentes (compra e venda de ações em
+            # tesouraria) continua permitido, e é um dos cenários do plano.
+            models.UniqueConstraint(
+                fields=["lancamento", "linha", "coluna"],
+                name="marcacao_dmpl_unica_por_linha_e_coluna",
+            ),
+            # `valor ≠ 0` no banco (mesmo molde de
+            # `ck_itemlancamento_valor_positivo`): marcação de valor zero não
+            # é evento nenhum e só atrapalharia a soma por coluna. O serviço
+            # recusa antes (via `clean()`); a constraint é a defesa contra
+            # escrita direta no ORM/banco.
+            models.CheckConstraint(
+                condition=~models.Q(valor=0),
+                name="ck_marcacaodmpl_valor_diferente_de_zero",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.linha} × {self.coluna} = {self.valor} (lançamento {self.lancamento_id})"
+
+    def clean(self):
+        super().clean()
+        # Import TARDIO de propósito (o mesmo raciocínio de
+        # `validar_data_de_lancamento_do_modelo`, acima): `services.py`
+        # importa este módulo, então o import no topo fecharia um ciclo. O
+        # alvo é o mapa de linhas da DMPL, que é regra de apuração e mora lá.
+        from apps.contabilidade.services import _LINHAS_DE_EVENTO_DA_DMPL
+
+        if self.linha not in _LINHAS_DE_EVENTO_DA_DMPL:
+            raise ValidationError(
+                f'Linha da DMPL desconhecida: "{self.linha}". As linhas de '
+                "evento possíveis são: "
+                + ", ".join(f'"{chave}"' for chave in _LINHAS_DE_EVENTO_DA_DMPL)
+                + '. As duas linhas de saldo ("saldo_inicial", "saldo_final") '
+                "ficam de fora de propósito: saldo inicial e saldo final são "
+                "CALCULADOS pela apuração (saldo anterior + movimento), nunca "
+                "distribuídos por lançamento, e uma marcação nelas sumiria do "
+                "documento."
+            )
+        if self.coluna not in ClassificacaoDmpl.values:
+            raise ValidationError(
+                f'Coluna da DMPL desconhecida: "{self.coluna}". As colunas '
+                "possíveis são: "
+                + ", ".join(f'"{chave}"' for chave in ClassificacaoDmpl.values)
+                + " (a coluna de uma conta do patrimônio líquido)."
+            )
+        if self.valor is None or self.valor == 0:
+            raise ValidationError(
+                "O valor da marcação não pode ser zero: a marcação descreve o "
+                "efeito de um evento numa coluna, e evento nenhum tem efeito "
+                "zero. Para limpar as marcações de um lançamento, remova o "
+                "conjunto inteiro (não grave uma marcação vazia)."
+            )
+        # Mesma guarda de `ItemLancamento.clean()`: marcação de uma empresa e
+        # lançamento de outra faria o dado de um cliente aparecer na
+        # demonstração do outro (a defesa de código em `apurar_dmpl` filtra
+        # por empresa; esta é a camada de conveniência do admin/formulário).
+        if self.lancamento_id and self.empresa_id and self.lancamento.empresa_id != self.empresa_id:
+            raise ValidationError(
+                "A marcação deve ser da mesma empresa do lançamento "
+                f"({self.empresa} é de uma empresa; o lançamento é de outra)."
+            )
+
+
 class PeriodicidadeZeramento(models.TextChoices):
     """RC-105 (confirmado pelo Fred em 2026-09-20): a periodicidade do
     zeramento do resultado é ALTERNATIVA e por empresa — mensal, trimestral

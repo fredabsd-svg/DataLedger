@@ -150,9 +150,13 @@ BL-624). [Auditoria independente e
 reconferência](../auditorias/2026-10-02-dl-061-etapa-2-auditoria-e-reconferencia.md):
 rodada única com correção, **APROVADA**. **Integrada pelo PR #77** (squash
 `5a999b5`, os quatro checks verdes, merge autorizado pelo Fred — RC-156).
-**Próximo: fatia 2 (BL-605)** — marcação manual por lançamento para as
-exceções e API da DMPL; é a saída dos vetos que hoje dizem "aguardar a fatia
-2". Pontos abertos: BL-604, BL-606, BL-607, BL-622, BL-625, **BL-627**
+**Fatia 2 (BL-605) entregue em 03/10/2026** — marcação manual por lançamento
+para as exceções e API da DMPL, em duas fatias internas: **servidor** (modelo
+`MarcacaoDmpl` fora do livro, contrato por efeito de coluna, marcação só quando
+a regra não decide, API no padrão da D8 — auditado com ciclo do §3.1 encerrado,
+[relatório](../auditorias/2026-10-03-dl-061-fatia-2-auditoria-e-reconferencia.md))
+e **tela** (guia "DMPL" do lançamento; os vetos da DMPL apontam para ela). PR em
+aberto para merge; o merge depende de ordem do Fred. Pontos abertos: BL-604, BL-606, BL-607, BL-622, BL-625, **BL-627**
 (residual da propriedade de eventos opostos no capital — validação do Fred) e
 a validação contábil **BL-626**. HI-50 confirmada pelo Fred (RC-152): alíneas
 "c" e "d" revogadas.

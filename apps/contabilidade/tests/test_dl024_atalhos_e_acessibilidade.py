@@ -527,6 +527,11 @@ def cenario_livro_caixa(client):
         "conferencia",
         "lancamento_novo",
         "lancamento_detalhe",
+        # DL-061, fatia 2 (BL-605): a guia "DMPL" do lançamento — MESMO
+        # template de "lancamento_detalhe" (a guia é uma seção dele), com
+        # GET 200 sob o cenário padrão (o lançamento é decidido pela regra e
+        # a guia explica, E17). Acessibilidade idêntica à do detalhe.
+        "lancamento_marcacao_dmpl",
         "fechamento",
         "competencia_fechar",
         # DL-043 fatia 3 (BL-474): "parametros_contabeis" (tabela vazia +

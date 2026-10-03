@@ -67,4 +67,14 @@ de mudar de lugar.
             </tr>
         </tfoot>
     </table>
+
+    {% comment %}
+    DL-061, fatia 2 (BL-605): a guia "DMPL" do lançamento (E19) — a marcação
+    manual do conjunto (linha × coluna), que é a exceção prevista pela
+    RC-151. Parcial própria (`_guia_marcacao_dmpl.html`): é a MESMA seção
+    renderizada pelas duas rotas do detalhe (`lancamento_detalhe` e
+    `lancamento_marcacao_dmpl`, views_web.py), e o detalhe só cresce —
+    nenhuma expectativa antiga desta tela muda por causa dela.
+    {% endcomment %}
+    {% include "contabilidade/_guia_marcacao_dmpl.html" %}
 {% endblock %}

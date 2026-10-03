@@ -22,6 +22,10 @@ from apps.contabilidade.views_web import (
     dre,
     fechamento,
     lancamento_detalhe,
+    # DL-061, fatia 2 (BL-605): a guia "DMPL" do lançamento — grava o
+    # CONJUNTO de marcações manuais (POST) e limpa com "Remover marcações";
+    # GET renderiza a guia dentro do detalhe.
+    lancamento_marcacao_dmpl,
     lancamento_novo,
     parametro_contabil_encerrar,
     parametros_contabeis,
@@ -73,6 +77,17 @@ urlpatterns = [
         "empresas/<int:empresa_id>/lancamento/<int:lancamento_id>/",
         lancamento_detalhe,
         name="lancamento_detalhe",
+    ),
+    # DL-061, fatia 2 (BL-605): a guia "DMPL" do lançamento. Caminho no
+    # mesmo formato da API da marcação (`apps.contabilidade.urls`,
+    # `empresas/<id>/lancamentos/<id>/marcacao-dmpl/`, E18) — a diferença de
+    # número (`lancamentos/`, plural, contra o `lancamento/` do detalhe
+    # acima) é a do pedido desta etapa; o prefixo `contabilidade/painel/`
+    # já separa as duas pontas (ver o comentário no topo deste arquivo).
+    path(
+        "empresas/<int:empresa_id>/lancamentos/<int:lancamento_id>/marcacao-dmpl/",
+        lancamento_marcacao_dmpl,
+        name="lancamento_marcacao_dmpl",
     ),
     path("empresas/<int:empresa_id>/diario/", diario, name="diario"),
     path(

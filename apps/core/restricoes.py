@@ -758,6 +758,29 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "encerrada, então 'aberto' sem reabertura registrada não é produzido "
         "por nenhum fluxo. Só ORM/SQL direto alcançaria a constraint."
     ),
+    # DL-061, fatia 2 (BL-605): as duas restrições de `MarcacaoDmpl`, o
+    # contrato do conjunto de marcação manual da DMPL (E15/E16). O ÚNICO
+    # caminho de escrita é `salvar_marcacoes_da_dmpl`
+    # (`apps.contabilidade.services`), que valida as duas regras ANTES do
+    # INSERT — linha × coluna única por lançamento é checada contra o
+    # CONJUNTO novo, e `valor != 0` roda em `MarcacaoDmpl.clean()` via
+    # `full_clean()` — e grava sob a trava `select_for_update()` do
+    # lançamento, então nem a corrida de duas substituições concorrentes do
+    # MESMO lançamento alcança a unicidade. Só ORM/SQL direto (fora de
+    # qualquer requisição de cliente) alcançaria as duas.
+    "marcacao_dmpl_unica_por_linha_e_coluna": (
+        "`UniqueConstraint(lancamento, linha, coluna)` de `MarcacaoDmpl` "
+        "(DL-061, fatia 2): cada célula (linha × coluna) aparece uma única "
+        "vez por lançamento. `salvar_marcacoes_da_dmpl` recusa a duplicata "
+        "no conjunto antes do INSERT; só ORM/SQL direto alcançaria a "
+        "constraint."
+    ),
+    "ck_marcacaodmpl_valor_diferente_de_zero": (
+        "`CheckConstraint(valor != 0)` de `MarcacaoDmpl` (DL-061, fatia 2): "
+        "marcação de valor zero não descreve evento nenhum. "
+        "`salvar_marcacoes_da_dmpl` recusa antes do INSERT (via "
+        "`MarcacaoDmpl.clean()`); só ORM/SQL direto alcançaria a constraint."
+    ),
 }
 
 

@@ -97,6 +97,7 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         Conta,
         ItemLancamento,
         LancamentoContabil,
+        MarcacaoDmpl,
         ParametroContabilEmpresa,
     )
     from apps.empresas.models import Empresa, Estabelecimento, HistoricoRegimeTributario
@@ -191,6 +192,14 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         # trilha na mesma transação, e um formulário de admin contornaria as
         # duas coisas. Cobertura "por padrão" (R1/DE-056), como o bloco acima.
         FechamentoMesCaixa,
+        # DL-061, fatia 2 (BL-605, 2026-10-03): `MarcacaoDmpl`, a marcação
+        # manual da DMPL — SEM `ModelAdmin` de propósito, como
+        # `FechamentoMesCaixa` e `ParametroContabilEmpresa`: a ÚNICA porta de
+        # escrita é `salvar_marcacoes_da_dmpl` (services.py), que valida o
+        # contrato do conjunto e grava a trilha (antes/depois) na MESMA
+        # transação — um formulário de admin contornaria as duas coisas.
+        # Cobertura "por padrão" (R1/DE-056), como os blocos acima.
+        MarcacaoDmpl,
     }
     assert cobertos == esperados_cobertos, (
         f"DL-030: cobertura da trilha divergente.\n"

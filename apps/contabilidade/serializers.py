@@ -4,13 +4,16 @@ from apps.contabilidade.models import (
     TIPOS_ACEITOS_DA_CLASSIFICACAO_DLPA,
     TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE,
     ClassificacaoDlpa,
+    ClassificacaoDmpl,
     ClassificacaoDre,
     Conta,
     ItemLancamento,
     LancamentoContabil,
     TipoConta,
 )
+from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
 from apps.core.identificadores import IdentificadorInvalido, para_id
+from apps.core.requisicao import DadoNaoContratado, recusar_campos_nao_contratados
 
 # DL-058/B1: UMA mensagem só para "a conta pai não é utilizável aqui", seja
 # o id de outra empresa (de outro escritório, inclusive) ou inexistente.
@@ -105,7 +108,18 @@ class ContaSerializer(serializers.ModelSerializer):
             # mesmo motivo: o DRF nunca chama `full_clean()` (BL-40/DE-008),
             # então `Conta.clean()` não roda neste caminho.
             "classificacao_dlpa",
+            # DL-061 (fatia 2, E18): coluna da DMPL — exposta para o GET de
+            # contas e para a resposta do PATCH `ContaClassificacaoDmplView`
+            # (o espelho do endpoint da DLPA devolve a conta COM a
+            # classificação que acabou de gravar). Diferente das duas de
+            # cima, é SOMENTE LEITURA aqui: a escrita tem porta PRÓPRIA
+            # (`ContaClassificacaoDmplView` → `classificar_conta_na_dmpl`,
+            # com trilha antes/depois na mesma transação) — o POST de conta
+            # não recebe esta chave (o contrato a recusa por nome), e por
+            # isso o campo não precisa da checagem de `validate`.
+            "classificacao_dmpl",
         ]
+        read_only_fields = ("classificacao_dmpl",)
 
     def validate_classificacao_dre(self, value):
         """A4 (auditoria DL-045, rodada 1): normaliza `""` para `None` —
@@ -299,6 +313,105 @@ class ClassificacaoDlpaPatchSerializer(serializers.Serializer):
     classificacao_dlpa = serializers.ChoiceField(
         choices=ClassificacaoDlpa.choices, allow_null=True, allow_blank=True, required=False
     )
+
+
+class ClassificacaoDmplPatchSerializer(serializers.Serializer):
+    """DL-061 (fatia 2, E18): valida o CORPO do `PATCH` de
+    `ContaClassificacaoDmplView` ANTES de chegar ao serviço — o espelho
+    EXATO de `ClassificacaoDlpaPatchSerializer` (R3 da auditoria DL-045),
+    pelos mesmos motivos: corpo malformado não pode vazar como 500 mudo, e
+    `ChoiceField` recusa o corpo que não é `Mapping` e o valor que não é uma
+    chave do enum.
+
+    O contrato é SEPARADO do da DLPA: a política recusa chave desconhecida
+    por NOME, e um corpo com `classificacao_dlpa` neste PATCH tem de ser
+    recusado, não aplicado à linha errada em silêncio. `allow_null`/
+    `allow_blank` aceitam "remover a coluna" (None), como nas irmãs.
+    """
+
+    classificacao_dmpl = serializers.ChoiceField(
+        choices=ClassificacaoDmpl.choices, allow_null=True, allow_blank=True, required=False
+    )
+
+
+# DL-061 (fatia 2, BL-605): o corpo do PUT de `MarcacaoDmplView` é o
+# CONJUNTO inteiro de marcações de um lançamento — `{linha, coluna, valor}`,
+# um por evento, nada além disso (BL-196: dado enviado nunca é ignorado em
+# silêncio).
+CAMPOS_PERMITIDOS_MARCACAO_DMPL = frozenset({"linha", "coluna", "valor"})
+
+
+class MarcacaoDmplSerializer(serializers.Serializer):
+    """UMA marcação da DMPL no corpo do PUT de `MarcacaoDmplView` (E18).
+
+    Só FORMA é decidida aqui (as três chaves, sem nenhuma a mais; tipos).
+    Os enums (`linha` é chave de `_TITULOS_DAS_LINHAS_DA_DMPL`,
+    `coluna` é `ClassificacaoDmpl`) e o `valor ≠ 0` são regra de DOMÍNIO e
+    moram em `MarcacaoDmpl.clean()` (models.py), rodados por
+    `salvar_marcacoes_da_dmpl` — uma fonte só, mesma divisão de
+    `ClassificacaoDlpaPatchSerializer` (aqui se julga o tipo; o serviço
+    julga a regra).
+
+    `valor` é `JSONField` + checagem de FORMA de envio por um motivo
+    específico (DE-030, achado R3-3): dinheiro nesta API viaja como TEXTO.
+    Um número JSON (int ou float) é recusado ANTES de qualquer conversão —
+    o parser JSON já perdeu a precisão do float antes de o servidor ver o
+    valor —, com a mesma orientação do POST de lançamento.
+    """
+
+    linha = serializers.CharField(max_length=60)
+    coluna = serializers.CharField(max_length=60)
+    valor = serializers.JSONField()
+
+    def validate(self, dados):
+        # `initial_data` é o item CRÚ: é nele que vivem as chaves não
+        # declaradas (o DRF as ignora em silêncio sem esta checagem).
+        try:
+            recusar_campos_nao_contratados(
+                dict(self.initial_data),
+                CAMPOS_PERMITIDOS_MARCACAO_DMPL,
+                contexto="em uma marcação da DMPL",
+            )
+        except DadoNaoContratado as exc:
+            raise serializers.ValidationError(exc.mensagem) from exc
+        return dados
+
+    def validate_valor(self, valor):
+        if not isinstance(valor, str):
+            raise serializers.ValidationError(
+                f"Valor inválido em uma marcação: {valor!r} precisa ser "
+                'enviado como TEXTO (ex.: "100.00"), nunca como número JSON — '
+                "um número perde precisão ao ser decodificado pelo parser JSON, "
+                "antes mesmo de chegar a este servidor."
+            )
+        try:
+            return para_decimal(valor)
+        except ValorMonetarioInvalido as exc:
+            raise serializers.ValidationError(f"Valor inválido em uma marcação: {exc}") from exc
+
+
+class MarcacaoDmplGravacaoSerializer(serializers.Serializer):
+    """Corpo do PUT de `MarcacaoDmplView` (E18): `{"marcacoes": [...]}`, com
+    o CONJUNTO completo — o PUT substitui tudo de uma vez (substituição
+    atômica, `salvar_marcacoes_da_dmpl`), e lista VAZIA limpa as marcações.
+
+    A lista é `ListField` (não `many=True` no item) para que "corpo sem a
+    chave `marcacoes`", "`marcacoes` que não é lista" e "item malformado"
+    tenham cada um a sua recusa de 400, nunca 500 (R3/R8 da auditoria
+    DL-045)."""
+
+    marcacoes = serializers.ListField(allow_empty=True)
+
+    def validate_marcacoes(self, itens):
+        validadas = []
+        for indice, item in enumerate(itens, start=1):
+            entrada = MarcacaoDmplSerializer(data=item)
+            try:
+                entrada.is_valid(raise_exception=True)
+            except serializers.ValidationError as exc:
+                raise serializers.ValidationError({f"marcacoes[{indice}]": exc.detail}) from exc
+            validadas.append(entrada.validated_data)
+        return validadas
 
 
 class ItemLancamentoSerializer(serializers.ModelSerializer):
