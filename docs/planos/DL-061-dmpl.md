@@ -326,6 +326,96 @@ Conferência: 100.000 + 20.000 + 25.000 − 10.000 + 3.000 − 2.000 = 136.000.
   em três versões; ensaio estrito com 870 DMPL emitidas sem violação. Ressalvas: BL-622
   a BL-625 (M1 a M4) e a validação contábil do Fred (BL-626).
 
+## Fatia 2 — marcação manual por lançamento e API da DMPL (BL-605)
+
+**Escopo:** a exceção prevista desde a RC-151 — quando a regra não decide, hoje a
+emissão fica vetada e as mensagens dizem que a saída é "a marcação manual do
+lançamento (fatia 2)". Esta fatia entrega essa saída. **Nível 1** (muda número
+de documento entregue ao cliente): critérios de aceite, testes de
+sucesso/erro/limite e auditoria independente, com UMA correção (§3.1).
+**Branch:** `feat/dl-061-fatia-2` → `main`.
+
+### Rotina de referência
+
+O sistema de referência tem uma "guia DMPL" no lançamento (manual, p. 193–194):
+o usuário reparte o valor à mão entre eventos, inclusive valores parciais em
+lançamentos com vários débitos e créditos. A diferença deliberada continua a da
+E1: aqui a marcação é a **exceção**, nunca o caminho normal.
+
+### Decisões de desenho (arquiteto-senior, reversíveis)
+
+**E15 — Marcação guardada fora do livro.** Modelo `MarcacaoDmpl` (app
+contabilidade): lançamento (FK, `PROTECT` — o livro efetivado não se apaga),
+empresa, `linha` (chave de `_TITULOS_DAS_LINHAS_DA_DMPL`), `coluna`
+(`ClassificacaoDmpl`) e `valor` (`Decimal`), com autoria protegida e trilha na
+mesma transação da gravação (padrão DL-052). Nada é gravado no lançamento: o
+livro continua imutável, e a marcação é reclassificação da leitura.
+
+**E16 — Contrato da marcação (o que mantém os números corretos).** O conjunto
+das marcações de UM lançamento tem de reproduzir **exatamente** o efeito líquido
+de cada coluna daquele lançamento (o `movimento` que a apuração já calcula):
+Σ `valor` por coluna = efeito da coluna. Recusa fora disso, e recusa linha ou
+coluna fora dos enums. Por construção, `saldo_final = saldo_inicial + movimento`
+e a conciliação com o Balanço continuam valendo — a marcação muda AONDE o valor
+aparece, nunca QUANTO existe.
+
+**E17 — Só na exceção (RC-151 como propriedade).** A marcação só é aceita para
+lançamento cuja atribuição automática produz **problema** (linha indefinida, par
+sem regra ou lançamento ambíguo). Se a regra decide, o servidor recusa — o
+escritório deixa o padrão, e "repartir à mão" não vira caminho normal. O
+lançamento marcado usa as células da marcação **no lugar** das automáticas, e
+os problemas dele deixam de vetar; o `movimento` continua o mesmo.
+
+**E18 — API, no padrão das existentes.** `empresas/<id>/dmpl/<ano>/<mes>/`
+(GET: a apuração inteira, o mesmo contrato da tela); `empresas/<id>/contas/
+<conta_id>/classificacao-dmpl/` (PATCH: coluna da conta, espelho do D8 da DLPA,
+com trilha); `empresas/<id>/lancamentos/<lancamento_id>/marcacao-dmpl/` (GET,
+PUT com o conjunto completo — substituição atômica — e DELETE para limpar).
+Permissões no servidor: quem lê a contabilidade lê; quem escritura marca;
+CLIENTE 403; isolamento por escritório/empresa em todas as rotas.
+
+**E19 — Tela.** Guia "DMPL" no detalhe do lançamento (as marcações dele, o
+conjunto é gravado de uma vez) e o veto da DMPL passa a linkar para essa guia em
+cada lançamento listado — as mensagens que hoje dizem "aguardar a fatia 2" ficam
+com o caminho real. Identidade visual e permissões como as telas atuais.
+
+### Critérios de aceite (fatia 2)
+
+1. Um lançamento hoje vetado (`lancamentos_ambiguos`, eventos opostos, par sem
+   regra ou contrapartida sem linha) **emite** depois de marcado, com as células
+   exatas da marcação e o saldo/conciliação inalterados.
+2. A marcação que não reproduz os efeitos por coluna é **recusada** (sucesso,
+   erro e limites testados); lançamento que a regra decide **não** aceita marcação.
+3. Marcar e desmarcar são atômicos, com trilha (atores e valores antes/depois),
+   e nada muda no lançamento (imutabilidade preservada).
+4. API: GET da DMPL igual ao contrato da tela; PATCH da coluna com trilha;
+   PUT/DELETE da marcação; CLIENTE 403; empresa alheia 404; autorização no servidor.
+5. Tela: guia do lançamento grava o conjunto e o veto da DMPL linka até ela;
+   sem marcação, o comportamento atual não muda em nada.
+6. Identidade DLPA × DMPL continua valendo com marcação na coluna de lucros
+   (a marcação decide o par linha × coluna; o teste de identidade cobre o caso).
+7. `ruff`, `check`, `makemigrations --check`, suíte completa e `validate-docs`
+   limpos; migração nova criada e aplicada em banco vazio.
+
+### Cenários de teste obrigatórios
+
+- Marcação devolvendo o caso M3 (dividendo pago com reserva, estornado): o par
+  marcado líquido zero libera a emissão e a linha mostra o líquido do par.
+- Eventos opostos em tesouraria marcados em DUAS linhas (aquisição e alienação)
+  com os valores brutos — a emissão sai e mostra os dois eventos.
+- Marcação parcial inválida (Σ por coluna errado), linha/coluna fora do enum,
+  marcação em lançamento de outra empresa, marcação em lançamento decidido pela
+  regra, e marcação de CLIENTE: todos recusados, com a mensagem que diz o que falta.
+- Desmarcar volta exatamente ao comportamento anterior (o veto retorna).
+
+### Fora do escopo desta etapa
+
+- Reconhecimento automático do par estornado (E14): a marcação manual é a saída
+  prevista; a automação fica como melhoria futura registrada.
+- Marcação por ITEM (repartição parcial dentro de um mesmo lançamento em mais de
+  uma coluna além do efeito real): o contrato é por lançamento × coluna × linha.
+- Comparativo com exercício anterior e dividendo por ação (E8).
+
 ## Consulta ao manual sobre as ressalvas da reconferência (01/10/2026)
 
 Paráfrase, sem cópia. O manual responde **rotina**; norma continua com o Fred.
