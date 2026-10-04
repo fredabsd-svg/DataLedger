@@ -595,11 +595,28 @@ def test_migracao_falha_alto_nomeando_o_lote_quando_o_banco_ja_tem_dado_invalido
         ]
         assert not (ESPERADOS & _gatilhos_do_livro())
     finally:
-        # Limpeza: o dado ruim só pôde existir porque os gatilhos ainda não existiam.
-        if lote_ruim is not None:
-            ItemLancamento.objects.filter(lancamento=lote_ruim).delete()
-            LancamentoContabil.objects.filter(pk=lote_ruim.pk).delete()
-        MigrationExecutor(connection).migrate(alvo_atual)
+        # Limpeza: o dado ruim só pôde existir porque os gatilhos ainda não
+        # existiam. A limpeza é em SQL puro, NÃO pelo ORM: nesta janela o
+        # esquema está de volta a ANTERIOR, e o coletor do Django consultaria
+        # tabelas das migrações POSTERIORES ao alvo — ex. as marcações da DMPL
+        # (FK PROTECT sobre o lançamento, BL-605), que não existem aqui. Uma
+        # falha nessa limpeza deixaria o esquema do banco de teste velho para o
+        # resto da sessão e derrubaria os testes seguintes em cascata (foi
+        # exatamente o que a CI do PR #79 mostrou). A restauração do esquema
+        # fica garantida mesmo se a limpeza falhar.
+        try:
+            if lote_ruim is not None:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "DELETE FROM contabilidade_itemlancamento WHERE lancamento_id = %s",
+                        [lote_ruim.pk],
+                    )
+                    cursor.execute(
+                        "DELETE FROM contabilidade_lancamentocontabil WHERE id = %s",
+                        [lote_ruim.pk],
+                    )
+        finally:
+            MigrationExecutor(connection).migrate(alvo_atual)
 
     assert ESPERADOS <= _gatilhos_do_livro()
 
