@@ -11,6 +11,7 @@ from apps.contabilidade.models import (
     ItemLancamento,
     LancamentoContabil,
     TipoConta,
+    divergencia_entre_dlpa_e_dmpl,
 )
 from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
 from apps.core.identificadores import IdentificadorInvalido, para_id
@@ -238,7 +239,45 @@ class ContaSerializer(serializers.ModelSerializer):
                         )
                     }
                 )
+
+        # DL-063 (BL-606), achado A1 da auditoria: a COERÊNCIA ENTRE AS DUAS
+        # CLASSIFICAÇÕES — `divergencia_entre_dlpa_e_dmpl`, a mesma regra que
+        # `Conta.clean()` aplica — também precisa ser replicada aqui, e só
+        # apareceu depois que a porta abriu. `Conta.clean()` não roda neste
+        # caminho (BL-40/DE-008), então, sem estas linhas, a API gravava em
+        # silêncio exatamente o par que o modelo proíbe: linha da DLPA
+        # "Reserva legal" com coluna da DMPL "Capital social". Na base isso
+        # era INALCANÇÁVEL — o contrato recusava a chave —; a porta nova
+        # tornou o caminho real, e o buraco nasceu com ela.
+        #
+        # A apuração nomeia e VETA o par assim gravado (medido na auditoria:
+        # `pode_emitir = False`), então o dano é nomeado, não silencioso. Mas
+        # gravar pela porta o que a outra porta proíbe é a classe de defeito
+        # que o §8 do AGENTS.md manda evitar: aqui a regra é duplicada por
+        # necessidade técnica — e duplicata por necessidade precisa ser
+        # COMPLETA, senão a duplicata vira furo.
+        #
+        # Cada classificação é lida do payload ou, num PATCH parcial, da
+        # conta — mesmo padrão das checagens acima, porque a divergência é
+        # entre as DUAS, e cada uma pode vir só de um lado do payload.
+        divergencia = divergencia_entre_dlpa_e_dmpl(
+            self._classificacao_do_payload(attrs, "classificacao_dlpa"),
+            self._classificacao_do_payload(attrs, "classificacao_dmpl"),
+        )
+        if divergencia:
+            raise serializers.ValidationError({"classificacao_dmpl": divergencia})
         return attrs
+
+    def _classificacao_do_payload(self, attrs, campo):
+        """O valor de um campo de classificação no payload **ou**, quando o
+        payload não o traz e é uma atualização, o da conta já gravada — sem
+        isto, um PATCH que mexesse só na linha da DLPA seria julgado contra
+        um `classificacao_dmpl` inexistente e deixaria a coerência de fora."""
+        if campo in attrs:
+            return attrs[campo]
+        if self.instance is not None:
+            return getattr(self.instance, campo, None)
+        return None
 
     def validate_conta_pai(self, value):
         """`conta_pai` deve pertencer à mesma empresa do escopo da requisição.

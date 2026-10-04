@@ -19,7 +19,13 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 
-from apps.contabilidade.models import ClassificacaoDmpl, Conta, NaturezaConta, TipoConta
+from apps.contabilidade.models import (
+    ClassificacaoDlpa,
+    ClassificacaoDmpl,
+    Conta,
+    NaturezaConta,
+    TipoConta,
+)
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
@@ -233,6 +239,70 @@ def test_a_api_ainda_recusa_chave_desconhecida(gestor, cenario):
     assert resposta.status_code == 400
     assert "xpto" in resposta.content.decode()
     assert not Conta.objects.filter(codigo="3.3", empresa=cenario["empresa"]).exists()
+
+
+# ---------------------------------------------------------------------------
+# Achado A1 da auditoria — o buraco que a PORTA NOVA abriu
+# ---------------------------------------------------------------------------
+
+
+def test_a_api_recusa_o_par_dlpa_e_dmpl_que_o_modelo_proibe(gestor, cenario):
+    """**Achado A1 da auditoria da DL-063.** Regressão de um buraco que
+    ESTA etapa abriu.
+
+    `Conta.clean()` proíbe um par que não combina: linha da DLPA "Reserva
+    legal" não pode conviver com coluna da DMPL "Capital social" — as duas
+    demonstrações leriam a mesma conta de formas diferentes. O serializer
+    replicava a regra de `tipo` × coluna, mas **não** esta, porque o DRF
+    nunca chama `full_clean()` (BL-40/DE-008).
+
+    Na base o par era INALCANÇÁVEL pela API (o contrato recusava a chave) —
+    foi a porta nova que tornou o caminho real, e o buraco nasceu com ela.
+    Medido pela auditoria: o POST devolvia **201 e gravava em silêncio**.
+
+    O dano era nomeado (a apuração veta a emissão), mas gravar por uma porta
+    o que a outra proíbe é exatamente a duplicata incompleta que o §8 do
+    AGENTS.md manda evitar."""
+    url = reverse("contabilidade:contas", args=[cenario["empresa"].id])
+
+    resposta = gestor.post(
+        url,
+        _corpo_de_conta(
+            codigo="3.5",
+            nome="Par incoerente",
+            classificacao_dlpa=ClassificacaoDlpa.RESERVA_LEGAL,
+            classificacao_dmpl=ClassificacaoDmpl.CAPITAL_SOCIAL,
+        ),
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 400, (resposta.status_code, resposta.content)
+    conteudo = resposta.content.decode()
+    assert "classificacao_dmpl" in conteudo
+    assert "DLPA" in conteudo and "DMPL" in conteudo, "a mensagem diz qual par diverge"
+    assert not Conta.objects.filter(codigo="3.5", empresa=cenario["empresa"]).exists()
+
+
+def test_o_par_coerente_passa(gestor, cenario):
+    """O outro lado: a regra nova não pode recusar o que é legítimo. A linha
+    da DLPA "Reserva legal" convive com a coluna da DMPL "Reserva legal" — se
+    isto reprovar, a correção virou recusa de tudo."""
+    url = reverse("contabilidade:contas", args=[cenario["empresa"].id])
+
+    resposta = gestor.post(
+        url,
+        _corpo_de_conta(
+            codigo="3.6",
+            nome="Par coerente",
+            classificacao_dlpa=ClassificacaoDlpa.RESERVA_LEGAL,
+            classificacao_dmpl=ClassificacaoDmpl.RESERVA_LEGAL,
+        ),
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 201, (resposta.status_code, resposta.content)
+    conta = Conta.objects.get(codigo="3.6", empresa=cenario["empresa"])
+    assert conta.classificacao_dmpl == ClassificacaoDmpl.RESERVA_LEGAL
 
 
 # ---------------------------------------------------------------------------
