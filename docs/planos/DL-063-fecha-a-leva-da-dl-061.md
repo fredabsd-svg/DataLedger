@@ -165,11 +165,77 @@ comportamento anterior, sem tocar em dado de cliente.
 
 ## 8. Evidências e integração
 
-- Diagnóstico: §1, com as tabelas de `arquivo:linha`.
-- Verificação local: pendente.
-- **O teste do snapshot (BL-607) não é executável localmente** — não há
-  PostgreSQL nem Docker nesta máquina, e o `SET TRANSACTION ISOLATION LEVEL
-  REPEATABLE READ` não existe no SQLite. A evidência dele é a CI, e isso
-  fica declarado, não escondido.
-- Auditoria independente: pendente (obrigatória — a peça BL-606 é nível 1).
-- PR: pendente.
+### 8.1 Base: a etapa é CHAINED na DL-062
+
+A dica da divergência de fechamento é o **mesmo texto** que a DL-062
+corrigiu. Esta etapa foi donc developida sobre
+`fix/dl-062-sinal-da-raiz-retificadora` (PR #81), com merge do commit
+`e782bc4`: as duas etapas mexem na mesma frase, uma corrigindo o que ela
+afirmava de falso e a outra fazendo-a discriminar a causa. O PR desta etapa
+é **encadeado**, com base na branch da DL-062 — e, conforme o §6 do
+AGENTS.md, **a base tem de ser reapontada para `main` assim que o PR #81 for
+integrado**, senão o conteúdo não chega à `main`.
+
+### 8.2 Verificações locais (04/10/2026, Python 3.14.7, SQLite)
+
+```
+test_dl063_bl606_coluna_da_dmpl_nas_duas_portas.py       8 passed
+test_dl063_bl625_dica_da_divergencia.py                  5 passed
+test_dl061_tela_dmpl.py (pendências)                    92 passed
+test_dl062_sinal_da_raiz_retificadora.py                18 passed
+apps/contabilidade + apps/core                           85 falhas  (base: 84)
+ruff check .                                             All checks passed!
+ruff format --check .                                    357 files already formatted
+manage.py check                                          System check identified no issues
+manage.py makemigrations --check                         No changes detected
+```
+
+Comparação item a item com a **mesma** seleção sem o trabalho (alterações em
+`git stash`): **84 falhas na base contra 85 agora**. A diferença é
+`test_dl045_dre.py::test_r4_corrida_na_classificacao_serializa_e_a_trilha_
+fica_coerente`, teste de **thread** que é flaky em SQLite — a mesma família
+já mapeada do `test_b2_concorrencia_…`, que falha em 3 de 4 execuções **sem**
+nenhuma alteração. **Nenhuma regressão.**
+
+### 8.3 Limite declarado: o teste do snapshot (BL-607) NÃO roda localmente
+
+Não há PostgreSQL nem Docker nesta máquina, e o `SET TRANSACTION ISOLATION
+LEVEL REPEATABLE READ` **não existe no SQLite** — os dois testes do par
+falham localmente com `sqlite3.OperationalError: near "SET": syntax error`,
+que é a falha conhecida do ambiente e **não** um defeito do teste.
+
+O que **foi** verificado localmente, com saída real:
+
+- `ruff check .` e `ruff format --check .` limpos;
+- `--collect-only` coleta os dois testes, sem erro de importação;
+- **no teste 1, todas as asserções da leitura concorrente PASSARAM** no
+  SQLite` (750,00 / 114.500,00 / 115.000,00 / −500,00 / `["total"]`) — ele
+  só morre na releitura, que chama `apurar_dmpl` e portanto o `SET`;
+- fora do repositório, a réplica `_apurar_dmpl_sem_snapshot` foi conferida
+  contra `apurar_dmpl` no cenário limpo: **idêntica** nas colunas, no
+  `saldo_final` e na conciliação por coluna e total — a réplica é fiel, que
+  é o que sustenta o teste 1.
+
+**Não se afirma que os dois testes passam.** A evidência do `REPEATABLE READ`
+é a CI com PostgreSQL 16.
+
+### 8.4 Anomalia de ambiente, declarada e NÃO explicada
+
+Ao criar um arquivo de teste **novo** nesta máquina, o pytest **falha ao
+resolver uma fixture de módulo chamada `autenticado`**, com
+`fixture 'autenticado' not found` — mesmo com a fixture definida no módulo e
+listada por `pytest --fixtures`, e mesmo limpando `.pytest_cache` e
+`__pycache__`. Reproduzido numa cópia mínima de 25 linhas. Renomeada a
+fixture, passa. Arquivos **antigos** com o mesmo nome continuam passando, e
+os dois rodam juntos na mesma sessão — logo não é o nome, é a combinação com
+módulo novo.
+
+A fixture deste arquivo chama-se `gestor`, **e o porquê está no próprio
+docstring dela**. Registrado aqui para não virar surpresa de quem criar
+arquivo de teste novo hoje. **Causa não investigada** — investigar exige um
+pytest limpo fora deste diretório, o que não foi feito nesta etapa.
+
+### 8.5 Auditoria independente
+
+Obrigatória: a peça BL-606 é nível 1. Pendente.
+

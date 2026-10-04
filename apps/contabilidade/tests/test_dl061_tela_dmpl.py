@@ -785,9 +785,15 @@ def test_cada_pendencia_veta_a_tela_nomeia_o_que_falta_e_a_acao_que_resolve(clie
     html = resposta.content.decode()
     assert "A DMPL NÃO pode ser emitida nesta competência" in html
     assert _TITULOS_DAS_PENDENCIAS_DA_DMPL[lista] in html
-    assert (
-        views_web.ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DMPL_POR_LISTA[lista].split(" (link")[0] in html
-    )
+    # DL-063 (BL-625): a ação da divergência deixou de ser a do dicionário
+    # estático. No cenário DELA (`_veto_diferenca_de_fechamento`) existe
+    # conta de PL com saldo e sem coluna — que É a causa —, então a tela
+    # mostra a ação condicionada, não a genérica. Nos demais cenários a
+    # genérica continua, porque não há essa causa nomeada.
+    acao = views_web.ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DMPL_POR_LISTA[lista].split(" (link")[0]
+    if lista == "diferenca_de_fechamento":
+        acao = views_web._ACAO_DA_DIVERGENCIA_COM_CONTA_SEM_COLUNA
+    assert acao in html
     for trecho in esperado:
         assert trecho in html, (lista, trecho)
     # E a demonstração NÃO é montada: nem tabela, nem total, nem faixa de pronto.

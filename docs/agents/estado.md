@@ -120,7 +120,9 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-058](../planos/DL-058-pequenas-fugas-de-informacao.md) | Pequenas fugas de informação (BL-554, BL-555) | Integrada (PR #72) — auditoria aprovada com ressalvas; BL-592 a BL-596; DE-096 |
 | [DL-059](../planos/DL-059-trilha-do-convite-e-eventos-sem-ip.md) | Trilha do convite e eventos sem IP (BL-560, BL-566, BL-579) | Integrada (PR #73) — auditoria aprovada com ressalvas; BL-597 a BL-601 |
 | [DL-060](../planos/DL-060-confirmacao-da-cascata.md) | A reabertura em cascata confirma exatamente os meses mostrados (BL-588, BL-589) | Integrada (PR #74) — reconferência aprovada com ressalvas; BL-602 |
-| [DL-061](../planos/DL-061-dmpl.md) | DMPL, etapa CTB-14 da DL-048 (RC-151) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-061](../planos/DL-061-dmpl.md) | DMPL, etapa CTB-14 da DL-048 (RC-151) | Integrada (PR #76, #77 e #79) — fatias 1, etapa 2 e fatia 2; pontos abertos BL-606, BL-607, BL-622, BL-625, BL-626 e BL-627 |
+| [DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md) | Sinal da conta-RAIZ retificadora no Balanço Patrimonial (BL-604) | Em revisão (PR #81, quatro checks verdes; aguardando integração) |
+| [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) | Fecha a leva da DL-061: coluna da DMPL nas duas portas, teste do snapshot e dica condicionada (BL-606, BL-607, BL-625) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -157,10 +159,58 @@ a regra não decide, API no padrão da D8 — auditado com ciclo do §3.1 encerr
 [relatório](../auditorias/2026-10-03-dl-061-fatia-2-auditoria-e-reconferencia.md))
 e **tela** (guia "DMPL" do lançamento; os vetos da DMPL apontam para ela).
 **Integrada pelo PR #79** (squash `1a0bdc9`, os quatro checks verdes, merge
-feito pelo Fred em 04/10/2026). Pontos abertos: BL-604, BL-606, BL-607, BL-622, BL-625, **BL-627**
+feito pelo Fred em 04/10/2026). Pontos abertos: BL-606, BL-607, BL-622, BL-625, **BL-627**
 (residual da propriedade de eventos opostos no capital — validação do Fred) e
 a validação contábil **BL-626**. HI-50 confirmada pelo Fred (RC-152): alíneas
-"c" e "d" revogadas.
+"c" e "d" revogadas. **BL-604 fechado pela DL-062** (abaixo).
+
+**Em andamento: DL-062 — o sinal da conta-RAIZ retificadora no Balanço**
+(BL-604), escolhida por ser o ponto aberto **de nível 1** da leva: é o único
+em que o produto entrega documento errado ao cliente. Diagnóstico medido em
+04/10/2026, antes da correção: a retificadora de PL cadastrada na raiz do
+plano era **somada** pelo Balanço em vez de subtraída — PL publicado em
+117.000,00 quando o correto é 113.000,00, equação `ativo = passivo + PL` em
+−4.000,00, e `avaliar_emissao_do_balanco` devolvendo **`pode_emitir = True`**:
+o Balanço saía errado e nada impedia. A DMPL era a única que acusava, porque
+recalcula por conta. A correção leva ao total do Balanço a MESMA normalização
+de sinal que o módulo já aplicava à soma por classificação (BL-496) e que a
+DRE aplica ao resíduo por tipo — a contribuição de uma raiz entra com a
+natureza **natural** do seu `TipoConta`. Medido que **não era caso do PL e sim
+uma classe**: a mesma falha atingia RAIZ devedora de RECEITA e RAIZ credora
+de DESPESA (equação em −200,00 com as três), então a regra cobre os cinco
+tipos. A "recusa do cadastro", que o backlog aceitava como alternativa, foi
+avaliada e deixada de fora por medida: não corrige dado já gravado, colide
+com o RC-80 e precisaria da regra em três portas. As raízes assim tratadas
+passam a ser **declaradas** na lista informativa `contas_retificadoras_rais`
+(avisa, não veta — depois da correção o número está certo). **Ciclo do §3.1
+encerrado:** [auditoria
+independente](../auditorias/2026-10-04-dl-062-auditoria.md) **APROVADA COM
+RESSALVAS** (os 9 critérios de aceite SEDE, zero regressão, 8 achados de tela
+e documento), **correção única** e [reconferência](../auditorias/2026-10-04-dl-062-reconferencia.md)
+**APROVADA** com os oito achados fechados e sem terceira rodada. **PR #81
+aberto com os quatro checks verdes** em PostgreSQL 16. A CI foi o que achou o
+que o SQLite local não via: o teste do BL-516 exigia o Balanço **vetado** por
+um resíduo de 200,00 que **era o próprio defeito** — a "(-) PDD" cadastrada
+como raiz inflava o Ativo, e o resíduo aritmético era a única rede que pegava
+a conta.
+
+**Em andamento: DL-063 — fecha a leva da DL-061** (BL-606, BL-607 e BL-625),
+combinada pelo Fred em 04/10/2026 e com a decisão de que a coluna da DMPL
+passasse a ser aceita **pela API como já era pela DRE e pela DLPA** — a
+assimetria de ficar gravável só pela web não era desejada. O campo existia no
+modelo e era lido pela apuração, mas nenhuma das duas portas de cadastro o
+aceitava: quem integrava por API **não tinha porta nenhuma**, e a recusa por
+contrato nem nomeava o campo. A dica da divergência de fechamento, que era um
+dicionário estático, passou a apontar a causa que a apuração realmente
+encontrou (conta de PL com saldo e sem coluna) em vez de mandar conferir a
+classificação; **os dois lados têm teste de tela**, porque um teste só do caso
+"tem causa" passaria mesmo com a genérica nunca aparecendo. O teste do
+snapshot `REPEATABLE READ` da DMPL foi entregue, mas **não roda localmente**:
+exige PostgreSQL 16, e o `SET TRANSACTION ISOLATION LEVEL` não existe no
+SQLite — a prova dele é a CI. ⚠️ **Anomalia de ambiente declarada e não
+explicada:** nesta máquina, arquivo de teste **novo** com uma fixture de
+módulo chamada `autenticado` falha na resolução do pytest; a fixture da
+DL-063 chama-se `gestor`, e o porquê está no docstring dela.
 
 - **DL-054** — **integrada pelo PR #70** (squash `e7b85aa`).
 - **DL-055** — **integrada pelo PR #69** (squash `9ceda53`).
