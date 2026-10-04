@@ -27,18 +27,25 @@ quebra em silêncio), mais de uma competência fechada, período REABERTO
 Dados 100% sintéticos. Datas em 2026, no passado.
 """
 
+import threading
 from datetime import date
+from decimal import Decimal
 
 import pytest
 from django.core.exceptions import ValidationError
+from django.db import OperationalError, connection, transaction
 
 from apps.auditoria.models import RegistroAuditoria
 from apps.contabilidade.models import (
     CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO,
     ClassificacaoDlpa,
     ClassificacaoDmpl,
+    Competencia,
+    ItemLancamento,
+    LancamentoContabil,
     NaturezaConta,
     TipoConta,
+    TipoPartida,
 )
 from apps.contabilidade.services import (
     ClassificacaoAlteraPeriodoFechado,
@@ -46,6 +53,7 @@ from apps.contabilidade.services import (
     classificar_conta_na_dmpl,
     encerrar_competencia,
     marcar_competencia_como_entregue,
+    obter_ou_criar_competencia,
     reabrir_competencia,
 )
 from apps.contabilidade.tests import test_dl061_dmpl as _base
@@ -248,6 +256,10 @@ def test_criterio6_movimento_de_descendente_bloqueia_a_conta_sintetica():
 
 
 def test_criterio7_competencia_entregue_tem_mensagem_propria():
+    """Achado A3 da auditoria: a mensagem de competência entregue não pode
+    mandar "reabra a competência" — `reabrir_competencia` recusa sempre uma
+    competência entregue (RC-101), então a instrução apontava para uma porta
+    que o próprio produto fecha."""
     empresa, contas, gestor, conta_dlpa, _ = _cenario()
     _movimentar(empresa, contas, conta_dlpa)
     encerrar_competencia(empresa=empresa, ano=ANO, mes=MES, usuario=gestor)
@@ -260,7 +272,11 @@ def test_criterio7_competencia_entregue_tem_mensagem_propria():
 
     mensagem = str(erro.value)
     assert "entregue" in mensagem
-    assert "lançamento na competência aberta" in mensagem, (
+    assert "Reabra a competência" not in mensagem, (
+        "competência entregue não se reabre: a mensagem mandava para um caminho "
+        "que `reabrir_competencia` recusa"
+    )
+    assert "competência aberta" in mensagem, (
         "período entregue não tem volta: a mensagem precisa dizer onde se corrige"
     )
 
@@ -382,3 +398,139 @@ def test_o_codigo_do_modelo_e_o_que_o_servico_reconhece():
         if getattr(erro, "code", None)
     }
     assert CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO in codigos
+
+
+# ---------------------------------------------------------------------------
+# Regressão do achado A1 — a guarda lia o movimento pela FK `competencia`
+# ---------------------------------------------------------------------------
+
+
+def test_a1_lancamento_sem_competencia_gravada_tambem_bloqueia():
+    """`LancamentoContabil.competencia_id` é **anulável** no banco — a
+    restrição `NOT NULL` da DL-016 F6 cobre `empresa_id`, não esta coluna. A
+    primeira versão da guarda ligava `l.competencia = c.id` e por isso não via
+    um lançamento legado sem competência, cuja DATA entra normalmente na
+    DLPA do período encerrado. Se alguém voltar a filtrar pela FK, este
+    teste falha."""
+    empresa, contas, gestor, conta_dlpa, _ = _cenario("a1")
+    # Criado direto pelo ORM porque `criar_lancamento` SEMPRE grava a
+    # competência — e o gatilho do DL-052 recusa desfazer o vínculo depois.
+    # O estado simulado é o dado legado, de antes da DL-016.
+    lancamento = LancamentoContabil.objects.create(
+        empresa=empresa,
+        data=date(2026, 3, 20),
+        historico="Lançamento legado sem competência gravada",
+        competencia=None,
+    )
+    ItemLancamento.objects.create(
+        lancamento=lancamento,
+        conta=contas["caixa"],
+        tipo=TipoPartida.DEBITO,
+        valor=Decimal("500.00"),
+    )
+    ItemLancamento.objects.create(
+        lancamento=lancamento,
+        conta=conta_dlpa,
+        tipo=TipoPartida.CREDITO,
+        valor=Decimal("500.00"),
+    )
+    encerrar_competencia(empresa=empresa, ano=ANO, mes=MES, usuario=gestor)
+
+    with pytest.raises(ClassificacaoAlteraPeriodoFechado) as erro:
+        classificar_conta_na_dlpa(
+            conta=conta_dlpa, classificacao=ClassificacaoDlpa.RESERVA_LEGAL, usuario=gestor
+        )
+
+    assert "03/2026" in str(erro.value)
+    conta_dlpa.refresh_from_db()
+    assert conta_dlpa.classificacao_dlpa == ClassificacaoDlpa.DIVIDENDO
+
+
+# ---------------------------------------------------------------------------
+# Regressão do achado A2 — a guarda segura a competência que o fechamento
+# concorrente tentaria fechar por cima
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a2_a_guarda_segura_a_competencia_aberta():
+    """Prova o MECANISMO da correção: enquanto a reclassificação está em
+    curso, a linha da competência fica com `FOR SHARE` — e um
+    `encerrar_competencia` concorrente é obrigado a esperar, em vez de
+    fechar o mês por cima da classificação.
+
+    O teste do desfecho final da corrida (duas threads em barreira, fechando
+    e reclassificando ao mesmo tempo) **não** foi escrito: sem um ponto de
+    pausa dentro da guarda, o desfecho depende do agendamento e o teste
+    passaria por acaso. Isto prende a causa — o lock — que é o que fecha a
+    janela.
+
+    `django_db(transaction=True)` (mesmo motivo e mesma convenção do teste de
+    concorrência do DL-043): thread real abre conexão PostgreSQL real, e uma
+    transação de teste comum esconderia dela os lançamentos e a competência,
+    que ainda não foram commitados.
+    """
+    empresa, contas, gestor, conta_dlpa, _ = _cenario("a2")
+    _movimentar(empresa, contas, conta_dlpa)
+    competencia_aberta = obter_ou_criar_competencia(empresa=empresa, ano=ANO, mes=MES)
+
+    reclassificar = threading.Event()
+    liberar = threading.Event()
+    erros = {}
+
+    def _reclassificar():
+        try:
+            # Só a TRAVA importa aqui: a guarda é a primeira coisa que
+            # `full_clean()` faz, e ela já segura a competência antes de
+            # qualquer escrita.
+            with transaction.atomic():
+                conta_dlpa._competencia_fechada_com_movimento()
+                reclassificar.set()
+                liberar.wait(timeout=30)
+        except Exception as exc:  # noqa: BLE001 — vai para o assert, não some
+            erros["thread"] = exc
+            reclassificar.set()
+        finally:
+            connection.close()
+
+    t = threading.Thread(target=_reclassificar)
+    t.start()
+    try:
+        assert reclassificar.wait(timeout=30), "a guarda não chegou a segurar a competência"
+        with pytest.raises(OperationalError):
+            with transaction.atomic():
+                Competencia.objects.select_for_update(nowait=True).get(pk=competencia_aberta.pk)
+    finally:
+        liberar.set()
+        t.join(timeout=30)
+        assert not t.is_alive(), "thread não concluiu"
+    assert erros == {}, erros
+
+
+# ---------------------------------------------------------------------------
+# Regressão do achado A4 — a mensagem nomeia o estado gravado
+# ---------------------------------------------------------------------------
+
+
+def test_a4_a_mensagem_nomeia_o_estado_gravado_e_nao_uma_palavra_fixa():
+    """`EM_ENCERRAMENTO` é reservado e nenhum serviço o escreve, mas a
+    mensagem dizia "que está encerrada" para qualquer estado. Ela tem de
+    dizer o que está no registro — é a mesma lição do `CompetenciaEncerrada`
+    de `criar_lancamento`."""
+    from apps.contabilidade.models import EstadoCompetencia as Estado
+
+    empresa, contas, gestor, conta_dlpa, _ = _cenario("a4")
+    _movimentar(empresa, contas, conta_dlpa)
+    encerrar_competencia(empresa=empresa, ano=ANO, mes=MES, usuario=gestor)
+    competencia = Competencia.objects.get(empresa=empresa, ano=ANO, mes=MES)
+    # Estado reservado, alcançável só por ORM direto — é por isso que o
+    # teste escreve direto também.
+    Competencia.objects.filter(pk=competencia.pk).update(estado=Estado.EM_ENCERRAMENTO)
+
+    with pytest.raises(ClassificacaoAlteraPeriodoFechado) as erro:
+        classificar_conta_na_dlpa(
+            conta=conta_dlpa, classificacao=ClassificacaoDlpa.RESERVA_LEGAL, usuario=gestor
+        )
+
+    rotulo = Estado.EM_ENCERRAMENTO.label.lower()
+    assert f"que está {rotulo}" in str(erro.value)

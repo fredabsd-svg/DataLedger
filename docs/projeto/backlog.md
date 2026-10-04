@@ -2078,7 +2078,7 @@ Rodada única de correção em andamento; depois, reconferência final (AGENTS.m
 | BL-617 | **N10 (baixa)** — tela de parâmetros rola na horizontal a 390 px | `especialista-frontend` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Caso 10 |
 | BL-618 | **N11 (baixa)** — mensagem de diferença de fechamento não cita a causa conhecida (BL-604) | `especialista-frontend` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Dica na mensagem |
 | BL-619 | Admin edita a coluna da DMPL sem trilha (pré-existente, mesmo padrão da DRE e da DLPA) | `desenvolvedor-pleno` | — | aberta | Trilha também pelo admin, ou campo só leitura no admin |
-| BL-620 | Reclassificar a conta reescreve DMPL de período já entregue; sem documento emitido congelado (pré-existente, DE-086) | `arquiteto-senior` | Fred | aberta — decisão do Fred | Decidir se o escritório precisa de documento emitido congelado |
+| BL-620 | Reclassificar a conta reescreve DMPL de período já entregue; sem documento emitido congelado (pré-existente, DE-086) | `arquiteto-senior` | Fred | **parcialmente fechada pela DL-065** — a reclassificação da linha da DLPA e da coluna da DMPL passou a ser recusada em competência **encerrada ou entregue** (com a decisão do Fred de 05/10/2026: trava na DLPA e na DMPL, DRE segue livre por DE-086). **Continua de Fred:** se o escritório precisa de documento emitido congelado — a trava impede a reclassificação, não congela o que já foi impresso | Decidir se o escritório precisa de documento emitido congelado |
 | BL-621 | Em folha de paisagem, o Chromium não repete o bloco de identificação do emitente (`<thead>`) numa segunda folha; hoje a DMPL cabe numa folha, mas comparativo ou mais linhas exigiriam encolher o bloco (achado na correção da DL-061) | `especialista-frontend` | — | aberta | Identificação repetida em DMPL de duas folhas de paisagem, medida no navegador |
 
 ## Reconferência da DL-061 — APROVADA COM RESSALVAS (2026-10-01)
@@ -2116,5 +2116,15 @@ Fechada com o plano em
   `contas_retificadoras_rais` (informativa — avisa, não veta). Os testes de
   contrato do BL-492/BL-502/BL-515 foram atualizados, como o próprio
   docstring do BL-492 determina.
+
+## DL-065 — auditoria independente, 05/10/2026
+
+Parecer da rodada 1: **APROVADO COM RESSALVAS**, nenhum bloqueador, os 13
+critérios de aceite verificados por execução própria. Relatório em
+[2026-10-05-dl-065-auditoria-e-reconferencia.md](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md).
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-628 | **A6 (baixa)** — `scripts/medir_identificacao_do_emitente.py:883-885` grava `classificacao_dmpl` por fora de `full_clean()`, e portanto fora da trava de período fechado | `desenvolvedor-pleno` | — | **aberta, limite aceito** — é o único caminho do repositório que escreve a coluna sem a guarda. É um script de **medição** do instrumento de identificação do emitente, não produto, e o DE-008 já aceitava escrita por fora de serviço; o risco é a medração de tela, não dado de cliente | Se o script passar a ser executado sobre dado de cliente, passar a chamar `classificar_conta_na_dmpl` |
 
 

@@ -1,3 +1,5 @@
+import calendar
+from datetime import date
 from decimal import Decimal
 
 from django.conf import settings
@@ -988,6 +990,25 @@ def divergencia_entre_dlpa_e_dmpl(classificacao_dlpa, classificacao_dmpl):
     )
 
 
+def _faixa_de_datas_da_competencia(competencia):
+    """`(primeiro_dia, ultimo_dia)` do mês da competência.
+
+    DL-065 (BL-550): a guarda de reclassificação precisa do mesmo recorte que
+    a apuração usa, e a apuração recorta o período por `lancamento__data`
+    contra `date(ano, 1, 1)` e `date(ano, mes, ultimo_dia_do_mes)`. Esta é a
+    MESMA conta de dias — `calendar.monthrange(ano, mes)[1]` é o que os três
+    pontos de apuração do módulo já usam — escrita uma vez para que a guarda
+    e a apuração não possam divergir por-accountar o último dia.
+
+    Fevereiro de ano bissexto entra por construção: `monthrange` devolve 29.
+    """
+    ultimo_dia = calendar.monthrange(competencia.ano, competencia.mes)[1]
+    return (
+        date(competencia.ano, competencia.mes, 1),
+        date(competencia.ano, competencia.mes, ultimo_dia),
+    )
+
+
 class Conta(models.Model):
     """Conta do plano de contas de uma empresa, organizada em hierarquia.
 
@@ -1180,6 +1201,40 @@ class Conta(models.Model):
             (existe,) = cursor.fetchone()
         return existe
 
+    def _ids_da_subarvore(self):
+        """Os ids desta conta e de todos os descendentes (profundidade
+        qualquer), numa consulta só.
+
+        Mesma árvore de `_tem_movimento_proprio_ou_de_descendente` (BL-245),
+        devolvida em lista: a guarda de período fechado filtra o movimento
+        uma vez por competência, e refazer a recursiva a cada uma
+        multiplicaria o custo.
+        """
+        tabela_conta = Conta._meta.db_table
+        coluna_conta_pai = Conta._meta.get_field("conta_pai").column
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                WITH RECURSIVE arvore(id) AS (
+                    SELECT id FROM {tabela_conta} WHERE id = %s
+                    UNION
+                    SELECT c.id FROM {tabela_conta} c
+                    INNER JOIN arvore a ON c.{coluna_conta_pai} = a.id
+                )
+                SELECT id FROM arvore
+                """,
+                [self.pk],
+            )
+            return [linha[0] for linha in cursor.fetchall()]
+
+    def _tem_movimento_nas_datas(self, ids, inicio, fim):
+        """`True` se alguma partida de `ids` cai na faixa `[inicio, fim]`."""
+        return ItemLancamento.objects.filter(
+            conta_id__in=ids,
+            lancamento__data__gte=inicio,
+            lancamento__data__lte=fim,
+        ).exists()
+
     def _competencia_fechada_com_movimento(self):
         """A competência **encerrada** (ou entregue) mais recente em que esta
         conta OU qualquer descendente tem partida gravada — `None` se não
@@ -1200,56 +1255,105 @@ class Conta(models.Model):
 
         A árvore é a MESMA de `_tem_movimento_proprio_ou_de_descendente`
         (BL-245: `WITH RECURSIVE` dentro do PostgreSQL, `UNION` para
-        deduplicar e não entrar em ciclo com hierarquia inconsistente), com o
-        vínculo da partida até a competência acrescentado. `ORDER BY ano DESC,
-        mes DESC` entrega a mais recente, que é a que o contador precisa
-        citado primeiro — as outras continuam bloqueadas por ela.
+        deduplicar e não entrar em ciclo com hierarquia inconsistente),
+        devolvida em lista por `_ids_da_subarvore` — a guarda filtra o
+        movimento uma vez por competência, e refazer a recursiva a cada uma
+        multiplicaria o custo.
 
-        Não filtra por `empresa` na árvore, pelo mesmo motivo do método acima:
-        `self.pk` já é conta de UMA empresa, e `conta_pai_id` só apontaria
-        para outra em estado já inconsistente, que o guard de `conta_pai`
-        impede pelo caminho validado. Na lista de competências o filtro por
-        empresa é obrigatório e está no `WHERE`.
+        ⚠️ **O movimento é filtrado por DATA, e é isso que amarra a guarda às
+        demonstrações** (achado A1 da auditoria da DL-065). Toda a camada de
+        apuração — Balancete, `apurar_saldos`, DRE, DLPA e DMPL — lê o
+        movimento por `lancamento__data__gte/__lte` e **nunca** pela FK
+        `LancamentoContabil.competencia`. A primeira versão desta guarda
+        ligava pela FK e por isso era cega ao lançamento sem competência
+        gravada: `competencia_id` é **anulável** no banco (a restrição
+        `NOT NULL` da DL-016 F6 cobre `empresa_id`), e a data desse
+        lançamento entrava normalmente na DLPA do período encerrado. Guarda
+        que filtra por um critério diferente do que a apuração filtra é
+        guarda que pode ser contornada; o critério tem de ser o mesmo.
+
+        ⚠️ **A trava das competências ABERTAS vem ANTES da verificação**
+        (achado A2 da mesma auditoria, demonstrado com duas threads: sem ela
+        o fechamento do mês commita entre a leitura do estado e o commit da
+        reclassificação, e o período termina encerrado com a classificação já
+        trocada). O que segura a corrida é o MESMO `FOR SHARE` que
+        `criar_lancamento` usa: ele não impede o fechamento — impede que ele
+        passe POR CIMA da reclassificação. Qualquer ordem passa a ser
+        legítima: ou a reclassificação entra primeiro e o mês fecha em
+        seguida, ou o mês fecha primeiro e a reclassificação acorda vendo o
+        estado novo e recusa.
+
+        A trava só é pedida dentro de uma transação, e só onde o motor a
+        suporta — nos dois casos a REGRA continua valendo, sem a proteção
+        contra a corrida e sem estourar exceção em `full_clean()` chamada
+        fora de transação.
+
+        A lista de competências afetadas é recalculada a cada tentativa e não
+        é memorizada: o que decide é o estado de agora, não o de antes.
         """
-        tabela_conta = Conta._meta.db_table
-        tabela_item = ItemLancamento._meta.db_table
-        tabela_lancamento = LancamentoContabil._meta.db_table
-        tabela_competencia = Competencia._meta.db_table
-        coluna_conta_pai = Conta._meta.get_field("conta_pai").column
-        coluna_conta_do_item = ItemLancamento._meta.get_field("conta").column
-        coluna_lancamento_do_item = ItemLancamento._meta.get_field("lancamento").column
-        coluna_competencia = LancamentoContabil._meta.get_field("competencia").column
-        coluna_empresa = Competencia._meta.get_field("empresa").column
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                WITH RECURSIVE arvore(id) AS (
-                    SELECT id FROM {tabela_conta} WHERE id = %s
-                    UNION
-                    SELECT c.id FROM {tabela_conta} c
-                    INNER JOIN arvore a ON c.{coluna_conta_pai} = a.id
-                )
-                SELECT c.ano, c.mes, c.estado, (c.entregue_em IS NOT NULL)
-                FROM {tabela_competencia} c
-                WHERE c.{coluna_empresa} = %s
-                  AND c.estado <> %s
-                  AND EXISTS (
-                    SELECT 1
-                    FROM {tabela_item} i
-                    INNER JOIN {tabela_lancamento} l
-                      ON l.id = i.{coluna_lancamento_do_item}
-                    WHERE i.{coluna_conta_do_item} IN (SELECT id FROM arvore)
-                      AND l.{coluna_competencia} = c.id
-                  )
-                ORDER BY c.ano DESC, c.mes DESC
-                LIMIT 1
-                """,
-                [self.pk, self.empresa_id, EstadoCompetencia.ABERTA],
-            )
-            linha = cursor.fetchone()
-        if linha is None:
+        ids = self._ids_da_subarvore()
+        if not ItemLancamento.objects.filter(conta_id__in=ids).exists():
             return None
-        return {"ano": linha[0], "mes": linha[1], "estado": linha[2], "entregue": linha[3]}
+
+        # Import TARDIO e deliberado: `services` importa `models`, então o
+        # caminho inverso só fecha aqui dentro do método — é o mesmo truque que
+        # `MarcacaoDmpl.clean()` já usa, e pelo mesmo motivo.
+        #
+        # Reusar o PRIMITIVO do módulo, e não um lock novo, é o que importa
+        # aqui: `_travar_competencia_em_modo_compartilhado` já sabe das três
+        # coisas que esta trava precisa saber — que `FOR SHARE` é
+        # PostgreSQL, que fora dele a degradação tem de ser AVISADA e não
+        # silenciosa, e que o estouro de `lock_timeout` precisa virar erro de
+        # domínio e não `InternalError` de transação abortada.
+        from apps.contabilidade.services import (  # noqa: PLC0415 (cíclico por natureza)
+            CompetenciaOcupada,
+            _travar_competencia_em_modo_compartilhado,
+        )
+
+        # Trava TODAS as abertas com movimento, em ordem determinística
+        # (`-ano`, `-mes`), que é a ordem em que duas reclassificações
+        # concorrentes deste mesmo código pediriam o lock — o que é o que
+        # impede que duas delas travem uma a outra em linha de frente.
+        # Superconjunto do necessário de propósito: travar também uma aberta
+        # sem movimento deste plano só serializa um `encerrar_competencia`
+        # que viria a recuar, e é melhor que bloquear fechamentos sem
+        # relação nenhuma.
+        for aberta in Competencia.objects.filter(
+            empresa_id=self.empresa_id, estado=EstadoCompetencia.ABERTA
+        ).order_by("-ano", "-mes"):
+            inicio, fim = _faixa_de_datas_da_competencia(aberta)
+            if not self._tem_movimento_nas_datas(ids, inicio, fim):
+                continue
+            try:
+                _travar_competencia_em_modo_compartilhado(
+                    aberta, ano=aberta.ano, mes=aberta.mes, empresa=aberta.empresa
+                )
+            except CompetenciaOcupada as exc:
+                # Estouro de `lock_timeout`: outra operação está em curso
+                # sobre a competência. É conflito de ESTADO, como a recusa
+                # abaixo — mesmo código, para que a API responda 409 e o
+                # contador receba "tente de novo" em vez de um 500.
+                raise ValidationError(
+                    "Não foi possível verificar o período desta conta agora: outra "
+                    f"operação está em curso na competência {aberta.mes:02d}/{aberta.ano} "
+                    f"({exc}). Tente de novo em instantes.",
+                    code=CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO,
+                ) from exc
+
+        for competencia in (
+            Competencia.objects.filter(empresa_id=self.empresa_id)
+            .exclude(estado=EstadoCompetencia.ABERTA)
+            .order_by("-ano", "-mes")
+        ):
+            inicio, fim = _faixa_de_datas_da_competencia(competencia)
+            if self._tem_movimento_nas_datas(ids, inicio, fim):
+                return {
+                    "ano": competencia.ano,
+                    "mes": competencia.mes,
+                    "estado": competencia.estado,
+                    "entregue": competencia.entregue_em is not None,
+                }
+        return None
 
     def clean(self):
         # A4 (auditoria DL-045, rodada 1): `""` (string vazia) normalizado
@@ -1780,17 +1884,39 @@ class Conta(models.Model):
                     )
                     competencia = self._competencia_fechada_com_movimento()
                     if competencia is not None:
-                        situacao = "entregue" if competencia["entregue"] else "encerrada"
+                        rotulo_do_estado = EstadoCompetencia(competencia["estado"]).label.lower()
+                        if competencia["entregue"]:
+                            # Achado A3 da auditoria da DL-065: competência
+                            # ENTREGUE não se reabre — `reabrir_competencia`
+                            # recusa sempre (RC-101). Dizer "reabra a
+                            # competência" aqui mandava o contador para uma
+                            # porta que o próprio produto fecha, e a frase
+                            # seguinte ("a correção nunca é uma
+                            # reclassificação") ainda contradizia o caminho
+                            # da competência apenas encerrada, onde reabrir
+                            # É a saída. Cada situação recebe o caminho que
+                            # ela realmente tem, como o BL-468 fez em
+                            # `criar_lancamento`.
+                            caminho = (
+                                "Esta competência já foi entregue ao cliente e não pode "
+                                "ser reaberta: a correção é um lançamento de ajuste na "
+                                "competência aberta, transferindo o valor para uma conta "
+                                "já com a classificação certa — esta conta não muda."
+                            )
+                        else:
+                            caminho = (
+                                "Reabra a competência para corrigir a classificação; "
+                                "enquanto ela estiver fechada, a demonstração do período "
+                                "não pode mudar. Se houver movimento em outro período "
+                                "ainda aberto, o ajuste pode ser lançado nele."
+                            )
                         raise ValidationError(
                             f"Não é possível mudar {nome_da_demonstracao} desta conta: "
                             "ela ou uma conta descendente tem lançamento na competência "
                             f"{competencia['mes']:02d}/{competencia['ano']}, que está "
-                            f"{situacao} — a demonstração daquele período mudaria "
+                            f"{rotulo_do_estado} — a demonstração daquele período mudaria "
                             "retroativamente, depois de o período ter sido fechado. "
-                            "Reabra a competência para corrigir a classificação; se ela "
-                            "já foi entregue, o ajuste é um lançamento na competência "
-                            "aberta — a correção de período encerrado nunca é uma "
-                            "reclassificação de conta.",
+                            f"{caminho}",
                             code=CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO,
                         )
 

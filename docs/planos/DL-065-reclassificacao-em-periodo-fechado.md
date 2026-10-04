@@ -90,12 +90,21 @@ Por que 409 e não 400: é conflito de **estado** (o período está fechado), n�
 entrada inválida — o mesmo tratamento de `CompetenciaEncerrada` em
 `criar_lancamento` e em `zerar_resultado`.
 
-### E3 — Sem consulta duplicada
+### E3 — Sem consulta duplicada, e com o custo medido
 
 A guarda roda dentro do `full_clean()` que o serviço já fazia, e só quando a
 classificação **de fato** mudou (curto-circuito, como o BL-245 já mediu no
 guard de natureza/tipo). Não há segunda consulta para "descobrir" o período:
 a função devolve a competência junto com a recusa.
+
+⚠️ **Retificado pela auditoria (achado A5).** A primeira versão deste texto
+afirmava que "conta sem movimento não paga nada". **Não é verdade**, e a
+medição do auditor refutou: a guarda roda sempre que a classificação muda, e
+uma troca em conta **sem** movimento paga a consulta da árvore. O que o
+curto-circuito de fato evita é só a **primeira** classificação (gravado
+`None` → valor) e a gravação que não muda nada. O custo real está medido em
+[Evidências](#evidências-e-integração) e é o preço de uma regra que decide
+por período — o mesmo preço que a classificação patrimonial já pagava.
 
 ### E4 — Nomear o período é obrigatório
 
@@ -124,6 +133,39 @@ A DE-086 continua valendo. O risco real desta demanda é **vazamento**: um
 `code` mal copiado para o campo da DRE fecharia, sozinho, a única saída do
 veto do A2 e tornaria a DRE do período inemitível. O critério 10 do plano é
 exatamente esse teste.
+
+### E8 — O movimento é lido por DATA, e é o que amarra a guarda à apuração
+
+**Achado A1 da auditoria, confirmado por medição no banco.** A primeira
+versão filtrava o movimento por `LancamentoContabil.competencia`; a guarda
+ficava cega ao lançamento sem competência gravada — e `competencia_id` é
+**anulável** (`information_schema` medido: `is_nullable = YES`; a restrição
+`NOT NULL` da DL-016 F6 cobre `empresa_id`). Toda a camada de apuração lê o
+movimento por `lancamento__data__gte/__lte` e nunca pela FK, então esse
+lançamento entrava normalmente na DLPA do período encerrado.
+
+A regra passou a filtrar por data, com a mesma aritmética de calendário que
+os três pontos de apuração já usam (`calendar.monthrange`), escrita uma vez
+em `_faixa_de_datas_da_competencia`. **Princípio:** guarda que filtra por um
+critério diferente do que a apuração filtra é guarda que pode ser
+contornada.
+
+### E9 — A trava vem do módulo, e é `FOR SHARE`
+
+**Achado A2 da auditoria, demonstrado com duas threads.** A guarda lia o
+estado da competência sem lock, e o `encerrar_competencia` podía commitar
+entre essa leitura e o commit da reclassificação — o mês terminava
+encerrado com a classificação já trocada.
+
+A correção **reusa o primitivo do módulo**,
+`_travar_competencia_em_modo_compartilhado`, em vez de escrever um lock
+novo: ele já sabe das três coisas que importam (que `FOR SHARE` é
+PostgreSQL, que fora dele a degradação tem de ser avisada e não silenciosa, e
+que o estouro de `lock_timeout` vira erro de domínio). Django **não expõe**
+`FOR SHARE` por `QuerySet` — só `FOR UPDATE`/`FOR NO KEY UPDATE` —, o que
+explica o SQL cru dele e o meu. O `FOR SHARE` não impede o fechamento:
+impede que ele passe **por cima** da reclassificação, e qualquer ordem passa
+a ser legítima.
 
 ## Fora do escopo
 
@@ -178,9 +220,13 @@ exatamente esse teste.
 - **Contrato:** a API ganha um 409 novo **na mesma rota** que já existia; quem
   recebia 200 passa a receber 409 com `detail` — é a mudança de comportamento
   que o BL-550 pede, e ela é o objeto da demanda.
-- **Desempenho:** uma consulta recursiva a mais por reclassificação de conta
-  **que de fato muda** a classificação. O caminho comum (primeira
-  classificação, conta sem movimento) não paga nada, pelo curto-circuito.
+- **Desempenho:** a guarda paga a árvore da conta **mais uma verificação de
+  movimento por competência relevante**, e um `FOR SHARE` por competência
+  **aberta com movimento** (achado A2). O atalho real é: conta sem
+  movimento nenhum sai em uma consulta; conta com movimento mas sem
+  competência fechada paga a travagem e sai. O preço é o de uma regra que
+  decide por período — o mesmo que a classificação patrimonial já pagava —
+  e a medição está em [Evidências](#evidências-e-integração).
 - **Permissões e isolamento:** nada muda. `PodeEscriturar` continua decidindo
   a porta; o filtro `empresa=empresa` continua decidindo a visibilidade, e a
   guarda só roda **depois** do `get_object_or_404`.
@@ -202,9 +248,18 @@ exatamente esse teste.
 | --- | --- | --- |
 | Defeito medido antes da correção | Inspecionado | este plano, "O defeito, medido no código" |
 | Ambiente de verificação | Testado | PostgreSQL 16.15 local; ver estado do projeto |
+| `competencia_id` anulável no banco | Testado | `information_schema.columns` → `is_nullable = YES` (confirma o A1) |
 | Critérios 1 a 11 | Testado | `apps/contabilidade/tests/test_dl065_*.py` |
+| Correções A1, A2, A3, A4, A5 e A7 | Testado | regressões `test_a1_*`, `test_a2_*`, `test_a4_*`, `test_a7_*` |
 | Critérios 12 e 13 | Testado | suíte e comandos do projeto |
-| Auditoria independente | Pendente | a abrir depois da implementação |
+| Auditoria independente | Testado | [rodada 1](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md), **APROVADA COM RESSALVAS** |
+| A6 — script de medição grava a coluna da DMPL sem a guarda | **Fora do escopo, aceito** | `scripts/medir_identificacao_do_emitente.py:883-885`; BL-628 |
+| Teste do desfecho final da corrida (A2) | **Não testado** | ver o docstring de `test_a2_a_guarda_segura_a_competencia_aberta` — sem ponto de pausa dentro da guarda, o desfecho dependeria do agendamento; o lock, que é a causa, é que está preso por teste |
+
+**Custo medido da guarda (achado A5):** troca em conta **sem** movimento
+paga a consulta da árvore; o que o curto-circuito evita é a primeira
+classificação e a gravação que não muda nada. Registrado porque a primeira
+versão deste plano afirmava o contrário.
 
 ⚠️ **Nota de ambiente, declarada e não explicada:** nesta máquina o
 `DATABASE_URL` do `.env` aponta para **SQLite**, que produz 64 reprovações

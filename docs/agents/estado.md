@@ -152,11 +152,45 @@ como estava. Por isso a regra mora em `Conta.clean()`, que é o ponto de
 passagem de todo caminho validado, e a tradução para **409** acontece nos
 serviços, por um `code` de erro que só eles conhecem.
 
-**21 testes novos, todos executados** em PostgreSQL 16.15 (critérios 1 a 11 do
-plano, mais quatro limites: competência do mês seguinte, a mais recente
-quando há duas, período reaberto e conta sem movimento no período fechado).
-A suíte de `apps/contabilidade` deu **1.830 aprovados e os mesmos 8
-reprovados de antes da mudança** — nenhuma regressão.
+**21 testes novos na primeira entrega, 27 depois da correção** — todos
+executados em PostgreSQL 16.15 (critérios 1 a 11 do plano, mais quatro
+limites: competência do mês seguinte, a mais recente quando há duas, período
+reaberto e conta sem movimento no período fechado). A suíte de
+`apps/contabilidade` deu **1.836 aprovados e os mesmos 8 reprovados de antes
+da mudança** — nenhuma regressão.
+
+**[Auditoria independente](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md):
+APROVADA COM RESSALVAS, nenhum bloqueador**, com os treze critérios verificados
+por execução do próprio auditor e **mutação em memória** — sem a guarda, 13
+dos 21 testes caem. Três achados médios, corrigidos numa **rodada única**
+(§3.1):
+
+- **A1 — a guarda lia o movimento pela FK `competencia`, e as apurações leem
+  por `data`.** O auditor mediu `competencia_id` como **anulável** no banco
+  (a restrição F6 da DL-016 cobre `empresa_id`), então um lançamento legado
+  sem competência gravada entrava na DLPA do período encerrado sem a trava o
+  ver. A guarda passou a filtrar por data, com a mesma aritmética de
+  calendário das apurações. *Princípio: guarda que filtra por critério
+  diferente do que a apuração filtra é guarda que pode ser contornada.*
+- **A2 — corrida entre reclassificar e fechar o mês**, demonstrada com duas
+  threads: o fechamento commita entre a leitura do estado e o commit da
+  reclassificação, e o período terminava encerrado com a classificação trocada.
+  A trava agora **reusa o primitivo do módulo**,
+  `_travar_competencia_em_modo_compartilhado` (`FOR SHARE`), que impede o
+  fechamento de passar por cima sem impedir o fechamento. No caminho, ficou
+  registrado que o Django **não expõe** `FOR SHARE` em `QuerySet` — quase
+  escrevi uma checagem de feature que não existe.
+- **A3 — a mensagem mandava "reabra a competência"** para competência
+  **entregue**, que `reabrir_competencia` recusa sempre (RC-101): instrução
+  falsa ao contador, a mesma classe do BL-142. Bifurcada por `entregue`, com
+  teste de regressão que proíbe a frase.
+
+**A5 corrigiu o próprio plano:** ele afirmava que conta sem movimento não
+paga consulta, e o auditor mediu que paga — o texto foi corrigido e o custo
+real ficou registrado. **A6** (o script de medição grava a coluna da DMPL
+sem a guarda) foi **aceito como limite** e registrado no backlog como
+**BL-628**. **A7** — faltavam a tela da DMPL e o admin da coluna da DMPL —
+foi coberto.
 
 ⚠️ **Achado de ambiente que mudou a forma de verificar nesta máquina:** o
 `DATABASE_URL` do `.env` apontava para **SQLite**, e o cluster do PostgreSQL

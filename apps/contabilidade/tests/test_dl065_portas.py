@@ -249,3 +249,60 @@ def test_criterio11_conta_de_outro_escritorio_da_404_e_nao_dispara_a_guarda(clie
     )
 
     assert resposta.status_code == 404
+
+
+def test_criterio11_a_tela_da_dlpa_tambem_da_404(client):
+    """O critério 11 era testado só na API. A tela tem o próprio
+    `get_object_or_404`, e porta que não é testada é porta que ninguém sabe
+    que fecha (achado A7 da auditoria)."""
+    empresa, _, _, conta_dlpa, _ = _cenario("isolamento-tela")
+    outro = _base._empresa("Outro Escritório DL-065 Tela")
+    _dlpa._autenticar(client, outro.escritorio, username="gestor-isolamento-tela")
+
+    resposta = client.post(
+        _url_da_tela("dlpa", empresa, conta_dlpa),
+        data={"classificacao_dlpa": ClassificacaoDlpa.RESERVA_LEGAL.value},
+    )
+
+    assert resposta.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# A7 — as duas portas que faltavam: tela da DMPL e admin da coluna da DMPL
+# ---------------------------------------------------------------------------
+
+
+def test_a7_a_tela_da_dmpl_mostra_a_recusa_e_nao_grava(client):
+    empresa, contas, gestor, _, conta_dmpl = _cenario("tela-dmpl")
+    _movimentar(empresa, contas, conta_dmpl)
+    encerrar_competencia(empresa=empresa, ano=ANO, mes=MES, usuario=gestor)
+    _dlpa._autenticar(client, empresa.escritorio, username="gestor-tela-dmpl")
+
+    resposta = client.post(
+        _url_da_tela("dmpl", empresa, conta_dmpl),
+        data={"classificacao_dmpl": ClassificacaoDmpl.RESERVA_LEGAL.value},
+    )
+
+    assert resposta.status_code == 200
+    assert "03/2026" in resposta.content.decode()
+    conta_dmpl.refresh_from_db()
+    assert conta_dmpl.classificacao_dmpl == ClassificacaoDmpl.RESERVA_DE_LUCROS_A_REALIZAR
+
+
+def test_a7_o_admin_tambem_recusa_a_coluna_da_dmpl():
+    """A guarda de modelo é uma só, mas a prova precisa existir para as DUAS
+    classificações: um `code` escrito para `classificacao_dlpa` e não para
+    `classificacao_dmpl` passaria em todos os testes de um e deixaria o
+    outro aberto."""
+    empresa, contas, gestor, _, conta_dmpl = _cenario("admin-dmpl")
+    _movimentar(empresa, contas, conta_dmpl)
+    encerrar_competencia(empresa=empresa, ano=ANO, mes=MES, usuario=gestor)
+
+    form = _formulario_do_admin(
+        conta_dmpl, classificacao_dmpl=ClassificacaoDmpl.RESERVA_LEGAL.value
+    )
+
+    assert not form.is_valid()
+    assert any(
+        "03/2026" in mensagem for mensagens in form.errors.values() for mensagem in mensagens
+    )
