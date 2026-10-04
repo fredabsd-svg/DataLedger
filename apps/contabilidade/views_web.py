@@ -821,6 +821,14 @@ class ContaCriarForm(forms.ModelForm):
             # mesmo molde; a compatibilidade com o tipo continua sendo
             # decisão só do servidor, em `Conta.clean()`).
             "classificacao_dlpa",
+            # DL-063 (BL-606): o quarto campo de classificação do mesmo
+            # padrão. A conta passa a nascer classificável nas TRÊS
+            # demonstrações — o select é o mesmo molde, e a compatibilidade
+            # com o tipo continua sendo decisão só do servidor, em
+            # `Conta.clean()`. Até 04/10/2026 o campo existia no modelo e
+            # era lido pela apuração, mas não era gravável nem aqui nem pela
+            # API: quem criava a conta tinha de sair daqui para classificá-la.
+            "classificacao_dmpl",
         ]
 
     def __init__(self, *args, empresa, **kwargs):
@@ -867,6 +875,23 @@ class ContaCriarForm(forms.ModelForm):
             "prejuízos acumulados E as contrapartidas que movimentam ela (reserva, "
             "dividendo, resultado do exercício). O servidor recusa uma linha "
             "incompatível com o tipo desta conta."
+        )
+        # DL-063 (BL-063 → BL-606): espelho dos dois acima, e o terceiro dos
+        # campos de classificação do mesmo padrão. "Coluna da DMPL" no select
+        # (o `verbose_name` "classificação (coluna da DMPL)" é para coluna de
+        # tabela). A ajuda diz o que a coluna FAZ — onde o componente entra
+        # na Demonstração das Mutações do Patrimônio Líquido — e avisa que
+        # ela é independente da linha da DLPA: são dois campos que o contador
+        # pode precisar preencher juntos, e a regra que os amarra
+        # (`divergencia_entre_dlpa_e_dmpl`, em `Conta.clean()`) é do
+        # servidor, nunca do formulário.
+        self.fields["classificacao_dmpl"].label = "Coluna da DMPL"
+        self.fields["classificacao_dmpl"].help_text = (
+            "Conta de Patrimônio Líquido ligada à Demonstração das Mutações do Patrimônio "
+            "Líquido: em qual coluna o saldo dela aparece — capital, reserva, lucros "
+            "acumulados, ações em tesouraria, dividendos. Só se aplica a conta de "
+            "Patrimônio Líquido, e o servidor recusa uma coluna incompatível com o tipo "
+            "desta conta."
         )
 
 
@@ -2062,6 +2087,10 @@ _CONTRATO_DO_FORMULARIO_DE_CONTA = ContratoDeRequisicao(
             "aceita_lancamento",
             "classificacao_dre",
             "classificacao_dlpa",
+            # DL-063 (BL-606): o formulário passou a emitir este campo, e sem
+            # esta linha o POST voltaria 400 com "dado não contratado" — a
+            # mesma razão dos dois acima.
+            "classificacao_dmpl",
             "confirmar_conta_sem_conta_mae",
         }
     ),
@@ -5196,6 +5225,14 @@ def _listas_de_pendencia_dmpl_para_contexto(emissao, empresa, pode_escriturar):
         }
 
     resultado = []
+    # DL-063 (BL-625): a divergência de fechamento tem a MESMA causa nomeada
+    # em outra pendência — conta de patrimônio líquido com saldo e SEM
+    # coluna preenchida. A dica era um dicionário estático, a mesma frase
+    # para todo caso, e mandava o contador conferir a classificação mesmo
+    # quando o que faltava era a coluna. Lido do `emissao` que a apuração
+    # entregou, e não de um teste adivinhado: a lista abaixo É a causa
+    # quando está não vazia.
+    contas_de_pl_sem_coluna = listas.get("contas_do_patrimonio_liquido_sem_coluna") or []
     for nome, itens in listas.items():
         linhas = []
         tem_conta_sem_coluna_possivel = False
@@ -5324,6 +5361,21 @@ def _listas_de_pendencia_dmpl_para_contexto(emissao, empresa, pode_escriturar):
                 + "As contas com orientação própria não aceitam coluna: siga a orientação "
                 "indicada em cada uma. O patrimônio líquido do Balanço inclui todas elas e a "
                 "demonstração, sem coluna, não as mostraria."
+            )
+        if nome == "diferenca_de_fechamento" and contas_de_pl_sem_coluna:
+            # A causa que a apuração JÁ nomeou na lista vizinha: conta de PL
+            # com saldo e sem coluna. A dica genérica ("confira a
+            # classificação") mandaria o contador caçar o que está certo;
+            # esta manda para a conta que está sem o que preencher, e o
+            # link de coluna dela está na lista de cima, com o mesmo
+            # `classificavel` que o servidor decidiu.
+            acao = (
+                "A diferença vem de conta do patrimônio líquido que está com saldo e SEM "
+                "coluna da DMPL — ela entra no Balanço e não aparece em coluna nenhuma, e é "
+                "isso que a faz não bater. Dê a coluna às contas listadas acima, as que têm "
+                "link ao lado; as demais seguem a orientação própria indicada em cada uma. "
+                "Depois disso, confira de novo: se a diferença continuar, aí sim o problema é "
+                "a classificação de alguma conta com coluna."
             )
         resultado.append(
             {
