@@ -350,6 +350,42 @@ Depois da correção: `apps/contabilidade` + `apps/core` com **79 falhas**
 contra **81** da base original — nenhuma regressão e mais uma falha resolvida
 pela própria correção.
 
+### 8.6.3 Reconferência — ciclo do §3.1 ENCERRADO
+
+Relatório em
+[`docs/auditorias/2026-10-04-dl-062-reconferencia.md`](../auditorias/2026-10-04-dl-062-reconferencia.md):
+**APROVADO**. Os **oito achados FECHADOS por medição**, nenhum defeito novo,
+nenhum achado aberto — **e nenhuma terceira rodada**, que o §3.1 proíbe.
+
+O ponto mais rígido foi o **BL-516**, julgado desligando a correção **em
+memória** (sem tocar em arquivo) e comparando a MESMA fixture:
+
+| | antes | agora |
+| --- | --- | --- |
+| `totais_por_tipo[ATIVO]` | 1.100,00 | **900,00** |
+| `residuo_por_tipo[ATIVO]` | 200,00 | **0** |
+| `equacao["diferenca"]` | 200,00 | **0** (900 = 0 + 900) |
+| `pode_emitir` | False | **True** |
+
+E o teste discrimina: com o código antigo, `pode_emitir = False` impede a view
+de montar a tabela, então `assert "Total do Ativo" in conteudo` reprovaria.
+
+⚠️ **Ressalva DECLARADA, não corrigida nesta etapa:** no teste do BL-516,
+`assert "900,00" in conteudo` **não distingue o Ativo do PL**, porque naquela
+fixture os dois valem 900,00 — a asserção passaria mesmo com o Ativo errado.
+A frase do docstring é verdadeira (medida), a asserção é mais frouxa que ela.
+Fica registrada em vez de mexida, porque abrir nova rodada depois da
+reconferência é justamente o que o §3.1 proíbe; a melhoria de precisão
+combina com o próximo toque nesse arquivo.
+
+### 8.6.4 Integração contínua
+
+No commit `589652c`, os **quatro checks verdes** em PostgreSQL 16:
+`Lint e testes` (6m43s), `Validar documentação`, `Regras do projeto` e
+`Medir identificação do emitente no navegador` (10m50s). A primeira execução
+da CI é que reprovou o BL-516 (§8.6.1) — nenhum outro teste de nível 1
+reprovou.
+
 ### 8.7 Integração
 
 Commit, push e PR: pendentes.

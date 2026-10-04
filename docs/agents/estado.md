@@ -181,7 +181,17 @@ tipos. A "recusa do cadastro", que o backlog aceitava como alternativa, foi
 avaliada e deixada de fora por medida: não corrige dado já gravado, colide
 com o RC-80 e precisaria da regra em três portas. As raízes assim tratadas
 passam a ser **declaradas** na lista informativa `contas_retificadoras_rais`
-(avisa, não veta — depois da correção o número está certo).
+(avisa, não veta — depois da correção o número está certo). **Ciclo do §3.1
+encerrado:** [auditoria
+independente](../auditorias/2026-10-04-dl-062-auditoria.md) **APROVADA COM
+RESSALVAS** (os 9 critérios de aceite SEDE, zero regressão, 8 achados de tela
+e documento), **correção única** e [reconferência](../auditorias/2026-10-04-dl-062-reconferencia.md)
+**APROVADA** com os oito achados fechados e sem terceira rodada. **PR #81
+aberto com os quatro checks verdes** em PostgreSQL 16. A CI foi o que achou o
+que o SQLite local não via: o teste do BL-516 exigia o Balanço **vetado** por
+um resíduo de 200,00 que **era o próprio defeito** — a "(-) PDD" cadastrada
+como raiz inflava o Ativo, e o resíduo aritmético era a única rede que pegava
+a conta.
 
 - **DL-054** — **integrada pelo PR #70** (squash `e7b85aa`).
 - **DL-055** — **integrada pelo PR #69** (squash `9ceda53`).
