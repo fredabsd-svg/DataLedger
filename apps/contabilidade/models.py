@@ -320,6 +320,44 @@ NATUREZA_NATURAL_DO_TIPO = {
 }
 
 
+# DL-062 (BL-604): a natureza NATURAL de TODOS os `TipoConta`, para a soma dos
+# TOTAIS do Balanço (`totais_por_tipo`, em `apurar_saldos`) — o quinto tipo
+# que faltava para a equação contábil fechar.
+#
+# **O defeito que este mapa corrige, medido em 04/10/2026 (BL-604):** o sinal
+# do saldo vem da natureza da conta que o consolida (regra única de saldo,
+# DE-020). Uma conta retificadora aninhada ("(-) Prejuízos Acumulados",
+# "(-) Ações em Tesouraria") herda o sinal do GRUPO e sai correto; mas
+# cadastrada como RAIZ — `conta_pai is None`, sem ancestral do grupo — não há
+# grupo que aplique a natureza credora do PL: a natureza DEVEDORA dela assina
+# o próprio saldo, e `totais_por_tipo` somava esse valor como se fosse um
+# acréscimo. No caso de referência, PL = 117.000,00 quando o correto é
+# 113.000,00, e a equação `ativo = passivo + PL` fechava com −4.000,00 —
+# **sem veto nenhum**: o Balanço saía para o cliente errado. A mesma falha
+# atinge RAIZ devedora de RECEITA e RAIZ credora de DESPESA (medido: equação
+# em −200,00), então a correção é da CLASSE, não do caso do PL.
+#
+# **Por que este mapa é NOVO, e não o `NATUREZA_NATURAL_DO_TIPO` estendido:**
+# aquele responde a uma pergunta diferente — "qual o lado natural deste tipo
+# para a classificação circulante/não circulante" — e o teste derivado
+# `test_mapa_natureza_natural_cobre_exatamente_os_tipos_classificaveis` exige
+# que as chaves sejam exatamente `TIPO_DA_CLASSIFICACAO_PATRIMONIAL.values()`.
+# Estendê-lo quebraria esse teste por motivo alheio à DL-033. Mesmo motivo que
+# separou `NATUREZA_NATURAL_DO_TIPO_DRE` (abaixo) do dict do Balanço.
+#
+# **Por que PELA NATUREZA e não pela coluna da DMPL:** o sinal do total é
+# derivação da equação contábil, e a coluna (`classificacao_dmpl`) é uma
+# classificação opcional, sem direção declarada em nenhum símbolo do código.
+# Implementar por ela criaria uma segunda fonte de verdade para o mesmo sinal.
+NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO = {
+    TipoConta.ATIVO: NaturezaConta.DEVEDORA,
+    TipoConta.PASSIVO: NaturezaConta.CREDORA,
+    TipoConta.PATRIMONIO_LIQUIDO: NaturezaConta.CREDORA,
+    TipoConta.RECEITA: NaturezaConta.CREDORA,
+    TipoConta.DESPESA: NaturezaConta.DEVEDORA,
+}
+
+
 class GrupoDaLei(models.TextChoices):
     """Os QUATRO grupos que a Lei 6.404/76, art. 178, realmente nomeia para
     fins de separação circulante/não circulante (BL-490, achado A5 da

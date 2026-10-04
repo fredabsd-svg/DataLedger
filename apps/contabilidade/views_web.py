@@ -5088,22 +5088,22 @@ ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DMPL_POR_LISTA = {
         "Reclassifique cada conta listada com uma das opções válidas do campo “Coluna da "
         "DMPL” — o valor gravado não existe mais no cadastro."
     ),
-    # N11 (auditoria DL-061, rodada 1): a causa CONHECIDA vem primeiro. Conta
-    # RETIFICADORA do patrimônio líquido (capital a integralizar, ações em
-    # tesouraria) cadastrada FORA do grupo "Patrimônio Líquido" do plano de
-    # contas: o Balanço a soma pelo grupo em que ela está e a DMPL a subtrai
-    # pela natureza (BL-604, ainda aberta). Enquanto a BL-604 existir, dizer
-    # só "não deveria acontecer em dado íntegro" manda o contador procurar
-    # um erro que não existe nos lançamentos.
+    # DL-062 (BL-604): a causa que este texto nomeava até 04/10/2026 — a
+    # conta RETIFICADORA do patrimônio líquido cadastrada FORA do grupo, que
+    # o Balanço somava e a DMPL subtraía — **deixou de existir**: o total do
+    # Balanço passou a aplicar a natureza natural do tipo na contribuição da
+    # raiz, e as duas peças passaram a ler a conta igual. Manter a frase seria
+    # mandar o contador procurar um defeito que o produto não tem mais, então
+    # o texto passa a dizer o que ainda é verdade: as duas peças leram as
+    # mesmas contas de formas diferentes, e a diferença nunca é ajustada para
+    # fechar.
     "diferenca_de_fechamento": (
         "O saldo final da coluna não bate com o saldo das contas dela no Balanço da mesma "
-        "data. Causa mais provável: conta retificadora do patrimônio líquido (por exemplo, "
-        "capital a integralizar ou ações em tesouraria) cadastrada FORA do grupo "
-        "“Patrimônio Líquido” do plano de contas — o Balanço e a DMPL a tratam de formas "
-        "diferentes. Confira no plano de contas se toda conta do patrimônio líquido, "
-        "retificadoras inclusive, está dentro desse grupo. Se estiver, confira os "
-        "lançamentos pelo Razão e se há subconta movimentada: a diferença é o sinal de "
-        "dado inconsistente."
+        "data — as duas peças leram as mesmas contas de formas diferentes. Confira no plano "
+        "de contas se cada conta da coluna está classificada na coluna que o uso que ela teve "
+        "no período pede, e depois confira no Razão se alguma delas teve movimento que a "
+        "classificação não descreve. A diferença é o sinal de dado inconsistente, e nenhum "
+        "saldo é ajustado para fechá-la."
     ),
 }
 

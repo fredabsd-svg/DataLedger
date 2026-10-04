@@ -120,7 +120,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-058](../planos/DL-058-pequenas-fugas-de-informacao.md) | Pequenas fugas de informação (BL-554, BL-555) | Integrada (PR #72) — auditoria aprovada com ressalvas; BL-592 a BL-596; DE-096 |
 | [DL-059](../planos/DL-059-trilha-do-convite-e-eventos-sem-ip.md) | Trilha do convite e eventos sem IP (BL-560, BL-566, BL-579) | Integrada (PR #73) — auditoria aprovada com ressalvas; BL-597 a BL-601 |
 | [DL-060](../planos/DL-060-confirmacao-da-cascata.md) | A reabertura em cascata confirma exatamente os meses mostrados (BL-588, BL-589) | Integrada (PR #74) — reconferência aprovada com ressalvas; BL-602 |
-| [DL-061](../planos/DL-061-dmpl.md) | DMPL, etapa CTB-14 da DL-048 (RC-151) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-061](../planos/DL-061-dmpl.md) | DMPL, etapa CTB-14 da DL-048 (RC-151) | Integrada (PR #76, #77 e #79) — fatias 1, etapa 2 e fatia 2; pontos abertos BL-606, BL-607, BL-622, BL-625, BL-626 e BL-627 |
+| [DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md) | Sinal da conta-RAIZ retificadora no Balanço Patrimonial (BL-604) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -157,10 +158,30 @@ a regra não decide, API no padrão da D8 — auditado com ciclo do §3.1 encerr
 [relatório](../auditorias/2026-10-03-dl-061-fatia-2-auditoria-e-reconferencia.md))
 e **tela** (guia "DMPL" do lançamento; os vetos da DMPL apontam para ela).
 **Integrada pelo PR #79** (squash `1a0bdc9`, os quatro checks verdes, merge
-feito pelo Fred em 04/10/2026). Pontos abertos: BL-604, BL-606, BL-607, BL-622, BL-625, **BL-627**
+feito pelo Fred em 04/10/2026). Pontos abertos: BL-606, BL-607, BL-622, BL-625, **BL-627**
 (residual da propriedade de eventos opostos no capital — validação do Fred) e
 a validação contábil **BL-626**. HI-50 confirmada pelo Fred (RC-152): alíneas
-"c" e "d" revogadas.
+"c" e "d" revogadas. **BL-604 fechado pela DL-062** (abaixo).
+
+**Em andamento: DL-062 — o sinal da conta-RAIZ retificadora no Balanço**
+(BL-604), escolhida por ser o ponto aberto **de nível 1** da leva: é o único
+em que o produto entrega documento errado ao cliente. Diagnóstico medido em
+04/10/2026, antes da correção: a retificadora de PL cadastrada na raiz do
+plano era **somada** pelo Balanço em vez de subtraída — PL publicado em
+117.000,00 quando o correto é 113.000,00, equação `ativo = passivo + PL` em
+−4.000,00, e `avaliar_emissao_do_balanco` devolvendo **`pode_emitir = True`**:
+o Balanço saía errado e nada impedia. A DMPL era a única que acusava, porque
+recalcula por conta. A correção leva ao total do Balanço a MESMA normalização
+de sinal que o módulo já aplicava à soma por classificação (BL-496) e que a
+DRE aplica ao resíduo por tipo — a contribuição de uma raiz entra com a
+natureza **natural** do seu `TipoConta`. Medido que **não era caso do PL e sim
+uma classe**: a mesma falha atingia RAIZ devedora de RECEITA e RAIZ credora
+de DESPESA (equação em −200,00 com as três), então a regra cobre os cinco
+tipos. A "recusa do cadastro", que o backlog aceitava como alternativa, foi
+avaliada e deixada de fora por medida: não corrige dado já gravado, colide
+com o RC-80 e precisaria da regra em três portas. As raízes assim tratadas
+passam a ser **declaradas** na lista informativa `contas_retificadoras_rais`
+(avisa, não veta — depois da correção o número está certo).
 
 - **DL-054** — **integrada pelo PR #70** (squash `e7b85aa`).
 - **DL-055** — **integrada pelo PR #69** (squash `9ceda53`).

@@ -29,6 +29,7 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
 from apps.contabilidade.models import (
+    NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO,
     Conta,
     EstadoCompetencia,
     ItemLancamento,
@@ -1079,7 +1080,21 @@ def test_raiz_de_cada_linha_e_exatamente_nivel_igual_a_um(cenario_completo):
     fixa por teste a equivalência com `nivel == 1`, que o contrato agora
     declara. Prova adicional: somar `contas` por `tipo` filtrando por
     `raiz` reproduz `totais_por_tipo` exatamente — a leitura que o
-    critério 4 convida, sem contar nenhuma conta em dobro."""
+    critério 4 convida, sem contar nenhuma conta em dobro.
+
+    ⚠️ **DL-062 (BL-604) mudou a FORMA dessa reprodução, e o motivo está
+    aqui para quem for corrigir a soma.** `linha["saldo"]` é o `saldo_final`
+    do Balancete, assinado pela natureza CADASTRADA da conta; a partir da
+    DL-062 a contribuição da raiz ao total entra com o sinal da natureza
+    NATURAL do seu `TipoConta`. São o mesmo número sempre que a natureza da
+    raiz é a natural do tipo — o caso são, e é por isso que este cenário,
+    que não tem raiz anômala, continua exibindo soma ingênua e continua
+    passando. A soma ingênua deixou de ser a leitura correta em geral: para a
+    raiz retificadora (natureza oposta à do tipo) ela não reproduz o total.
+    A prova da forma normalizada, com o cenário que a exige, está em
+    `test_dl062_sinal_da_raiz_retificadora.py`; aqui o que se prova é que a
+    invariant `raiz == nivel == 1` e a ausência de contagem em dobro
+    continuam de pé."""
     saldos = apurar_saldos(
         empresa=cenario_completo["empresa"], data_base=cenario_completo["data_base"]
     )
@@ -1089,8 +1104,19 @@ def test_raiz_de_cada_linha_e_exatamente_nivel_igual_a_um(cenario_completo):
     reproduzido = {tipo: Decimal("0") for tipo in TipoConta.values}
     for linha in saldos["contas"]:
         if linha["raiz"]:
-            reproduzido[linha["tipo"]] += linha["saldo"]
+            natureza_natural = NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO[linha["tipo"]]
+            reproduzido[linha["tipo"]] += (
+                linha["saldo"] if linha["natureza"] == natureza_natural else -linha["saldo"]
+            )
     assert reproduzido == saldos["totais_por_tipo"]
+    # Este cenário não tem raiz de natureza oposta: com a forma normalizada,
+    # a soma ingênua também fecha — é o que mantém as duas formas de leitura
+    # em acordo no caso comum.
+    reproduzido_ingenuo = {tipo: Decimal("0") for tipo in TipoConta.values}
+    for linha in saldos["contas"]:
+        if linha["raiz"]:
+            reproduzido_ingenuo[linha["tipo"]] += linha["saldo"]
+    assert reproduzido_ingenuo == saldos["totais_por_tipo"]
 
 
 def test_conta_inativa_com_saldo_residual_entra_no_total(cenario_completo):

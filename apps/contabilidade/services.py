@@ -19,6 +19,7 @@ from apps.contabilidade.models import (
     NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE,
     NATUREZA_NATURAL_DO_TIPO,
     NATUREZA_NATURAL_DO_TIPO_DRE,
+    NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO,
     # DL-048/CTB-13: as seis reservas de LUCROS de RC-137 (o subconjunto
     # do enum cuja DIREÇÃO do movimento decide reversão × transferência)
     # e o próprio enum de linha da DLPA.
@@ -3678,24 +3679,34 @@ def apurar_saldos(*, empresa, data_base):
     única vez — DE-020), então somar as raízes cobre a árvore inteira
     exatamente uma vez. Sem hierarquia (conta sem pai nem filho), cada conta
     é sua própria raiz e a soma continua correta. **É por isto, e não por
-    uma tabela de "natureza esperada por tipo", que uma retificadora
-    SUBTRAI em vez de somar** (RC-104: "(-) Prejuízos Acumulados", natureza
-    DEVEDORA dentro de um grupo Patrimônio Líquido CREDOR — o mesmo padrão
-    já existente na base de medição de 73 contas, em "(-) Depreciação
-    acumulada" e em "Deduções da receita bruta"): quem aplica o sinal final
-    é a natureza da RAIZ do grupo (o motor do Balancete, DE-020), nunca a da
-    retificadora isolada — somar `saldo_final` de CADA conta por `tipo`
-    PRÓPRIO (em vez de só das raízes) contaria a retificadora com a
-    natureza DELA, na direção errada, e SOMARIA onde deveria SUBTRAIR (a
-    conta é a prova:
+    somar `saldo_final` de CADA conta por `tipo` PRÓPRIO, que a retificadora
+    ANINHADA SUBTRAI** (RC-104: "(-) Prejuízos Acumulados", natureza DEVEDORA
+    dentro de um grupo Patrimônio Líquido CREDOR — o mesmo padrão já existente
+    na base de medição de 73 contas, em "(-) Depreciação acumulada" e em
+    "Deduções da receita bruta"): quem aplica o sinal final é a natureza da
+    RAIZ do grupo (o motor do Balancete, DE-020), nunca a da retificadora
+    isolada — contar a conta pela natureza DELA, na direção errada, SOMARIA
+    onde deveria SUBTRAIR (a conta é a prova:
     `test_retificadora_dentro_do_patrimonio_liquido_subtrai_nunca_soma`).
-    Depende de a retificadora estar aninhada sob um ancestral do MESMO
-    grupo — é assim que o plano de contas de referência do Fred já está
-    estruturado (RC-104), e é exatamente o caso que a DE-020 existe para
-    resolver; um plano de contas em que a retificadora fosse uma raiz
-    isolada (sem ancestral do grupo) não teria como ser corrigido por
-    algoritmo nenhum sem reclassificar a conta — o que esta camada está
-    proibida de fazer.
+
+    ⚠️ **A retificadora que é a própria RAIZ (BL-604, corrigido na DL-062,
+    04/10/2026).** Até 04/10/2026 este docstring afirmava que esse caso "não
+    teria como ser corrigido por algoritmo nenhum". **A afirmação estava
+    errada, e a medição derrubou o limite:** a soma agora normaliza a
+    contribuição da raiz pela natureza NATURAL do seu `TipoConta`
+    (`NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO`), que é a MESMA normalização que
+    a soma por classificação (BL-496) e a DRE já aplicavam. Medido antes da
+    correção: a retificadora de PL na raiz fazia o Balanço publicar
+    `totais_por_tipo[PL]` = 117.000,00 quando o correto é 113.000,00, a
+    equação `ativo = passivo + PL` fechar em −4.000,00, e
+    `avaliar_emissao_do_balanco` devolver `pode_emitir = True` — documento
+    errado sem veto. A mesma falha atingia RAIZ devedora de RECEITA e RAIZ
+    credora de DESPESA: a regra cobre os cinco `TipoConta`, e não só o PL.
+    A conta tratada é **declarada** em `contas_retificadoras_rais` (informativa
+    — avisa, não veta), e a recusa do cadastro, que o backlog aceitava como
+    alternativa, foi avaliada e deixada de fora: ela não corrigiria base já
+    gravada (a apuração não roda `full_clean()` na leitura) e colidiria com a
+    decisão de produto RC-80.
 
     **Conta sem tipo coerente com a natureza:** deliberado (o modelo
     permite retificadora). Esta função NUNCA reclassifica — soma o que está
@@ -3951,6 +3962,9 @@ def apurar_saldos(*, empresa, data_base):
     # raiz; isto só DECLARA a divergência, nunca corrige nada. Vazia no
     # caso são.
     contas_com_tipo_divergente_da_raiz = []
+    # DL-062 (BL-604): cada RAIZ cuja natureza CADASTRADA é oposta à natureza
+    # NATURAL do seu tipo — a retificadora solta na raiz. Vazio no caso são.
+    contas_retificadoras_rais = []
     for linha in balancete["contas"]:
         tipo = linha["tipo"]
         if tipo not in totais_por_tipo:
@@ -3958,7 +3972,34 @@ def apurar_saldos(*, empresa, data_base):
                 {"conta": linha["conta"], "nome": linha["nome"], "tipo": tipo}
             )
         elif linha["raiz"]:
-            totais_por_tipo[tipo] += linha["saldo_final"]
+            # DL-062 (BL-604): a contribuição da raiz entra com o sinal da
+            # natureza NATURAL do TIPO, nunca com o da natureza cadastrada da
+            # própria conta. `saldo_final` já vem assinado pela natureza
+            # CADASTRADA (regra única de saldo, DE-020); quando ela coincide
+            # com a natural, o valor já está no sinal certo (no-op na árvore
+            # bem montada) e quando diverge — a retificadora que é a própria
+            # raiz, sem grupo que aplique a natureza credora do PL — o sinal
+            # precisa inverter, para que a soma do tipo aplique UMA natureza
+            # sobre o valor, como a regra única de saldo já exige dentro da
+            # hierarquia. É a MESMA normalização que os dois blocos vizinhos
+            # já aplicam: o da soma por classificação (BL-496, abaixo) e o da
+            # DRE (`NATUREZA_NATURAL_DO_TIPO_DRE`).
+            natureza_natural = NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO[tipo]
+            if linha["natureza"] == natureza_natural:
+                totais_por_tipo[tipo] += linha["saldo_final"]
+            else:
+                totais_por_tipo[tipo] += -linha["saldo_final"]
+                contas_retificadoras_rais.append(
+                    {
+                        "conta": linha["conta"],
+                        "nome": linha["nome"],
+                        "tipo": tipo,
+                        "natureza": linha["natureza"],
+                        "natureza_natural_do_tipo": natureza_natural,
+                        "saldo": linha["saldo_final"],
+                        "contribuicao_no_total": -linha["saldo_final"],
+                    }
+                )
 
         if tipo != linha["tipo_da_raiz"]:
             contas_com_tipo_divergente_da_raiz.append(
@@ -4215,6 +4256,11 @@ def apurar_saldos(*, empresa, data_base):
         "totais_por_tipo": totais_por_tipo,
         "contas_com_tipo_desconhecido": contas_com_tipo_desconhecido,
         "contas_com_tipo_divergente_da_raiz": contas_com_tipo_divergente_da_raiz,
+        # DL-062 (BL-604): as RAÍZ retificadoras, cuja contribuição ao total do
+        # tipo entrou com o sinal INVERTIDO. Vazia no caso são; depois da
+        # correção o número está certo, então isto é DECLARAÇÃO (vai para
+        # `listas_informativas`, avisa — nunca impede), não veto.
+        "contas_retificadoras_rais": contas_retificadoras_rais,
         # DL-033/RC-106 — circulante × não circulante do Balanço
         # Patrimonial (fatia 1): ver os comentários acima, no bloco que os
         # monta.
@@ -4280,16 +4326,23 @@ _LISTAS_QUE_IMPEDEM_A_EMISSAO = (
     "contas_nao_folha_sem_classificacao_com_movimento_proprio",
 )
 
-# 2) a ÚNICA que só AVISA — a condição 3 (BL-496), aposentada como veto
-# pela [DE-070](../../docs/projeto/decisoes.md#de-070): a auditoria da
-# DL-034 mediu que a correção (b) dá o número CERTO também para
-# retificadora DE GRUPO (o pressuposto que sustentava o veto deixou de
-# existir) e que, sem essa prova, a condição bloqueava planos de contas
-# CORRETOS (BL-499 — agrupar só por pai cruzava raízes de tipos diferentes).
-# Continua CALCULADA por `apurar_saldos`, com a chave `(conta_pai, tipo)`
-# que também nomeia raízes do mesmo tipo com natureza divergente (BL-516),
-# e DECLARADA — só não impede mais nada, e por isso não entra na tupla acima.
-_LISTAS_QUE_SO_AVISAM = ("contas_topo_classificadas_com_natureza_divergente_entre_irmas",)
+# 2) as que só AVISAM — a condição 3 (BL-496), aposentada como veto
+#    pela [DE-070](../../docs/projeto/decisoes.md#de-070): a auditoria da
+#    DL-034 mediu que a correção (b) dá o número CERTO também para
+#    retificadora DE GRUPO (o pressuposto que sustentava o veto deixou de
+#    existir) e que, sem essa prova, a condição bloqueava planos de contas
+#    CORRETOS (BL-499 — agrupar só por pai cruzava raízes de tipos diferentes).
+#    Continua CALCULADA por `apurar_saldos`, com a chave `(conta_pai, tipo)`
+#    que também nomeia raízes do mesmo tipo com natureza divergente (BL-516),
+#    e DECLARADA — só não impede mais nada, e por isso não entra na tupla acima.
+#    A segunda (DL-062, BL-604) nomeia as RAÍZ retificadoras, cuja
+#    contribuição ao total entrou com o sinal invertido: depois da correção o
+#    NÚMERO está certo, então avisar é o comportamento honesto e vetar seria
+#    bloquear um Balanço correto por causa de uma topologia incomum.
+_LISTAS_QUE_SO_AVISAM = (
+    "contas_topo_classificadas_com_natureza_divergente_entre_irmas",
+    "contas_retificadoras_rais",
+)
 
 
 def avaliar_emissao_do_balanco(saldos):

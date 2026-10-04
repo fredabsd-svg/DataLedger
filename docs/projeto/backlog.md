@@ -2054,10 +2054,10 @@ Plano: [DL-061](../planos/DL-061-dmpl.md).
 | ID | Item | Responsável | Depende de | Estado | Critério de aceite |
 | --- | --- | --- | --- | --- | --- |
 | BL-603 | Conta de PL de "dividendo adicional proposto" (ou de ajustes de exercícios anteriores mantida no PL) não tem coluna na DMPL, e a emissão fica vetada | `desenvolvedor-pleno` | DL-061 etapa 2 | **fechado** — integrado no PR #77 (squash `5a999b5`, 02/10/2026), com auditoria e reconferência aprovadas | Coluna "dividendo adicional proposto"; linha da destinação e da aprovação; identidade com a DLPA; PE-75 antes de citar item normativo |
-| BL-604 | Retificadora de PL cadastrada na raiz do plano é somada pelo Balanço em vez de subtraída (pré-existente, descrito em `apurar_saldos`); a DMPL acusa e veta | `desenvolvedor-pleno` | — | aberta | Balanço e DMPL coerentes com retificadora na raiz, ou recusa do cadastro, com teste |
+| BL-604 | Retificadora de PL cadastrada na raiz do plano é somada pelo Balanço em vez de subtraída (pré-existente, descrito em `apurar_saldos`); a DMPL acusa e veta | `desenvolvedor-pleno` | DL-062 | **fechado** — entregue na DL-062; a medição mostrou que **não era caso do PL e sim uma classe**: a mesma falha atingia RAIZ devedora de RECEITA e RAIZ credora de DESPESA. O Balanço publicava o PL errado **sem veto nenhum** (medido: `pode_emitir = True` com PL em 117.000,00 quando o correto é 113.000,00 e a equação em −4.000,00). Corrigido pela normalização do sinal da contribuição da raiz pela natureza natural do `TipoConta` | [DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md) |
 | BL-605 | Marcação manual por lançamento para as exceções (fatia 2, RC-151) e API da DMPL | `desenvolvedor-pleno` | DL-061 fatia 2 | **fechado** — integrado no PR #79 (squash `1a0bdc9`, 04/10/2026); servidor auditado com ciclo do §3.1 encerrado (auditoria → correção única → reconferência) e tela com testes de comportamento | Fatia 2 do plano |
-| BL-606 | Formulário de conta nova sem o campo "Coluna da DMPL" (a DLPA tem) | `especialista-frontend` | — | aberta | Campo no `ContaCriarForm`, com contrato e teste |
-| BL-607 | Snapshot `REPEATABLE READ` da DMPL sem teste (mesma lacuna do achado 8 da DLPA) | `desenvolvedor-pleno` | — | aberta | Teste com duas conexões, no molde da DL-045 |
+| BL-606 | Formulário de conta nova sem o campo "Coluna da DMPL" (a DLPA tem) | `especialista-frontend` | — | aberta — **medido em 04/10/2026 (DL-062): trivial**, dois pontos em `views_web.py` (`Meta.fields` e `_CONTRATO_DO_FORMULARIO_DE_CONTA.campos`); o template itera o form e não muda. ⚠️ decisão de produto pendente: o campo passaria a ser gravável só pela web, porque a API o tem como `read_only` — assimetria que a DLPA e a DRE não têm | Campo no `ContaCriarForm`, com contrato e teste |
+| BL-607 | Snapshot `REPEATABLE READ` da DMPL sem teste (mesma lacuna do achado 8 da DLPA) | `desenvolvedor-pleno` | — | aberta — **medido em 04/10/2026 (DL-062): trivial e sem mudança de código**, o snapshot já está implementado (`services.py`, mesmo desenho da DLPA); é um arquivo de teste, par "sem o wrapper"/"com o wrapper" no molde de `test_dl045_dre.py`. ⚠️ a DLPA **também** não tem o teste — a lacuna é maior que a descrição do backlog | Teste com duas conexões, no molde da DL-045 |
 
 ## Auditoria da DL-061 — rodada 1, REPROVADA (2026-10-01)
 
@@ -2094,4 +2094,27 @@ N1 a N11 fechados. Ressalvas abaixo; esta foi a última rodada (AGENTS.md §3.1)
 | BL-625 | **M4 (baixa)** — a dica da diferença com o Balanço aponta a retificadora mesmo quando a causa é conta de PL sem coluna listada acima | `especialista-frontend` | — | aberta | Dica condicionada, com teste de tela |
 | BL-627 | **A2 da auditoria da etapa 2 (baixa)** — a regra de eventos opostos julga pela natureza cadastrada; conta de CAPITAL cadastrada fora do padrão (retificadora "capital a integralizar" gravada como credora) num lançamento com débito e crédito na mesma coluna ainda publicaria o líquido. A tesouraria foi endurecida na correção (veto por direção, sempre); o capital não pode ser, porque a subscrição contra a retificadora é exatamente o par que a RC-155 manda manter líquido | `arquiteto-senior` | Fred | aberta — **validação do Fred (BL-626)** | Ou o Fred aceita o limite (a natureza cadastrada da retificadora é a premissa), ou o cadastro passa a exigir a natureza esperada por coluna; com teste |
 | BL-626 | Validação contábil do Fred das escolhas da DMPL: nota impressa do resultado não transferido; cancelamento de tesouraria em "alienação ou cancelamento"; subscrição parcial como aumento líquido; lucros e prejuízos na mesma coluna; ordem das linhas; reserva de capital incorporada ao capital como "aumento de capital com reservas e lucros"; e, da etapa 2 (BL-603): a coluna "dividendo adicional proposto" FORA dos grupos do 111A, a linha própria na DLPA e na DMPL e a aprovação saindo em "Dividendos" | `arquiteto-senior` | Fred | aberta — **validação do Fred** | Cada escolha confirmada ou revertida |
+
+## DL-062 — sinal da conta-RAIZ retificadora no Balanço (BL-604), 04/10/2026
+
+Fechada com o plano em
+[DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md).
+
+- **BL-604 fechado** — a correção foi da CLASSE (os cinco `TipoConta`), não do
+  caso do PL; a opção "recusa do cadastro", que o backlog aceitava, foi
+  avaliada e deixada de fora **por medida** (não corrige dado já gravado,
+  colide com o RC-80 e precisaria da regra em três portas).
+- **A dica da divergência de fechamento foi reescrita.** O texto nomeava a
+  retificadora fora do grupo como "causa mais provável"; depois da correção
+  essa causa **deixou de existir**, e manter a frase mandaria o contador
+  procurar um defeito que o produto não tem mais. O BL-625 (condicionar a
+  dica) continua **aberto** — agora com o texto-base já verdadeiro.
+- **BL-606, BL-607 e BL-625 continuam abertos**, com o escopo medido na
+  tabela acima. Nenhum dos três é grande; nenhum entra na DL-062, que é de
+  nível 1 e muda o total do Balanço.
+- **Contrato alterado, de propósito:** `apurar_saldos` ganhou a chave
+  `contas_retificadoras_rais` (informativa — avisa, não veta). Os testes de
+  contrato do BL-492/BL-502/BL-515 foram atualizados, como o próprio
+  docstring do BL-492 determina.
+
 
