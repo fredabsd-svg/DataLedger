@@ -155,8 +155,9 @@ para as exceções e API da DMPL, em duas fatias internas: **servidor** (modelo
 `MarcacaoDmpl` fora do livro, contrato por efeito de coluna, marcação só quando
 a regra não decide, API no padrão da D8 — auditado com ciclo do §3.1 encerrado,
 [relatório](../auditorias/2026-10-03-dl-061-fatia-2-auditoria-e-reconferencia.md))
-e **tela** (guia "DMPL" do lançamento; os vetos da DMPL apontam para ela). PR em
-aberto para merge; o merge depende de ordem do Fred. Pontos abertos: BL-604, BL-606, BL-607, BL-622, BL-625, **BL-627**
+e **tela** (guia "DMPL" do lançamento; os vetos da DMPL apontam para ela).
+**Integrada pelo PR #79** (squash `1a0bdc9`, os quatro checks verdes, merge
+feito pelo Fred em 04/10/2026). Pontos abertos: BL-604, BL-606, BL-607, BL-622, BL-625, **BL-627**
 (residual da propriedade de eventos opostos no capital — validação do Fred) e
 a validação contábil **BL-626**. HI-50 confirmada pelo Fred (RC-152): alíneas
 "c" e "d" revogadas.
