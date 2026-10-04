@@ -197,27 +197,33 @@ fica_coerente`, teste de **thread** que é flaky em SQLite — a mesma família
 já mapeada do `test_b2_concorrencia_…`, que falha em 3 de 4 execuções **sem**
 nenhuma alteração. **Nenhuma regressão.**
 
-### 8.3 Limite declarado: o teste do snapshot (BL-607) NÃO roda localmente
+### 8.3 O teste do snapshot (BL-607): limite local RESOLVIDO pela CI
 
-Não há PostgreSQL nem Docker nesta máquina, e o `SET TRANSACTION ISOLATION
-LEVEL REPEATABLE READ` **não existe no SQLite** — os dois testes do par
-falham localmente com `sqlite3.OperationalError: near "SET": syntax error`,
+Localmente **não roda**: não há PostgreSQL nem Docker nesta máquina, e o
+`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ` não existe no SQLite — os
+dois testes falham com `sqlite3.OperationalError: near "SET": syntax error`,
 que é a falha conhecida do ambiente e **não** um defeito do teste.
 
-O que **foi** verificado localmente, com saída real:
+**A CI resolveu o limite.** No PR #82, em PostgreSQL 16:
 
-- `ruff check .` e `ruff format --check .` limpos;
+```
+apps/contabilidade/tests/test_dl063_snapshot_da_dmpl.py ..          [ 74%]
+
+4634 passed, 53 skipped, 2 warnings in 398.03s (0:06:38)
+```
+
+Os **dois testes do par passaram** no banco que o snapshot exige, e a suíte
+inteira rodou com **zero falhas**. O que foi verificado localmente, com saída
+real, e segue verdadeiro:
+
 - `--collect-only` coleta os dois testes, sem erro de importação;
-- **no teste 1, todas as asserções da leitura concorrente PASSARAM** no
-  SQLite` (750,00 / 114.500,00 / 115.000,00 / −500,00 / `["total"]`) — ele
-  só morre na releitura, que chama `apurar_dmpl` e portanto o `SET`;
+- no teste 1, todas as asserções da leitura concorrente passam até a
+  releitura (750,00 / 114.500,00 / 115.000,00 / −500,00 / `["total"]`);
 - fora do repositório, a réplica `_apurar_dmpl_sem_snapshot` foi conferida
   contra `apurar_dmpl` no cenário limpo: **idêntica** nas colunas, no
   `saldo_final` e na conciliação por coluna e total — a réplica é fiel, que
   é o que sustenta o teste 1.
 
-**Não se afirma que os dois testes passam.** A evidência do `REPEATABLE READ`
-é a CI com PostgreSQL 16.
 
 ### 8.4 Anomalia de ambiente, declarada e NÃO explicada
 
