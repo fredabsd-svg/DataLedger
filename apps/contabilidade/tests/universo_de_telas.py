@@ -105,6 +105,15 @@ NOMES_DE_TELA_DE_CONTABILIDADE = {
     "conferencia": "contabilidade_web:conferencia",
     "lancamento_novo": "contabilidade_web:lancamento_novo",
     "lancamento_detalhe": "contabilidade_web:lancamento_detalhe",
+    # DL-061, fatia 2 (BL-605): a guia "DMPL" do lançamento (E19) — MESMA
+    # tela de `lancamento_detalhe` (as duas rotas renderizam o mesmo
+    # template; a guia é uma seção dele), com a diferença de que a rota da
+    # guia aceita POST (grava o conjunto de marcações e limpa com "Remover
+    # marcações"). O GET renderiza 200 sob o `cenario` padrão — o
+    # lançamento dele é decidido pela regra, então a guia pousa no estado
+    # "não há marcação a fazer, e eis o porquê" (E17): um 200 de verdade,
+    # a mesma classe de estado que "balanco"/"dmpl" documentam acima.
+    "lancamento_marcacao_dmpl": "contabilidade_web:lancamento_marcacao_dmpl",
     # DL-031 (fatia 2 da DL-016): só as DUAS telas do fechamento que
     # renderizam 200 sob o `cenario` PADRÃO deste módulo (competência ainda
     # 'aberta', sem lote desbalanceado) entram aqui. `competencia_reabrir` e
@@ -223,6 +232,9 @@ def _urls_de_contabilidade(cenario):
         "conferencia": ([empresa_id], ""),
         "lancamento_novo": ([empresa_id], ""),
         "lancamento_detalhe": ([empresa_id, cenario["lancamento"].id], ""),
+        # DL-061, fatia 2 (BL-605): mesmíssimos args do detalhe — a guia
+        # "DMPL" é a seção do MESMO lançamento.
+        "lancamento_marcacao_dmpl": ([empresa_id, cenario["lancamento"].id], ""),
         "fechamento": ([empresa_id], ""),
         # ?ano=&mes= do mês CORRENTE: sob o `cenario` padrão a competência
         # do mês corrente ainda está 'aberta' (só existe porque a fixture

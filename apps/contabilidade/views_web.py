@@ -84,6 +84,11 @@ from apps.contabilidade.models import (
     GrupoDaDmpl,
     GrupoDaLei,
     LancamentoContabil,
+    # DL-061, fatia 2 (BL-605): a marcação manual da DMPL guardada FORA do
+    # livro (E15). A tela lê o conjunto atual para mostrá-lo na guia do
+    # lançamento; quem GRAVA é sempre o serviço
+    # (`salvar_marcacoes_da_dmpl`/`remover_marcacoes_da_dmpl`).
+    MarcacaoDmpl,
     NaturezaConta,
     # DL-043 fatia 3: modelo e enum do parâmetro contábil (fatia 1) — a
     # tela LÊ `ParametroContabilEmpresa` diretamente (mesmo padrão de
@@ -109,6 +114,11 @@ from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
 # formulário. `data_maxima_lancamento` é FUNÇÃO porque "hoje + N dias" se
 # move: congelá-la num import daria um formulário com teto de ontem.
 from apps.contabilidade.services import (
+    # DL-061: as linhas de EVENTO da DMPL (as que uma marcação pode ocupar)
+    # e os títulos humanos das linhas — fonte ÚNICA no serviço, para os
+    # `<select>` da guia não divergirem do documento.
+    _LINHAS_DE_EVENTO_DA_DMPL,
+    _TITULOS_DAS_LINHAS_DA_DMPL,
     # DL-061: títulos humanos de cada lista de pendência da DMPL — fonte
     # ÚNICA no serviço (a tela só acrescenta a AÇÃO que resolve); uma cópia
     # escrita aqui divergiria na primeira edição.
@@ -122,6 +132,10 @@ from apps.contabilidade.services import (
     CompetenciaOperacaoRecusada,
     HierarquiaInconsistente,
     LancamentoInvalido,
+    # DL-061, fatia 2 (BL-605): a recusa do SERVIÇO sobre o conjunto de
+    # marcações (E16/E17) — a tela a traduz para erro de formulário, nunca
+    # para 500 (mesmo molde de `classificar_conta_na_dmpl`).
+    MarcacaoDmplInvalida,
     # DL-043 fatia 3 (BL-474): as quatro portas de serviço da fatia 1
     # (vigência) e da fatia 2 (zeramento) — esta tela chama SÓ estas
     # funções e SÓ traduz as duas exceções abaixo para mensagem em
@@ -129,6 +143,15 @@ from apps.contabilidade.services import (
     # `encerrar_competencia`/`reabrir_competencia`, já usados aqui).
     ParametroContabilInvalido,
     VigenciaParametroContabilConflitante,
+    # DL-061, fatia 2 (BL-605): a guia "DMPL" do lançamento precisa mostrar
+    # o EFEITO POR COLUNA exatamente como o serviço o calcula — é contra o
+    # MESMO `movimento` que `salvar_marcacoes_da_dmpl` compara o Σ do
+    # conjunto (E16), e uma segunda cópia do cálculo aqui mostraria um
+    # número que não é o que decide a gravação. Por isso são reaproveitadas
+    # as MESMAS funções de leitura que o serviço usa
+    # (`_colunas_de_cada_conta` + `_atribuir_lancamento_as_linhas_da_dmpl`).
+    _atribuir_lancamento_as_linhas_da_dmpl,
+    _colunas_de_cada_conta,
     apurar_balancete,
     apurar_balanco_patrimonial,
     # DL-045 fatia 3: a mesma dupla apurar/avaliar que o Balanço já usa
@@ -196,7 +219,13 @@ from apps.contabilidade.services import (
     pre_visualizar_zeramento,
     reabrir_competencia,
     registrar_parametro_contabil,
+    # DL-061, fatia 2 (BL-605): as DUAS portas de gravação da marcação
+    # manual — o CONJUNTO é gravado de uma vez (substituição atômica com
+    # trilha) e limpo pelo botão "Remover marcações". A tela só chama,
+    # nunca reimplementa regra (E15–E17 moram no serviço).
+    remover_marcacoes_da_dmpl,
     rotulo_e_inscricao_da_empresa,
+    salvar_marcacoes_da_dmpl,
     zerar_resultado,
 )
 
@@ -2076,6 +2105,21 @@ _CONTRATO_DO_FORMULARIO_DE_CLASSIFICACAO_DMPL = ContratoDeRequisicao(
     contexto="na classificação da coluna da DMPL",
 )
 
+# DL-061, fatia 2 (BL-605): o contrato da guia "DMPL" do lançamento. Os
+# campos são REPETIDOS — uma tripla `linha`/`coluna`/`valor` por marcação do
+# conjunto (o mesmo conjunto que `salvar_marcacoes_da_dmpl` recebe, de uma
+# vez) — mais `acao` (`salvar`/`remover`) e o `csrfmiddlewaretoken` do
+# `{% csrf_token %}`. Nomes repetidos se repetem como UMA chave só em
+# `request.POST` (que é o que este contrato julga); quem lê a ordem das
+# triplas é `_marcacoes_do_formulario_de_marcacao`, por `getlist`.
+_CONTRATO_DO_FORMULARIO_DE_MARCACAO_DMPL = ContratoDeRequisicao(
+    campos=frozenset({"csrfmiddlewaretoken", "acao", "linha", "coluna", "valor"}),
+    aceita_arquivo=False,
+    aceita_querystring=False,
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na marcação manual da DMPL do lançamento",
+)
+
 
 def _mensagem_de_tela_para_dado_nao_contratado(excecao, *, explicacao_extra=""):
     """Traduz `DadoNaoContratado` para a frase que ESTA superfície mostra.
@@ -2656,6 +2700,223 @@ def lancamento_novo(request, empresa_id):
     return render(request, "contabilidade/lancamento_form.html", contexto)
 
 
+# ---------------------------------------------------------------------------
+# DL-061, fatia 2 (BL-605) — o detalhe do lançamento e a guia "DMPL" dele
+# (E19): a marcação manual (linha × coluna) é a EXCEÇÃO prevista pela
+# RC-151, guardada FORA do livro (E15 — nada muda no lançamento efetivado).
+# Duas rotas, UMA renderização: `lancamento_detalhe` (leitura) e
+# `lancamento_marcacao_dmpl` (a guia, que grava o CONJUNTO de uma vez e
+# limpa com "Remover marcações") mostram o MESMO template — a guia é uma
+# seção do detalhe, nunca uma tela paralela que pudesse prometer o que o
+# servidor não faz.
+# ---------------------------------------------------------------------------
+
+
+# Quantas linhas de marcação o formulário oferece sem preenchimento nenhum.
+# Cada linha é UMA célula (linha × coluna) do conjunto; 4 cobre os cenários
+# reais (o par de tesouraria, o caso M3 e as quatro células do lançamento
+# ambíguo do teste de identidade DLPA × DMPL) e as linhas em branco são a
+# folga para a próxima marcação — o formulário nunca some com o que já está
+# gravado nem com o que a pessoa acabou de digitar (arquétipo B).
+_LINHAS_MINIMAS_DO_FORMULARIO_DE_MARCACAO_DMPL = 4
+
+
+def _rotulo_da_coluna_da_dmpl(chave):
+    """Rótulo humano da coluna da DMPL (`ClassificacaoDmpl.label`), com a
+    chave crua como saída de emergência para a classificação gravada ter
+    saído do enum (só por ORM/SQL direto) — nunca um 500 numa tela de
+    conferência."""
+    return ClassificacaoDmpl(chave).label if chave in ClassificacaoDmpl.values else chave
+
+
+def _movimento_do_lancamento_por_coluna(empresa, lancamento):
+    """`(movimento, problemas)` da leitura AUTOMÁTICA de um lançamento.
+
+    `movimento` é `{coluna: efeito líquido do lançamento na coluna}` — o
+    MESMO número que `salvar_marcacoes_da_dmpl` exige que o Σ do conjunto
+    reproduza (E16); `problemas` é o que faz o lançamento ser EXCEÇÃO (E17:
+    linha indefinida, par sem regra ou lançamento ambíguo). As duas
+    funções de serviço chamadas aqui são as MESMAS, com os MESMOS
+    argumentos, que `salvar_marcacoes_da_dmpl` usa para julgar a marcação —
+    a tela nunca tem um segundo cálculo que pudesse divergir da gravação.
+    """
+    contas = {conta.id: conta for conta in Conta.objects.filter(empresa=empresa)}
+    coluna_de, _contas_da_coluna, _desconhecidas = _colunas_de_cada_conta(contas)
+    _celulas, movimento, problemas = _atribuir_lancamento_as_linhas_da_dmpl(
+        itens=sorted(lancamento.itens.all(), key=lambda item: item.id),
+        coluna_de=coluna_de,
+        contas=contas,
+        e_estorno=lancamento.estorno_de_id is not None,
+    )
+    return movimento, problemas
+
+
+def _linhas_do_formulario_de_marcacao(preenchidas):
+    """As linhas do formulário do conjunto: as `preenchidas` (as gravadas, no
+    GET; as digitadas, quando um POST é recusado), completadas com linhas em
+    branco até `_LINHAS_MINIMAS_DO_FORMULARIO_DE_MARCACAO_DMPL` e SEMPRE mais
+    UMA em branco no fim — espaço para a próxima marcação, mesmo quando o
+    conjunto já ocupa todas as linhas mínimas. Cada linha recebe `indice`
+    só para o `for`/`<label>` do template."""
+    linhas = [dict(linha) for linha in preenchidas]
+    while len(linhas) < _LINHAS_MINIMAS_DO_FORMULARIO_DE_MARCACAO_DMPL:
+        linhas.append({"linha": "", "coluna": "", "valor_texto": ""})
+    linhas.append({"linha": "", "coluna": "", "valor_texto": ""})
+    for indice, linha in enumerate(linhas, start=1):
+        linha["indice"] = indice
+    return linhas
+
+
+def _marcacoes_do_formulario_de_marcacao(post):
+    """`([erros], [linhas_digitadas], [marcacoes])` dos campos REPETIDOS
+    `linha`/`coluna`/`valor` do formulário da guia.
+
+    `marcacoes` sai no formato que `salvar_marcacoes_da_dmpl` recebe —
+    `{"linha", "coluna", "valor"}`, o `valor` já em `Decimal` pela gramática
+    pt-BR de `_decimal_do_formulario` (DE-029). Linha toda em branco é a
+    folga do formulário e é ignorada; linha pela METADE é erro de formulário
+    (a pessoa precisa ler o que falta), nunca descartada em silêncio. Erro
+    aqui NÃO grava nada: quem chama só grava quando a lista de erros sai
+    vazia.
+    """
+    linhas = post.getlist("linha")
+    colunas = post.getlist("coluna")
+    valores = post.getlist("valor")
+    if not (len(linhas) == len(colunas) == len(valores)):
+        return (
+            [
+                "O conjunto de marcações veio incompleto: cada marcação precisa das três "
+                "partes (linha, coluna e valor). Nada foi gravado."
+            ],
+            [],
+            [],
+        )
+    erros = []
+    digitadas = []
+    marcacoes = []
+    triplas = zip(linhas, colunas, valores, strict=True)
+    for indice, (linha, coluna, valor) in enumerate(triplas, start=1):
+        if not any((linha.strip(), coluna.strip(), valor.strip())):
+            continue
+        digitadas.append({"linha": linha, "coluna": coluna, "valor_texto": valor})
+        faltando = [
+            nome
+            for nome, campo in (("linha", linha), ("coluna", coluna), ("valor", valor))
+            if not campo.strip()
+        ]
+        if faltando:
+            erros.append(
+                f"A marcação {indice} está incompleta: falta informar "
+                f"{', '.join(faltando)}. Nada foi gravado."
+            )
+            continue
+        try:
+            numero = _decimal_do_formulario(valor.strip())
+        except ValorMonetarioInvalido as exc:
+            erros.append(f"A marcação {indice} foi recusada: {exc}")
+            continue
+        marcacoes.append({"linha": linha, "coluna": coluna, "valor": numero})
+    return erros, digitadas, marcacoes
+
+
+def _guia_da_marcacao_dmpl(empresa, lancamento, *, pode_escriturar, erros=None, digitadas=None):
+    """Contexto da guia "DMPL" do lançamento — as marcações atuais, o efeito
+    por coluna (o Σ que o conjunto precisa reproduzir, E16) e o formulário,
+    SÓ quando o lançamento é exceção (E17: se a regra decide, a guia explica
+    e não oferece o formulário — o servidor recusaria, e a tela não promete
+    o que o servidor não faz)."""
+    gravadas = list(MarcacaoDmpl.objects.filter(lancamento=lancamento).order_by("id"))
+    movimento, problemas = _movimento_do_lancamento_por_coluna(empresa, lancamento)
+
+    marcacoes = [
+        {
+            "linha_titulo": _TITULOS_DAS_LINHAS_DA_DMPL.get(marcacao.linha, marcacao.linha),
+            "coluna_titulo": _rotulo_da_coluna_da_dmpl(marcacao.coluna),
+            "valor": _valor_dre(marcacao.valor),
+        }
+        for marcacao in gravadas
+    ]
+    efeito_por_coluna = []
+    for coluna in ClassificacaoDmpl:
+        efeito = movimento.get(coluna.value, Decimal("0"))
+        if efeito != 0:
+            efeito_por_coluna.append(
+                {
+                    "coluna_titulo": _rotulo_da_coluna_da_dmpl(coluna.value),
+                    "valor": _valor_dre(efeito),
+                }
+            )
+    if digitadas is not None:
+        preenchidas = digitadas
+    else:
+        preenchidas = [
+            {
+                "linha": marcacao.linha,
+                "coluna": marcacao.coluna,
+                "valor_texto": _valor_ptbr(marcacao.valor),
+            }
+            for marcacao in gravadas
+        ]
+    return {
+        "marcacoes": marcacoes,
+        "efeito_por_coluna": efeito_por_coluna,
+        "pode_escriturar": pode_escriturar,
+        "regra_decide": not problemas,
+        "linhas_do_formulario": _linhas_do_formulario_de_marcacao(preenchidas),
+        "opcoes_linha": [
+            {"chave": chave, "titulo": _TITULOS_DAS_LINHAS_DA_DMPL[chave]}
+            for chave in _LINHAS_DE_EVENTO_DA_DMPL
+        ],
+        # O primeiro item de `_opcoes_da_coluna_da_dmpl_por_grupo` é "Sem
+        # coluna na DMPL" — opção da CONTA, não da marcação: a marcação sem
+        # coluna não existe (o serviço recusa), então ele fica de fora.
+        "opcoes_coluna": _opcoes_da_coluna_da_dmpl_por_grupo()[1:],
+        "erros": list(erros or []),
+    }
+
+
+def _contexto_do_lancamento_detalhe(request, empresa, lancamento, *, erros=None, digitadas=None):
+    """Contexto ÚNICO das duas rotas do detalhe — a tabela de partidas de
+    sempre e a guia "DMPL" (BL-605), que só cresce: nenhum teste do detalhe
+    muda de expectativa por causa dela."""
+    itens = []
+    total_debito = Decimal("0")
+    total_credito = Decimal("0")
+    for item in lancamento.itens.all():
+        if item.tipo == TipoPartida.DEBITO:
+            total_debito += item.valor
+        else:
+            total_credito += item.valor
+        itens.append(
+            {"conta": item.conta, "tipo": item.tipo, "valor_ptbr": _valor_ptbr(item.valor)}
+        )
+
+    return {
+        "empresa": empresa,
+        "lancamento": lancamento,
+        "itens": itens,
+        "total_debito_ptbr": _valor_ptbr(total_debito),
+        "total_credito_ptbr": _valor_ptbr(total_credito),
+        "guia_dmpl": _guia_da_marcacao_dmpl(
+            empresa,
+            lancamento,
+            pode_escriturar=_pode_escriturar(request),
+            erros=erros,
+            digitadas=digitadas,
+        ),
+    }
+
+
+def _lancamento_da_empresa_para_o_detalhe(empresa, lancamento_id):
+    # `empresa=empresa` é o isolamento: lançamento de outra empresa dá 404,
+    # nunca confirma a existência (mesma regra das telas irmãs).
+    return get_object_or_404(
+        LancamentoContabil.objects.prefetch_related("itens__conta"),
+        pk=lancamento_id,
+        empresa=empresa,
+    )
+
+
 @login_required
 @require_safe
 def lancamento_detalhe(request, empresa_id, lancamento_id):
@@ -2671,31 +2932,109 @@ def lancamento_detalhe(request, empresa_id, lancamento_id):
     if recusa_livro_caixa is not None:
         return recusa_livro_caixa
 
-    lancamento = get_object_or_404(
-        LancamentoContabil.objects.prefetch_related("itens__conta"),
-        pk=lancamento_id,
-        empresa=empresa,
-    )
+    lancamento = _lancamento_da_empresa_para_o_detalhe(empresa, lancamento_id)
+    contexto = _contexto_do_lancamento_detalhe(request, empresa, lancamento)
+    return render(request, "contabilidade/lancamento_detalhe.html", contexto)
 
-    itens = []
-    total_debito = Decimal("0")
-    total_credito = Decimal("0")
-    for item in lancamento.itens.all():
-        if item.tipo == TipoPartida.DEBITO:
-            total_debito += item.valor
-        else:
-            total_credito += item.valor
-        itens.append(
-            {"conta": item.conta, "tipo": item.tipo, "valor_ptbr": _valor_ptbr(item.valor)}
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def lancamento_marcacao_dmpl(request, empresa_id, lancamento_id):
+    """Guia "DMPL" do lançamento (DL-061, fatia 2 — BL-605, E19): a porta de
+    TELA da marcação manual.
+
+    - **GET** renderiza o MESMO template de `lancamento_detalhe`, com a guia
+      — leitura segue `_pode_ler` (as permissões atuais do detalhe);
+    - **POST** grava o CONJUNTO de uma vez (`acao=salvar`, campos repetidos
+      `linha`/`coluna`/`valor`) ou limpa tudo (`acao=remover`); quem grava é
+      quem ESCRITURA (`_pode_escriturar`, o mesmo papel das telas de
+      escritura — CLIENTE recusa 403), e a regra de verdade é do serviço
+      (`salvar_marcacoes_da_dmpl`/`remover_marcacoes_da_dmpl`).
+
+    `MarcacaoDmplInvalida` vira erro de FORMULÁRIO na própria página, com o
+    que falta e tudo o que foi digitado preservado (nunca 500 — o mesmo
+    molde de `conta_classificacao_dmpl`). Na recusa, nada é gravado: a
+    substituição atômica do serviço nem começa.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    escreve = _pode_escriturar(request)
+    if request.method == "POST":
+        if not escreve:
+            return _resposta_sem_permissao(
+                request, "Seu papel não permite marcar lançamentos da DMPL nesta empresa."
+            )
+    elif not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler a contabilidade desta empresa."
         )
 
-    contexto = {
-        "empresa": empresa,
-        "lancamento": lancamento,
-        "itens": itens,
-        "total_debito_ptbr": _valor_ptbr(total_debito),
-        "total_credito_ptbr": _valor_ptbr(total_credito),
-    }
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    lancamento = _lancamento_da_empresa_para_o_detalhe(empresa, lancamento_id)
+
+    if request.method == "GET":
+        contexto = _contexto_do_lancamento_detalhe(request, empresa, lancamento)
+        return render(request, "contabilidade/lancamento_detalhe.html", contexto)
+
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_DO_FORMULARIO_DE_MARCACAO_DMPL)
+    except DadoNaoContratado as exc:
+        messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+        contexto = _contexto_do_lancamento_detalhe(request, empresa, lancamento)
+        return render(request, "contabilidade/lancamento_detalhe.html", contexto, status=400)
+
+    acao = request.POST.get("acao")
+    if acao == "remover":
+        remover_marcacoes_da_dmpl(lancamento=lancamento, usuario=request.user, request=request)
+        messages.success(
+            request,
+            "Marcações da DMPL removidas: este lançamento volta para a regra automática "
+            "e o veto da emissão, se houver, volta a valer.",
+        )
+        return redirect("contabilidade_web:lancamento_detalhe", empresa.id, lancamento.id)
+
+    erros = []
+    digitadas = []
+    if acao != "salvar":
+        erros.append(
+            "Ação não reconhecida neste formulário: use “Salvar marcações” ou “Remover "
+            "marcações”. Nada foi gravado."
+        )
+    else:
+        erros, digitadas, marcacoes = _marcacoes_do_formulario_de_marcacao(request.POST)
+        if not erros and not marcacoes:
+            # Conjunto VAZIO com "Salvar" limparia as marcações sem ninguém
+            # pedir — a limpeza tem botão próprio ("Remover marcações"), que
+            # diz o que faz no próprio rótulo (direção de arte, §8.4).
+            erros.append(
+                "Nenhuma marcação informada: preencha ao menos uma linha do conjunto, ou "
+                "use “Remover marcações” para voltar para a regra automática. Nada foi gravado."
+            )
+        if not erros:
+            try:
+                salvar_marcacoes_da_dmpl(
+                    lancamento=lancamento,
+                    marcacoes=marcacoes,
+                    usuario=request.user,
+                    request=request,
+                )
+            except MarcacaoDmplInvalida as exc:
+                erros.append(str(exc))
+            else:
+                messages.success(
+                    request,
+                    "Marcações da DMPL gravadas: a demonstração passa a mostrar as células "
+                    "marcadas deste lançamento.",
+                )
+                return redirect("contabilidade_web:lancamento_detalhe", empresa.id, lancamento.id)
+
+    contexto = _contexto_do_lancamento_detalhe(
+        request, empresa, lancamento, erros=erros, digitadas=digitadas
+    )
     return render(request, "contabilidade/lancamento_detalhe.html", contexto)
 
 
@@ -4721,21 +5060,25 @@ ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DMPL_POR_LISTA = {
         "Balanço inclui essas contas e a demonstração, sem coluna, não as mostraria."
     ),
     "contrapartidas_sem_classificacao": (
-        "Classifique a conta listada (link ao lado): o lançamento move uma coluna do "
-        "patrimônio líquido contra ela e a DMPL não consegue decidir de que evento se trata "
-        "— o produto não adivinha o evento e nunca reparte valor por presunção."
+        "Classifique a conta listada (link ao lado) — ou, quando o evento for de fato a "
+        "exceção prevista pela RC-151, marque o lançamento na guia “DMPL” dele (o link de "
+        "conferência do lançamento abre o detalhe, onde a guia está): a DMPL não adivinha o "
+        "evento e nunca reparte valor por presunção."
     ),
     "pares_de_colunas_sem_regra": (
         "A DMPL só atribui evento a pares de colunas conhecidos (lucros acumulados ↔ reservas "
         "de lucros, reservas ou lucros → capital social, capital e reservas → tesouraria, e "
         "lucros acumulados ↔ dividendo adicional proposto). Confira os lançamentos listados; se "
-        "o movimento estiver correto, este par ainda não é atendido pela DMPL e a competência "
-        "não pode ser emitida até que seja."
+        "o movimento estiver correto e o par não for atendido, marque cada lançamento na guia "
+        "“DMPL” dele (o link de conferência abre o detalhe, onde a guia está): o conjunto de "
+        "marcações reparte o efeito do lançamento entre as células e libera a emissão."
     ),
     "lancamentos_ambiguos": (
         "A DMPL não rateia um valor entre eventos. O lançamento efetivado não se altera, e o "
-        "estorno dele não libera esta emissão: enquanto a marcação manual por lançamento não "
-        "existir (fatia 2 — BL-605), o lançamento listado fica fora da emissão."
+        "estorno dele não libera esta emissão: a saída é marcar o lançamento na guia “DMPL” "
+        "dele (o link de conferência abre o detalhe, onde a guia está) — o conjunto de "
+        "marcações reparte o efeito do lançamento entre as células (linha × coluna) e a "
+        "emissão sai com elas."
     ),
     "contas_com_classificacao_dlpa_e_dmpl_divergentes": (
         "Escolha, para cada conta listada, classificações compatíveis na DLPA e na DMPL "

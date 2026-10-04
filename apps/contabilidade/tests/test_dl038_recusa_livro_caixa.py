@@ -20,11 +20,14 @@ mutação C05 (troca `self.get_empresa()` por `EmpresaEscopadaMixin.
 get_empresa(self)` dentro de `LancamentoListCreateView.post`) sobrevivia à
 suíte inteira por causa disso.
 
-Correção: os métodos aceitos por CADA rota são DERIVADOS também — de um
-DELETE de sonda (nenhuma rota deste conjunto aceita DELETE), lendo o
-cabeçalho `Allow` que o Django/DRF sempre populam numa resposta 405. Cada
-método aceito (GET, POST — HEAD/OPTIONS não são interessantes aqui) é
-exercitado; para POST, confere-se ADICIONALMENTE que nada foi gravado.
+Correção: os métodos aceitos por CADA rota são DERIVADOS também — de uma
+sonda TRACE (método que nenhuma rota deste conjunto implementa; era DELETE
+até a DL-061, fatia 2, quando a rota de marcação da DMPL passou a aceitar
+DELETE de verdade e a sonda precisou deixar de EXECUTAR o método que
+sonda), lendo o cabeçalho `Allow` que o Django/DRF sempre populam numa
+resposta 405. Cada método aceito (GET, POST, PATCH, PUT, DELETE —
+HEAD/OPTIONS não são interessantes aqui) é exercitado; para os métodos de
+escrita, confere-se ADICIONALMENTE que nada foi gravado.
 
 Os parâmetros de caminho que não são `empresa_id` (lancamento_id, conta_id,
 ano, mes) recebem `1` — nenhum deles chega a ser usado: tanto
@@ -70,7 +73,7 @@ ROTAS_WEB = _rotas_com_empresa_id(contabilidade_urls_web, "contabilidade_web")
 # Prova de que a derivação encontrou algo de verdade — se `urls.py`/
 # `urls_web.py` for esvaziado por engano, o teste abaixo falha alto em vez
 # de "passar" varrendo zero rotas (vacuidade).
-def test_a_derivacao_encontrou_as_vinte_e_tres_rotas_web_e_as_dezessete_da_api():
+def test_a_derivacao_encontrou_as_vinte_e_quatro_rotas_web_e_as_vinte_da_api():
     # DL-043 fatia 2 (servidor): três rotas novas na API (parâmetro
     # contábil: listar/criar e encerrar vigência; zeramento do resultado).
     # 10 -> 13 do lado da API, sem contrapartida na tela ainda.
@@ -118,8 +121,22 @@ def test_a_derivacao_encontrou_as_vinte_e_tres_rotas_web_e_as_dezessete_da_api()
     # plano). A marca de adoção antecipada da NBC TG 51 NÃO é rota nova: é
     # uma ação (`acao=…`) da própria `parametros_contabeis`, que já existia
     # e já é varrida aqui.
-    assert len(ROTAS_WEB) == 23, ROTAS_WEB
-    assert len(ROTAS_API) == 17, ROTAS_API
+    #
+    # DL-061/CTB-14 (fatia 2, servidor — BL-605): TRÊS rotas novas na API —
+    # "dmpl" (GET da apuração), "conta-classificacao-dmpl" (PATCH da coluna)
+    # e "marcacao-dmpl" (GET/PUT/DELETE da marcação manual do lançamento) —
+    # 17 -> 20 do lado da API. Nenhuma rota nova na tela nesta fatia (a guia
+    # do lançamento, E19, é a etapa seguinte). É também a primeira rota da
+    # API que aceita PUT e DELETE — `_metodos_aceitos` e o laço abaixo foram
+    # ajustados por isso (a sonda virou TRACE, que não executa nada).
+    #
+    # DL-061/CTB-14 (fatia 2, tela — BL-605, E19): UMA rota nova na tela —
+    # "lancamento_marcacao_dmpl" (GET mostra a guia "DMPL" do lançamento;
+    # POST grava o conjunto de marcações, `acao=salvar`, ou limpa,
+    # `acao=remover`) — 23 -> 24 do lado da tela. Nenhuma rota nova na API
+    # nesta etapa (a API da marcação existe desde a fatia 2 do servidor).
+    assert len(ROTAS_WEB) == 24, ROTAS_WEB
+    assert len(ROTAS_API) == 20, ROTAS_API
 
 
 @pytest.fixture
@@ -151,13 +168,21 @@ def _kwargs_para(nomes_de_parametro, empresa_id):
 
 
 def _metodos_aceitos(client, endereco):
-    """Achado B3: os métodos que UMA rota aceita, DERIVADOS de verdade —
-    nenhuma rota deste conjunto aceita DELETE, então uma sonda DELETE
-    sempre dá 405, e o cabeçalho `Allow` (que Django e DRF sempre populam
-    numa resposta 405) lista exatamente o que a rota aceita. Filtra
-    HEAD/OPTIONS — não são interessantes para esta varredura (nenhum dos
-    dois grava nem lê dado de negócio)."""
-    resposta = client.delete(endereco)
+    """Os métodos que UMA rota aceita, DERIVADOS de verdade — nenhuma lista
+    escrita à mão. A sonda é TRACE: um método que NENHUMA rota deste
+    conjunto implementa, então a resposta é sempre 405 e o cabeçalho
+    `Allow` (que Django e DRF sempre populam em 405) lista exatamente o que
+    a rota aceita — sem EXECUTAR nada.
+
+    ⚠️ A sonda era DELETE até a DL-061, fatia 2: com a rota de marcação da
+    DMPL aceitando DELETE de verdade, a sonda antiga EXECUTAVA o handler
+    (e ainda por cima perdia o `Allow`, porque a recusa de livro-caixa
+    responde 400 sem ele — a "sonda quebrada" que o assert abaixo nomeia).
+    TRACE preserva a propriedade do achado B3 (derivar, nunca escrever a
+    lista) sem disparar efeito colateral nenhum. Filtra HEAD/OPTIONS — não
+    são interessantes para esta varredura (nenhum dos dois grava nem lê
+    dado de negócio)."""
+    resposta = client.generic("TRACE", endereco)
     allow = resposta.headers.get("Allow", "")
     metodos = {m.strip().upper() for m in allow.split(",") if m.strip()}
     return metodos - {"HEAD", "OPTIONS"}
@@ -190,6 +215,14 @@ def test_toda_rota_da_api_recusa_empresa_em_livro_caixa_em_todo_metodo_aceito(
         elif metodo == "PATCH":
             # DL-045/A7: primeira rota PATCH da API — `ContaClassificacaoDreView`.
             resposta = client.patch(endereco, data=json.dumps({}), content_type="application/json")
+        elif metodo == "PUT":
+            # DL-061, fatia 2: primeira rota PUT da API — `MarcacaoDmplView`
+            # (substituição do conjunto de marcações da DMPL).
+            resposta = client.put(endereco, data=json.dumps({}), content_type="application/json")
+        elif metodo == "DELETE":
+            # DL-061, fatia 2: primeira rota DELETE da API — `MarcacaoDmplView`
+            # (limpeza das marcações).
+            resposta = client.delete(endereco, data=json.dumps({}), content_type="application/json")
         else:
             continue
 
@@ -200,7 +233,7 @@ def test_toda_rota_da_api_recusa_empresa_em_livro_caixa_em_todo_metodo_aceito(
             metodo,
             corpo,
         )
-        if metodo in ("POST", "PATCH"):
+        if metodo in ("POST", "PATCH", "PUT", "DELETE"):
             assert _nada_foi_gravado(empresa), (rota, metodo, "gravou mesmo recusando")
 
 

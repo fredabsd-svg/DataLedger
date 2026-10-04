@@ -4,16 +4,19 @@ from apps.contabilidade.views import (
     BalanceteView,
     ConferenciaLotesDesbalanceadosView,
     ContaClassificacaoDlpaView,
+    ContaClassificacaoDmplView,
     ContaClassificacaoDreView,
     ContaListCreateView,
     DiarioView,
     DlpaView,
+    DmplView,
     DreView,
     EncerrarCompetenciaView,
     EncerrarVigenciaParametroContabilView,
     EntregarCompetenciaView,
     EstornarLancamentoView,
     LancamentoListCreateView,
+    MarcacaoDmplView,
     ParametrosContabeisListCreateView,
     RazaoView,
     ReabrirCompetenciaView,
@@ -116,5 +119,28 @@ urlpatterns = [
         "empresas/<int:empresa_id>/contas/<int:conta_id>/classificacao-dlpa/",
         ContaClassificacaoDlpaView.as_view(),
         name="conta-classificacao-dlpa",
+    ),
+    # DL-061 (fatia 2, BL-605): a porta de API da DMPL — o mesmo padrão das
+    # duas rotas D8 da DLPA acima. `ano`/`mes` identificam o RECURSO (o
+    # exercício até a competência pedida), como em `dlpa/`.
+    path(
+        "empresas/<int:empresa_id>/dmpl/<int:ano>/<int:mes>/",
+        DmplView.as_view(),
+        name="dmpl",
+    ),
+    # DL-061 (fatia 2): classificar/reclassificar/remover a COLUNA da DMPL de
+    # uma conta existente — espelho de `conta-classificacao-dlpa/`.
+    path(
+        "empresas/<int:empresa_id>/contas/<int:conta_id>/classificacao-dmpl/",
+        ContaClassificacaoDmplView.as_view(),
+        name="conta-classificacao-dmpl",
+    ),
+    # DL-061 (fatia 2, BL-605): a marcação manual da DMPL de UM lançamento
+    # (GET/PUT/DELETE — ler, substituir o conjunto, limpar). `lancamento_id`
+    # identifica o RECURSO, mesmo padrão de `lancamentos/<id>/estornar/`.
+    path(
+        "empresas/<int:empresa_id>/lancamentos/<int:lancamento_id>/marcacao-dmpl/",
+        MarcacaoDmplView.as_view(),
+        name="marcacao-dmpl",
     ),
 ]

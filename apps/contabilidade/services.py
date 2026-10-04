@@ -6,6 +6,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, OperationalError, connection, transaction
 from django.db.models import Count, DecimalField, F, Max, Min, Q, Sum
 from django.utils import timezone
@@ -36,6 +37,7 @@ from apps.contabilidade.models import (
     GrupoDaLei,
     ItemLancamento,
     LancamentoContabil,
+    MarcacaoDmpl,
     NaturezaConta,
     ParametroContabilEmpresa,
     PeriodicidadeZeramento,
@@ -122,6 +124,16 @@ def _prefixo_chave_zeramento_da_empresa(empresa_id):
 
 class LancamentoInvalido(Exception):
     """Levantado quando os dados de um lançamento violam uma regra contábil."""
+
+
+class MarcacaoDmplInvalida(Exception):
+    """Marcação manual da DMPL recusada (DL-061, fatia 2 — E15 a E17).
+
+    Distinta de `LancamentoInvalido` de propósito: o lançamento não está em
+    questão (ele é imutável e continua correto) — quem não se sustenta é o
+    CONJUNTO de marcações que tenta reclassificar a leitura dele. A view
+    traduz para 400 (`DRFValidationError`), como as irmãs.
+    """
 
 
 class ChaveIdempotenciaConflitante(Exception):
@@ -6158,6 +6170,20 @@ _TITULOS_DAS_LINHAS_DA_DMPL = {
     _LINHA_SALDO_FINAL: "Saldo no fim do período",
 }
 
+# As linhas de EVENTO da DMPL — as ÚNICAS que uma marcação manual pode
+# ocupar (DL-061, fatia 2, E15). As duas linhas de saldo ficam de fora de
+# propósito: `saldo_inicial` e `saldo_final` são CALCULADOS pela apuração
+# (saldo anterior + movimento), não distribuídos por lançamento — uma
+# marcação nelas seria aceita pela soma por coluna e sumiria do documento,
+# porque as duas linhas são renderizadas a partir dos saldos, nunca de
+# `valores`. É a fonte da validação de `MarcacaoDmpl.clean()` (models.py,
+# com import tardio deste módulo) e de `salvar_marcacoes_da_dmpl`.
+_LINHAS_DE_EVENTO_DA_DMPL = tuple(
+    chave
+    for chave in _TITULOS_DAS_LINHAS_DA_DMPL
+    if chave not in (_LINHA_SALDO_INICIAL, _LINHA_SALDO_FINAL)
+)
+
 # A TABELA DE IDENTIDADE entre a DLPA e a DMPL (E3): cada linha FIXA da DLPA
 # no evento da DMPL que a espelha. As linhas de reserva (`transferencia:<r>` /
 # `reversao:<r>`) viram "constituição" / "reversão" de reservas pelo prefixo —
@@ -6676,6 +6702,43 @@ def _orientacao_para_conta_de_pl_sem_coluna(conta):
     )
 
 
+def _colunas_de_cada_conta(contas):
+    """`(coluna_de, contas_da_coluna, desconhecidas)` — a coluna da DMPL de
+    cada conta da empresa (DL-061, E1).
+
+    `coluna_de` é `{conta_id: coluna}` SÓ das contas com classificação
+    dentro do enum; `contas_da_coluna`, o inverso (`{coluna: [contas]}`, na
+    ordem de `contas`); `desconhecidas`, as entradas de pendência das contas
+    cuja classificação gravada está FORA do enum (só por ORM/SQL direto) —
+    a conta fica SEM coluna, nunca presumida.
+
+    Extraída de `apurar_dmpl` sem mudar o comportamento dela: é a MESMA
+    leitura que `salvar_marcacoes_da_dmpl` precisa para julgar uma marcação
+    (a coluna tem de ser decidível e renderizável), e duplicar a regra em
+    dois pontos é o que a AGENTS.md §8 proíbe.
+    """
+    coluna_de = {}
+    contas_da_coluna = defaultdict(list)
+    desconhecidas = []
+    for conta in contas.values():
+        classificacao = conta.classificacao_dmpl
+        if classificacao is None:
+            continue
+        if classificacao not in ClassificacaoDmpl.values:
+            desconhecidas.append(
+                {
+                    "conta_id": conta.id,
+                    "conta": conta.codigo,
+                    "nome": conta.nome,
+                    "classificacao_dmpl": classificacao,
+                }
+            )
+            continue
+        coluna_de[conta.id] = classificacao
+        contas_da_coluna[classificacao].append(conta)
+    return coluna_de, contas_da_coluna, desconhecidas
+
+
 def apurar_dmpl(*, empresa, ano, mes):
     """Demonstração das Mutações do Patrimônio Líquido (DMPL) — DL-061
     (CTB-14 da DL-048), fatia 1: o exercício `ano` (01/01, HI-28) até o fim
@@ -6707,6 +6770,17 @@ def apurar_dmpl(*, empresa, ano, mes):
     `_saldo_anterior_por_conta`, `_itens_dos_lancamentos_do_exercicio_que_
     tocam` e `_classificar_contrapartida_pela_dlpa` são as funções que
     `apurar_dlpa` também chama.
+
+    **Marcação manual (DL-061, fatia 2 — BL-605, E15–E17).** O lançamento que
+    tem `MarcacaoDmpl` (só existe para o caso que a regra não decide — ver
+    `salvar_marcacoes_da_dmpl`) usa as células DELA no lugar das automáticas,
+    e os problemas dele deixam de vetar; o `movimento` continua o mesmo e o id
+    do lançamento continua indo para `lancamentos_da_celula`. Sem marcação,
+    nada muda: a leitura é a de sempre, byte a byte. Se a marcação deixar de
+    reproduzir o movimento do lançamento (classificação de conta mudou depois
+    de ela ser gravada) ou apontar para coluna sem conta classificada, a
+    leitura automática volta e o veto acende — o documento nunca publica
+    eventos que não fecham com o saldo.
 
     **Conciliação (E5) — exigência DERIVADA do item 106(d) da NBC TG 26 (R5)
     (107(c) da TG 51), NÃO citação literal de nenhum item.** Dois caminhos
@@ -6750,25 +6824,7 @@ def apurar_dmpl(*, empresa, ano, mes):
 
         # Coluna de cada conta. Classificação gravada fora do enum vira
         # pendência nomeada e a conta fica SEM coluna (nunca presumida).
-        coluna_de = {}
-        contas_da_coluna = defaultdict(list)
-        desconhecidas = []
-        for conta in contas.values():
-            classificacao = conta.classificacao_dmpl
-            if classificacao is None:
-                continue
-            if classificacao not in ClassificacaoDmpl.values:
-                desconhecidas.append(
-                    {
-                        "conta_id": conta.id,
-                        "conta": conta.codigo,
-                        "nome": conta.nome,
-                        "classificacao_dmpl": classificacao,
-                    }
-                )
-                continue
-            coluna_de[conta.id] = classificacao
-            contas_da_coluna[classificacao].append(conta)
+        coluna_de, contas_da_coluna, desconhecidas = _colunas_de_cada_conta(contas)
 
         # E1: só as colunas com conta classificada, na ordem do item 111A.
         colunas_chaves = [
@@ -6929,6 +6985,17 @@ def apurar_dmpl(*, empresa, ano, mes):
                 empresa=empresa, id__in=list(itens_por_lancamento), estorno_de__isnull=False
             ).values_list("id", flat=True)
         )
+        # DL-061, fatia 2 (BL-605, E15–E17): as marcações manuais dos
+        # lançamentos deste recorte, UMA consulta (o custo continua constante
+        # em relação ao número de lançamentos — ver o teste de teto de
+        # consultas). Lançamento MARCADO usa as células da marcação no lugar
+        # das automáticas e seus problemas deixam de vetar; sem marcação, a
+        # leitura automática continua byte a byte a de sempre.
+        marcacoes_por_lancamento = defaultdict(list)
+        for marcacao in MarcacaoDmpl.objects.filter(
+            empresa=empresa, lancamento_id__in=list(itens_por_lancamento)
+        ).order_by("id"):
+            marcacoes_por_lancamento[marcacao.lancamento_id].append(marcacao)
 
         valores = defaultdict(lambda: defaultdict(lambda: zero))
         lancamentos_da_celula = defaultdict(lambda: defaultdict(list))
@@ -6943,6 +7010,24 @@ def apurar_dmpl(*, empresa, ano, mes):
                 contas=contas,
                 e_estorno=lancamento_id in ids_de_estorno,
             )
+            # BL-605 (E15–E17): lançamento MARCADO troca as células
+            # automáticas pelas da marcação e seus problemas deixam de vetar.
+            # O `movimento` segue o MESMO (calculado acima pela regra), e o id
+            # do lançamento continua indo para `lancamentos_da_celula` — a
+            # marcação muda ONDE o valor aparece, nunca QUANTO existe. As
+            # duas condições abaixo são a mesma garantia que
+            # `salvar_marcacoes_da_dmpl` exige no ato de marcar: um conjunto
+            # que deixou de reproduzir o movimento (classificação de conta
+            # mudou depois da marcação) ou que aponta para coluna sem conta
+            # classificada (célula que NÃO renderizaria) volta para a leitura
+            # automática — e o veto acende de novo, em vez de o documento
+            # publicar eventos que não fecham com o saldo.
+            marcacoes_do_lancamento = marcacoes_por_lancamento.get(lancamento_id)
+            if marcacoes_do_lancamento and _marcacoes_valem_como_celulas(
+                marcacoes_do_lancamento, movimento_do_lancamento, colunas_chaves
+            ):
+                celulas = [(m.linha, m.coluna, m.valor) for m in marcacoes_do_lancamento]
+                problemas = []
             for coluna, valor in movimento_do_lancamento.items():
                 movimento[coluna] += valor
             for linha, coluna, valor in celulas:
@@ -7230,6 +7315,309 @@ def classificar_conta_na_dmpl(*, conta, classificacao, usuario, request=None):
         },
     )
     return conta
+
+
+# ---------------------------------------------------------------------------
+# DL-061 — fatia 2 (BL-605): marcação manual por lançamento (E15–E17).
+#
+# A saída para a exceção prevista pela RC-151: quando a regra automática de
+# linha não decide o evento, o contador reparte o efeito do lançamento à mão
+# entre as células (linha × coluna) — a "guia DMPL" do sistema de referência
+# (manual, p. 193–194). A marcação é a EXCEÇÃO, nunca o caminho normal: o
+# contrato (E16) e a recusa para quem a regra decide (E17) são o que
+# mantêm a RC-151 valendo como propriedade.
+# ---------------------------------------------------------------------------
+
+
+def _colunas_em_desacordo(marcacoes, movimento):
+    """`{coluna: (soma_das_marcacoes, efeito_no_lancamento)}` das colunas em
+    que o conjunto NÃO reproduz o movimento do lançamento (E16). Vazio é o
+    único resultado aceito por quem chama.
+
+    `movimento` é o retorno de `_atribuir_lancamento_as_linhas_da_dmpl` para o
+    MESMO lançamento; coluna ausente de um dos dois lados conta como zero —
+    "Σ `valor` por coluna = `movimento` daquele lançamento" vale para TODAS as
+    colunas, não só para as que aparecem nos dois lados. É esta igualdade que
+    mantém `saldo_final = saldo_inicial + movimento` e a conciliação com o
+    Balanço valendo com marcação (a marcação muda AONDE o valor aparece,
+    nunca QUANTO existe).
+    """
+    zero = Decimal("0")
+    somas = defaultdict(lambda: zero)
+    for marcacao in marcacoes:
+        somas[marcacao.coluna] += marcacao.valor
+    desacordos = {}
+    for coluna in set(somas) | set(movimento):
+        soma = somas.get(coluna, zero)
+        efeito = movimento.get(coluna, zero)
+        if soma != efeito:
+            desacordos[coluna] = (soma, efeito)
+    return desacordos
+
+
+def _marcacoes_valem_como_celulas(marcacoes, movimento, colunas_renderizadas):
+    """A marcação deste lançamento pode substituir as células automáticas em
+    `apurar_dmpl`? Três condições, as MESMAS que `salvar_marcacoes_da_dmpl`
+    exige no ato de marcar:
+
+    1. toda coluna marcada é MOVIMENTADA pelo lançamento — há ao menos um
+       item dele naquela coluna (as chaves de `movimento` vêm dos ITENS, e
+       não do efeito líquido: o par compra/venda de valores iguais na mesma
+       coluna tem efeito zero e continua marcável). Coluna sem item é evento
+       INVENTADO: a marcação citaria um movimento que o lançamento não tem;
+    2. toda coluna marcada renderiza (é coluna com conta classificada, dentro
+       de `colunas_renderizadas`) — célula de coluna fora do documento
+       SUMIRIA da demonstração em silêncio;
+    3. o conjunto reproduz o `movimento` do lançamento (E16,
+       `_colunas_em_desacordo` vazio) — se a classificação de uma conta mudou
+       DEPOIS da marcação, a igualdade pode ter se rompido, e publicar as
+       células marcadas faria os eventos do documento não fecharem com o
+       saldo.
+
+    Quando a resposta é "não", `apurar_dmpl` volta para a leitura automática,
+    e os problemas dela vetam de novo: o documento nunca sai com número que a
+    marcação não sustenta.
+    """
+    if any(marcacao.coluna not in colunas_renderizadas for marcacao in marcacoes):
+        return False
+    if any(marcacao.coluna not in movimento for marcacao in marcacoes):
+        return False
+    return not _colunas_em_desacordo(marcacoes, movimento)
+
+
+def _marcacao_como_trilha(marcacao):
+    """A marcação no formato da `registrar()` — `detalhes` é JSON, e valor
+    monetário entra como TEXTO de duas casas (mesmo padrão da trilha do
+    livro-caixa): `Decimal` não serializa em `JSONField`, e `str(Decimal)`
+    cru mudaria de forma com a escala do valor."""
+    return {
+        "linha": marcacao.linha,
+        "coluna": marcacao.coluna,
+        "valor": str(Decimal(marcacao.valor).quantize(Decimal("0.01"))),
+    }
+
+
+def _instancias_de_marcacao(*, lancamento, marcacoes, usuario):
+    """Normaliza a entrada de `salvar_marcacoes_da_dmpl` em instâncias de
+    `MarcacaoDmpl` (não gravadas) e aplica a validação (a) do contrato (E15):
+    linha e coluna válidas, `valor` monetário (via `para_decimal` — float é
+    recusado) e ≠ 0, linha × coluna única no conjunto.
+
+    Levanta `MarcacaoDmplInvalida`; a regra de linha/coluna/valor mora em
+    `MarcacaoDmpl.clean()` (models.py) e roda aqui por `full_clean()`, para
+    ser a MESMA regra do admin/`ModelForm`. `validate_unique=False` e
+    `validate_constraints=False` porque as duas checagens do banco comparam
+    contra as linhas ANTIGAS — que este mesmo chamado vai substituir —, e a
+    unicidade do CONJUNTO novo é julgada aqui, contra `vistas`.
+    """
+    zero = Decimal("0")
+    instancias = []
+    vistas = set()
+    try:
+        entradas = list(marcacoes)
+    except TypeError as exc:
+        raise MarcacaoDmplInvalida(
+            "As marcações da DMPL devem vir como lista de "
+            '{"linha", "coluna", "valor"} — uma marcação por evento do lançamento.'
+        ) from exc
+    for indice, entrada in enumerate(entradas, start=1):
+        # A2 (reconferência): o conjunto de chaves tem de ser EXATAMENTE o
+        # contratado — chave FALTANDO e chave A MAIS são a mesma recusa
+        # (BL-196: dado enviado nunca é ignorado em silêncio; a versão
+        # anterior aceitava a chave extra e a descartava).
+        if not isinstance(entrada, dict) or set(entrada) != {"linha", "coluna", "valor"}:
+            raise MarcacaoDmplInvalida(
+                f"A marcação {indice} precisa ter as chaves "
+                '{"linha", "coluna", "valor"} — nada além disso.'
+            )
+        try:
+            # `para_decimal` recusa float e bool (contrato monetário,
+            # AGENTS.md §10): dinheiro é Decimal, texto ou inteiro.
+            valor = para_decimal(entrada["valor"])
+        except (ValorMonetarioInvalido, TypeError) as exc:
+            raise MarcacaoDmplInvalida(f"A marcação {indice} tem valor inválido: {exc}") from exc
+        marcacao = MarcacaoDmpl(
+            lancamento=lancamento,
+            empresa=lancamento.empresa,
+            linha=entrada["linha"],
+            coluna=entrada["coluna"],
+            valor=valor,
+            criado_por=usuario,
+        )
+        try:
+            marcacao.full_clean(validate_unique=False, validate_constraints=False)
+        except DjangoValidationError as exc:
+            raise MarcacaoDmplInvalida(
+                f"A marcação {indice} foi recusada: " + " ".join(mensagens_da_validacao_django(exc))
+            ) from exc
+        if valor == zero:
+            # Inalcançável hoje (`MarcacaoDmpl.clean()` já recusa); guardado
+            # aqui porque é a REGRA DO CONTRATO (E16) e o caminho de serviço
+            # não pode depender de outra camada tê-la aplicado.
+            raise MarcacaoDmplInvalida(
+                f"A marcação {indice} tem valor zero: marcação descreve evento, "
+                "e evento nenhum tem efeito zero."
+            )
+        chave = (marcacao.linha, marcacao.coluna)
+        if chave in vistas:
+            raise MarcacaoDmplInvalida(
+                f'O conjunto tem DUAS marcações para a linha "{marcacao.linha}" da '
+                f'coluna "{marcacao.coluna}": cada linha × coluna aparece uma única '
+                "vez por lançamento (some os valores, se for o mesmo evento)."
+            )
+        vistas.add(chave)
+        instancias.append(marcacao)
+    return instancias
+
+
+@transaction.atomic
+def salvar_marcacoes_da_dmpl(*, lancamento, marcacoes, usuario, request=None):
+    """Substitui, de uma vez e em UMA transação, o conjunto de marcações
+    manuais da DMPL de UM lançamento (DL-061, fatia 2 — E15 a E17).
+
+    `marcacoes` é uma lista de `{"linha", "coluna", "valor"}` (o `valor` é
+    normalizado por `para_decimal`); lista VAZIA limpa as marcações, com
+    trilha igual — voltar para a regra automática é operação normal, não erro.
+
+    **Contrato (E16):** Σ `valor` por coluna = `movimento` daquele lançamento
+    (o retorno de `_atribuir_lancamento_as_linhas_da_dmpl`, com os MESMOS
+    argumentos que `apurar_dmpl` usa). Fora disso a marcação é recusada
+    nomeando a coluna e os valores — a marcação muda AONDE o valor aparece,
+    nunca QUANTO existe; por construção, `saldo_final = saldo_inicial +
+    movimento` e a conciliação com o Balanço continuam valendo.
+
+    **Só na exceção (E17, RC-151 como propriedade):** a atribuição automática
+    do lançamento tem de produzir PROBLEMA (linha indefinida, par sem regra
+    ou lançamento ambíguo). Se a regra decide sozinha, o servidor recusa — o
+    escritório deixa o padrão, e "repartir à mão" não vira caminho normal. A
+    lista vazia não passa por esta checagem: desmarcar SEMPRE pode (é o que
+    devolve o veto exatamente como estava antes de marcar).
+
+    Também recusa marcação em coluna sem nenhuma conta classificada na
+    empresa (a célula não renderizaria e sumiria do documento em silêncio) e
+    marcação em coluna que o lançamento NÃO movimenta (nenhum item dele na
+    coluna — A1 da reconferência: um par que se cancela em coluna sem item
+    passaria pelo Σ e publicaria um evento inventado. A propriedade vem dos
+    ITENS, não do efeito líquido: o par compra/venda de valores iguais na
+    MESMA coluna tem efeito zero e continua marcável).
+
+    **Transação única (E15):** substituição (apaga e grava) e trilha
+    (`RegistroAuditoria`, com o conjunto antes e o de depois) acontecem no
+    MESMO `transaction.atomic` — a falha da trilha desfaz a gravação, e uma
+    corrida de duas substituições concorrentes do MESMO lançamento é
+    serializada pela trava `select_for_update()` do lançamento (o "antes" da
+    trilha é sempre o valor real).
+
+    **O livro não muda (E15):** nada é gravado em `LancamentoContabil` nem em
+    `ItemLancamento` — lançamento efetivado é imutável, e a marcação é
+    reclassificação da LEITURA.
+
+    PERMISSÃO: verificada pela view (`PodeEscriturar`), como nas irmãs.
+    Não verifica a empresa do lançamento: quem chama resolve o escopo
+    (`get_object_or_404(..., empresa=empresa)`); a consistência marcação ×
+    lançamento é `MarcacaoDmpl.clean()`.
+
+    Levanta `MarcacaoDmplInvalida` (a view traduz para 400). Devolve a lista
+    de `MarcacaoDmpl` já gravada, em ordem de entrada.
+    """
+    # Trava do lançamento como MUTEX do conjunto: duas substituições
+    # concorrentes serializam aqui, e a segunda vê o resultado da primeira.
+    LancamentoContabil.objects.select_for_update().get(pk=lancamento.pk)
+
+    instancias = _instancias_de_marcacao(
+        lancamento=lancamento, marcacoes=marcacoes, usuario=usuario
+    )
+
+    if instancias:
+        contas = {conta.id: conta for conta in Conta.objects.filter(empresa=lancamento.empresa)}
+        coluna_de, contas_da_coluna, _desconhecidas = _colunas_de_cada_conta(contas)
+        # (b) — E17: a regra decide este lançamento? Então não há exceção que
+        # justifique repartir à mão.
+        _celulas, movimento_do_lancamento, problemas = _atribuir_lancamento_as_linhas_da_dmpl(
+            itens=list(lancamento.itens.order_by("id")),
+            coluna_de=coluna_de,
+            contas=contas,
+            e_estorno=lancamento.estorno_de_id is not None,
+        )
+        if not problemas:
+            raise MarcacaoDmplInvalida(
+                f"O lançamento {lancamento.pk} é decidido pela regra automática da DMPL "
+                "(a atribuição não produz problema nenhum): a marcação manual é a "
+                "EXCEÇÃO prevista pela RC-151 e não substitui o padrão do sistema. "
+                "Remova a marcação e use as células automáticas."
+            )
+        for marcacao in instancias:
+            if marcacao.coluna not in contas_da_coluna:
+                rotulo = ClassificacaoDmpl(marcacao.coluna).label
+                raise MarcacaoDmplInvalida(
+                    f'A coluna "{rotulo}" não aparece na DMPL porque nenhuma conta do '
+                    "patrimônio líquido está classificada nela: a célula marcada não "
+                    "renderizaria. Classifique uma conta nessa coluna (plano de contas) "
+                    "antes de marcar lançamento nela."
+                )
+            # A1 (reconferência): toda coluna citada tem de ser MOVIMENTADA
+            # pelo lançamento — ao menos UM item dele naquela coluna. A
+            # propriedade vem dos ITENS (as chaves de `movimento_do_lancamento`
+            # são exatamente as colunas com item), NÃO do efeito líquido: o
+            # par compra/venda de valores iguais na mesma coluna tem efeito
+            # zero e continua marcável. Sem item na coluna, um par que se
+            # cancela passaria pelo Σ (0 = 0) e viraria evento INVENTADO no
+            # documento — exatamente o que a auditoria mediu.
+            if marcacao.coluna not in movimento_do_lancamento:
+                rotulo = ClassificacaoDmpl(marcacao.coluna).label
+                raise MarcacaoDmplInvalida(
+                    f'O lançamento {lancamento.pk} não movimenta a coluna "{rotulo}": '
+                    "nenhum item dele cai nesta coluna. Marcação só pode citar coluna "
+                    "que o lançamento move — fora disso o par marcado seria um evento "
+                    "inventado no documento. Se o evento existe, lance-o primeiro "
+                    "(o lançamento efetivado continua imutável; a marcação só "
+                    "reparte o efeito de um lançamento real)."
+                )
+        # (c) — E16: o conjunto reproduz o efeito de cada coluna?
+        desacordos = _colunas_em_desacordo(instancias, movimento_do_lancamento)
+        if desacordos:
+            detalhes = "; ".join(
+                f'"{ClassificacaoDmpl(coluna).label}": soma das marcações {soma}, '
+                f"efeito do lançamento {efeito}"
+                for coluna, (soma, efeito) in sorted(desacordos.items())
+            )
+            raise MarcacaoDmplInvalida(
+                "As marcações não reproduzem o efeito do lançamento por coluna — o "
+                "valor marcado precisa somar, em cada coluna, exatamente o efeito "
+                f"daquele lançamento na coluna. Divergência: {detalhes}."
+            )
+
+    # Trilha ANTES da substituição — o "antes" é o conjunto real gravado.
+    marcacoes_antes = [
+        _marcacao_como_trilha(m)
+        for m in MarcacaoDmpl.objects.filter(lancamento=lancamento).order_by("id")
+    ]
+    MarcacaoDmpl.objects.filter(lancamento=lancamento).delete()
+    for marcacao in instancias:
+        marcacao.save()
+    registrar(
+        acao="lancamento.marcacoes_dmpl_alteradas",
+        usuario=usuario,
+        escritorio=lancamento.empresa.escritorio,
+        objeto=lancamento,
+        request=request,
+        detalhes={
+            "marcacoes_antes": marcacoes_antes,
+            "marcacoes_depois": [_marcacao_como_trilha(m) for m in instancias],
+        },
+    )
+    return instancias
+
+
+def remover_marcacoes_da_dmpl(*, lancamento, usuario, request=None):
+    """Limpa TODAS as marcações manuais da DMPL de um lançamento — o caminho
+    de volta para a regra automática (DL-061, fatia 2). Equivale a
+    `salvar_marcacoes_da_dmpl(..., marcacoes=[], ...)`: substituição atômica
+    com trilha (antes/depois), sem tocar no lançamento. Devolve `[]`.
+    """
+    return salvar_marcacoes_da_dmpl(
+        lancamento=lancamento, marcacoes=[], usuario=usuario, request=request
+    )
 
 
 def movimento_fora_do_periodo(*, empresa, inicio, fim, conta=None, ids_contas=None):

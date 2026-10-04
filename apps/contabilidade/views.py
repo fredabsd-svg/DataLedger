@@ -1,5 +1,6 @@
 import hashlib
 import re
+from datetime import date
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -15,6 +16,7 @@ from apps.auditoria.services import registrar
 from apps.contabilidade.models import (
     Conta,
     LancamentoContabil,
+    MarcacaoDmpl,
     NaturezaConta,
     ParametroContabilEmpresa,
     TipoPartida,
@@ -22,9 +24,11 @@ from apps.contabilidade.models import (
 from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
 from apps.contabilidade.serializers import (
     ClassificacaoDlpaPatchSerializer,
+    ClassificacaoDmplPatchSerializer,
     ClassificacaoDrePatchSerializer,
     ContaSerializer,
     LancamentoContabilSerializer,
+    MarcacaoDmplGravacaoSerializer,
 )
 from apps.contabilidade.services import (
     ChaveIdempotenciaConflitante,
@@ -34,15 +38,19 @@ from apps.contabilidade.services import (
     CompetenciaOperacaoRecusada,
     HierarquiaInconsistente,
     LancamentoInvalido,
+    MarcacaoDmplInvalida,
     ParametroContabilInvalido,
     VigenciaParametroContabilConflitante,
     apurar_balancete,
     apurar_dlpa,
+    apurar_dmpl,
     apurar_dre,
     apurar_razao,
     avaliar_emissao_da_dlpa,
+    avaliar_emissao_da_dmpl,
     avaliar_emissao_da_dre,
     classificar_conta_na_dlpa,
+    classificar_conta_na_dmpl,
     classificar_conta_na_dre,
     criar_lancamento,
     encerrar_competencia,
@@ -60,6 +68,8 @@ from apps.contabilidade.services import (
     pre_visualizar_zeramento,
     reabrir_competencia,
     registrar_parametro_contabil,
+    remover_marcacoes_da_dmpl,
+    salvar_marcacoes_da_dmpl,
     zerar_resultado,
 )
 from apps.core.datas import DataInvalida, para_data
@@ -277,6 +287,32 @@ CONTRATO_PATCH_CLASSIFICACAO_DRE = ContratoDeRequisicao(
 CONTRATO_PATCH_CLASSIFICACAO_DLPA = ContratoDeRequisicao(
     campos={"classificacao_dlpa"},
     contexto="na classificação da linha da DLPA",
+)
+# DL-061 (fatia 2, E18): PATCH da COLUNA da DMPL — um campo só, e a própria
+# conta vem da URL. Contrato NOVO (e não o mesmo da DLPA) pelo motivo de
+# sempre: a política recusa chave desconhecida por NOME, e um corpo com
+# `classificacao_dlpa` neste PATCH tem de ser recusado, não aplicado à
+# classificação errada em silêncio.
+CONTRATO_PATCH_CLASSIFICACAO_DMPL = ContratoDeRequisicao(
+    campos={"classificacao_dmpl"},
+    contexto="na classificação da coluna da DMPL",
+)
+# DL-061 (fatia 2, BL-605): PUT da marcação manual da DMPL — o corpo é o
+# CONJUNTO completo de marcações do lançamento (substituição atômica); o
+# lançamento vem da URL. A lista de cada marcação é validada pelo serializer
+# (que recusa também a chave desconhecida DENTRO de cada item).
+CONTRATO_PUT_MARCACAO_DMPL = ContratoDeRequisicao(
+    campos={"marcacoes"},
+    contexto="na marcação da DMPL",
+)
+# DELETE da marcação: rota de AÇÃO — o que limpar vem da URL, e o corpo não
+# tem contrato nenhum (`campos=frozenset()` é "nenhum campo aceito"), mesmo
+# desenho do estorno. Quem mandar Idempotency-Key aqui precisa saber que ela
+# não tem efeito: esta rota não tem contrato de idempotência.
+CONTRATO_DELETE_MARCACAO_DMPL = ContratoDeRequisicao(
+    campos=frozenset(),
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na limpeza da marcação da DMPL",
 )
 
 
@@ -2016,6 +2052,221 @@ class ContaClassificacaoDlpaView(EmpresaEscopadaContabilMixin, APIView):
             ) from exc
 
         return Response(ContaSerializer(conta).data, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# DL-061, fatia 2 (BL-605, E18): a porta de API da DMPL — a apuração
+# (`DmplView`), a coluna da conta (`ContaClassificacaoDmplView`) e a marcação
+# manual por lançamento (`MarcacaoDmplView`), no padrão exato das rotas D8 da
+# DLPA acima.
+# ---------------------------------------------------------------------------
+
+
+def _para_json_da_apuracao(valor):
+    """Converte uma estrutura de `apurar_dmpl` para o corpo JSON SEM mudar o
+    formato: `Decimal` vira texto de duas casas (`_como_moeda` — DL-030:
+    dinheiro nunca é número JSON), data vira ISO 8601, e o resto segue igual.
+
+    Recursivo de propósito: `pendencias`/`avisos`/`linhas` crescem por dict e
+    por lista, e uma tabela escrita à mão chave a chave envelheceria a cada
+    pendência nova — a divergência apareceria como campo sumindo do JSON, não
+    como erro. O contrato é o MESMO dicionário que a tela consome.
+    """
+    if isinstance(valor, Decimal):
+        return _como_moeda(valor)
+    if isinstance(valor, date):
+        return valor.isoformat()
+    if isinstance(valor, dict):
+        return {chave: _para_json_da_apuracao(item) for chave, item in valor.items()}
+    if isinstance(valor, (list, tuple)):
+        return [_para_json_da_apuracao(item) for item in valor]
+    return valor
+
+
+def _marcacoes_da_dmpl_para_json(lancamento):
+    """O conjunto de marcações manuais de UM lançamento, no formato do
+    GET/PUT/DELETE de `MarcacaoDmplView`: `{"lancamento_id", "marcacoes":
+    [{linha, coluna, valor}]}`. `valor` como texto de duas casas (DL-030), e
+    a mesma forma de leitura e de gravação — quem lê sabe o que manda.
+    """
+    return {
+        "lancamento_id": lancamento.id,
+        "marcacoes": [
+            {
+                "linha": marcacao.linha,
+                "coluna": marcacao.coluna,
+                "valor": _como_moeda(marcacao.valor),
+            }
+            for marcacao in MarcacaoDmpl.objects.filter(lancamento=lancamento).order_by("id")
+        ],
+    }
+
+
+class DmplView(EmpresaEscopadaContabilMixin, APIView):
+    """DL-061 (fatia 2, E18): `GET` da DMPL — a apuração inteira, o MESMO
+    contrato da tela (e o mesmo padrão de `DlpaView`: a view REVELA, não
+    recalcula — regra de negócio, autorização, isolamento e veto moram no
+    serviço e na camada de permissões).
+
+    **Autorização:** a das outras saídas contábeis com período —
+    `PodeLerContabilidade`; CLIENTE nunca lê (403).
+
+    **Período:** `ano`/`mes` identificam o RECURSO (o exercício até a
+    competência pedida), mesmo padrão de `dlpa/<int:ano>/<int:mes>/`;
+    `_validar_ano_mes` recusa fora da faixa com 400.
+
+    **409 quando `pode_emitir` é falso, com o corpo INTEIRO mesmo assim:**
+    mesmo desenho de `DlpaView` — o status informa o veto, não substitui a
+    apuração (o cliente distingue "não pode emitir" de "o servidor não sabe
+    ler" e vê o que falta, nomeado).
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
+
+    def get(self, request, empresa_id, ano, mes):
+        empresa = self.get_empresa()
+        _validar_ano_mes(ano, mes)
+
+        try:
+            dmpl = apurar_dmpl(empresa=empresa, ano=ano, mes=mes)
+        except HierarquiaInconsistente as exc:
+            # Mesmo padrão do Balancete/Razão/DRE/DLPA: ciclo ou `conta_pai`
+            # de outra empresa na hierarquia — resposta controlada, nunca 500.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        emissao = avaliar_emissao_da_dmpl(dmpl)
+        corpo = _para_json_da_apuracao(dmpl)
+        corpo.update(
+            {
+                "pode_emitir": emissao["pode_emitir"],
+                "motivos": list(emissao["motivos"]),
+                "listas_pendentes": _para_json_da_apuracao(emissao["listas_pendentes"]),
+            }
+        )
+        status_code = status.HTTP_200_OK if emissao["pode_emitir"] else status.HTTP_409_CONFLICT
+        return Response(corpo, status=status_code)
+
+
+class ContaClassificacaoDmplView(EmpresaEscopadaContabilMixin, APIView):
+    """DL-061 (fatia 2, E18): `PATCH` da COLUNA da DMPL (`classificacao_dmpl`)
+    de uma conta já existente — o espelho de `ContaClassificacaoDlpaView`.
+
+    Autenticação e autorização são as MESMAS da tela e da DLPA:
+    `TemEscritorioAtivo` + `PodeEscriturar` (quem escritura classifica);
+    CLIENTE 403. Corpo: `{"classificacao_dmpl": "<valor de ClassificacaoDmpl,
+    ou null/"" para remover>"}` — um campo só
+    (`CONTRATO_PATCH_CLASSIFICACAO_DMPL`).
+
+    Validação em DUAS camadas, sem duplicar regra: o serializer valida o TIPO
+    do corpo e do valor (400, nunca 500); a compatibilidade com `Conta.tipo`
+    e com a DLPA é decidida por `Conta.full_clean()` dentro de
+    `classificar_conta_na_dmpl`, com trilha (antes/depois) na MESMA
+    transação. 200 com a conta serializada quando aceito; **404** quando a
+    conta não existe NESTA empresa (isolamento — `filter(empresa=empresa)`,
+    nunca consulta sem esse filtro).
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturar]
+
+    def patch(self, request, empresa_id, conta_id):
+        empresa = self.get_empresa()
+        conta = get_object_or_404(Conta, pk=conta_id, empresa=empresa)
+        _recusar_dado_nao_contratado(request, CONTRATO_PATCH_CLASSIFICACAO_DMPL)
+
+        entrada = ClassificacaoDmplPatchSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        classificacao = entrada.validated_data.get("classificacao_dmpl") or None
+
+        try:
+            classificar_conta_na_dmpl(
+                conta=conta,
+                classificacao=classificacao,
+                usuario=request.user,
+                request=request,
+            )
+        except DjangoValidationError as exc:
+            raise DRFValidationError(
+                {"classificacao_dmpl": mensagens_da_validacao_django(exc)}
+            ) from exc
+
+        return Response(ContaSerializer(conta).data, status=status.HTTP_200_OK)
+
+
+class MarcacaoDmplView(EmpresaEscopadaContabilMixin, APIView):
+    """DL-061 (fatia 2, BL-605, E18): a marcação manual da DMPL de UM
+    lançamento — `GET` (ler o conjunto), `PUT` (substituir o conjunto
+    inteiro, de uma vez) e `DELETE` (limpar, voltando para a regra
+    automática). Mesmo padrão das rotas irmãs: o lançamento vem da URL,
+    escopado à empresa (`get_object_or_404(..., empresa=empresa)` — lançamento
+    de outra empresa é 404, nunca 403).
+
+    **Permissões no servidor:** quem LÊ a contabilidade lê (`GET`);
+    quem ESCRITURA marca e limpa (`PUT`/`DELETE`), o mesmo papel que grava
+    lançamento — nenhuma permissão nova. CLIENTE recebe 403.
+
+    **Contrato do corpo (PUT):** `{"marcacoes": [{"linha", "coluna",
+    "valor"}]}` — o CONJUNTO completo (substituição atômica); lista vazia
+    limpa. `valor` viaja como TEXTO (DE-030). As regras do conjunto (E16:
+    Σ por coluna = movimento do lançamento; E17: só quando a regra não
+    decide) são do SERVIÇO (`salvar_marcacoes_da_dmpl`), que traduz a
+    recusa para 400 com a mensagem do que falta.
+
+    **Nada confia em id recebido sem conferir a empresa:** a empresa vem da
+    URL (revalidada contra o escritório ativo pelo mixin) e o lançamento é
+    buscado DENTRO dela — igual a `EstornarLancamentoView`.
+    """
+
+    permission_classes = [TemEscritorioAtivo]
+
+    def get_permissions(self):
+        # Mesmo molde de `ContaListCreateView`: leitura para quem lê a
+        # contabilidade; escrita (marcar/limpar) para quem escritura.
+        permissions = [permission() for permission in self.permission_classes]
+        if self.request.method == "GET":
+            permissions.append(PodeLerContabilidade())
+        else:
+            permissions.append(PodeEscriturar())
+        return permissions
+
+    def _lancamento_da_empresa(self, empresa, lancamento_id):
+        return get_object_or_404(LancamentoContabil, pk=lancamento_id, empresa=empresa)
+
+    def get(self, request, empresa_id, lancamento_id):
+        empresa = self.get_empresa()
+        lancamento = self._lancamento_da_empresa(empresa, lancamento_id)
+        return Response(_marcacoes_da_dmpl_para_json(lancamento), status=status.HTTP_200_OK)
+
+    def put(self, request, empresa_id, lancamento_id):
+        # `get_empresa()` ANTES de qualquer leitura do corpo: a recusa de
+        # livro-caixa é a primeira resposta desta API (a varredura da DL-038
+        # exige a MESMA mensagem `{"empresa": [...]}` em todo método aceito).
+        empresa = self.get_empresa()
+        _recusar_dado_nao_contratado(request, CONTRATO_PUT_MARCACAO_DMPL)
+        lancamento = self._lancamento_da_empresa(empresa, lancamento_id)
+
+        entrada = MarcacaoDmplGravacaoSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+
+        try:
+            # Substituição atômica com trilha, na transação do serviço.
+            salvar_marcacoes_da_dmpl(
+                lancamento=lancamento,
+                marcacoes=entrada.validated_data["marcacoes"],
+                usuario=request.user,
+                request=request,
+            )
+        except MarcacaoDmplInvalida as exc:
+            raise DRFValidationError(str(exc)) from exc
+
+        return Response(_marcacoes_da_dmpl_para_json(lancamento), status=status.HTTP_200_OK)
+
+    def delete(self, request, empresa_id, lancamento_id):
+        empresa = self.get_empresa()
+        _recusar_dado_nao_contratado(request, CONTRATO_DELETE_MARCACAO_DMPL)
+        lancamento = self._lancamento_da_empresa(empresa, lancamento_id)
+
+        remover_marcacoes_da_dmpl(lancamento=lancamento, usuario=request.user, request=request)
+        return Response(_marcacoes_da_dmpl_para_json(lancamento), status=status.HTTP_200_OK)
 
 
 class ConferenciaLotesDesbalanceadosView(EmpresaEscopadaContabilMixin, APIView):

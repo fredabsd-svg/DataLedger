@@ -1,0 +1,182 @@
+{% comment %}
+DL-061, fatia 2 (BL-605) — a guia "DMPL" do lançamento (E19): a marcação
+manual (linha × coluna) é a EXCEÇÃO prevista pela RC-151, gravada FORA do
+livro (E15 — nada muda no lançamento efetivado). Parcial de
+`lancamento_detalhe.html`, onde ela é UMA seção: as duas rotas do detalhe
+(`lancamento_detalhe` e `lancamento_marcacao_dmpl`, views_web.py) renderizam
+o MESMO template, então a guia nunca promete o que o servidor não faz — se a
+regra automática decide o lançamento (E17), o formulário não aparece e o
+texto explica por quê.
+
+Os três blocos respondem, nesta ordem, o que o contador precisa conferir:
+o que está marcado hoje (Σ a conferir), o efeito do lançamento em cada coluna
+(o número que o conjunto precisa reproduzir, E16 — vindo do MESMO cálculo do
+serviço, nunca de uma segunda cópia da regra) e o formulário do CONJUNTO,
+gravado de uma vez. "Remover marcações" é botão próprio, que diz o que faz:
+um "Salvar" vazio nunca limpa nada sem ninguém pedir.
+{% endcomment %}
+<section class="painel-etapa" id="guia-dmpl" aria-labelledby="guia-dmpl-titulo">
+    <h2 id="guia-dmpl-titulo">DMPL — marcação manual deste lançamento</h2>
+    <p class="texto-apoio">
+        A marcação manual é a exceção prevista pela RC-151: quando a regra automática da DMPL
+        não decide o evento deste lançamento, o contador reparte o efeito dele, à mão, entre as
+        células (linha × coluna). Ela muda <strong>onde</strong> o valor aparece na
+        demonstração, nunca <strong>quanto</strong> existe: as marcações precisam somar, em
+        cada coluna, exatamente o efeito do lançamento naquela coluna. Nada é alterado no
+        lançamento — a marcação fica guardada fora do livro e vale para a demonstração daqui em
+        diante.
+    </p>
+
+    {% if guia_dmpl.erros %}
+        <div class="mensagem mensagem-error" role="alert">
+            {% for erro in guia_dmpl.erros %}<p>{{ erro }}</p>{% endfor %}
+        </div>
+    {% endif %}
+
+    <table class="tabela-dados">
+        <caption>Marcações manuais atuais deste lançamento na DMPL</caption>
+        <thead>
+            <tr>
+                <th scope="col">Linha da DMPL</th>
+                <th scope="col">Coluna da DMPL</th>
+                <th scope="col" class="cabecalho-numerico">Valor</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for marcacao in guia_dmpl.marcacoes %}
+                <tr>
+                    <td>{{ marcacao.linha_titulo }}</td>
+                    <td>{{ marcacao.coluna_titulo }}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=marcacao.valor %}</td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="3">
+                        Nenhuma marcação manual gravada: este lançamento está na leitura
+                        automática da DMPL.
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <table class="tabela-dados">
+        <caption>Efeito deste lançamento em cada coluna da DMPL — a soma que o conjunto de
+            marcações precisa reproduzir</caption>
+        <thead>
+            <tr>
+                <th scope="col">Coluna da DMPL</th>
+                <th scope="col" class="cabecalho-numerico">Efeito do lançamento</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for linha in guia_dmpl.efeito_por_coluna %}
+                <tr>
+                    <td>{{ linha.coluna_titulo }}</td>
+                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linha.valor %}</td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="2">Este lançamento não move nenhuma coluna da DMPL.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {% if guia_dmpl.pode_escriturar %}
+        {% if guia_dmpl.regra_decide %}
+            {% comment %}
+            E17: a marcação é a exceção. Se a regra decide, o SERVIÇO recusa
+            (`salvar_marcacoes_da_dmpl`), e a tela não oferece o que seria
+            recusado — ela explica, para ninguém procurar um defeito onde há
+            uma regra.
+            {% endcomment %}
+            <p class="mensagem mensagem-info" role="status">
+                Este lançamento é decidido pela regra automática da DMPL — a atribuição de linha
+                não produz problema nenhum —, então não há marcação manual a fazer aqui: a
+                marcação é a exceção prevista pela RC-151 e não substitui o padrão do sistema
+                (o servidor recusa, e nada é gravado). Use as células automáticas da
+                demonstração.
+            </p>
+        {% else %}
+            <form method="post"
+                  action="{% url 'contabilidade_web:lancamento_marcacao_dmpl' empresa.id lancamento.id %}"
+                  class="formulario" novalidate>
+                {% csrf_token %}
+                <table class="tabela-dados">
+                    <caption>Conjunto de marcações a gravar — uma linha por célula (linha ×
+                        coluna) da DMPL; o conjunto inteiro substitui as marcações atuais de uma
+                        vez</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Linha da DMPL</th>
+                            <th scope="col">Coluna da DMPL</th>
+                            <th scope="col" class="cabecalho-numerico">Valor</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for linha in guia_dmpl.linhas_do_formulario %}
+                            <tr>
+                                <td>
+                                    <label class="visualmente-oculto" for="id_marcacao_linha_{{ linha.indice }}">Linha da marcação {{ linha.indice }}</label>
+                                    <select id="id_marcacao_linha_{{ linha.indice }}" name="linha">
+                                        <option value="">—</option>
+                                        {% for opcao in guia_dmpl.opcoes_linha %}
+                                            <option value="{{ opcao.chave }}" {% if linha.linha == opcao.chave %}selected{% endif %}>{{ opcao.titulo }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </td>
+                                <td>
+                                    <label class="visualmente-oculto" for="id_marcacao_coluna_{{ linha.indice }}">Coluna da marcação {{ linha.indice }}</label>
+                                    <select id="id_marcacao_coluna_{{ linha.indice }}" name="coluna">
+                                        <option value="">—</option>
+                                        {% for grupo in guia_dmpl.opcoes_coluna %}
+                                            <optgroup label="{{ grupo.0 }}">
+                                                {% for opcao in grupo.1 %}
+                                                    <option value="{{ opcao.0 }}" {% if linha.coluna == opcao.0 %}selected{% endif %}>{{ opcao.1 }}</option>
+                                                {% endfor %}
+                                            </optgroup>
+                                        {% endfor %}
+                                    </select>
+                                </td>
+                                <td>
+                                    <label class="visualmente-oculto" for="id_marcacao_valor_{{ linha.indice }}">Valor da marcação {{ linha.indice }}</label>
+                                    <input type="text" inputmode="decimal"
+                                           id="id_marcacao_valor_{{ linha.indice }}" name="valor"
+                                           value="{{ linha.valor_texto }}">
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <p class="texto-apoio">
+                    Valor em pt-BR (ex.: 1.500,00); negativo com sinal (ex.: -1.500,00). Linha
+                    em branco é ignorada — uma marcação precisa das três partes (linha, coluna e
+                    valor).
+                </p>
+                <div class="acoes-formulario">
+                    <button class="botao botao--primario" type="submit" name="acao" value="salvar">Salvar marcações</button>
+                </div>
+            </form>
+        {% endif %}
+        {% if guia_dmpl.marcacoes %}
+            <form method="post"
+                  action="{% url 'contabilidade_web:lancamento_marcacao_dmpl' empresa.id lancamento.id %}"
+                  class="formulario" novalidate>
+                {% csrf_token %}
+                <div class="acoes-formulario">
+                    <button class="botao botao--perigoso" type="submit" name="acao" value="remover">Remover marcações</button>
+                </div>
+                <p class="texto-apoio">
+                    Remover as marcações devolve este lançamento à regra automática da DMPL — o
+                    veto da emissão, se este lançamento for o motivo dele, volta a valer.
+                </p>
+            </form>
+        {% endif %}
+    {% else %}
+        <p class="mensagem mensagem-info" role="status">
+            Seu papel consulta a contabilidade mas não marca lançamentos: peça a quem escritura
+            esta empresa para marcar (ou remover as marcações de) este lançamento.
+        </p>
+    {% endif %}
+</section>
