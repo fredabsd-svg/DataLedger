@@ -14,6 +14,21 @@ class LancamentoImutavelError(Exception):
     """Levantado ao tentar alterar ou excluir um lançamento já efetivado."""
 
 
+# DL-065 (BL-550): `code` do `ValidationError` levantado por `Conta.clean()`
+# quando trocar (ou remover) a classificação da DLPA ou da DMPL reescreveria a
+# demonstração de uma competência já encerrada ou entregue.
+#
+# Existe para que os SERVIÇOS de classificação consigam distinguir ESTA
+# recusa das demais e respondam **409** (conflito de estado — o mesmo
+# tratamento de `CompetenciaEncerrada`) em vez de 400 (entrada inválida). O
+# admin, que passa pelo mesmo `clean()` sem conhecer o código, continua
+# mostrando o erro no formulário.
+#
+# Uma regra, um código, UMA mensagem (escrita no modelo): duas traduções com
+# textos próprios divergem assim que alguém edita uma delas.
+CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO = "classificacao_de_periodo_fechado"
+
+
 class EstadoCompetencia(models.TextChoices):
     """Ciclo de vida da competência contábil de uma empresa.
 
@@ -1165,6 +1180,77 @@ class Conta(models.Model):
             (existe,) = cursor.fetchone()
         return existe
 
+    def _competencia_fechada_com_movimento(self):
+        """A competência **encerrada** (ou entregue) mais recente em que esta
+        conta OU qualquer descendente tem partida gravada — `None` se não
+        houver nenhuma.
+
+        DL-065 (BL-550). Devolve a LINHA da competência, não um booleano, por
+        um motivo de produto: a recusa precisa **nomear** o período. Uma
+        recusa que não diz qual competência impede a troca devolve o trabalho
+        ao contador sem caminho, e o caminho é a parte mais cara de uma regra
+        de bloqueio (a mesma razão que fez `CompetenciaEncerrada` dizer o que
+        fazer, e não só que não pode).
+
+        Só entra `estado <> 'aberta'`: a regra acompanha o **estado** da
+        competência, não o registro de que houve recusa. Reabrir o período
+        encerra o bloqueio, que é o comportamento correto — competência
+        reaberta é um período em aberto. Por isso a lista de competências
+        afetadas é recalculada a cada tentativa, e não é memorizada.
+
+        A árvore é a MESMA de `_tem_movimento_proprio_ou_de_descendente`
+        (BL-245: `WITH RECURSIVE` dentro do PostgreSQL, `UNION` para
+        deduplicar e não entrar em ciclo com hierarquia inconsistente), com o
+        vínculo da partida até a competência acrescentado. `ORDER BY ano DESC,
+        mes DESC` entrega a mais recente, que é a que o contador precisa
+        citado primeiro — as outras continuam bloqueadas por ela.
+
+        Não filtra por `empresa` na árvore, pelo mesmo motivo do método acima:
+        `self.pk` já é conta de UMA empresa, e `conta_pai_id` só apontaria
+        para outra em estado já inconsistente, que o guard de `conta_pai`
+        impede pelo caminho validado. Na lista de competências o filtro por
+        empresa é obrigatório e está no `WHERE`.
+        """
+        tabela_conta = Conta._meta.db_table
+        tabela_item = ItemLancamento._meta.db_table
+        tabela_lancamento = LancamentoContabil._meta.db_table
+        tabela_competencia = Competencia._meta.db_table
+        coluna_conta_pai = Conta._meta.get_field("conta_pai").column
+        coluna_conta_do_item = ItemLancamento._meta.get_field("conta").column
+        coluna_lancamento_do_item = ItemLancamento._meta.get_field("lancamento").column
+        coluna_competencia = LancamentoContabil._meta.get_field("competencia").column
+        coluna_empresa = Competencia._meta.get_field("empresa").column
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                WITH RECURSIVE arvore(id) AS (
+                    SELECT id FROM {tabela_conta} WHERE id = %s
+                    UNION
+                    SELECT c.id FROM {tabela_conta} c
+                    INNER JOIN arvore a ON c.{coluna_conta_pai} = a.id
+                )
+                SELECT c.ano, c.mes, c.estado, (c.entregue_em IS NOT NULL)
+                FROM {tabela_competencia} c
+                WHERE c.{coluna_empresa} = %s
+                  AND c.estado <> %s
+                  AND EXISTS (
+                    SELECT 1
+                    FROM {tabela_item} i
+                    INNER JOIN {tabela_lancamento} l
+                      ON l.id = i.{coluna_lancamento_do_item}
+                    WHERE i.{coluna_conta_do_item} IN (SELECT id FROM arvore)
+                      AND l.{coluna_competencia} = c.id
+                  )
+                ORDER BY c.ano DESC, c.mes DESC
+                LIMIT 1
+                """,
+                [self.pk, self.empresa_id, EstadoCompetencia.ABERTA],
+            )
+            linha = cursor.fetchone()
+        if linha is None:
+            return None
+        return {"ano": linha[0], "mes": linha[1], "estado": linha[2], "entregue": linha[3]}
+
     def clean(self):
         # A4 (auditoria DL-045, rodada 1): `""` (string vazia) normalizado
         # para `None` AQUI, antes de qualquer guarda ler o campo — a mesma
@@ -1419,6 +1505,15 @@ class Conta(models.Model):
                     "conta_pai_id",
                     "empresa__escritorio_id",
                     "classificacao_patrimonial",
+                    # DL-065 (BL-550): a guarda de período fechado abaixo
+                    # precisa do valor GRAVADO das duas classificações de
+                    # demonstração anual, pelo mesmo motivo do
+                    # `classificacao_patrimonial` acima — a regra é de
+                    # TRANSIÇÃO, e transição se mede contra o que está no
+                    # banco, não contra o atributo da instância (que o
+                    # chamador acabou de atribuir).
+                    "classificacao_dlpa",
+                    "classificacao_dmpl",
                 )
                 .first()
             )
@@ -1641,6 +1736,63 @@ class Conta(models.Model):
                         "com a classificação correta e lance a RECLASSIFICAÇÃO "
                         "(a transferência do saldo), em vez de editar esta conta."
                     )
+
+                # DL-065 (BL-550): as DUAS classificações de demonstração
+                # anual — a linha da DLPA e a coluna da DMPL — não podem ser
+                # trocadas, nem removidas, quando a conta (ou qualquer
+                # descendente) tem movimento em competência já ENCERRADA ou
+                # entregue.
+                #
+                # É a MESMA classe de dano da classificação patrimonial acima,
+                # com uma condição a mais: lá o bloqueio vale em qualquer
+                # competência porque o Balanço é lido por data; aqui ele só
+                # começa no fechamento, porque enquanto o período está
+                # aberto a classificação ainda é trabalho em curso — é
+                # exatamente o caminho que limpa o veto da própria DLPA e da
+                # própria DMPL, e bloqueá-lo antes deixaria as duas
+                # demonstrações inemitíveis sem caminho.
+                #
+                # A PRIMEIRA classificação (gravado `None` -> valor) é livre,
+                # pelo mesmo motivo pelo qual a patrimonial a mantém livre e
+                # por um mais forte aqui: nenhuma migração do projeto
+                # classificou conta alguma, então bloquear a primeira
+                # classificação tornaria impossível classificar o plano de
+                # contas de uma empresa que já está em operação.
+                #
+                # A DRE NÃO entra — DE-086 (reconferência da DL-045): a linha
+                # da DRE é propriedade de apresentação e muda com movimento,
+                # sempre. O critério 10 do plano da DL-065 existe para provar
+                # que este bloco não vazou para lá: travar a DRE em período
+                # encerrado tiraria do contador a única saída do veto do A2.
+                mudou_dlpa = (
+                    original["classificacao_dlpa"] is not None
+                    and original["classificacao_dlpa"] != self.classificacao_dlpa
+                )
+                mudou_dmpl = (
+                    original["classificacao_dmpl"] is not None
+                    and original["classificacao_dmpl"] != self.classificacao_dmpl
+                )
+                if mudou_dlpa or mudou_dmpl:
+                    nome_da_demonstracao = (
+                        "a linha da DLPA e a coluna da DMPL"
+                        if mudou_dlpa and mudou_dmpl
+                        else ("a linha da DLPA" if mudou_dlpa else "a coluna da DMPL")
+                    )
+                    competencia = self._competencia_fechada_com_movimento()
+                    if competencia is not None:
+                        situacao = "entregue" if competencia["entregue"] else "encerrada"
+                        raise ValidationError(
+                            f"Não é possível mudar {nome_da_demonstracao} desta conta: "
+                            "ela ou uma conta descendente tem lançamento na competência "
+                            f"{competencia['mes']:02d}/{competencia['ano']}, que está "
+                            f"{situacao} — a demonstração daquele período mudaria "
+                            "retroativamente, depois de o período ter sido fechado. "
+                            "Reabra a competência para corrigir a classificação; se ela "
+                            "já foi entregue, o ajuste é um lançamento na competência "
+                            "aberta — a correção de período encerrado nunca é uma "
+                            "reclassificação de conta.",
+                            code=CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO,
+                        )
 
                 # DE-086 (reconferência da DL-045): NÃO HÁ guarda de
                 # transição para `classificacao_dre` aqui — a linha da DRE

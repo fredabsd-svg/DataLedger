@@ -243,6 +243,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-060** — A reabertura em cascata do livro-caixa confirma exatamente os meses mostrados: mês encerrado entre a tela e o clique faz a reabertura parar, sem alterar nada. Plano em [docs/planos/DL-060-confirmacao-da-cascata.md](docs/planos/DL-060-confirmacao-da-cascata.md)
 - **DL-061** — DMPL (Demonstração das Mutações do Patrimônio Líquido), etapa CTB-14 da DL-048: uma columna por componente do PL, linha descoberta pela contrapartida do lançamento, conciliação com o Balanço e com a DLPA. Plano em [docs/planos/DL-061-dmpl.md](docs/planos/DL-061-dmpl.md)
 - **DL-062** — O sinal da conta-RAIZ retificadora no Balanço Patrimonial: a retificadora de patrimônio líquido cadastrada fora do grupo entrava no total **somando** em vez de subtrair, e o Balanço saía para o cliente com o PL errado e a equação contábil aberta, sem veto nenhum. Plano em [docs/planos/DL-062-sinal-da-raiz-retificadora.md](docs/planos/DL-062-sinal-da-raiz-retificadora.md)
+- **DL-065** — Reclassificar conta com movimento em competência encerrada ou entregue deixa de reescrever a DLPA e a DMPL já apuradas: a troca é recusada com 409 nomeando o período, a primeira classificação continua livre, e a trava fecha também o admin. A classificação da DRE segue livre, como decidiu a DE-086. Plano em [docs/planos/DL-065-reclassificacao-em-periodo-fechado.md](docs/planos/DL-065-reclassificacao-em-periodo-fechado.md)
 
 Ainda não existem:
 

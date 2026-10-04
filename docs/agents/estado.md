@@ -122,6 +122,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-060](../planos/DL-060-confirmacao-da-cascata.md) | A reabertura em cascata confirma exatamente os meses mostrados (BL-588, BL-589) | Integrada (PR #74) — reconferência aprovada com ressalvas; BL-602 |
 | [DL-061](../planos/DL-061-dmpl.md) | DMPL, etapa CTB-14 da DL-048 (RC-151) | Integrada (PR #76, #77 e #79) — fatias 1, etapa 2 e fatia 2; pontos abertos BL-606, BL-607, BL-622, BL-625, BL-626 e BL-627 |
 | [DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md) | Sinal da conta-RAIZ retificadora no Balanço Patrimonial (BL-604) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md) | Reclassificar conta com movimento em competência encerrada ou entregue não pode reescrever DLPA nem DMPL já apuradas (BL-550) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -132,6 +133,48 @@ competência) tem só o plano, na branch `claude/dl-016-f3-encerramento-competen
 não integrada — por isso a DL-016 aponta para o Próximo passo.
 
 ## Próximo passo
+
+**AGORA, em 05/10/2026: [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md)
+— BL-550, a trava de reclassificação em competência fechada.** Escolhida pelo
+Fred como primeiro item da leva do módulo de Contabilidade, na esteira do
+defeito de integridade. O recorte foi decidido **depois de medida a colisão
+com a DE-086**: a trava vale para a **DLPA e a DMPL**, e a **DRE continua
+livre** — a DE-086, de 26/09/2026, foi mantida. O caminho "classificação por
+vigência", que o backlog aceitava como alternativa, foi **descartado**: ele
+exigiria versionar as quatro classificações da conta e recontar demonstrações
+já emitidas, que é trabalho de Onda 2.
+
+O que a meditura encontrou antes de qualquer linha de código: nenhuma das
+duas classificação de demonstração anual consulta a competência antes de
+gravar, e o `ContaAdmin` grava os quatro campos **por fora** dos três
+serviços — uma trava colocada só nos serviços deixaria o admin funcionando
+como estava. Por isso a regra mora em `Conta.clean()`, que é o ponto de
+passagem de todo caminho validado, e a tradução para **409** acontece nos
+serviços, por um `code` de erro que só eles conhecem.
+
+**21 testes novos, todos executados** em PostgreSQL 16.15 (critérios 1 a 11 do
+plano, mais quatro limites: competência do mês seguinte, a mais recente
+quando há duas, período reaberto e conta sem movimento no período fechado).
+A suíte de `apps/contabilidade` deu **1.830 aprovados e os mesmos 8
+reprovados de antes da mudança** — nenhuma regressão.
+
+⚠️ **Achado de ambiente que mudou a forma de verificar nesta máquina:** o
+`DATABASE_URL` do `.env` apontava para **SQLite**, e o cluster do PostgreSQL
+16 estava desligado. Isso produzia **64 reprovações falsas** só em
+`apps/contabilidade` — número que, lido sem verificação, pareceria regressão.
+O cluster **PostgreSQL 16.15** foi criado em
+`C:\Users\conta\AppData\Local\PostgreSQL\dataledger`, porta **5433**, e é
+ele que produz todas as evidências desta seção. **A `.env` do repositório não
+foi alterada.** Com o motor certo, a linha de base honesta é
+**8 reprovados** (1 de constraint de banco e 7 de Chromium/timeout de thread,
+todos de ambiente), e é ela que vale como comparação.
+
+**Antes de continuar a leva, uma pendência de repositório:** o PR #82
+(DL-063) foi mesclado na branch intermediária e **não chegou à `main`**.
+Recuperado pelo **PR #84**, aberto a partir da `main` com a `base` reapontada
+para o destino real. O PR #83 (DL-064, documentos defasados) segue
+`CONFLICTING` por ter base anterior ao PR #81 e precisa ser rebased — ele vai
+conflitar em `estado.md` com o #84 e com este.
 
 **Leva de 30/09 a 01/10/2026 concluída: DL-052 a DL-060 integradas**
 (PR #66 a #74). Desenvolvidas em até 4 cópias isoladas em paralelo (RC-149)

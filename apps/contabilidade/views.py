@@ -32,6 +32,7 @@ from apps.contabilidade.serializers import (
 )
 from apps.contabilidade.services import (
     ChaveIdempotenciaConflitante,
+    ClassificacaoAlteraPeriodoFechado,
     CompetenciaEncerrada,
     CompetenciaJaEntregue,
     CompetenciaOperacaoInvalida,
@@ -2046,6 +2047,12 @@ class ContaClassificacaoDlpaView(EmpresaEscopadaContabilMixin, APIView):
                 usuario=request.user,
                 request=request,
             )
+        except ClassificacaoAlteraPeriodoFechado as exc:
+            # DL-065 (BL-550): 409, não 400 — o que recusa é o ESTADO da
+            # competência que a demonstração leria, não o corpo enviado. Mesma
+            # tradução de `CompetenciaEncerrada` acima, e nada foi gravado: a
+            # recusa vem de dentro de `full_clean()`, antes do `save()`.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except DjangoValidationError as exc:
             raise DRFValidationError(
                 {"classificacao_dlpa": mensagens_da_validacao_django(exc)}
@@ -2184,6 +2191,11 @@ class ContaClassificacaoDmplView(EmpresaEscopadaContabilMixin, APIView):
                 usuario=request.user,
                 request=request,
             )
+        except ClassificacaoAlteraPeriodoFechado as exc:
+            # DL-065 (BL-550): 409 pelo mesmo motivo da porta da DLPA acima —
+            # recusa de ESTADO (competência encerrada ou entregue), não de
+            # entrada. Nada gravado.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except DjangoValidationError as exc:
             raise DRFValidationError(
                 {"classificacao_dmpl": mensagens_da_validacao_django(exc)}

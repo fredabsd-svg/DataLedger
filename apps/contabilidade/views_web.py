@@ -130,6 +130,7 @@ from apps.contabilidade.services import (
     DATA_MINIMA_LANCAMENTO,
     LIMITE_PARTIDAS_POR_LANCAMENTO,
     ChaveIdempotenciaConflitante,
+    ClassificacaoAlteraPeriodoFechado,
     CompetenciaEncerrada,
     CompetenciaJaEntregue,
     CompetenciaOperacaoInvalida,
@@ -1233,6 +1234,14 @@ def conta_classificacao_dlpa(request, empresa_id, conta_id):
                 classificar_conta_na_dlpa(
                     conta=conta, classificacao=classificacao, usuario=request.user, request=request
                 )
+            except ClassificacaoAlteraPeriodoFechado as exc:
+                # DL-065 (BL-550): a tela responde 200 com a recusa no
+                # formulário, como toda recusa de regra — nunca um 500. O
+                # `refresh_from_db()` devolve o valor REALMENTE gravado, pelo
+                # mesmo motivo do `DjangoValidationError` abaixo: o serviço
+                # muta a instância antes de recusar.
+                conta.refresh_from_db()
+                form.add_error(None, str(exc))
             except DjangoValidationError as exc:
                 conta.refresh_from_db()
                 for mensagem in mensagens_da_validacao_django(exc):
@@ -1343,6 +1352,11 @@ def conta_classificacao_dmpl(request, empresa_id, conta_id):
                 classificar_conta_na_dmpl(
                     conta=conta, classificacao=classificacao, usuario=request.user, request=request
                 )
+            except ClassificacaoAlteraPeriodoFechado as exc:
+                # DL-065 (BL-550): mesma tradução da porta da DLPA — recusa no
+                # formulário com 200 e valor gravado restaurado.
+                conta.refresh_from_db()
+                form.add_error(None, str(exc))
             except DjangoValidationError as exc:
                 conta.refresh_from_db()
                 for mensagem in mensagens_da_validacao_django(exc):
