@@ -2,6 +2,7 @@ from rest_framework import serializers
 
 from apps.contabilidade.models import (
     TIPOS_ACEITOS_DA_CLASSIFICACAO_DLPA,
+    TIPOS_ACEITOS_DA_CLASSIFICACAO_DMPL,
     TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE,
     ClassificacaoDlpa,
     ClassificacaoDmpl,
@@ -10,6 +11,7 @@ from apps.contabilidade.models import (
     ItemLancamento,
     LancamentoContabil,
     TipoConta,
+    divergencia_entre_dlpa_e_dmpl,
 )
 from apps.core.dinheiro import ValorMonetarioInvalido, para_decimal
 from apps.core.identificadores import IdentificadorInvalido, para_id
@@ -108,18 +110,23 @@ class ContaSerializer(serializers.ModelSerializer):
             # mesmo motivo: o DRF nunca chama `full_clean()` (BL-40/DE-008),
             # então `Conta.clean()` não roda neste caminho.
             "classificacao_dlpa",
-            # DL-061 (fatia 2, E18): coluna da DMPL — exposta para o GET de
-            # contas e para a resposta do PATCH `ContaClassificacaoDmplView`
-            # (o espelho do endpoint da DLPA devolve a conta COM a
-            # classificação que acabou de gravar). Diferente das duas de
-            # cima, é SOMENTE LEITURA aqui: a escrita tem porta PRÓPRIA
-            # (`ContaClassificacaoDmplView` → `classificar_conta_na_dmpl`,
-            # com trilha antes/depois na mesma transação) — o POST de conta
-            # não recebe esta chave (o contrato a recusa por nome), e por
-            # isso o campo não precisa da checagem de `validate`.
+            # DL-063 (BL-606): coluna da DMPL passa a ser **gravável** por
+            # aqui, pela MESMA porta e com a MESMA autorização de
+            # `classificacao_dre` e `classificacao_dlpa`. Até 04/10/2026 o
+            # campo era exposto e `read_only`: a tela de conta nova não o
+            # oferecia, e quem integrava por API não tinha **porta nenhuma**
+            # para dizer em que coluna a conta entra — a porta própria de
+            # classificação (`ContaClassificacaoDmplView`) reclassifica conta
+            # EXISTENTE, e não serve para quem está criando a conta. A
+            # assimetria saiu por decisão do Fred em 04/10/2026.
+            #
+            # A porta própria CONTINUA existindo, e não é redundância: ela
+            # grava **com trilha antes/depois na mesma transação**, que é o
+            # que reclassificar conta com movimento exige. O POST é cadastro
+            # INICIAL, que não tem histórico a preservar — são operações
+            # diferentes, com contratos diferentes (D2 do plano da DL-063).
             "classificacao_dmpl",
         ]
-        read_only_fields = ("classificacao_dmpl",)
 
     def validate_classificacao_dre(self, value):
         """A4 (auditoria DL-045, rodada 1): normaliza `""` para `None` —
@@ -144,6 +151,15 @@ class ContaSerializer(serializers.ModelSerializer):
         ⚠️ `"remover a classificação"` é operação NORMAL nesta API, não
         erro: `null` e `""` significam a mesma coisa e ambos gravam `None`
         (é assim que `classificar_conta_na_dlpa` normaliza)."""
+        return value or None
+
+    def validate_classificacao_dmpl(self, value):
+        """Mesma normalização do achado A4 da DL-045, pelo mesmo motivo, e com
+        a mesma ressalva da DLPA: `"remover a classificação"` é operação
+        NORMAL, não erro — `null` e `""` significam a mesma coisa e ambos
+        gravam `None`. Sem isto, o `ChoiceField` gravaria `""` e a guarda de
+        transição de `Conta.clean()` a trataria como "já classificada",
+        travando a conta para uma classificação REAL posterior."""
         return value or None
 
     def validate(self, attrs):
@@ -201,7 +217,67 @@ class ContaSerializer(serializers.ModelSerializer):
                         )
                     }
                 )
+
+        # DL-063 (BL-606) — a MESMA checagem para a coluna da DMPL, na fonte
+        # única `TIPOS_ACEITOS_DA_CLASSIFICACAO_DMPL` (models.py), pelo mesmo
+        # motivo das duas de cima: o DRF nunca chama `full_clean()`
+        # (BL-40/DE-008), então `Conta.clean()` não roda neste caminho.
+        classificacao = attrs.get("classificacao_dmpl")
+        if self.instance is not None and "classificacao_dmpl" not in attrs:
+            classificacao = self.instance.classificacao_dmpl
+        if classificacao:
+            tipos_aceitos = TIPOS_ACEITOS_DA_CLASSIFICACAO_DMPL.get(classificacao)
+            if tipos_aceitos is not None and tipo not in tipos_aceitos:
+                rotulo_classificacao = ClassificacaoDmpl(classificacao).label
+                rotulos_tipos_aceitos = " ou ".join(TipoConta(t).label for t in tipos_aceitos)
+                raise serializers.ValidationError(
+                    {
+                        "classificacao_dmpl": (
+                            f'A coluna "{rotulo_classificacao}" da DMPL não é compatível com o '
+                            f"tipo desta conta: só se aplica a contas de tipo "
+                            f"{rotulos_tipos_aceitos}."
+                        )
+                    }
+                )
+
+        # DL-063 (BL-606), achado A1 da auditoria: a COERÊNCIA ENTRE AS DUAS
+        # CLASSIFICAÇÕES — `divergencia_entre_dlpa_e_dmpl`, a mesma regra que
+        # `Conta.clean()` aplica — também precisa ser replicada aqui, e só
+        # apareceu depois que a porta abriu. `Conta.clean()` não roda neste
+        # caminho (BL-40/DE-008), então, sem estas linhas, a API gravava em
+        # silêncio exatamente o par que o modelo proíbe: linha da DLPA
+        # "Reserva legal" com coluna da DMPL "Capital social". Na base isso
+        # era INALCANÇÁVEL — o contrato recusava a chave —; a porta nova
+        # tornou o caminho real, e o buraco nasceu com ela.
+        #
+        # A apuração nomeia e VETA o par assim gravado (medido na auditoria:
+        # `pode_emitir = False`), então o dano é nomeado, não silencioso. Mas
+        # gravar pela porta o que a outra porta proíbe é a classe de defeito
+        # que o §8 do AGENTS.md manda evitar: aqui a regra é duplicada por
+        # necessidade técnica — e duplicata por necessidade precisa ser
+        # COMPLETA, senão a duplicata vira furo.
+        #
+        # Cada classificação é lida do payload ou, num PATCH parcial, da
+        # conta — mesmo padrão das checagens acima, porque a divergência é
+        # entre as DUAS, e cada uma pode vir só de um lado do payload.
+        divergencia = divergencia_entre_dlpa_e_dmpl(
+            self._classificacao_do_payload(attrs, "classificacao_dlpa"),
+            self._classificacao_do_payload(attrs, "classificacao_dmpl"),
+        )
+        if divergencia:
+            raise serializers.ValidationError({"classificacao_dmpl": divergencia})
         return attrs
+
+    def _classificacao_do_payload(self, attrs, campo):
+        """O valor de um campo de classificação no payload **ou**, quando o
+        payload não o traz e é uma atualização, o da conta já gravada — sem
+        isto, um PATCH que mexesse só na linha da DLPA seria julgado contra
+        um `classificacao_dmpl` inexistente e deixaria a coerência de fora."""
+        if campo in attrs:
+            return attrs[campo]
+        if self.instance is not None:
+            return getattr(self.instance, campo, None)
+        return None
 
     def validate_conta_pai(self, value):
         """`conta_pai` deve pertencer à mesma empresa do escopo da requisição.
