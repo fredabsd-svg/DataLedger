@@ -436,19 +436,27 @@ def test_pendencia_com_lancamento_alheio_injetado_nao_gera_link_nem_quebra_a_tel
 # ---------------------------------------------------------------------------
 
 
-def test_a_diferenca_de_fechamento_cita_a_retificadora_fora_do_grupo_de_pl():
+def test_a_diferenca_de_fechamento_nao_aponta_uma_causa_que_deixou_de_existir():
+    """DL-062 (BL-604): a retificadora de PL FORA do grupo deixou de ser
+    causa de divergência — o Balanço passou a ler a conta como a DMPL lê. A
+    dica não pode mandar o contador procurar um defeito que o produto não tem
+    mais, e continua sendo verdade o que ela diz: as duas peças leram as
+    mesmas contas de formas diferentes, e nada é ajustado para fechar."""
     acao = views_web.ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DMPL_POR_LISTA["diferenca_de_fechamento"]
     texto = _texto(acao)
-    assert "retificadora do patrimônio líquido" in texto
-    assert "FORA do grupo “Patrimônio Líquido” do plano de contas" in texto
-    assert "capital a integralizar" in texto and "ações em tesouraria" in texto
+    assert "FORA do grupo" not in texto
+    assert "retificadora do patrimônio líquido" not in texto
+    assert "leram as mesmas contas de formas diferentes" in texto
+    assert "nenhum saldo é ajustado para fechá-la" in texto
     assert "Não deveria acontecer" not in acao and "não deveria acontecer" not in acao
 
 
-def test_a_tela_do_veto_mostra_a_causa_conhecida_da_diferenca(client):
-    """A retificadora de PL cadastrada FORA do grupo (BL-604): o Balanço a
-    soma, a DMPL a subtrai; o veto é o correto e a mensagem tem de apontar
-    para a causa, não para "dado íntegro"."""
+def test_a_retificadora_de_pl_fora_do_grupo_nao_veta_mais_a_dmpl(client):
+    """A RETIFICAÇÃO do teste que existia aqui: a retificadora de PL
+    cadastrada FORA do grupo (BL-604) fazia o Balanço somar e a DMPL vetar
+    por divergência. Corrigido o sinal na DL-062, o MESMO cadastro é
+    aprovado — este é o teste de regressão do defeito, e prova o defeito
+    fechado de ponta a ponta na tela, não só o número do serviço."""
     empresa, contas, _ = _caso_a()
     solta = _conta(
         empresa, "9", "Tesouraria solta na raiz", PL, D, dmpl=COL.ACOES_OU_QUOTAS_EM_TESOURARIA
@@ -456,9 +464,8 @@ def test_a_tela_do_veto_mostra_a_causa_conhecida_da_diferenca(client):
     _lancar(empresa, date(2026, 3, 20), "Compra de ações", solta, contas["caixa"], "2000.00")
     _entrar(client, empresa)
     html = client.get(_url(empresa)).content.decode()
-    assert "A DMPL NÃO pode ser emitida nesta competência" in html
-    assert "FORA do grupo “Patrimônio Líquido” do plano de contas" in _texto(html)
-    assert "dado íntegro" not in html
+    assert "A DMPL NÃO pode ser emitida nesta competência" not in html
+    assert "FORA do grupo “Patrimônio Líquido” do plano de contas" not in _texto(html)
 
 
 # ---------------------------------------------------------------------------

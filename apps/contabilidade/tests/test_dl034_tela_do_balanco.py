@@ -962,9 +962,26 @@ def test_bl516_duas_raizes_de_mesmo_tipo_exibem_aviso_generico_sem_ancestral_com
     client, cenario_com_aviso_de_natureza_divergente_em_raizes
 ):
     """BL-516: a view real nomeia as raízes no aviso sem inventar
-    ancestral comum. O resíduo aritmético independente continua vetando
-    a emissão e o aviso informativo permanece visível.
-    """
+    ancestral comum, e o aviso permanece **informativo**.
+
+    ⚠️ **O que este teste afirmava mudou na DL-062 (BL-604), e o motivo está
+    aqui para quem for mexer nele.** Até 04/10/2026 ele exigia que a tela
+    **vetasse** a emissão, por "o total classificado não bate com o total
+    apurado pela escrituração" em 200,00. Esse 200,00 **era o defeito, não
+    um erro do contador**: "(-) PDD Raiz" é uma retificadora na RAIZ do
+    Ativo, e o Balanço somava o saldo dela pela natureza CADASTRADA (crédito
+    de 100,00 somado como +100,00) enquanto a soma por classificação o
+    subtraía — o Ativo saía 1.100,00 quando o correto é 900,00, e a
+    equação `ativo = passivo + PL` ficava aberta em 200,00. O resíduo
+    aritmético era, sem querer, a única rede que pegava a conta.
+
+    A DL-062 leva ao total do Balanço a mesma normalização de sinal que a
+    soma por classificação já aplicava: as duas contas passam a somar
+    1.000,00 − 100,00 = 900,00, o resíduo zera, a equação fecha com o PL de
+    900,00 e o Balanço **emite com o número certo**. O que este teste
+    continua provando — e é o que o BL-516 pediu — é que o aviso
+    informativo **continua visível** e **nomeia as duas raízes sem inventar
+    ancestral comum**, agora sobre um Balanço emitido."""
     cenario = cenario_com_aviso_de_natureza_divergente_em_raizes
     _autenticar(client, cenario["escritorio"])
     url = reverse("contabilidade_web:balanco", args=[cenario["empresa"].id])
@@ -972,10 +989,12 @@ def test_bl516_duas_raizes_de_mesmo_tipo_exibem_aviso_generico_sem_ancestral_com
 
     assert resposta.status_code == 200
     conteudo = resposta.content.decode()
-    assert "O Balanço NÃO pode ser emitido nesta data-base" in conteudo
-    assert "Total do Ativo" not in conteudo
-    assert "O total classificado não bate com o total apurado pela escrituração" in conteudo
-    assert "200,00" in conteudo
+    # O Balanço emite — e com o Ativo certo: 1.000,00 − 100,00 = 900,00.
+    assert "O Balanço NÃO pode ser emitido nesta data-base" not in conteudo
+    assert "Total do Ativo" in conteudo
+    assert "O total classificado não bate com o total apurado pela escrituração" not in conteudo
+    assert "900,00" in conteudo, "o Ativo correto é 1.000,00 − 100,00 = 900,00"
+    # O aviso da topologia continua visível e segue sendo aviso, não erro.
     assert "<strong>Aviso:</strong> não impede a emissão do Balanço." in conteudo
     assert "Conta 1 — Clientes Raiz" in conteudo
     assert "Conta 2 — (-) PDD Raiz" in conteudo

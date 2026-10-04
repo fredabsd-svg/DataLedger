@@ -55,6 +55,10 @@ from apps.contabilidade.models import (
     # (`conta_classificacao_dmpl`, opções agrupadas pelo grupo do 111A).
     GRUPO_DA_CLASSIFICACAO_DMPL,
     GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL,
+    # DL-062 (BL-604): a MESMA declaração que `apurar_saldos` usa para
+    # somar o total, usada aqui para apresentar o subtotal — uma fonte de
+    # verdade só para o sinal de um tipo (achado A5 da auditoria).
+    NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO,
     TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
     # DL-048/CTB-12: linha da DLPA (art. 186) — terceiro campo do mesmo
     # padrão. Usado pela tela `dlpa` (rótulos das linhas e do formulário),
@@ -3605,6 +3609,15 @@ NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO = {
         "Conta que agrupa outras contas (não é folha), sem classificação "
         "própria nem de um ancestral, com movimento lançado diretamente nela"
     ),
+    # DL-062 (BL-604): a lista é AVISO pelo mesmo motivo da de cima — depois
+    # da correção o NÚMERO do Balanço está certo; o que se declara é que a
+    # conta entrou no total com o sinal da natureza natural do tipo, e não
+    # com o da natureza cadastrada dela. O rótulo diz ISSO, e não "conta
+    # errada": uma retificadora na raiz não é erro de cadastro.
+    "contas_retificadoras_rais": (
+        "Conta-raiz com natureza contrária à natural do seu tipo — o sistema a somou com o "
+        "sinal invertido, e o total saiu certo (aviso, não impede a emissão)"
+    ),
 }
 
 
@@ -3682,6 +3695,10 @@ _ROTULOS_HUMANOS_DE_CAMPO_DE_PENDENCIA = {
     # ancestral).
     "classificacao_dre_efetiva": "Linha da DRE efetiva (própria ou herdada)",
     "natureza": "Natureza cadastrada",
+    # DL-062 (BL-604): o lado contra o qual a natureza cadastrada acima
+    # diverge — é o que decide se a conta entrou no total com o sinal
+    # invertido. Mesmo enum de `natureza`, mesmo tratamento.
+    "natureza_natural_do_tipo": "Natureza natural do tipo da conta",
 }
 
 # Os `TextChoices`/enum do modelo que guardam o VALOR desses campos —
@@ -3701,6 +3718,9 @@ _ENUM_DO_CAMPO_DE_PENDENCIA = {
     # CRU — é o próprio defeito que a lista denuncia, mesmo caminho da DRE.
     "classificacao_dlpa": ClassificacaoDlpa,
     "natureza": NaturezaConta,
+    # DL-062 (BL-604): mesmo enum de `natureza`, para o valor sair como
+    # "Credora"/"Devedora" e nunca como a constante gravada no banco.
+    "natureza_natural_do_tipo": NaturezaConta,
 }
 
 
@@ -3779,6 +3799,20 @@ ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA = {
         "Classificar esta conta (ou um ancestral dela) como circulante/não circulante no "
         "plano de contas, ou lançar os valores numa conta-folha já classificada, em vez de "
         "lançar diretamente nesta conta-síntese."
+    ),
+    # DL-062 (BL-604): a ÚNICA ação que é puro CONHECIMENTO, sem correção
+    # obrigatória — o sistema já somou a conta com o sinal correto e o total
+    # do Balanço está certo. O que a tela informa é o FATO do sinal
+    # invertido, para o contador decidir se reorganiza o plano de contas
+    # (aninhar a retificadora no grupo do seu tipo). Dizer "corrija" seria
+    # mandar o contador alterar um cadastro que produz o número certo.
+    "contas_retificadoras_rais": (
+        "Aviso, não bloqueio: o total do Balanço já saiu com o sinal correto desta conta, "
+        "entrada com o contrário da natureza natural do seu tipo porque ela é uma raiz "
+        "isolada. Nada precisa ser corrigido para emitir. Se quiser que o plano de contas "
+        "reflita essa dedução da forma mais evidente, aninhe a conta no grupo do seu tipo "
+        "(ex.: “(-) Ações em Tesouraria” dentro de “Patrimônio Líquido”); o resultado "
+        "continua o mesmo."
     ),
 }
 
@@ -3881,10 +3915,17 @@ def _subtotal_do_balanco(valor, tipo_do_grupo):
     servir de referência. Reaproveita `_saldo_absoluto_com_natureza`
     (RC-61) passando essa natureza esperada no lugar da natureza cadastrada
     de uma conta — mesma função, argumento diferente, nenhuma regra nova.
+
+    ⚠️ **A natureza esperada vem do MAPA, e não de um ternário escrito aqui
+    (DL-062, BL-604 — achado A5 da auditoria).** O ternário
+    `DEVEDORA se ATIVO senão CREDORA` concorda com o mapa em tudo que existe
+    hoje, e por isso o defeito era invisível; mas ele é uma SEGUNDA fonte de
+    verdade para o mesmo sinal, e um `TipoConta` novo cairia nele como
+    CREDORA sem ninguém perceber. A linha IMPRESSA é nível 1 — a mesma
+    verdade que `apurar_saldos` aplica ao total tem de estar na mesma
+    declaration, e é a tela que mostra o número ao contador.
     """
-    natureza_esperada = (
-        NaturezaConta.DEVEDORA if tipo_do_grupo == TipoConta.ATIVO else NaturezaConta.CREDORA
-    )
+    natureza_esperada = NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO[tipo_do_grupo]
     valor_abs, natureza_apurada = _saldo_absoluto_com_natureza(valor, natureza_esperada)
     return {
         "valor_ptbr": _valor_ptbr(valor_abs),
@@ -5088,22 +5129,22 @@ ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DMPL_POR_LISTA = {
         "Reclassifique cada conta listada com uma das opções válidas do campo “Coluna da "
         "DMPL” — o valor gravado não existe mais no cadastro."
     ),
-    # N11 (auditoria DL-061, rodada 1): a causa CONHECIDA vem primeiro. Conta
-    # RETIFICADORA do patrimônio líquido (capital a integralizar, ações em
-    # tesouraria) cadastrada FORA do grupo "Patrimônio Líquido" do plano de
-    # contas: o Balanço a soma pelo grupo em que ela está e a DMPL a subtrai
-    # pela natureza (BL-604, ainda aberta). Enquanto a BL-604 existir, dizer
-    # só "não deveria acontecer em dado íntegro" manda o contador procurar
-    # um erro que não existe nos lançamentos.
+    # DL-062 (BL-604): a causa que este texto nomeava até 04/10/2026 — a
+    # conta RETIFICADORA do patrimônio líquido cadastrada FORA do grupo, que
+    # o Balanço somava e a DMPL subtraía — **deixou de existir**: o total do
+    # Balanço passou a aplicar a natureza natural do tipo na contribuição da
+    # raiz, e as duas peças passaram a ler a conta igual. Manter a frase seria
+    # mandar o contador procurar um defeito que o produto não tem mais, então
+    # o texto passa a dizer o que ainda é verdade: as duas peças leram as
+    # mesmas contas de formas diferentes, e a diferença nunca é ajustada para
+    # fechar.
     "diferenca_de_fechamento": (
         "O saldo final da coluna não bate com o saldo das contas dela no Balanço da mesma "
-        "data. Causa mais provável: conta retificadora do patrimônio líquido (por exemplo, "
-        "capital a integralizar ou ações em tesouraria) cadastrada FORA do grupo "
-        "“Patrimônio Líquido” do plano de contas — o Balanço e a DMPL a tratam de formas "
-        "diferentes. Confira no plano de contas se toda conta do patrimônio líquido, "
-        "retificadoras inclusive, está dentro desse grupo. Se estiver, confira os "
-        "lançamentos pelo Razão e se há subconta movimentada: a diferença é o sinal de "
-        "dado inconsistente."
+        "data — as duas peças leram as mesmas contas de formas diferentes. Confira no plano "
+        "de contas se cada conta da coluna está classificada na coluna que o uso que ela teve "
+        "no período pede, e depois confira no Razão se alguma delas teve movimento que a "
+        "classificação não descreve. A diferença é o sinal de dado inconsistente, e nenhum "
+        "saldo é ajustado para fechá-la."
     ),
 }
 
