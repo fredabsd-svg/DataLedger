@@ -241,7 +241,39 @@ docstring dela**. Registrado aqui para não virar surpresa de quem criar
 arquivo de teste novo hoje. **Causa não investigada** — investigar exige um
 pytest limpo fora deste diretório, o que não foi feito nesta etapa.
 
-### 8.5 Auditoria independente
+### 8.5 Auditoria independente e correção (ciclo do §3.1)
 
-Obrigatória: a peça BL-606 é nível 1. Pendente.
+Relatório em
+[`docs/auditorias/2026-10-04-dl-063-auditoria.md`](../auditorias/2026-10-04-dl-063-auditoria.md):
+**APROVADO COM RESSALVAS**, os **9 critérios SEDE**, com **mutação real** que
+reprova 8 de 8. O risco maior da etapa — uma reclassificação **sem trilha**
+pela porta nova — foi medido e está **fechado**: `contabilidade:contas` é
+`ListCreateAPIView`, **não existe rota de PATCH/PUT de conta**, o POST só
+*cria*, e a criação já é auditada (`registrar(acao="conta.criada")`).
+
+**A1 (média) — buraco que ESTA etapa abriu e que não existia na base.** O
+serializer replicava a regra de `tipo` × coluna mas **não** a de coerência
+**DLPA × DMPL**; como o DRF nunca chama `full_clean()` (BL-40/DE-008), a API
+gravava em silêncio um par que `Conta.clean()` proíbe — medido: **201**. Na
+base o par era **inalcançável** (o contrato recusava a chave); a porta nova
+tornou o caminho real, e o buraco nasceu com ela.
+
+O dano era nomeado (a apuração veta a emissão, medido `pode_emitir = False`),
+mas gravar por uma porta o que a outra proíbe é a duplicata incompleta que o
+§8 manda evitar: aqui a regra é duplicada por necessidade técnica, e
+duplicata por necessidade precisa ser **completa**.
+
+**Correção aplicada** (rodada única): a checagem chama a **mesma função do
+modelo**, `divergencia_entre_dlpa_e_dmpl`, e cada classificação é lida do
+payload ou da conta (`_classificacao_do_payload`), para que um PATCH parcial
+não julgue a coerência contra um campo inexistente. Dois testes: o par
+incoerente é recusado nomeando o campo, e o **par coerente passa** — sem o
+segundo, a correção seria recusa de tudo.
+
+Verificação: `test_dl063_bl606` → **10 passed**; API + DLPA + DMPL +
+`test_dl061_tela_dmpl` → **283 passed**.
+
+**Pendência declarada:** a **reconferência** é o segundo e último passo do
+ciclo do §3.1 e ainda não foi feita. A terceira rodada é **proibida**.
+
 
