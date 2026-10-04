@@ -44,26 +44,34 @@ Está no fecho do manual, e é **arquitetura**, não contabilidade:
 soltas — exportação, livro, demonstrações — como se fossem alternativas de
 gosto. **Não são:** a cadeia acima diz em que ordem elas se tornam **possíveis**.
 
-**Onde o DataLedger está nessa cadeia, medido em 2026-09-20:**
+**Onde o DataLedger está nessa cadeia, remedido em 04/10/2026:**
 
-| Elo da cadeia | Estado |
+⚠️ **A medição original (20/09/2026) está desatualizada em dois elos, e a
+recomendação que ela gerou JÁ FOI EXECUTADA.** As duas últimas linhas
+diziam "não há camada de saldos consolidada" e "Demonstrações: não existe".
+Não é mais o caso, e a camada de saldos existe com serviço próprio,
+consumido por várias demonstrações.
+
+| Elo da cadeia | Estado (remedido 04/10/2026) |
 | --- | --- |
-| Documentos e transações operacionais | **Não existe** (é Fiscal, Folha, Financeiro, Estoque, Patrimônio) |
+| Documentos e transações operacionais | ⚠️ **Parcial** — Fiscal tem a recepção de NFS-e (DL-010 fatia 1); Folha, Estoque, Patrimônio e Financeiro **não existem** |
 | Lançamentos e plano de contas | ✅ **Existe**, com partida dobrada garantida e trilha |
 | Diário e Razão | ✅ **Existem** como relatório de conferência |
-| **Saldos e conciliações** | ⚠️ **PARCIAL** — o Balancete calcula saldo por período, mas **não há camada de saldos consolidada** que outra coisa consuma |
-| Demonstrações, indicadores e relatórios | **Não existe** |
+| **Saldos e conciliações** | ✅ **Existe** — `apurar_saldos` (DL-032/DL-033), com totais por tipo, por classificação patrimonial e por grupo, e `residuo_por_tipo` como conferência |
+| Demonstrações | ✅ **Balanço Patrimonial** (DL-034), **DRE** (DL-045), **DLPA** (DL-048) e **DMPL** (DL-061). ❌ **DFC, DRA e DVA** (CTB-15, CTB-16, CTB-17) ainda não |
+| Indicadores e análise | ❌ **Não existe** — análise vertical/horizontal, índices e EBITDA (CTB-19, CTB-20) são os CTB "Não existe" |
 
-**A consequência é a única recomendação técnica desta análise:** o elo que falta
-e que **destrava mais coisa por unidade de esforço** é a **camada de saldos**.
-Balanço, DRE, DMPL, DLPA, análise vertical e horizontal, e a maior parte dos
-indicadores são **derivações dela** — não módulos novos. Enquanto ela não
-existir, cada demonstração nova custa o preço cheio; depois dela, custa o preço
-de uma consulta e de um layout.
+**A recomendação original — "a camada de saldos é o elo que mais destrava" —
+foi cumprida** (DL-032, DL-033, e consumida por DL-034, DL-045, DL-048 e
+DL-061). **O próximo elo pela mesma lógica é o menos discutido:** a cadeia
+agora trava em **contabilidade**, e dentro dela em cadastros baratos que as
+demonstrações e os relatórios consumes: centro de custo (CTB-33), origem do
+lançamento (CTB-32), histórico padronizado (CTB-37) e plano de contas
+referencial (CTB-50). Sem eles, DFC e análise continuam caras.
 
 ## 2. O que o DataLedger atende HOJE, do catálogo
 
-Medido no código em 2026-09-20 (`apps/contabilidade/services.py`,
+Medido no código em **04/10/2026** (`apps/contabilidade/services.py`,
 `urls_web.py`, `templates/contabilidade/`), não estimado:
 
 | # do catálogo | Relatório | Situação no DataLedger |
@@ -83,16 +91,32 @@ Medido no código em 2026-09-20 (`apps/contabilidade/services.py`,
 | 23 | Contas sem Movimentação | ❌ **Não atende** — e é **barato** |
 | 25 | Encerramento do Exercício | ❌ **Não atende** — temos fechamento de **competência**, não de **exercício** |
 
-**Contagem honesta: 3 atendidos, 6 parciais, 5 ausentes — dentro do grupo em que
-o produto atua.** Do catálogo inteiro de 120, isso é **menos de 5%**.
+**Contagem honesta (remedida em 04/10/2026):** a tabela acima tem 14 linhas e
+cobre **15** dos 120 relatórios do catálogo — 6 linhas, 3 e 7 respectivamente,
+porque a linha do nº 17 traz "12 / 13" numa linha só.
 
-⚠️ **E o número 5% é verdadeiro e enganoso ao mesmo tempo**, por isso não o deixo
-sozinho: **80 dos 120 itens dependem de módulos que o DataLedger não tem** —
-Financeiro e tesouraria (12 itens), Custos e estoques (12), Fiscal (12),
-Trabalhista (10), além de patrimônio e consolidação. **Não são relatórios que
-faltam: são módulos.** Medir o produto contra os 120 sem dizer isso seria a
-mesma classe de erro que a **[DE-060](decisoes.md)** descreve — comparar contra
-um substituto e não declarar.
+⚠️ **A conta certa, e o erro que ela carregava.** O texto original dizia "3
+atendidos, 6 parciais, 5 ausentes... isso é **menos de 5%**". Três contas
+não fecham: 14 é o número de **linhas**, não de relatórios; por número são
+**3 + 7 + 5 = 15**; e 15/120 é **12,5%**, não menos de 5%. Só
+**3/120 = 2,5%** fecha — e é a métrica que mede a mesma coisa que o resto do
+documento.
+
+⚠️ **E o "80 dos 120" é verdadeiro no espírito e não auditável no número.**
+O parágrafo abaixo nomeia **46** itens (Financeiro e tesouraria 12, Custos e
+estoques 12, Fiscal 12, Trabalhista 10) e acrescenta "além de patrimônio e
+consolidação" **sem quantidade**. Os 34 restantes não têm fonte neste
+repositório. A afirmação que sustenta é a **direção** — são módulos inteiros,
+não relatórios — e ela é verificável item a item. O **número** não é, e por
+isso fica declarado assim em vez de repetido como se fosse medido.
+
+⚠️ **A direção do número é que importa, e ela se confirma item a item:** os
+**46** relatórios nomeados no parágrafo acima dependem de módulos que o
+DataLedger não tem — Financeiro e tesouraria (12), Custos e estoques (12),
+Fiscal (12), Trabalhista (10) —, além de patrimônio e consolidação. **Não são
+relatórios que faltam: são módulos.** Medir o produto contra os 120 sem dizer
+isso seria a mesma classe de erro que a **[DE-060](decisoes.md)** descreve —
+comparar contra um substituto e não declarar.
 
 ## 3. As três classes já explicam a ordem, e o catálogo confirma
 

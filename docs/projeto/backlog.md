@@ -2095,3 +2095,37 @@ N1 a N11 fechados. Ressalvas abaixo; esta foi a última rodada (AGENTS.md §3.1)
 | BL-627 | **A2 da auditoria da etapa 2 (baixa)** — a regra de eventos opostos julga pela natureza cadastrada; conta de CAPITAL cadastrada fora do padrão (retificadora "capital a integralizar" gravada como credora) num lançamento com débito e crédito na mesma coluna ainda publicaria o líquido. A tesouraria foi endurecida na correção (veto por direção, sempre); o capital não pode ser, porque a subscrição contra a retificadora é exatamente o par que a RC-155 manda manter líquido | `arquiteto-senior` | Fred | aberta — **validação do Fred (BL-626)** | Ou o Fred aceita o limite (a natureza cadastrada da retificadora é a premissa), ou o cadastro passa a exigir a natureza esperada por coluna; com teste |
 | BL-626 | Validação contábil do Fred das escolhas da DMPL: nota impressa do resultado não transferido; cancelamento de tesouraria em "alienação ou cancelamento"; subscrição parcial como aumento líquido; lucros e prejuízos na mesma coluna; ordem das linhas; reserva de capital incorporada ao capital como "aumento de capital com reservas e lucros"; e, da etapa 2 (BL-603): a coluna "dividendo adicional proposto" FORA dos grupos do 111A, a linha própria na DLPA e na DMPL e a aprovação saindo em "Dividendos" | `arquiteto-senior` | Fred | aberta — **validação do Fred** | Cada escolha confirmada ou revertida |
 
+## DL-064 — documentos de paridade e catálogo desatualizados (nível 3), 04/10/2026
+
+Nove defeitos **medidos no repositório**, não opinados. Nenhum toca código: são
+fatos que já estavam no repositório e foram escritos errado.
+
+| # | Defeito | Onde | Corrigido |
+| --- | --- | --- | --- |
+| 1 | **CTB-14 (DMPL) marcado "Não existe" e está integrado** — `apurar_dmpl` existe, com os PRs #76, #77 e #79 | `paridade/contabilidade.md` | sim |
+| 2 | O mesmo arquivo afirma que a DLPA "ainda não existe" 49 linhas antes de dizer que ela existe | `paridade/contabilidade.md` | sim |
+| 3 | **Todas** as referências `arquivo:linha` dos itens "Existe" deslocadas (`Conta` citado em 527, real 976) | `paridade/contabilidade.md` | sim — a prova passa a ser o **símbolo e o plano**, e o aviso ficou no topo |
+| 4 | "Onda 0 — núcleo entregue" diz **onze** itens; o CTB-08 está "Não existe" | `paridade/contabilidade.md` | sim — dez |
+| 5 | Bloco "Estado atual medido no código" de 27/09: 15.045 linhas; medido agora **18.995** (+26%) | `paridade/contabilidade.md` | sim, com o comando para remedir |
+| 6 | **FIS-71 (backup) e CTB-49 discordam** sobre a mesma capacidade — o primeiro diz "coberto pela infraestrutura", o segundo e o código dizem que nunca foi verificado | `paridade/fiscal.md` | sim — "Não existe" |
+| 7 | `catalogo-de-relatorios.md` afirma que **não há Balanço nem camada de saldos** — falso, e a única recomendação dele já foi executada | `docs/projeto/` | sim |
+| 8 | O catálogo diz "menos de 5%" e a conta não fecha (14 linhas = 11,7%; 15 números = 12,5%) | `docs/projeto/` | sim — 3/120 = 2,5% |
+| 9 | Índice do paridade diz **356 itens**; a varredura mede **355**. Furo na série do Fiscal (FIS-74 a FIS-79 não existem) | `paridade/README.md` | sim |
+| 10 | `estado.md` lista a **DMPL como inexistente** e, 90 linhas abaixo, como integrada | `docs/agents/estado.md` | sim |
+
+**Por que isso é nível 3 e não mais:** ninguém perde dinheiro com um mapa
+velho — mas quase se planejou contra ele nesta sessão, e a próxima pessoa
+faria o mesmo. O custo é de **planejamento errado**, não de cálculo errado.
+
+**O que ficou em aberto, de propósito:** a situação dos **outros** itens não
+foi remedida um a um. Os mapas têm 355 itens; reclassificar todos é trabalho
+de meio dia e o resultado envelheceria de novo. O que esta etapa faz é
+**destravar o uso honesto** — os defeitos que fariam planejar errado estão
+corrigidos, e os dois avisos do topo dos arquivos dizem o que fazer com o que
+não foi conferido.
+
+**Pendência que fica:** a situação de um item deve ser corrigida **na mesma
+etapa que o entrega**, e não numa etapa de acerto de contas. É essa regra que
+evita a volta do defeito, e ela é a razão de a DL-061 ter escrito o CTB-14
+certo.
+

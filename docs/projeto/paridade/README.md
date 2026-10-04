@@ -10,20 +10,38 @@ comece a codar, ele não se perca"*. Etapa:
 | Módulo | Plano | Itens |
 | --- | --- | --- |
 | Contabilidade | [contabilidade.md](contabilidade.md) | 74 (CTB-01 a CTB-74) |
-| Fiscal, com a EFD Contribuições no Lucro Presumido | [fiscal.md](fiscal.md) | 91 (FIS-01 a FIS-97; 18 obsoletos ou fora de escopo) |
-| Folha e Ponto | [folha.md](folha.md) | 80 (FOL-01 a FOL-80) |
-| Honorários | [honorarios.md](honorarios.md) | 59 (HON-01 a HON-47 e HON-80 a HON-91) |
+| Fiscal, com a EFD Contribuições no Lucro Presumido | [fiscal.md](fiscal.md) | 91 (18 obsoletos ou fora de escopo) — ⚠️ **furo na série: FIS-74 a FIS-79 não existem**; a numeração salta de FIS-73 para FIS-80 |
+| Folha e Ponto | [folha.md](folha.md) | **79** (FOL-01 a FOL-79) |
+| Honorários | [honorarios.md](honorarios.md) | 59 (47 de escopo ativo + 12 fora de escopo) |
 | Patrimônio | [patrimonio.md](patrimonio.md) | 26 (PAT-01 a PAT-26) |
 | Lalur | [lalur.md](lalur.md) | 26 (LAL-01 a LAL-26) |
 
-Total: **356 itens**, escritos em 2026-09-27. Cada plano termina com glossário
-e com a lista consolidada de perguntas ao Fred.
+Total medido em 04/10/2026 por varredura dos arquivos: **355 itens**, não 356
+— a folha tem 79, e não 80 como dizia a versão anterior deste índice. ⚠️
+Corrigido na DL-064; a contagem anterior (356, Folha 80) **não fechava com
+os arquivos** e foi medida como erro, não estimada.
+
+⚠️ **Estes mapas envelhecem (DL-064, 04/10/2026).** Foram escritos em
+27/09/2026 e **não foram atualizados** depois da leva DL-061/DL-062/DL-063. O
+CTB-14 (DMPL) continuava marcado "Não existe" depois de integrado, e todas as
+citações `arquivo:linha` dos itens "Existe" estavam deslocadas. **A prova de
+existência é o símbolo e o plano, nunca o número da linha**, e a situação
+precisa ser reconferida no código antes de planejar contra ela.
 
 **Como usar:** escolha o módulo, leia a introdução e o mapa de ondas, pegue o
 primeiro item da onda que ainda não existe, confira as dependências, e abra
 um plano de etapa (`DL-xxx`) citando os IDs. Antes de codar qualquer regra
 marcada **a confirmar**, confirme a fonte oficial e registre em
 [requisitos.md](../requisitos.md).
+
+⚠️ **Antes de confiar na situação de um item (DL-064), confirme no código.**
+O estado do item é o que o documento dizia **quando foi escrito**, e estes
+mapas envelheceram. Dois casos já medidos: o **CTB-14 (DMPL)** seguia marcado
+"Não existe" depois de entregue, e o **FIS-71 (backup)** se declarava
+"coberto pela infraestrutura" enquanto o código e o backlog dizem que nunca foi
+verificado. Uma planilha gerada destes arquivos descreve **o que o documento
+diz** — e é por isso que a situação se corrige **na mesma etapa que entrega o
+item**, não depois.
 
 ## Regras que valem para todos os planos
 

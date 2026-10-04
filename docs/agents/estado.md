@@ -32,7 +32,13 @@ Medido em 25/09/2026 no código e no Git, não copiado de documento anterior; re
 | Trilha de auditoria | Na mesma transação da gravação, imutável, cobrindo também o admin |
 | Fiscal | Recepção e consulta de NFS-e nacional (DL-010 fatia 1): XML e ZIP, deduplicação, cancelamento por evento, isolamento por escritório |
 | Cadastro de cliente pessoa física | CPF e modo de escrituração livro-caixa (DL-038); CNPJ e CPF únicos por escritório (DL-041) |
-| **Não existe** | Compensação de lucros e prejuízos acumulados (HI-26/PE-38); as demonstrações anuais da DL-048 depois da DLPA (**DMPL, DFC, DRA e DVA**); escrituração fiscal e apuração; módulos Folha, Honorários e Processos/Paralegal; assistente de IA; servidor MCP |
+| **Não existe** | Compensação de lucros e prejuízos acumulados (HI-26/PE-38); as demonstrações anuais da DL-048 depois da DMPL (**DFC, DRA e DVA**); escrituração fiscal e apuração; módulos Folha, Honorários, Patrimônio e Lalur; assistente de IA; servidor MCP |
+
+⚠️ **Corrigido em 04/10/2026 (DL-064).** Esta linha listava a **DMPL** como
+inexistente, e a linha da tabela de etapas a registrava como **Integrada** —
+o próprio estado do projeto, que é a fonte única, se contradizendo a 90
+linhas de distância. Foi esse o defeito que quase fez planejar contra um
+mapa que afirma que a DMPL não existe.
 
 **Verificação de 30/09/2026** (contêiner Linux do Claude Code na web, Python
 3.13.12, PostgreSQL 16.13 local, sobre a `main` depois do PR #65, antes da

@@ -1,5 +1,24 @@
 # Plano de paridade — Contabilidade
 
+> ⚠️ **Como ler a situação de um item (DL-064, 04/10/2026).** Este mapa foi
+> escrito em 27/09/2026 e **não foi atualizado** depois da leva DL-061, DL-062
+> e DL-063. A varredura de 04/10 encontrou **todas** as citações
+> `arquivo:linha` dos itens marcados "Existe" **deslocadas** (medido: `Conta`
+> citado em `models.py:527`, real em 976; `apurar_balancete` citado em 3025,
+> real em 3065). **Nenhuma delas serve para abrir o código hoje**, e por isso
+> este mapa passa a ser lido assim:
+>
+> 1. A **prova de existência** é o **símbolo** (`apurar_dmpl`, `Conta`) e o
+>    **plano** (`docs/planos/DL-xxx.md`) — nunca o número da linha.
+> 2. A **situação** ("Existe" / "Parcial" / "Não existe") é a do documento e
+>    **pode estar velha**. Antes de planejar contra ela, confirme no código.
+> 3. Quando um item for entregue, corrija a situação **na mesma etapa**, como
+>    a DL-061 fez com o CTB-14. Uma planilha que diz que a DMPL não existe
+>    quase fez planejar contra ela.
+>
+> Medir de novo: `python scripts/gerar_planilha_de_paridade.py` (quando
+> versionado), ou a varredura manual dos blocos `**Situação no DataLedger.**`.
+
 ## Introdução
 
 ### Escopo
@@ -65,11 +84,25 @@ rotina.
 - Todo valor monetário de exemplo é sintético, sem relação com cliente real
   (AGENTS.md §7).
 
-### Estado atual medido no código (2026-09-27)
+### Estado atual medido no código (remedido em 04/10/2026)
 
-`apps/contabilidade/` tem 15.045 linhas de Python (sem contar migrações e
-testes), quatro arquivos principais: `models.py` (1.512 linhas), `services.py`
-(5.593 linhas), `views_web.py` (5.098 linhas) e `urls_web.py` (135 linhas).
+⚠️ **Remedido na DL-064.** A medição original era de 27/09/2026 e já não
+servia. O número que importa é que o módulo **cresceu 26%** desde então — e
+é por isso que nenhuma linha deste mapa deve ser tomada como medida de hoje.
+
+`apps/contabilidade/` tem **18.995 linhas** de Python (sem migrações nem
+testes), contra 15.045 na medição de 27/09. Os arquivos principais:
+`models.py` (2.046), `services.py` (7.200), `views_web.py` (6.264),
+`views.py` (2.087), `serializers.py` (374) e `urls_web.py` (181).
+
+**Como volver a medir** (é o que vale, não o número):
+`Get-ChildItem apps\contabilidade -Recurse -Filter *.py | Where-Object { $_.FullName -notmatch "migrations|tests|__pycache__" }`
+
+Os modelos da listagem original — `Competencia`, `Conta`,
+`LancamentoContabil`, `ItemLancamento`, `ParametroContabilEmpresa` —
+continuam válidos, e `Conta` ganhou **dois** campos de classificação desde
+então: `classificacao_dlpa` (CTB-13) e `classificacao_dmpl` (CTB-14).
+
 Modelos existentes: `Competencia`, `Conta` (com `classificacao_patrimonial` e
 `classificacao_dre` como campos fixos, não estrutura configurável à parte),
 `LancamentoContabil` (imutável, com `estorno_de`, `chave_idempotencia`,
@@ -194,10 +227,16 @@ emite todo ano — a mesma recomendação **A** da DL-047.
 
 ## Onda 0 — Núcleo já entregue
 
-Estes onze itens já têm código de produção. Estão aqui porque o pedido do
+Estes **dez** itens já têm código de produção. Estão aqui porque o pedido do
 Fred foi "todas as funções", e porque quem for construir a Onda 1 precisa
 saber exatamente o que a base oferece e o que falta nela — vários itens das
 ondas seguintes têm "o que falta para paridade" destes como pré-requisito.
+
+⚠️ **Corrigido em 04/10/2026 (DL-064):** este texto dizia "onze". O décimo
+primeiro, **CTB-08 (período de trabalho)**, está marcado "**Não existe**"
+no item dele: o que existe é o fechamento de competência (CTB-07), que não
+é a mesma coisa. A lista de Onda 0 deve dizer **dez**, ou o item CTB-08 sair
+daqui.
 
 ### CTB-01 — Plano de contas
 
@@ -823,9 +862,15 @@ páginas 769-771.
 (ver os itens seguintes).
 
 **Situação no DataLedger.** **Parcial.** O padrão existe para
-`classificacao_patrimonial` (CTB-09) e `classificacao_dre` (CTB-10). Os
-demais campos (DLPA, DMPL, DFC, DVA) ainda não existem — são criados junto de
-cada item.
+`classificacao_patrimonial` (CTB-09) e `classificacao_dre` (CTB-10), e
+**também** para `classificacao_dlpa` (CTB-13) e `classificacao_dmpl` (CTB-14) —
+ambos entregues. **DFC e DVA ainda não têm o campo**; serão criados junto dos
+itens CTB-15 e CTB-17.
+
+⚠️ **Corrigido em 04/10/2026 (DL-064).** Este texto dizia que "DLPA, DMPL,
+DFC, DVA ainda não existem", quarenta e nove linhas **acima** de o CTB-13
+dizer que a DLPA existe. Um documento que se contradiz a 49 linhas de
+distância não serve para planejar.
 
 **Depende de.** CTB-09, CTB-10 (são os precedentes que provam o padrão).
 
@@ -942,7 +987,23 @@ itens 106-110**, que descrevem o conteúdo mínimo da demonstração das
 mutações do PL. **Não conferido em fonte oficial nesta sessão** — conferir
 antes de implementar.
 
-**Situação no DataLedger.** **Não existe.**
+**Situação no DataLedger.** **Existe.** Entregue em três etapas da
+[DL-061](../../planos/DL-061-dmpl.md): fatia 1 (`apurar_dmpl`,
+`ClassificacaoDmpl`, tela `dmpl.html` e classificação por conta — PR #76), a
+etapa 2 (coluna de dividendo adicional proposto, evento oposto e texto do
+veto — PR #77) e a fatia 2 (marcação manual por lançamento e a API da DMPL —
+PR #79). Emitir, conciliar com a DLPA e vetar por divergência já funcionam.
+
+⚠️ **Corrigido em 04/10/2026 (DL-064).** Este item dizia "**Não existe**"
+desde 27/09/2026, depois de a DMPL ter sido integrada — e foi por isso que
+quase se planejou contra ele. **Nenhum item deste mapa deve carregar
+`arquivo:linha` como prova de existência**: as linhas mudam a cada entrega e
+todas as citações deste arquivo ficaram deslocadas. A prova é o **símbolo e
+o plano**.
+
+**Falta o que a DL-061 registrou como pendência:** comparativo com o
+exercício anterior (E6), valor por ação em notas (E8) e a validação
+contábil do Fred das escolhas de linha e coluna (BL-626, BL-627).
 
 **Depende de.** CTB-09, CTB-10, CTB-11, CTB-13 (a DLPA é, essencialmente, a
 coluna "lucros/prejuízos acumulados" desta demonstração — implementar as duas

@@ -2482,12 +2482,24 @@ Nuvem).
 **Fonte normativa.** Não aplicável — é prática de operação, não
 obrigação fiscal (embora backup e restauração verificados sejam exigidos
 pelo AGENTS.md §12).
-**Situação no DataLedger.** **Coberto pela infraestrutura geral do
-projeto** (backup de banco de dados), não por uma tela do módulo Fiscal.
+**Situação no DataLedger.** **Não existe.** ⚠️ **Corrigido em 04/10/2026
+(DL-064).** Este texto dizia "**Coberto pela infraestrutura geral do projeto
+(backup de banco de dados)**", lido literalmente é "Existe" — e o próprio
+repositório afirma o contrário em quatro lugares: o mapa da Contabilidade
+(**CTB-49, a mesma capacidade**) diz "**Não existe procedimento verificado**"
+(PE-07, aberta desde o início do projeto); `backlog.md` mantém **BL-33 como
+"planejada" (P0)**; `requisitos.md` diz que "hoje não existe procedimento
+verificado"; e `estado.md` diz que "backup e restauração nunca foram
+planejados nem verificados". **O segundo texto está certo:** um backup que
+existe mas nunca foi testado é exatamente o caso que o AGENTS.md §12 proíbe
+aceitar. **Dois documentos do mesmo conjunto não podem discordar sobre a
+mesma capacidade.**
+
 **Depende de.** Nada específico do Fiscal.
 **Dados.** Não aplicável — é infraestrutura, não dado de domínio.
 **Regras.** AGENTS.md §12: backup e restauração planejados e
-**verificados** (não basta existir, precisa ter sido testado).
+**verificados** (não basta existir, precisa ter sido testado). É esta regra
+que torna a lacuna real, e não uma preferência.
 **Telas e documentos.** Não aplicável a este módulo especificamente.
 **Critérios de aceite.** Não aplicável a este documento — pertence ao
 plano de infraestrutura do projeto.
