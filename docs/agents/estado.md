@@ -121,7 +121,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-059](../planos/DL-059-trilha-do-convite-e-eventos-sem-ip.md) | Trilha do convite e eventos sem IP (BL-560, BL-566, BL-579) | Integrada (PR #73) — auditoria aprovada com ressalvas; BL-597 a BL-601 |
 | [DL-060](../planos/DL-060-confirmacao-da-cascata.md) | A reabertura em cascata confirma exatamente os meses mostrados (BL-588, BL-589) | Integrada (PR #74) — reconferência aprovada com ressalvas; BL-602 |
 | [DL-061](../planos/DL-061-dmpl.md) | DMPL, etapa CTB-14 da DL-048 (RC-151) | Integrada (PR #76, #77 e #79) — fatias 1, etapa 2 e fatia 2; pontos abertos BL-606, BL-607, BL-622, BL-625, BL-626 e BL-627 |
-| [DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md) | Sinal da conta-RAIZ retificadora no Balanço Patrimonial (BL-604) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md) | Sinal da conta-RAIZ retificadora no Balanço Patrimonial (BL-604) | Em revisão (PR #81, quatro checks verdes; aguardando integração) |
+| [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) | Fecha a leva da DL-061: coluna da DMPL nas duas portas, teste do snapshot e dica condicionada (BL-606, BL-607, BL-625) | Em revisão (PR #82, encadeado no #81, quatro checks verdes; auditoria independente em andamento) |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -192,6 +193,28 @@ que o SQLite local não via: o teste do BL-516 exigia o Balanço **vetado** por
 um resíduo de 200,00 que **era o próprio defeito** — a "(-) PDD" cadastrada
 como raiz inflava o Ativo, e o resíduo aritmético era a única rede que pegava
 a conta.
+
+**Em andamento: DL-063 — fecha a leva da DL-061** (BL-606, BL-607 e BL-625),
+combinada pelo Fred em 04/10/2026 e com a decisão de que a coluna da DMPL
+passasse a ser aceita **pela API como já era pela DRE e pela DLPA** — a
+assimetria de ficar gravável só pela web não era desejada. O campo existia no
+modelo e era lido pela apuração, mas nenhuma das duas portas de cadastro o
+aceitava: quem integrava por API **não tinha porta nenhuma**, e a recusa por
+contrato nem nomeava o campo. A dica da divergência de fechamento, que era um
+dicionário estático, passou a apontar a causa que a apuração realmente
+encontrou (conta de PL com saldo e sem coluna) em vez de mandar conferir a
+classificação; **os dois lados têm teste de tela**, porque um teste só do caso
+"tem causa" passaria mesmo com a genérica nunca aparecendo. O teste do
+snapshot `REPEATABLE READ` da DMPL foi entregue, mas **não roda localmente**:
+exige PostgreSQL 16, e o `SET TRANSACTION ISOLATION LEVEL` não existe no
+SQLite — a prova dele é a CI. **PR #82 aberto, encadeado no #81**, com os
+**quatro checks verdes** e a suíte em **4.634 passed, zero falhas** em
+PostgreSQL 16: os dois testes do par `REPEATABLE READ` **passaram** no banco
+que o snapshot exige, e o limite local deixou de ser um "a CI provará" para
+vir a ser evidência de execução. ⚠️ **Anomalia de ambiente declarada e não
+explicada:** nesta máquina, arquivo de teste **novo** com uma fixture de
+módulo chamada `autenticado` falha na resolução do pytest; a fixture da
+DL-063 chama-se `gestor`, e o porquê está no docstring dela.
 
 - **DL-054** — **integrada pelo PR #70** (squash `e7b85aa`).
 - **DL-055** — **integrada pelo PR #69** (squash `9ceda53`).
