@@ -3989,17 +3989,23 @@ def apurar_saldos(*, empresa, data_base):
                 totais_por_tipo[tipo] += linha["saldo_final"]
             else:
                 totais_por_tipo[tipo] += -linha["saldo_final"]
-                contas_retificadoras_rais.append(
-                    {
-                        "conta": linha["conta"],
-                        "nome": linha["nome"],
-                        "tipo": tipo,
-                        "natureza": linha["natureza"],
-                        "natureza_natural_do_tipo": natureza_natural,
-                        "saldo": linha["saldo_final"],
-                        "contribuicao_no_total": -linha["saldo_final"],
-                    }
-                )
+                # ⚠️ Só entra na lista a conta que de fato INVERTEU sinal
+                # (BL-493: a lista nomeia o que aconteceu, não o que poderia
+                # acontecer). Uma raiz retificadora com saldo ZERO não teve
+                # nada invertido, e nomeá-la produziria um aviso permanente
+                # sobre um número que já está certo. O VALOR também não vai
+                # na lista, de propósito: ele já está impresso na linha da
+                # conta no Balanço, e aqui a tela mostraria um Decimal cru.
+                if linha["saldo_final"] != zero:
+                    contas_retificadoras_rais.append(
+                        {
+                            "conta": linha["conta"],
+                            "nome": linha["nome"],
+                            "tipo": tipo,
+                            "natureza": linha["natureza"],
+                            "natureza_natural_do_tipo": natureza_natural,
+                        }
+                    )
 
         if tipo != linha["tipo_da_raiz"]:
             contas_com_tipo_divergente_da_raiz.append(
@@ -4387,8 +4393,9 @@ def avaliar_emissao_do_balanco(saldos):
     ⚠️ **DERIVADA, nunca uma lista de `if` escrita à mão (DE-056 — o
     projeto já pagou caro por enumeração), com DUAS tuplas EXPLÍCITAS, não
     um inventário só com exceção embutida:** `_LISTAS_QUE_IMPEDEM_A_
-    EMISSAO` (seis nomes) decide `pode_emitir`; `_LISTAS_QUE_SO_AVISAM` (um
-    nome) nunca decide nada. O teste do BL-502
+    EMISSAO` (seis nomes) decide `pode_emitir`; `_LISTAS_QUE_SO_AVISAM`
+    (dois nomes — o segundo entrou na DL-062, BL-604) nunca decide nada. O
+    teste do BL-502
     (`test_bl502_as_duas_tuplas_particionam_o_inventario_real_de_apurar_saldos`)
     prova apenas a forma da partição. O teste parametrizado
     `test_bl515_cada_lista_que_veta_sozinha_continua_impedindo` percorre

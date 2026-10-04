@@ -296,7 +296,59 @@ expectativa de **número** foi tocada.
 ### 8.6 Auditoria independente
 
 Obrigatória por ser nível 1 (§3.1). Relatório em
-[`docs/auditorias/2026-10-04-dl-062-auditoria.md`](../auditorias/2026-10-04-dl-062-auditoria.md).
+[`docs/auditorias/2026-10-04-dl-062-auditoria.md`](../auditorias/2026-10-04-dl-062-auditoria.md):
+**APROVADO COM RESSALVAS**, os **9 critérios de aceite SEDE**, nenhum
+bloqueador, **zero regressão** medida pelo próprio auditor (63 falhas com a
+correção contra 74 sem, num par de suites de `apps/contabilidade`).
+
+Oito achados, todos de tela/documento ou de verificação: **A1** (média) e
+**A2** (média) — a lista informativa nova não tinha nome humano nem ação na
+tela, e nomeava raiz retificadora com saldo zero; **A3** (baixa) — o plano
+linkava um relatório que ainda não existia; **A4** (baixa) — docstring dizendo
+"um nome" para uma tupla de dois; **A5** (baixa) — segunda fonte de verdade
+para o sinal, no ternário do subtotal impresso; **A6** (baixa) — o teste de
+contrato do BL-515 tinha sidorelaxado para comparação de conjunto; **A7**
+(baixa) — a apresentação impressa não tinha guarda; **A8** (baixa) — arquivo
+de artefato na raiz do repositório.
+
+**O ciclo do §3.1 encerrou com UMA correção**, aplicando A1 a A8 — a regra
+proíbe terceira rodada, e nenhum deles exigia reabrir critério.
+
+### 8.6.1 O que a CI encontrou e o SQLite local não conseguia ver
+
+A **primeira execução da CI (PostgreSQL 16)** reprovou **um** teste:
+`test_dl034_tela_do_balanco.py::test_bl516_duas_raizes_de_mesmo_tipo_exibem
+_aviso_generico_sem_ancestral_comum`, que exigia que o Balanço fosse **vetado**
+por resíduo de 200,00.
+
+O arquivo inteiro não roda localmente (14 falhas idênticas com e sem a
+mudança: `SET TRANSACTION ISOLATION LEVEL` não existe no SQLite), então a
+verificação local **não podia** ver isso — e a suíte local "verde" era
+enganosa nesse ponto. A medição do cenário mostrou que o 200,00 **era o
+defeito**: "(-) PDD Raiz" é uma retificadora na raiz do Ativo, e o Balanço
+somava o crédito dela como acréscimo (Ativo em 1.100,00 quando o correto é
+900,00). O resíduo aritmético era, sem querer, a **única rede** que pegava a
+conta — exatamente o mesmo defeito do BL-604, no Ativo. Corrigido, o resíduo
+zera, a equação fecha e o Balanço emite com o número certo; o teste foi
+reescrito para afirmar o comportamento corrigido, mantendo o que o BL-516
+pedia: o aviso **continua visível** e nomeando as duas raízes.
+
+### 8.6.2 Correção única (A1 a A8)
+
+| Achado | Correção |
+| --- | --- |
+| A1 | Nome humano e ação (de **confirmação**, não de correção) em `NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO` e `ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA`; campo `natureza_natural_do_tipo` com rótulo e enum |
+| A2 | A lista nomeia só a raiz com saldo **diferente de zero**; `saldo`/`contribuicao_no_total` saíram do item (o valor já está impresso na linha do Balanço) |
+| A3 | Resolvido pela existência do relatório de auditoria |
+| A4 | Docstring corrigido ("dois nomes") |
+| A5 | `_subtotal_do_balanco` passa a ler `NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO` — mesma declaração de `apurar_saldos` |
+| A6 | O teste do BL-515 voltou a comparar a **tupla**, não o conjunto |
+| A7 | Quatro testes novos, entre eles a montagem **impressa** do Balanço com a retificadora na raiz (`115.000,00 C` + `2.000,00 D` = `113.000,00 C`) e o grande total impresso batendo |
+| A8 | Arquivo de artefato removido da raiz |
+
+Depois da correção: `apps/contabilidade` + `apps/core` com **79 falhas**
+contra **81** da base original — nenhuma regressão e mais uma falha resolvida
+pela própria correção.
 
 ### 8.7 Integração
 

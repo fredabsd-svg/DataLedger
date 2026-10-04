@@ -294,8 +294,15 @@ def test_a_raiz_retificadora_e_nomeada_e_so_avisa():
     assert achada["tipo"] == TipoConta.PATRIMONIO_LIQUIDO
     assert achada["natureza"] == NaturezaConta.DEVEDORA
     assert achada["natureza_natural_do_tipo"] == NaturezaConta.CREDORA
-    assert achada["saldo"] == Decimal("2000.00")
-    assert achada["contribuicao_no_total"] == Decimal("-2000.00")
+    # O VALOR não vai na lista (achado A2 da auditoria): ele já está
+    # impresso na linha da conta, e a tela mostraria um Decimal cru.
+    assert set(achada) == {
+        "conta",
+        "nome",
+        "tipo",
+        "natureza",
+        "natureza_natural_do_tipo",
+    }
 
 
 def test_a_lista_de_retificadoras_avisa_sem_impedir_a_emissao():
@@ -316,6 +323,133 @@ def test_a_lista_de_retificadoras_avisa_sem_impedir_a_emissao():
     assert emissao["pode_emitir"] is True
     assert "contas_retificadoras_rais" in emissao["listas_informativas"]
     assert "contas_retificadoras_rais" not in emissao["listas_pendentes"]
+
+
+# ---------------------------------------------------------------------------
+# Critério 4 / D6 e achado A7 da auditoria — o BALANÇO IMPRESSO fecha
+# ---------------------------------------------------------------------------
+
+
+def test_a_seccao_impressa_do_pl_fecha_com_a_retificadora_na_raiz():
+    """**O número que o contador lê no papel.**
+
+    A correção mexe no TOTAL, e o risco real do plano ("corrige o total e
+    não a linha") só aparece na MONTAGEM IMPRESSA: se a linha da conta
+    continuasse exibindo o valor com o sinal da natureza cadastrada e o
+    subtotal com o da natural, o documento mostraria duas verdades. Aqui as
+    duas peças são montadas de verdade e comparadas.
+
+    A CONVENÇÃO impressa é valor absoluto + letra D/C (RC-61/BL-77), e ela
+    é o que torna a conta de dedução legível sem número negativo: o grupo
+    aparece como "115.000,00 C", a retificadora como "2.000,00 D", e o
+    subtotal como "113.000,00 C" — que é a subtração contábil, escrita do
+    jeito que o contador confere no papel.
+
+    A auditoria mediu este mesmo cenário na tela real (achado A7: não havia
+    guarda); este teste é a guarda, e roda sem navegador."""
+    from apps.contabilidade.views_web import _montar_grupos_do_balanco
+
+    empresa, _, _ = _caso_com_retificadora_solta_na_raiz()
+    saldos = apurar_saldos(empresa=empresa, data_base=date(ANO, MES, 31))
+
+    grupos = _montar_grupos_do_balanco(saldos)
+    pl = grupos["patrimonio_liquido"]
+
+    linha_do_grupo = next(linha for linha in pl["linhas"] if linha["codigo"] == "3")
+    linha_da_tesouraria = next(linha for linha in pl["linhas"] if linha["codigo"] == "9")
+
+    assert linha_do_grupo["saldo_ptbr"] == "115.000,00"
+    assert linha_do_grupo["saldo_natureza"]["letra"] == "C"
+    # A dedução: valor POSITIVO, com a letra que diz que é devedora. Nunca
+    # um "-2.000,00" — a convenção do módulo é letra, não sinal.
+    assert linha_da_tesouraria["saldo_ptbr"] == "2.000,00"
+    assert linha_da_tesouraria["saldo_natureza"]["letra"] == "D"
+    assert not linha_da_tesouraria["saldo_ptbr"].startswith("-"), "nunca negativo"
+
+    # E o subtotal é a subtração, não a soma ingênua.
+    assert pl["subtotal"]["valor_ptbr"] == "113.000,00"
+    assert pl["subtotal"]["natureza"]["letra"] == "C"
+    assert pl["subtotal"]["valor_ptbr"] != "117.000,00", "a soma ingênua saía antes"
+
+
+def test_o_grande_total_impresso_do_ativo_bate_com_o_passivo_e_pl():
+    """A mesma montagem, conferindo a EQUAÇÃO no documento impresso — que é
+    como o contador a verifica no papel, sem somar na mão."""
+    from apps.contabilidade.views_web import _montar_grupos_do_balanco
+
+    empresa, _, _ = _caso_com_retificadora_solta_na_raiz()
+    saldos = apurar_saldos(empresa=empresa, data_base=date(ANO, MES, 31))
+
+    grupos = _montar_grupos_do_balanco(saldos)
+
+    assert grupos["total_ativo"]["valor_ptbr"] == "123.000,00"
+    assert grupos["total_passivo_e_pl"]["valor_ptbr"] == "123.000,00"
+
+
+def test_o_subtotal_impresso_usa_o_mapa_e_nao_um_ternario_proprio():
+    """Achado A5 da auditoria: o subtotal usava `DEVEDORA se ATIVO senão
+    CREDORA`, uma SEGUNDA fonte de verdade para o mesmo sinal — hoje em
+    acordo com o mapa, e por isso invisível, mas um `TipoConta` novo cairia
+    no ternário como CREDORA sem ninguém perceber. Este teste fixa que a
+    apresentação e a apuração leem o MESMO mapa, e cobre TODOS os tipos —
+    inclusive os que o Balanço ainda não imprime (Receita, Despesa), que é
+    justamente onde os dois caminhos divergiriam."""
+    from apps.contabilidade.views_web import _subtotal_do_balanco
+
+    for tipo in TipoConta.values:
+        natural = NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO[tipo]
+        esperado = "devedora" if natural == NaturezaConta.DEVEDORA else "credora"
+        assert _subtotal_do_balanco(Decimal("100.00"), tipo)["natureza_esperada"] == esperado
+
+
+# ---------------------------------------------------------------------------
+# Achado A2 da auditoria — a lista nomeia o que ACONTECEU, não o que poderia
+# ---------------------------------------------------------------------------
+
+
+def test_raiz_retificadora_com_saldo_zero_nao_gera_aviso():
+    """A2: a lista declarava a raiz retificadora mesmo com saldo ZERO,
+    gerando aviso permanente e afirmando um "sinal invertido" que não
+    ocorreu (inverter zero é zero). Aqui a conta existe, é raiz e tem
+    natureza oposta à do tipo — mas não foi movimentada, e não há o que
+    declarar."""
+    empresa = _empresa("Empresa sem movimento")
+    _plano_basico(empresa)
+    _conta(
+        empresa,
+        "9",
+        "Ações em tesouraria (sem movimento)",
+        PL,
+        D,
+        dmpl=COL.ACOES_OU_QUOTAS_EM_TESOURARIA,
+    )
+
+    saldos = apurar_saldos(empresa=empresa, data_base=date(ANO, MES, 31))
+
+    assert saldos["contas_retificadoras_rais"] == []
+
+
+# ---------------------------------------------------------------------------
+# Achado A1 da auditoria — a lista nova tem NOME HUMANO e AÇÃO na tela
+# ---------------------------------------------------------------------------
+
+
+def test_a_lista_nova_tem_nome_humano_e_acao_na_tela():
+    """A1: sem registro, a tela mostrava o nome cru da lista e a ação
+    "Ação não cadastrada para a pendência … avise o suporte". O contrato
+    BL-508, escrito no mesmo arquivo, exige nome humano E ação que resolve
+    para toda lista declarada — inclusive as informativas."""
+    from apps.contabilidade.views_web import (
+        ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA,
+        NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO,
+    )
+
+    assert "contas_retificadoras_rais" in NOMES_HUMANOS_DAS_LISTAS_DE_PENDENCIA_DO_BALANCO
+    assert "contas_retificadoras_rais" in ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA
+    # A ação da lista informativa não pode mandar "corrigir": o número do
+    # Balanço já está certo, e uma ação imperativa seria instrução falsa.
+    acao = ACAO_QUE_RESOLVE_A_PENDENCIA_POR_LISTA["contas_retificadoras_rais"]
+    assert "Nada precisa ser corrigido para emitir" in acao
 
 
 # ---------------------------------------------------------------------------

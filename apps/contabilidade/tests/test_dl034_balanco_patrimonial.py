@@ -899,9 +899,15 @@ def test_bl515_a_tupla_de_veto_preserva_as_travas_revisadas():
     esperadas = nomes_de_listas - set(_LISTAS_INFORMATIVAS_DE_CONTRATO)
     atuais = set(contabilidade_services._LISTAS_QUE_IMPEDEM_A_EMISSAO)
     informativas = tuple(contabilidade_services._LISTAS_QUE_SO_AVISAM)
-    assert set(informativas) == set(_LISTAS_INFORMATIVAS_DE_CONTRATO), (
-        "BL-515: lista(s) movida(s) para avisos: "
-        f"{sorted(set(informativas) - set(_LISTAS_INFORMATIVAS_DE_CONTRATO))}"
+    # ⚠️ Comparação de TUPLA, e não de conjunto (achado A6 da auditoria da
+    # DL-062): a ordem das listas informativas é o que a tela percorre, e um
+    # `set(...) == set(...)` aceitaria qualquer reordenação. A afirmação
+    # continua derivando a tupla de VETO do inventário local; só as
+    # informativas são comparadas nominalmente, porque é delas que este
+    # contrato guarda a ordem.
+    assert informativas == _LISTAS_INFORMATIVAS_DE_CONTRATO, (
+        "BL-515: lista(s) movida(s) para avisos ou reordenada(s): "
+        f"informativas={informativas} esperadas={_LISTAS_INFORMATIVAS_DE_CONTRATO}"
     )
     assert atuais == esperadas, (
         "BL-515: a tupla de veto divergiu do inventário esperado; "
