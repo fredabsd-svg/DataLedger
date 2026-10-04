@@ -685,11 +685,27 @@ def test_d1_migracao_0015_falha_alto_nomeando_o_lote_com_tipo_invalido(cenario):
         assert "nenhum dado foi alterado" in str(erro.value)
         assert lote_ruim.itens.filter(tipo="lixo").exists()
     finally:
-        if lote_ruim is not None:
-            with gatilho_desligado(IMUTAVEL_ITEM, IMUTAVEL_LANCAMENTO):
-                ItemLancamento.objects.filter(lancamento=lote_ruim).delete()
-                LancamentoContabil.objects.filter(pk=lote_ruim.pk).delete()
-        MigrationExecutor(connection).migrate(alvo_atual)
+        # Limpeza em SQL puro, NÃO pelo ORM (mesma razão do teste acima: na
+        # janela com o esquema em antes_da_0015, o coletor do Django consultaria
+        # tabelas de migrações posteriores — as marcações da DMPL, BL-605 — que
+        # não existem aqui, e uma falha na limpeza deixaria o esquema do banco
+        # de teste velho para o resto da sessão). Os gatilhos de imutabilidade
+        # continuam desligados durante a limpeza, e a restauração do esquema é
+        # garantida mesmo se a limpeza falhar.
+        try:
+            if lote_ruim is not None:
+                with gatilho_desligado(IMUTAVEL_ITEM, IMUTAVEL_LANCAMENTO):
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "DELETE FROM contabilidade_itemlancamento WHERE lancamento_id = %s",
+                            [lote_ruim.pk],
+                        )
+                        cursor.execute(
+                            "DELETE FROM contabilidade_lancamentocontabil WHERE id = %s",
+                            [lote_ruim.pk],
+                        )
+        finally:
+            MigrationExecutor(connection).migrate(alvo_atual)
 
 
 # ---------------------------------------------------------------------------
