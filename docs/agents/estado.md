@@ -126,7 +126,12 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-058](../planos/DL-058-pequenas-fugas-de-informacao.md) | Pequenas fugas de informação (BL-554, BL-555) | Integrada (PR #72) — auditoria aprovada com ressalvas; BL-592 a BL-596; DE-096 |
 | [DL-059](../planos/DL-059-trilha-do-convite-e-eventos-sem-ip.md) | Trilha do convite e eventos sem IP (BL-560, BL-566, BL-579) | Integrada (PR #73) — auditoria aprovada com ressalvas; BL-597 a BL-601 |
 | [DL-060](../planos/DL-060-confirmacao-da-cascata.md) | A reabertura em cascata confirma exatamente os meses mostrados (BL-588, BL-589) | Integrada (PR #74) — reconferência aprovada com ressalvas; BL-602 |
-| [DL-061](../planos/DL-061-dmpl.md) | DMPL, etapa CTB-14 da DL-048 (RC-151) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-061](../planos/DL-061-dmpl.md) | DMPL, etapa CTB-14 da DL-048 (RC-151) | Integrada (PR #76, #77 e #79) — fatias 1, etapa 2 e fatia 2; pontos abertos BL-606, BL-607, BL-622, BL-625, BL-626 e BL-627 |
+| [DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md) | Sinal da conta-RAIZ retificadora no Balanço Patrimonial (BL-604) | Integrada (PR #81, squash `46d80a1`) — auditoria aprovada com ressalvas, reconferência aprovada; ciclo do §3.1 encerrado |
+| [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) | Fecha a leva da DL-061: coluna da DMPL nas duas portas, teste do snapshot e dica condicionada (BL-606, BL-607, BL-625) | **Integrada (PR #84, squash `c32cfe6`)** — o conteúdo **não tinha chegado à `main`** (o PR #82 foi mesclado na branch intermediária `fix/dl-062-…`); recuperado com a `base` reapontada para o destino real |
+| [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md) | Reclassificar conta com movimento em competência encerrada ou entregue não pode reescrever DLPA nem DMPL já apuradas (BL-550) | **Integrada (PR #85, squash `012a759`)** — ciclo de auditoria encerrado no veredito **REPROVADO** da reconferência; N1, N2 e N3 corrigidos depois, sem terceira rodada |
+| [DL-066](../planos/DL-066-dfc.md) | DFC — Demonstração dos Fluxos de Caixa, direto e indireto (CTB-15 da DL-048) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md) | Plano do módulo fiscal de out/2026 a 2028, com a reforma tributária, conciliado com a paridade fiscal | Planejada |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -137,6 +142,165 @@ competência) tem só o plano, na branch `claude/dl-016-f3-encerramento-competen
 não integrada — por isso a DL-016 aponta para o Próximo passo.
 
 ## Próximo passo
+
+**AGORA, em 05/10/2026: [DL-066](../planos/DL-066-dfc.md) — a DFC, etapa
+CTB-15 da DL-048**, o último item da Onda 1 depois da DLPA (CTB-13) e da DMPL
+(CTB-14). O plano está escrito e revisado contra o texto integral do
+[CPC 03 (R2)](https://www.normasbrasil.com.br/norma/?id=306227), item a item.
+
+**O número da DFC sai do lançamento, não de soma de ajustes.** Caixa contra
+uma conta de fora da lista de caixa é um fluxo, classificado pela atividade
+dessa conta; movimento entre duas contas de caixa **não** é fluxo (item 9, e é
+a resposta ao risco que o mapa de paridade apontava); e a soma das três
+atividades é a variação do caixa **por construção**. O método indireto passa a
+ser a apresentação do mesmo número, com os ajustes do item 20 derivados — o
+que faz da conciliação do item 45 uma identidade que precisa valer, e vira
+**veto** quando não vale, em vez de número errado publicado.
+
+**O item 20A é o que amarra os dois métodos que o Fred pediu**, e é bom que
+tenha vindo da norma e não da preferência: no Brasil a conciliação entre o
+lucro líquido e o fluxo das operações é **obrigatória para quem usa o método
+direto** (e a nota NE3 do próprio pronunciamento diz que essa exigência não
+existe no IAS 7). Ou seja, "os dois" não é escopo dobrado — é a norma
+exigindo que o direto traga a conciliação do indireto.
+
+⚠️ **Lacuna declarada, e ela é de fonte:** a obrigatoriedade vem da
+Lei 6.404/76, art. 176, IV, com a **§ 6 isentando a companhia fechada com
+patrimônio líquido abaixo de R$ 2.000.000,00** — e o texto compilado no
+Planalto **não foi obtido** neste ambiente. O plano traz quatro perguntas
+com recomendação para o Fred, das quais duas mudam o que o produto exige:
+o que conta como **equivalente de caixa** (item 7, três meses ou menos) e se
+a DFC deve ser exigida da empresa ou apenas oferecida.
+
+**Leva da DL-065 concluída e integrada.** [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md)
+— BL-550, a trava de reclassificação em competência fechada — escolhida pelo
+Fred como primeiro item. O recorte foi decidido **depois de medida a colisão
+com a DE-086**: a trava vale para a **DLPA e a DMPL**, e a **DRE continua
+livre** — a DE-086, de 26/09/2026, foi mantida. O caminho "classificação por
+vigência", que o backlog aceitava como alternativa, foi **descartado**: ele
+exigiria versionar as quatro classificações da conta e recontar demonstrações
+já emitidas, que é trabalho de Onda 2.
+
+O que a meditura encontrou antes de qualquer linha de código: nenhuma das
+duas classificação de demonstração anual consulta a competência antes de
+gravar, e o `ContaAdmin` grava os quatro campos **por fora** dos três
+serviços — uma trava colocada só nos serviços deixaria o admin funcionando
+como estava. Por isso a regra mora em `Conta.clean()`, que é o ponto de
+passagem de todo caminho validado, e a tradução para **409** acontece nos
+serviços, por um `code` de erro que só eles conhecem.
+
+**21 testes novos na primeira entrega, 30 depois das duas correções** — todos
+executados em PostgreSQL 16.15 (critérios 1 a 11 do plano, mais quatro
+limites: competência do mês seguinte, a mais recente quando há duas, período
+reaberto e conta sem movimento no período fechado). A suíte de
+`apps/contabilidade` deu **1.839 aprovados e os mesmos 8 reprovados de antes
+da mudança** — nenhuma regressão.
+
+**[Auditoria independente](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md):
+APROVADA COM RESSALVAS, nenhum bloqueador**, com os treze critérios verificados
+por execução do próprio auditor e **mutação em memória** — sem a guarda, 13
+dos 21 testes caem. Três achados médios, corrigidos numa **rodada única**
+(§3.1):
+
+- **A1 — a guarda lia o movimento pela FK `competencia`, e as apurações leem
+  por `data`.** O auditor mediu `competencia_id` como **anulável** no banco
+  (a restrição F6 da DL-016 cobre `empresa_id`), então um lançamento legado
+  sem competência gravada entrava na DLPA do período encerrado sem a trava o
+  ver. A guarda passou a filtrar por data, com a mesma aritmética de
+  calendário das apurações. *Princípio: guarda que filtra por critério
+  diferente do que a apuração filtra é guarda que pode ser contornada.*
+- **A2 — corrida entre reclassificar e fechar o mês**, demonstrada com duas
+  threads: o fechamento commita entre a leitura do estado e o commit da
+  reclassificação, e o período terminava encerrado com a classificação trocada.
+  A trava agora **reusa o primitivo do módulo**,
+  `_travar_competencia_em_modo_compartilhado` (`FOR SHARE`), que impede o
+  fechamento de passar por cima sem impedir o fechamento. No caminho, ficou
+  registrado que o Django **não expõe** `FOR SHARE` em `QuerySet` — quase
+  escrevi uma checagem de feature que não existe.
+- **A3 — a mensagem mandava "reabra a competência"** para competência
+  **entregue**, que `reabrir_competencia` recusa sempre (RC-101): instrução
+  falsa ao contador, a mesma classe do BL-142. Bifurcada por `entregue`, com
+  teste de regressão que proíbe a frase.
+
+**A5 corrigiu o próprio plano:** ele afirmava que conta sem movimento não
+paga consulta, e o auditor mediu que paga — o texto foi corrigido e o custo
+real ficou registrado. **A6** (o script de medição grava a coluna da DMPL
+sem a guarda) foi **aceito como limite** e registrado no backlog como
+**BL-628**. **A7** — faltavam a tela da DMPL e o admin da coluna da DMPL —
+foi coberto.
+
+⚠️ **[Reconferência: REPROVADA](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md).**
+A1, A3, A4, A6 e A7 fecharam; **A2 não** — a corrida fecha (o auditor mediu
+8 de 8 com o fechamento vencendo e o vazamento da rodada 1 não reproduz),
+mas a tradução prometida do `lock_timeout` não acontecia. E a correção
+**introduziu dois defeitos**, um deles médio: **N1**, em que o `FOR SHARE`
+estourado aborta a transação e o `full_clean` do Django continua acumulando
+erro e consultando, de modo que a recusa virava **500 na porta de nível 1** —
+a mesma patologia que o docstring de BL-470 diz ter eliminado; e **N2**, em
+que a troca de uma consulta por um laço levou a guarda a **507 consultas e
+393 ms** com 480 períodos fechados, com o `FOR SHARE` segurado durante todo
+esse tempo, bloqueando o fechamento junto. Mais **N3** (baixa), em que
+estado fora do enum virava `ValueError` cru.
+
+**As três foram corrigidas sem terceira rodada de auditoria** — e é preciso
+dizer por quê: o §3.1 proíbe comprar outra rodada, e ela existe para parar
+quem tenta provar uma frase que promete mais do que o instrumento aguenta, não
+para deixar passar um 500 conhecido em porta de nível 1 e uma regressão de 1
+para 507 consultas. O ciclo fica **encerrado no veredito REPROVADO**. N1 virou
+um **savepoint** em torno da tentativa de lock, para o `ValidationError`
+chegar inteiro ao acumulador; N2 virou a **interseção de conjuntos** que a
+pergunta sempre foi — quantas consultas são constantes, não crescem com o
+histórico; N3 ganhou rótulo com reserva. Cada uma com teste de regressão
+próprio. **O que fica de decisão do Fred:** essas três correções não passaram
+por auditoria independente, e a forma honesta de tê-las seria um papel
+diferente do mesmo §3.1, não uma terceira rodada deste ciclo.
+
+**31 testes da demanda; `apps/contabilidade` com 1.857 aprovados e os mesmos
+8 reprovados** de antes da mudança. (O 1.839 que este arquivo trazia era o de
+antes do merge da DL-063, que entrou no meio da verificação; a **verificação
+dirigida** mediu 1.856 e a medição de hoje, já com o teste do segundo eixo do
+custo, dá 1.857. Um nono reprovado apareceu numa rodada e **não se
+reproduziu**: era o PostgreSQL local caindo, não o código.)
+
+**A verificação dirigida dos achados N1, N2 e N3 saiu
+[APROVADA COM RESSALVAS](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md).**
+As três correções fazem o que prometem, medido: sob `FOR UPDATE` concorrente
+com `lock_timeout` de 200 ms, a **API responde 409** nas duas demonstrações
+(era a porta que a reconferência deixara de fora), a tela 200 com recusa e
+valor intacto, o `ModelForm` do admin recusa sem degradar a validação de
+constraint, e a transação volta a servir depois do savepoint. O custo ficou
+**constante em 8 consultas** de 0 a 480 períodos — contra 486 medidos antes.
+
+⚠️ **Mas a ressalva de custo era séria, e eu a tratei como defeito.** A
+primeira correção do N2 trocou o eixo do crescimento sem eliminá-lo: ela
+iterava os **meses com movimento** perguntando se cada um estava aberto, e a
+verificação mediu 39 consultas com 36 meses — que é justamente a empresa real,
+já que quase todo mês tem movimento. Pior: cada trava buscava a FK `empresa`
+da competência, que não vem em cache, e o teste que escrevi chegou a medir
+**152 consultas com 37 meses**. As duas causes foram corrigidas — itera-se o
+lado pequeno (as abertas da empresa, uma ou duas) e a empresa vem da conta —
+e o segundo eixo ganhou **teste próprio**, porque o teste anterior só pegava
+o primeiro.
+
+⚠️ **Achado de ambiente que mudou a forma de verificar nesta máquina:** o
+`DATABASE_URL` do `.env` apontava para **SQLite**, e o cluster do PostgreSQL
+16 estava desligado. Isso produzia **64 reprovações falsas** só em
+`apps/contabilidade` — número que, lido sem verificação, pareceria regressão.
+O cluster **PostgreSQL 16.15** foi criado em
+`C:\Users\conta\AppData\Local\PostgreSQL\dataledger`, porta **5433**, e é
+ele que produz todas as evidências desta seção. **A `.env` do repositório não
+foi alterada.** Com o motor certo, a linha de base honesta é
+**8 reprovados** (1 de constraint de banco e 7 de Chromium/timeout de thread,
+todos de ambiente), e é ela que vale como comparação.
+
+**Antes de continuar a leva, uma pendência de repositório:** o PR #82
+(DL-063) foi mesclado na branch intermediária e **não chegou à `main`**.
+Recuperado pelo **PR #84**, aberto a partir da `main` com a `base` reapontada
+para o destino real. Na integração do **PR #83** (DL-064, documentos
+defasados), a `main` foi incorporada à branch de trabalho por merge, sem
+reescrever o histórico. O conflito de acréscimos em `backlog.md` foi resolvido
+preservando os registros da DL-062, DL-064 e DL-065; este estado mantém também
+os registros posteriores da DL-063, DL-066 e DL-067.
 
 **Leva de 30/09 a 01/10/2026 concluída: DL-052 a DL-060 integradas**
 (PR #66 a #74). Desenvolvidas em até 4 cópias isoladas em paralelo (RC-149)
@@ -163,10 +327,72 @@ a regra não decide, API no padrão da D8 — auditado com ciclo do §3.1 encerr
 [relatório](../auditorias/2026-10-03-dl-061-fatia-2-auditoria-e-reconferencia.md))
 e **tela** (guia "DMPL" do lançamento; os vetos da DMPL apontam para ela).
 **Integrada pelo PR #79** (squash `1a0bdc9`, os quatro checks verdes, merge
-feito pelo Fred em 04/10/2026). Pontos abertos: BL-604, BL-606, BL-607, BL-622, BL-625, **BL-627**
+feito pelo Fred em 04/10/2026). Pontos abertos: BL-606, BL-607, BL-622, BL-625, **BL-627**
 (residual da propriedade de eventos opostos no capital — validação do Fred) e
 a validação contábil **BL-626**. HI-50 confirmada pelo Fred (RC-152): alíneas
-"c" e "d" revogadas.
+"c" e "d" revogadas. **BL-604 fechado pela DL-062** (abaixo).
+
+**Em andamento: DL-062 — o sinal da conta-RAIZ retificadora no Balanço**
+(BL-604), escolhida por ser o ponto aberto **de nível 1** da leva: é o único
+em que o produto entrega documento errado ao cliente. Diagnóstico medido em
+04/10/2026, antes da correção: a retificadora de PL cadastrada na raiz do
+plano era **somada** pelo Balanço em vez de subtraída — PL publicado em
+117.000,00 quando o correto é 113.000,00, equação `ativo = passivo + PL` em
+−4.000,00, e `avaliar_emissao_do_balanco` devolvendo **`pode_emitir = True`**:
+o Balanço saía errado e nada impedia. A DMPL era a única que acusava, porque
+recalcula por conta. A correção leva ao total do Balanço a MESMA normalização
+de sinal que o módulo já aplicava à soma por classificação (BL-496) e que a
+DRE aplica ao resíduo por tipo — a contribuição de uma raiz entra com a
+natureza **natural** do seu `TipoConta`. Medido que **não era caso do PL e sim
+uma classe**: a mesma falha atingia RAIZ devedora de RECEITA e RAIZ credora
+de DESPESA (equação em −200,00 com as três), então a regra cobre os cinco
+tipos. A "recusa do cadastro", que o backlog aceitava como alternativa, foi
+avaliada e deixada de fora por medida: não corrige dado já gravado, colide
+com o RC-80 e precisaria da regra em três portas. As raízes assim tratadas
+passam a ser **declaradas** na lista informativa `contas_retificadoras_rais`
+(avisa, não veta — depois da correção o número está certo). **Ciclo do §3.1
+encerrado:** [auditoria
+independente](../auditorias/2026-10-04-dl-062-auditoria.md) **APROVADA COM
+RESSALVAS** (os 9 critérios de aceite SEDE, zero regressão, 8 achados de tela
+e documento), **correção única** e [reconferência](../auditorias/2026-10-04-dl-062-reconferencia.md)
+**APROVADA** com os oito achados fechados e sem terceira rodada. **PR #81
+aberto com os quatro checks verdes** em PostgreSQL 16. A CI foi o que achou o
+que o SQLite local não via: o teste do BL-516 exigia o Balanço **vetado** por
+um resíduo de 200,00 que **era o próprio defeito** — a "(-) PDD" cadastrada
+como raiz inflava o Ativo, e o resíduo aritmético era a única rede que pegava
+a conta.
+
+**Em andamento: DL-063 — fecha a leva da DL-061** (BL-606, BL-607 e BL-625),
+combinada pelo Fred em 04/10/2026 e com a decisão de que a coluna da DMPL
+passasse a ser aceita **pela API como já era pela DRE e pela DLPA** — a
+assimetria de ficar gravável só pela web não era desejada. O campo existia no
+modelo e era lido pela apuração, mas nenhuma das duas portas de cadastro o
+aceitava: quem integrava por API **não tinha porta nenhuma**, e a recusa por
+contrato nem nomeava o campo. A dica da divergência de fechamento, que era um
+dicionário estático, passou a apontar a causa que a apuração realmente
+encontrou (conta de PL com saldo e sem coluna) em vez de mandar conferir a
+classificação; **os dois lados têm teste de tela**, porque um teste só do caso
+"tem causa" passaria mesmo com a genérica nunca aparecendo. O teste do
+snapshot `REPEATABLE READ` da DMPL foi entregue, mas **não roda localmente**:
+exige PostgreSQL 16, e o `SET TRANSACTION ISOLATION LEVEL` não existe no
+SQLite — a prova dele é a CI. ⚠️ **O que aconteceu com o PR #82, medido em
+05/10/2026:** ele foi mesclado na branch **intermediária**
+`fix/dl-062-sinal-da-raiz-retificadora` — que já tinha sido integrada — e
+**não na `main`**. O GitHub o reporta como `MERGED` e o conteúdo está a um
+`git merge-base --is-ancestor` de distância da `main`: é a segunda ocorrência
+do modo de falha que o [AGENTS.md](../../AGENTS.md) §6 já descreve — *mesclar
+direto na branch intermediária faz o conteúdo integrado não chegar à branch
+de destino, mesmo aparecendo como mesclado*. O delta real contra a `main`
+era de **1.502 linhas**, das quais 909 são de teste, 279 o plano e 119 a
+auditoria; o código são 96 linhas em `serializers.py`, 57 em `views_web.py`
+e 8 em `views.py`. Verificado por execução nesta máquina, em **PostgreSQL
+16.15** — o cluster local estava desligado e o `.env` apontava para SQLite, o
+que produzia 64 falhas falsas só na contabilidade: a branch da DL-063 rodou
+`apps/contabilidade` + `apps/core` com **2.596 aprovados e 21 reprovados**, e
+os **21 são idênticos aos da `main`** (13 de permissão POSIX/umask, que não
+existem no Windows, e 8 de Chromium e de timeout de thread).
+**Nenhuma regressão introduzida.** A recuperação vem por este PR, com a
+`base` reapontada para a `main`, como manda a mesma regra do AGENTS.md.
 
 - **DL-054** — **integrada pelo PR #70** (squash `e7b85aa`).
 - **DL-055** — **integrada pelo PR #69** (squash `9ceda53`).
@@ -229,6 +455,14 @@ confiáveis) e PE-07 (backup e restauração).
 3. **DL-016 F3** (encerramento de competência) — só o plano existe.
 4. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50,
    PE-51 e PE-52 abertas.
+5. **Módulo fiscal — [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md).**
+   Plano versionado em 05/10/2026 e conciliado com a
+   [paridade fiscal](../projeto/paridade/fiscal.md): ela diz o quê, ele diz
+   quando e o que mudou com a reforma tributária. Nada implementado. Sete
+   divergências esperam o Fred, e a primeira é a ordem de prioridade: a RFB
+   apresenta a primeira apuração assistida da CBS até 15/02/2027. Primeira
+   fatia candidata: o validador de conformidade IBS/CBS sobre as NFS-e que o
+   sistema já recebe (PE-39).
 
 **Decisões com o Fred:**
 

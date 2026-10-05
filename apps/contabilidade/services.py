@@ -13,12 +13,14 @@ from django.utils import timezone
 
 from apps.auditoria.services import registrar
 from apps.contabilidade.models import (
+    CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO,
     COLUNAS_DA_DMPL_ADMITIDAS_PARA_A_CLASSIFICACAO_DLPA,
     GRUPO_DA_CLASSIFICACAO_DMPL,
     GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL,
     NATUREZA_NATURAL_DA_CLASSIFICACAO_DRE,
     NATUREZA_NATURAL_DO_TIPO,
     NATUREZA_NATURAL_DO_TIPO_DRE,
+    NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO,
     # DL-048/CTB-13: as seis reservas de LUCROS de RC-137 (o subconjunto
     # do enum cuja DIREÇÃO do movimento decide reversão × transferência)
     # e o próprio enum de linha da DLPA.
@@ -145,6 +147,76 @@ class ChaveIdempotenciaConflitante(Exception):
     409 (conflito de estado), não 400 (entrada inválida), para que o cliente
     perceba que precisa gerar uma nova chave, não corrigir o corpo enviado.
     """
+
+
+class ClassificacaoAlteraPeriodoFechado(Exception):
+    """Reclassificação de conta recusada: mudaria a demonstração de uma
+    competência já encerrada ou entregue (DL-065, BL-550).
+
+    Mesmo motivo de `CompetenciaEncerrada` e `ChaveIdempotenciaConflitante` para
+    ser uma classe própria, e a mesma tradução: **409**, não 400. O que recusa
+    não é o valor enviado — é o ESTADO do período que a demonstração daquele
+    valor leria. Um 400 diria ao cliente que o pedido está errado e que basta
+    corrigir o corpo; o pedido está certo, e a resposta honesta é que o
+    período está fechado.
+
+    A regra mora em `Conta.clean()` (uma só implementação, que fecha também o
+    admin — E1 do plano); esta exceção existe só para a TRADUÇÃO: os serviços
+    de classificação leem o `code` do `ValidationError` e relançam aqui, com
+    a mesma mensagem. A mensagem é escrita no modelo e nunca duplicada.
+    """
+
+
+def _codigos_da_validacao(exc):
+    """Os `code` de um `ValidationError`, em um `set`.
+
+    Medido no **Django 6.1** deste projeto: `error_list` é uma lista de
+    `ValidationError` (não de `ErrorList`), e cada elemento tem `.code`
+    direto. `error_dict` devolve listas desses mesmos elementos, e é a forma
+    que chega aqui — `Conta.clean()` levanta com uma string, mas
+    `full_clean()` agrega tudo num dicionário por campo, e nesse caso o
+    objeto **não** tem `error_list` (o acesso lança `AttributeError`), o que
+    explica o `hasattr`.
+
+    Devolve conjunto porque a pergunta que o serviço faz é "esta recusa É a
+    de período fechado", e um `ValidationError` pode acumular várias
+    mensagens — das quais só uma pode ser a que interessa.
+    """
+    if hasattr(exc, "error_dict"):
+        itens = [erro for erros in exc.error_dict.values() for erro in erros]
+    else:
+        itens = list(exc.error_list)
+    return {erro.code for erro in itens if getattr(erro, "code", None)}
+
+
+def _gravar_classificacao_de_demonstracao_anual(conta, *, campo, classificacao):
+    """Atribui a classificação de uma demonstração ANUAL, valida a conta e
+    traduz a recusa de período fechado (DL-065, E2).
+
+    Chamado por `classificar_conta_na_dlpa` e `classificar_conta_na_dmpl`, que
+    faziam antes a atribuição + `full_clean()` + `save()` na mão. O
+    `full_clean()` é o MESMO — a regra mora em `Conta.clean()`, que é o que
+    fecha também o admin, e por isso não há uma segunda implementação da
+    regra aqui. O que este função acrescenta é a TRADUÇÃO: quando o
+    `ValidationError` é o de período fechado, ele vira
+    `ClassificacaoAlteraPeriodoFechado` (409 na API, recusa na tela); qualquer
+    OUTRO `ValidationError` sobe intacto, para a view tratar como 400 como
+    sempre.
+
+    `campo` é o nome do atributo, e não o valor: os dois serviços já recebem
+    o valor validado pelo serializer e pelo form, e repassar o nome mantém a
+    lista de campos gravados (`update_fields`) em um lugar só.
+    """
+    setattr(conta, campo, classificacao or None)
+    try:
+        conta.full_clean()
+    except DjangoValidationError as exc:
+        if CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO in _codigos_da_validacao(exc):
+            raise ClassificacaoAlteraPeriodoFechado(
+                " ".join(mensagens_da_validacao_django(exc))
+            ) from exc
+        raise
+    conta.save(update_fields=[campo])
 
 
 class CompetenciaEncerrada(Exception):
@@ -3678,24 +3750,34 @@ def apurar_saldos(*, empresa, data_base):
     única vez — DE-020), então somar as raízes cobre a árvore inteira
     exatamente uma vez. Sem hierarquia (conta sem pai nem filho), cada conta
     é sua própria raiz e a soma continua correta. **É por isto, e não por
-    uma tabela de "natureza esperada por tipo", que uma retificadora
-    SUBTRAI em vez de somar** (RC-104: "(-) Prejuízos Acumulados", natureza
-    DEVEDORA dentro de um grupo Patrimônio Líquido CREDOR — o mesmo padrão
-    já existente na base de medição de 73 contas, em "(-) Depreciação
-    acumulada" e em "Deduções da receita bruta"): quem aplica o sinal final
-    é a natureza da RAIZ do grupo (o motor do Balancete, DE-020), nunca a da
-    retificadora isolada — somar `saldo_final` de CADA conta por `tipo`
-    PRÓPRIO (em vez de só das raízes) contaria a retificadora com a
-    natureza DELA, na direção errada, e SOMARIA onde deveria SUBTRAIR (a
-    conta é a prova:
+    somar `saldo_final` de CADA conta por `tipo` PRÓPRIO, que a retificadora
+    ANINHADA SUBTRAI** (RC-104: "(-) Prejuízos Acumulados", natureza DEVEDORA
+    dentro de um grupo Patrimônio Líquido CREDOR — o mesmo padrão já existente
+    na base de medição de 73 contas, em "(-) Depreciação acumulada" e em
+    "Deduções da receita bruta"): quem aplica o sinal final é a natureza da
+    RAIZ do grupo (o motor do Balancete, DE-020), nunca a da retificadora
+    isolada — contar a conta pela natureza DELA, na direção errada, SOMARIA
+    onde deveria SUBTRAIR (a conta é a prova:
     `test_retificadora_dentro_do_patrimonio_liquido_subtrai_nunca_soma`).
-    Depende de a retificadora estar aninhada sob um ancestral do MESMO
-    grupo — é assim que o plano de contas de referência do Fred já está
-    estruturado (RC-104), e é exatamente o caso que a DE-020 existe para
-    resolver; um plano de contas em que a retificadora fosse uma raiz
-    isolada (sem ancestral do grupo) não teria como ser corrigido por
-    algoritmo nenhum sem reclassificar a conta — o que esta camada está
-    proibida de fazer.
+
+    ⚠️ **A retificadora que é a própria RAIZ (BL-604, corrigido na DL-062,
+    04/10/2026).** Até 04/10/2026 este docstring afirmava que esse caso "não
+    teria como ser corrigido por algoritmo nenhum". **A afirmação estava
+    errada, e a medição derrubou o limite:** a soma agora normaliza a
+    contribuição da raiz pela natureza NATURAL do seu `TipoConta`
+    (`NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO`), que é a MESMA normalização que
+    a soma por classificação (BL-496) e a DRE já aplicavam. Medido antes da
+    correção: a retificadora de PL na raiz fazia o Balanço publicar
+    `totais_por_tipo[PL]` = 117.000,00 quando o correto é 113.000,00, a
+    equação `ativo = passivo + PL` fechar em −4.000,00, e
+    `avaliar_emissao_do_balanco` devolver `pode_emitir = True` — documento
+    errado sem veto. A mesma falha atingia RAIZ devedora de RECEITA e RAIZ
+    credora de DESPESA: a regra cobre os cinco `TipoConta`, e não só o PL.
+    A conta tratada é **declarada** em `contas_retificadoras_rais` (informativa
+    — avisa, não veta), e a recusa do cadastro, que o backlog aceitava como
+    alternativa, foi avaliada e deixada de fora: ela não corrigiria base já
+    gravada (a apuração não roda `full_clean()` na leitura) e colidiria com a
+    decisão de produto RC-80.
 
     **Conta sem tipo coerente com a natureza:** deliberado (o modelo
     permite retificadora). Esta função NUNCA reclassifica — soma o que está
@@ -3951,6 +4033,9 @@ def apurar_saldos(*, empresa, data_base):
     # raiz; isto só DECLARA a divergência, nunca corrige nada. Vazia no
     # caso são.
     contas_com_tipo_divergente_da_raiz = []
+    # DL-062 (BL-604): cada RAIZ cuja natureza CADASTRADA é oposta à natureza
+    # NATURAL do seu tipo — a retificadora solta na raiz. Vazio no caso são.
+    contas_retificadoras_rais = []
     for linha in balancete["contas"]:
         tipo = linha["tipo"]
         if tipo not in totais_por_tipo:
@@ -3958,7 +4043,40 @@ def apurar_saldos(*, empresa, data_base):
                 {"conta": linha["conta"], "nome": linha["nome"], "tipo": tipo}
             )
         elif linha["raiz"]:
-            totais_por_tipo[tipo] += linha["saldo_final"]
+            # DL-062 (BL-604): a contribuição da raiz entra com o sinal da
+            # natureza NATURAL do TIPO, nunca com o da natureza cadastrada da
+            # própria conta. `saldo_final` já vem assinado pela natureza
+            # CADASTRADA (regra única de saldo, DE-020); quando ela coincide
+            # com a natural, o valor já está no sinal certo (no-op na árvore
+            # bem montada) e quando diverge — a retificadora que é a própria
+            # raiz, sem grupo que aplique a natureza credora do PL — o sinal
+            # precisa inverter, para que a soma do tipo aplique UMA natureza
+            # sobre o valor, como a regra única de saldo já exige dentro da
+            # hierarquia. É a MESMA normalização que os dois blocos vizinhos
+            # já aplicam: o da soma por classificação (BL-496, abaixo) e o da
+            # DRE (`NATUREZA_NATURAL_DO_TIPO_DRE`).
+            natureza_natural = NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO[tipo]
+            if linha["natureza"] == natureza_natural:
+                totais_por_tipo[tipo] += linha["saldo_final"]
+            else:
+                totais_por_tipo[tipo] += -linha["saldo_final"]
+                # ⚠️ Só entra na lista a conta que de fato INVERTEU sinal
+                # (BL-493: a lista nomeia o que aconteceu, não o que poderia
+                # acontecer). Uma raiz retificadora com saldo ZERO não teve
+                # nada invertido, e nomeá-la produziria um aviso permanente
+                # sobre um número que já está certo. O VALOR também não vai
+                # na lista, de propósito: ele já está impresso na linha da
+                # conta no Balanço, e aqui a tela mostraria um Decimal cru.
+                if linha["saldo_final"] != zero:
+                    contas_retificadoras_rais.append(
+                        {
+                            "conta": linha["conta"],
+                            "nome": linha["nome"],
+                            "tipo": tipo,
+                            "natureza": linha["natureza"],
+                            "natureza_natural_do_tipo": natureza_natural,
+                        }
+                    )
 
         if tipo != linha["tipo_da_raiz"]:
             contas_com_tipo_divergente_da_raiz.append(
@@ -4215,6 +4333,11 @@ def apurar_saldos(*, empresa, data_base):
         "totais_por_tipo": totais_por_tipo,
         "contas_com_tipo_desconhecido": contas_com_tipo_desconhecido,
         "contas_com_tipo_divergente_da_raiz": contas_com_tipo_divergente_da_raiz,
+        # DL-062 (BL-604): as RAÍZ retificadoras, cuja contribuição ao total do
+        # tipo entrou com o sinal INVERTIDO. Vazia no caso são; depois da
+        # correção o número está certo, então isto é DECLARAÇÃO (vai para
+        # `listas_informativas`, avisa — nunca impede), não veto.
+        "contas_retificadoras_rais": contas_retificadoras_rais,
         # DL-033/RC-106 — circulante × não circulante do Balanço
         # Patrimonial (fatia 1): ver os comentários acima, no bloco que os
         # monta.
@@ -4280,16 +4403,23 @@ _LISTAS_QUE_IMPEDEM_A_EMISSAO = (
     "contas_nao_folha_sem_classificacao_com_movimento_proprio",
 )
 
-# 2) a ÚNICA que só AVISA — a condição 3 (BL-496), aposentada como veto
-# pela [DE-070](../../docs/projeto/decisoes.md#de-070): a auditoria da
-# DL-034 mediu que a correção (b) dá o número CERTO também para
-# retificadora DE GRUPO (o pressuposto que sustentava o veto deixou de
-# existir) e que, sem essa prova, a condição bloqueava planos de contas
-# CORRETOS (BL-499 — agrupar só por pai cruzava raízes de tipos diferentes).
-# Continua CALCULADA por `apurar_saldos`, com a chave `(conta_pai, tipo)`
-# que também nomeia raízes do mesmo tipo com natureza divergente (BL-516),
-# e DECLARADA — só não impede mais nada, e por isso não entra na tupla acima.
-_LISTAS_QUE_SO_AVISAM = ("contas_topo_classificadas_com_natureza_divergente_entre_irmas",)
+# 2) as que só AVISAM — a condição 3 (BL-496), aposentada como veto
+#    pela [DE-070](../../docs/projeto/decisoes.md#de-070): a auditoria da
+#    DL-034 mediu que a correção (b) dá o número CERTO também para
+#    retificadora DE GRUPO (o pressuposto que sustentava o veto deixou de
+#    existir) e que, sem essa prova, a condição bloqueava planos de contas
+#    CORRETOS (BL-499 — agrupar só por pai cruzava raízes de tipos diferentes).
+#    Continua CALCULADA por `apurar_saldos`, com a chave `(conta_pai, tipo)`
+#    que também nomeia raízes do mesmo tipo com natureza divergente (BL-516),
+#    e DECLARADA — só não impede mais nada, e por isso não entra na tupla acima.
+#    A segunda (DL-062, BL-604) nomeia as RAÍZ retificadoras, cuja
+#    contribuição ao total entrou com o sinal invertido: depois da correção o
+#    NÚMERO está certo, então avisar é o comportamento honesto e vetar seria
+#    bloquear um Balanço correto por causa de uma topologia incomum.
+_LISTAS_QUE_SO_AVISAM = (
+    "contas_topo_classificadas_com_natureza_divergente_entre_irmas",
+    "contas_retificadoras_rais",
+)
 
 
 def avaliar_emissao_do_balanco(saldos):
@@ -4334,8 +4464,9 @@ def avaliar_emissao_do_balanco(saldos):
     ⚠️ **DERIVADA, nunca uma lista de `if` escrita à mão (DE-056 — o
     projeto já pagou caro por enumeração), com DUAS tuplas EXPLÍCITAS, não
     um inventário só com exceção embutida:** `_LISTAS_QUE_IMPEDEM_A_
-    EMISSAO` (seis nomes) decide `pode_emitir`; `_LISTAS_QUE_SO_AVISAM` (um
-    nome) nunca decide nada. O teste do BL-502
+    EMISSAO` (seis nomes) decide `pode_emitir`; `_LISTAS_QUE_SO_AVISAM`
+    (dois nomes — o segundo entrou na DL-062, BL-604) nunca decide nada. O
+    teste do BL-502
     (`test_bl502_as_duas_tuplas_particionam_o_inventario_real_de_apurar_saldos`)
     prova apenas a forma da partição. O teste parametrizado
     `test_bl515_cada_lista_que_veta_sozinha_continua_impedindo` percorre
@@ -5916,11 +6047,22 @@ def classificar_conta_na_dlpa(*, conta, classificacao, usuario, request=None):
     `full_clean()` (abaixo) já recusa qualquer valor fora dos `choices`, e
     a guarda de compatibilidade com o TIPO da conta roda em `Conta.clean()`.
 
-    A classificação da DLPA é propriedade de APRESENTAÇÃO, como a da DRE
-    (DE-086): qualquer mudança é livre mesmo com movimento — ela não
-    altera saldo nenhum, e a trilha (abaixo) mostra quando e por quem
-    mudou. A consequência é a mesma da DRE: a DLPA de um período passado
-    reflete a classificação VIGENTE na emissão.
+    DL-065 (BL-550): a classificação da DLPA **não** é mais livre em período
+    fechado. Trocar — ou remover — a linha de uma conta que tem movimento em
+    competência ENCERRADA ou ENTREGUE é recusado com
+    `ClassificacaoAlteraPeriodoFechado` (409), porque a DLPA apurada daquele
+    período mudaria retroativamente, depois de o período ter sido fechado.
+
+    A PRIMEIRA classificação continua sempre livre, mesmo com movimento em
+    período fechado: é o caminho que limpa o veto da própria DLPA, e nenhuma
+    migração do projeto classificou conta alguma — bloquear a primeira
+    classificação tornaria impossível classificar o plano de contas de uma
+    empresa já em operação.
+
+    A REGRA mora em `Conta.clean()`, que é o que fecha também o admin; aqui
+    só há a tradução para 409 (E2 do plano, em
+    `_gravar_classificacao_de_demonstracao_anual`). A classificação da DRE
+    segue a DE-086 e **não** é afetada por esta regra.
 
     CORRIDA: `select_for_update()` antes de ler o valor gravado — duas
     classificações concorrentes da MESMA conta serializam, e o "antes" da
@@ -5941,9 +6083,9 @@ def classificar_conta_na_dlpa(*, conta, classificacao, usuario, request=None):
         .values_list("classificacao_dlpa", flat=True)
         .get()
     )
-    conta.classificacao_dlpa = classificacao or None
-    conta.full_clean()
-    conta.save(update_fields=["classificacao_dlpa"])
+    _gravar_classificacao_de_demonstracao_anual(
+        conta, campo="classificacao_dlpa", classificacao=classificacao
+    )
     registrar(
         acao="conta.classificacao_dlpa_alterada",
         usuario=usuario,
@@ -7282,10 +7424,13 @@ def classificar_conta_na_dmpl(*, conta, classificacao, usuario, request=None):
     `full_clean()` recusa valor fora dos `choices`, e `Conta.clean()` confere
     o TIPO (só Patrimônio Líquido) e a consistência com a linha da DLPA.
 
-    A coluna é propriedade de APRESENTAÇÃO, como a da DLPA e a da DRE
-    (DE-086): qualquer mudança é livre mesmo com movimento — não altera saldo
-    nenhum, e a trilha mostra quando e por quem mudou. A DMPL de um período
-    passado reflete a classificação VIGENTE na emissão.
+    DL-065 (BL-550): a coluna da DMPL **não** é mais livre em período
+    fechado — mesma regra da linha da DLPA, e pela mesma razão: a DMPL
+    apurada do período mudaria retroativamente depois de o período ter sido
+    fechado. Trocar ou remover vira `ClassificacaoAlteraPeriodoFechado` (409);
+    a PRIMEIRA classificação continua livre. A regra mora em
+    `Conta.clean()`; aqui só a tradução (E2 do plano). A coluna da DRE segue a
+    DE-086 e **não** é afetada.
 
     CORRIDA: `select_for_update()` antes de ler o valor gravado, para duas
     classificações concorrentes da MESMA conta serializarem e o "antes" da
@@ -7300,9 +7445,9 @@ def classificar_conta_na_dmpl(*, conta, classificacao, usuario, request=None):
         .values_list("classificacao_dmpl", flat=True)
         .get()
     )
-    conta.classificacao_dmpl = classificacao or None
-    conta.full_clean()
-    conta.save(update_fields=["classificacao_dmpl"])
+    _gravar_classificacao_de_demonstracao_anual(
+        conta, campo="classificacao_dmpl", classificacao=classificacao
+    )
     registrar(
         acao="conta.classificacao_dmpl_alterada",
         usuario=usuario,

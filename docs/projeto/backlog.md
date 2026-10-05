@@ -1915,7 +1915,7 @@ BL-544 a BL-546 entram nesta etapa; os demais ficam registrados para depois.
 | BL-547 | Token do convite sai da URL (hoje fica em log de acesso e histórico do navegador) — HI-48 | `desenvolvedor-pleno` | BL-544 | aberta | Link sem token no caminho; token não aparece em log de acesso |
 | BL-548 | Cadastro não confirma o e-mail do usuário; a amarração do convite ao e-mail é parcial sem isso — HI-47 | `desenvolvedor-pleno` | — | aberta | Conta só vincula convite depois de e-mail confirmado |
 | BL-549 | **M2 (média)** — papel Cliente recebe 200 na lista de empresas e vê razão social e CNPJ/CPF dos demais clientes (`apps/empresas/views.py` GETs), contra a DE-020 §4 | `desenvolvedor-pleno` | — | concluída (DL-055) | Matriz de papéis nos GETs de empresa; Cliente vê só a própria |
-| BL-550 | **M3 (média)** — reclassificar conta na DRE/DLPA altera demonstração de competência encerrada ou entregue; analista consegue | `desenvolvedor-pleno` | — | aberta | Reclassificação com movimento em competência encerrada → 409, ou classificação por vigência |
+| BL-550 | **M3 (média)** — reclassificar conta na DRE/DLPA altera demonstração de competência encerrada ou entregue; analista consegue | `desenvolvedor-pleno` | — | **em desenvolvimento (DL-065, 05/10/2026)** — o recorte foi decidido pelo Fred depois de medida a colisão com a DE-086: a trava vale para a **DLPA e a DMPL**, e a **DRE continua livre** (DE-086 mantida). O caminho "classificação por vigência", aceito como alternativa no critério original, **não** foi escolhido — exigiria versionar as quatro classificações da conta e recontar demonstrações já emitidas. A regra mora em `Conta.clean()`, o que fecha também o `ContaAdmin`, que grava os quatro campos por fora dos três serviços | Reclassificação com movimento em competência encerrada → 409 nomeando a competência; primeira classificação sempre livre; admin não escapa; a DRE segue livre |
 | BL-551 | **M4 (média)** — livro-caixa sem trava de período: lançamento posterior muda carnê-leão já apurado | `desenvolvedor-pleno` | — | em desenvolvimento (DL-053) | **PE-73 respondida (RC-145): pode ter fechamento de mês.** Lançamento e estorno em mês fechado → recusados em toda porta, banco inalterado; fechar/reabrir por administrador ou gestor (RC-146), com trilha |
 | BL-552 | **M5 (média)** — sem limite de tentativas no login e no cadastro; cadastro de escritório não prova titularidade do CNPJ | `desenvolvedor-pleno` | — | parte 1 concluída (DL-056); titularidade do CNPJ espera o Fred | Limite por IP e por conta com teste; decisão sobre titularidade levada ao Fred |
 | BL-553 | **M6 (média)** — IP da trilha é sempre `REMOTE_ADDR` (o do proxy em produção) | `desenvolvedor-pleno` | — | em desenvolvimento (DL-057) | IP real com lista de proxies confiáveis configurável; teste com e sem proxy |
@@ -2054,10 +2054,10 @@ Plano: [DL-061](../planos/DL-061-dmpl.md).
 | ID | Item | Responsável | Depende de | Estado | Critério de aceite |
 | --- | --- | --- | --- | --- | --- |
 | BL-603 | Conta de PL de "dividendo adicional proposto" (ou de ajustes de exercícios anteriores mantida no PL) não tem coluna na DMPL, e a emissão fica vetada | `desenvolvedor-pleno` | DL-061 etapa 2 | **fechado** — integrado no PR #77 (squash `5a999b5`, 02/10/2026), com auditoria e reconferência aprovadas | Coluna "dividendo adicional proposto"; linha da destinação e da aprovação; identidade com a DLPA; PE-75 antes de citar item normativo |
-| BL-604 | Retificadora de PL cadastrada na raiz do plano é somada pelo Balanço em vez de subtraída (pré-existente, descrito em `apurar_saldos`); a DMPL acusa e veta | `desenvolvedor-pleno` | — | aberta | Balanço e DMPL coerentes com retificadora na raiz, ou recusa do cadastro, com teste |
+| BL-604 | Retificadora de PL cadastrada na raiz do plano é somada pelo Balanço em vez de subtraída (pré-existente, descrito em `apurar_saldos`); a DMPL acusa e veta | `desenvolvedor-pleno` | DL-062 | **fechado** — entregue na DL-062; a medição mostrou que **não era caso do PL e sim uma classe**: a mesma falha atingia RAIZ devedora de RECEITA e RAIZ credora de DESPESA. O Balanço publicava o PL errado **sem veto nenhum** (medido: `pode_emitir = True` com PL em 117.000,00 quando o correto é 113.000,00 e a equação em −4.000,00). Corrigido pela normalização do sinal da contribuição da raiz pela natureza natural do `TipoConta` | [DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md) |
 | BL-605 | Marcação manual por lançamento para as exceções (fatia 2, RC-151) e API da DMPL | `desenvolvedor-pleno` | DL-061 fatia 2 | **fechado** — integrado no PR #79 (squash `1a0bdc9`, 04/10/2026); servidor auditado com ciclo do §3.1 encerrado (auditoria → correção única → reconferência) e tela com testes de comportamento | Fatia 2 do plano |
-| BL-606 | Formulário de conta nova sem o campo "Coluna da DMPL" (a DLPA tem) | `especialista-frontend` | — | aberta | Campo no `ContaCriarForm`, com contrato e teste |
-| BL-607 | Snapshot `REPEATABLE READ` da DMPL sem teste (mesma lacuna do achado 8 da DLPA) | `desenvolvedor-pleno` | — | aberta | Teste com duas conexões, no molde da DL-045 |
+| BL-606 | Formulário de conta nova sem o campo "Coluna da DMPL" (a DLPA tem) | `especialista-frontend` | DL-063 | **fechado** — entregue na DL-063. O campo passou a ser gravável pelo formulário **e pela API**, por decisão do Fred em 04/10/2026 (a assimetria de ficar só na web não era desejada): saiu o `read_only` do serializer, entraram a checagem de compatibilidade com `tipo` e a normalização de `""`, e as duas portas passaram a aceitar a chave. A porta própria de classificação **continua** (PATCH com trilha) — cadastro inicial e reclassificação são operações diferentes | [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) |
+| BL-607 | Snapshot `REPEATABLE READ` da DMPL sem teste (mesma lacuna do achado 8 da DLPA) | `desenvolvedor-pleno` | DL-063 | **fechado** — par "sem o wrapper"/"com o wrapper" entregue na DL-063, espelhado da DRE. ⚠️ **não executado localmente**: exige PostgreSQL 16, e o `SET TRANSACTION ISOLATION LEVEL` não existe no SQLite. Verificado o que dá — coleta, lint, e **todas as asserções da leitura concorrente do teste 1**, que passa no SQLite. A prova do `REPEATABLE READ` é a CI. A lacuna maior — a DLPA **também** não tem o teste — **segue aberta** | [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) |
 
 ## Auditoria da DL-061 — rodada 1, REPROVADA (2026-10-01)
 
@@ -2078,7 +2078,7 @@ Rodada única de correção em andamento; depois, reconferência final (AGENTS.m
 | BL-617 | **N10 (baixa)** — tela de parâmetros rola na horizontal a 390 px | `especialista-frontend` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Caso 10 |
 | BL-618 | **N11 (baixa)** — mensagem de diferença de fechamento não cita a causa conhecida (BL-604) | `especialista-frontend` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Dica na mensagem |
 | BL-619 | Admin edita a coluna da DMPL sem trilha (pré-existente, mesmo padrão da DRE e da DLPA) | `desenvolvedor-pleno` | — | aberta | Trilha também pelo admin, ou campo só leitura no admin |
-| BL-620 | Reclassificar a conta reescreve DMPL de período já entregue; sem documento emitido congelado (pré-existente, DE-086) | `arquiteto-senior` | Fred | aberta — decisão do Fred | Decidir se o escritório precisa de documento emitido congelado |
+| BL-620 | Reclassificar a conta reescreve DMPL de período já entregue; sem documento emitido congelado (pré-existente, DE-086) | `arquiteto-senior` | Fred | **parcialmente fechada pela DL-065** — a reclassificação da linha da DLPA e da coluna da DMPL passou a ser recusada em competência **encerrada ou entregue** (com a decisão do Fred de 05/10/2026: trava na DLPA e na DMPL, DRE segue livre por DE-086). **Continua de Fred:** se o escritório precisa de documento emitido congelado — a trava impede a reclassificação, não congela o que já foi impresso | Decidir se o escritório precisa de documento emitido congelado |
 | BL-621 | Em folha de paisagem, o Chromium não repete o bloco de identificação do emitente (`<thead>`) numa segunda folha; hoje a DMPL cabe numa folha, mas comparativo ou mais linhas exigiriam encolher o bloco (achado na correção da DL-061) | `especialista-frontend` | — | aberta | Identificação repetida em DMPL de duas folhas de paisagem, medida no navegador |
 
 ## Reconferência da DL-061 — APROVADA COM RESSALVAS (2026-10-01)
@@ -2091,9 +2091,31 @@ N1 a N11 fechados. Ressalvas abaixo; esta foi a última rodada (AGENTS.md §3.1)
 | BL-622 | **M1 (baixa, pré-existente na DLPA)** — lançamento que debita e credita lucros e prejuízos acumulados junto de contrapartidas classificadas faz a DLPA fabricar linhas opostas; a DMPL está certa, e a identidade do critério 2 tem essa exceção | `desenvolvedor-pleno` | — | aberta | DLPA sem linhas fabricadas nesse caso, ou exceção documentada e vetada; ensaio P3 com 24 sementes como teste |
 | BL-623 | **M2 (baixa, decisão do Fred)** — o líquido por coluna apaga o bruto quando o mesmo lançamento compra e vende tesouraria ou reduz e aumenta capital | `desenvolvedor-pleno` | DL-061 etapa 2 | **fechado** — integrado no PR #77 (squash `5a999b5`); tesouraria endurecida na correção (veto por direção), residual do capital em BL-627 | Lançamento com eventos opostos na mesma coluna vetado; subscrição com integralização parcial continua como aumento líquido; testes |
 | BL-624 | **M3 (média)** — o estorno do lançamento vetado não libera a DMPL, e a mensagem manda "estornar" ou "dividir o lançamento" (efetivado é imutável) | `desenvolvedor-pleno` | DL-061 etapa 2 | **fechado** — integrado no PR #77 (squash `5a999b5`); reconhecer o par estornado foi AVALIADO e fica para a fatia 2 (BL-605, decisão E14 do plano) | Texto verdadeiro (a saída é a marcação manual da fatia 2), com teste; avaliar reconhecer o par estornado |
-| BL-625 | **M4 (baixa)** — a dica da diferença com o Balanço aponta a retificadora mesmo quando a causa é conta de PL sem coluna listada acima | `especialista-frontend` | — | aberta | Dica condicionada, com teste de tela |
+| BL-625 | **M4 (baixa)** — a dica da diferença com o Balanço aponta a retificadora mesmo quando a causa é conta de PL sem coluna listada acima | `especialista-frontend` | DL-063 | **fechado** — entregue na DL-063. A dica deixou de ser constante: quando a apuração nomeia `contas_do_patrimonio_liquido_sem_coluna`, a ação passa a apontar essa causa; sem ela, a ação genérica continua. Condição lida do `emissao` do servidor, nunca de um `if` sobre causa presumida. **Os dois lados têm teste de tela** — um teste só do caso "tem causa" passaria mesmo com a genérica nunca aparecendo | [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) |
 | BL-627 | **A2 da auditoria da etapa 2 (baixa)** — a regra de eventos opostos julga pela natureza cadastrada; conta de CAPITAL cadastrada fora do padrão (retificadora "capital a integralizar" gravada como credora) num lançamento com débito e crédito na mesma coluna ainda publicaria o líquido. A tesouraria foi endurecida na correção (veto por direção, sempre); o capital não pode ser, porque a subscrição contra a retificadora é exatamente o par que a RC-155 manda manter líquido | `arquiteto-senior` | Fred | aberta — **validação do Fred (BL-626)** | Ou o Fred aceita o limite (a natureza cadastrada da retificadora é a premissa), ou o cadastro passa a exigir a natureza esperada por coluna; com teste |
 | BL-626 | Validação contábil do Fred das escolhas da DMPL: nota impressa do resultado não transferido; cancelamento de tesouraria em "alienação ou cancelamento"; subscrição parcial como aumento líquido; lucros e prejuízos na mesma coluna; ordem das linhas; reserva de capital incorporada ao capital como "aumento de capital com reservas e lucros"; e, da etapa 2 (BL-603): a coluna "dividendo adicional proposto" FORA dos grupos do 111A, a linha própria na DLPA e na DMPL e a aprovação saindo em "Dividendos" | `arquiteto-senior` | Fred | aberta — **validação do Fred** | Cada escolha confirmada ou revertida |
+
+## DL-062 — sinal da conta-RAIZ retificadora no Balanço (BL-604), 04/10/2026
+
+Fechada com o plano em
+[DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md).
+
+- **BL-604 fechado** — a correção foi da CLASSE (os cinco `TipoConta`), não do
+  caso do PL; a opção "recusa do cadastro", que o backlog aceitava, foi
+  avaliada e deixada de fora **por medida** (não corrige dado já gravado,
+  colide com o RC-80 e precisaria da regra em três portas).
+- **A dica da divergência de fechamento foi reescrita.** O texto nomeava a
+  retificadora fora do grupo como "causa mais provável"; depois da correção
+  essa causa **deixou de existir**, e manter a frase mandaria o contador
+  procurar um defeito que o produto não tem mais. O BL-625 (condicionar a
+  dica) continua **aberto** — agora com o texto-base já verdadeiro.
+- **BL-606, BL-607 e BL-625 continuam abertos**, com o escopo medido na
+  tabela acima. Nenhum dos três é grande; nenhum entra na DL-062, que é de
+  nível 1 e muda o total do Balanço.
+- **Contrato alterado, de propósito:** `apurar_saldos` ganhou a chave
+  `contas_retificadoras_rais` (informativa — avisa, não veta). Os testes de
+  contrato do BL-492/BL-502/BL-515 foram atualizados, como o próprio
+  docstring do BL-492 determina.
 
 ## DL-064 — documentos de paridade e catálogo desatualizados (nível 3), 04/10/2026
 
@@ -2129,3 +2151,12 @@ etapa que o entrega**, e não numa etapa de acerto de contas. É essa regra que
 evita a volta do defeito, e ela é a razão de a DL-061 ter escrito o CTB-14
 certo.
 
+## DL-065 — auditoria independente, 05/10/2026
+
+Parecer da rodada 1: **APROVADO COM RESSALVAS**, nenhum bloqueador, os 13
+critérios de aceite verificados por execução própria. Relatório em
+[2026-10-05-dl-065-auditoria-e-reconferencia.md](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md).
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-628 | **A6 (baixa)** — `scripts/medir_identificacao_do_emitente.py:883-885` grava `classificacao_dmpl` por fora de `full_clean()`, e portanto fora da trava de período fechado | `desenvolvedor-pleno` | — | **aberta, limite aceito** — é o único caminho do repositório que escreve a coluna sem a guarda. É um script de **medição** do instrumento de identificação do emitente, não produto, e o DE-008 já aceitava escrita por fora de serviço; o risco é a medração de tela, não dado de cliente | Se o script passar a ser executado sobre dado de cliente, passar a chamar `classificar_conta_na_dmpl` |

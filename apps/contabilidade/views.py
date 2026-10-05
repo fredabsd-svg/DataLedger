@@ -32,6 +32,7 @@ from apps.contabilidade.serializers import (
 )
 from apps.contabilidade.services import (
     ChaveIdempotenciaConflitante,
+    ClassificacaoAlteraPeriodoFechado,
     CompetenciaEncerrada,
     CompetenciaJaEntregue,
     CompetenciaOperacaoInvalida,
@@ -214,6 +215,14 @@ CONTRATO_POST_CONTA = ContratoDeRequisicao(
         # contratado" ANTES de qualquer validação — e a recusa acontece por
         # contrato, não por tipo, então a mensagem nem nomeia o campo.
         "classificacao_dlpa",
+        # DL-063 (BL-606): mesma razão das duas de cima, e pela MESMA
+        # decisão do Fred de 04/10/2026 — a coluna da DMPL deixa de ser
+        # exclusivo da porta própria de classificação e passa a ser aceita no
+        # cadastro de conta, como a linha da DRE e a linha da DLPA. Sem esta
+        # linha, o campo novo do serializer é recusado com "dado não
+        # contratado" ANTES de qualquer validação, e a recusa acontece por
+        # contrato, sem nem nomear o campo.
+        "classificacao_dmpl",
     },
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="no cadastro de conta",
@@ -2046,6 +2055,12 @@ class ContaClassificacaoDlpaView(EmpresaEscopadaContabilMixin, APIView):
                 usuario=request.user,
                 request=request,
             )
+        except ClassificacaoAlteraPeriodoFechado as exc:
+            # DL-065 (BL-550): 409, não 400 — o que recusa é o ESTADO da
+            # competência que a demonstração leria, não o corpo enviado. Mesma
+            # tradução de `CompetenciaEncerrada` acima, e nada foi gravado: a
+            # recusa vem de dentro de `full_clean()`, antes do `save()`.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except DjangoValidationError as exc:
             raise DRFValidationError(
                 {"classificacao_dlpa": mensagens_da_validacao_django(exc)}
@@ -2184,6 +2199,11 @@ class ContaClassificacaoDmplView(EmpresaEscopadaContabilMixin, APIView):
                 usuario=request.user,
                 request=request,
             )
+        except ClassificacaoAlteraPeriodoFechado as exc:
+            # DL-065 (BL-550): 409 pelo mesmo motivo da porta da DLPA acima —
+            # recusa de ESTADO (competência encerrada ou entregue), não de
+            # entrada. Nada gravado.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except DjangoValidationError as exc:
             raise DRFValidationError(
                 {"classificacao_dmpl": mensagens_da_validacao_django(exc)}

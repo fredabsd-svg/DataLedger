@@ -868,30 +868,46 @@ def _saldos_minimos_para_avaliacao(
         "contas_nao_folha_sem_classificacao_com_movimento_proprio": (
             contas_nao_folha_sem_classificacao_com_movimento_proprio or []
         ),
+        # DL-062 (BL-604): lista informativa nova, declarando as RAÍZ
+        # retificadoras. Entra aqui porque `avaliar_emissao_do_balanco` lê
+        # `saldos[nome]` para as DUAS tuplas — sem a chave o teste de veto
+        # levanta KeyError em vez de provar a condição.
+        "contas_retificadoras_rais": [],
     }
 
 
-_LISTA_INFORMATIVA_DE_CONTRATO_BL515 = (
-    "contas_topo_classificadas_com_natureza_divergente_entre_irmas"
+# As listas INFORMATIVAS do contrato (as que só avisam, nunca impedem).
+# A primeira veio da DE-070; a segunda, da DL-062 (BL-604). O nome mudou de
+# singular para tupla porque a lista deixou de ter uma só entrada — a
+# derivação abaixo (`nomes_de_listas - informativas`) continua valendo.
+_LISTAS_INFORMATIVAS_DE_CONTRATO = (
+    "contas_topo_classificadas_com_natureza_divergente_entre_irmas",
+    "contas_retificadoras_rais",
 )
 
 
 def test_bl515_a_tupla_de_veto_preserva_as_travas_revisadas():
     """A parametrização abaixo acompanha a tupla atual, então remover um
     item também removeria seu caso de teste. Este contrato independente
-    deriva as travas do inventário local de `saldos` menos a única lista
-    informativa confirmada, e acusa uma remoção de lado pelo nome. Ele
+    deriva as travas do inventário local de `saldos` menos as listas
+    informativas confirmadas, e acusa uma remoção de lado pelo nome. Ele
     protege a presença do cenário; não substitui a prova comportamental
     parametrizada. Nomes novos continuam ganhando cenário pela tupla."""
     nomes_de_listas = {
         nome for nome in _saldos_minimos_para_avaliacao() if nome.startswith("contas_")
     }
-    esperadas = nomes_de_listas - {_LISTA_INFORMATIVA_DE_CONTRATO_BL515}
+    esperadas = nomes_de_listas - set(_LISTAS_INFORMATIVAS_DE_CONTRATO)
     atuais = set(contabilidade_services._LISTAS_QUE_IMPEDEM_A_EMISSAO)
     informativas = tuple(contabilidade_services._LISTAS_QUE_SO_AVISAM)
-    assert informativas == (_LISTA_INFORMATIVA_DE_CONTRATO_BL515,), (
-        "BL-515: lista(s) movida(s) para avisos: "
-        f"{sorted(set(informativas) - {_LISTA_INFORMATIVA_DE_CONTRATO_BL515})}"
+    # ⚠️ Comparação de TUPLA, e não de conjunto (achado A6 da auditoria da
+    # DL-062): a ordem das listas informativas é o que a tela percorre, e um
+    # `set(...) == set(...)` aceitaria qualquer reordenação. A afirmação
+    # continua derivando a tupla de VETO do inventário local; só as
+    # informativas são comparadas nominalmente, porque é delas que este
+    # contrato guarda a ordem.
+    assert informativas == _LISTAS_INFORMATIVAS_DE_CONTRATO, (
+        "BL-515: lista(s) movida(s) para avisos ou reordenada(s): "
+        f"informativas={informativas} esperadas={_LISTAS_INFORMATIVAS_DE_CONTRATO}"
     )
     assert atuais == esperadas, (
         "BL-515: a tupla de veto divergiu do inventário esperado; "
@@ -1052,6 +1068,7 @@ def test_bl492_congelamento_das_chaves_de_apurar_saldos(_cenario_simples):
             "contas_sem_classificacao_patrimonial",
             "contas_topo_classificadas_com_natureza_divergente_entre_irmas",
             "contas_nao_folha_sem_classificacao_com_movimento_proprio",
+            "contas_retificadoras_rais",
             "equacao",
         ]
     )
