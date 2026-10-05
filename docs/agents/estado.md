@@ -121,7 +121,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-059](../planos/DL-059-trilha-do-convite-e-eventos-sem-ip.md) | Trilha do convite e eventos sem IP (BL-560, BL-566, BL-579) | Integrada (PR #73) — auditoria aprovada com ressalvas; BL-597 a BL-601 |
 | [DL-060](../planos/DL-060-confirmacao-da-cascata.md) | A reabertura em cascata confirma exatamente os meses mostrados (BL-588, BL-589) | Integrada (PR #74) — reconferência aprovada com ressalvas; BL-602 |
 | [DL-061](../planos/DL-061-dmpl.md) | DMPL, etapa CTB-14 da DL-048 (RC-151) | Integrada (PR #76, #77 e #79) — fatias 1, etapa 2 e fatia 2; pontos abertos BL-606, BL-607, BL-622, BL-625, BL-626 e BL-627 |
-| [DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md) | Sinal da conta-RAIZ retificadora no Balanço Patrimonial (BL-604) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md) | Sinal da conta-RAIZ retificadora no Balanço Patrimonial (BL-604) | Integrada (PR #81, squash `46d80a1`) — auditoria aprovada com ressalvas, reconferência aprovada; ciclo do §3.1 encerrado |
+| [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) | Fecha a leva da DL-061: coluna da DMPL nas duas portas, teste do snapshot e dica condicionada (BL-606, BL-607, BL-625) | **Integrada (PR #84, squash `c32cfe6`)** — o conteúdo **não tinha chegado à `main`** (o PR #82 foi mesclado na branch intermediária `fix/dl-062-…`); recuperado com a `base` reapontada para o destino real |
 | [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md) | Reclassificar conta com movimento em competência encerrada ou entregue não pode reescrever DLPA nem DMPL já apuradas (BL-550) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
@@ -298,6 +299,38 @@ que o SQLite local não via: o teste do BL-516 exigia o Balanço **vetado** por
 um resíduo de 200,00 que **era o próprio defeito** — a "(-) PDD" cadastrada
 como raiz inflava o Ativo, e o resíduo aritmético era a única rede que pegava
 a conta.
+
+**Em andamento: DL-063 — fecha a leva da DL-061** (BL-606, BL-607 e BL-625),
+combinada pelo Fred em 04/10/2026 e com a decisão de que a coluna da DMPL
+passasse a ser aceita **pela API como já era pela DRE e pela DLPA** — a
+assimetria de ficar gravável só pela web não era desejada. O campo existia no
+modelo e era lido pela apuração, mas nenhuma das duas portas de cadastro o
+aceitava: quem integrava por API **não tinha porta nenhuma**, e a recusa por
+contrato nem nomeava o campo. A dica da divergência de fechamento, que era um
+dicionário estático, passou a apontar a causa que a apuração realmente
+encontrou (conta de PL com saldo e sem coluna) em vez de mandar conferir a
+classificação; **os dois lados têm teste de tela**, porque um teste só do caso
+"tem causa" passaria mesmo com a genérica nunca aparecendo. O teste do
+snapshot `REPEATABLE READ` da DMPL foi entregue, mas **não roda localmente**:
+exige PostgreSQL 16, e o `SET TRANSACTION ISOLATION LEVEL` não existe no
+SQLite — a prova dele é a CI. ⚠️ **O que aconteceu com o PR #82, medido em
+05/10/2026:** ele foi mesclado na branch **intermediária**
+`fix/dl-062-sinal-da-raiz-retificadora` — que já tinha sido integrada — e
+**não na `main`**. O GitHub o reporta como `MERGED` e o conteúdo está a um
+`git merge-base --is-ancestor` de distância da `main`: é a segunda ocorrência
+do modo de falha que o [AGENTS.md](../../AGENTS.md) §6 já descreve — *mesclar
+direto na branch intermediária faz o conteúdo integrado não chegar à branch
+de destino, mesmo aparecendo como mesclado*. O delta real contra a `main`
+era de **1.502 linhas**, das quais 909 são de teste, 279 o plano e 119 a
+auditoria; o código são 96 linhas em `serializers.py`, 57 em `views_web.py`
+e 8 em `views.py`. Verificado por execução nesta máquina, em **PostgreSQL
+16.15** — o cluster local estava desligado e o `.env` apontava para SQLite, o
+que produzia 64 falhas falsas só na contabilidade: a branch da DL-063 rodou
+`apps/contabilidade` + `apps/core` com **2.596 aprovados e 21 reprovados**, e
+os **21 são idênticos aos da `main`** (13 de permissão POSIX/umask, que não
+existem no Windows, e 8 de Chromium e de timeout de thread).
+**Nenhuma regressão introduzida.** A recuperação vem por este PR, com a
+`base` reapontada para a `main`, como manda a mesma regra do AGENTS.md.
 
 - **DL-054** — **integrada pelo PR #70** (squash `e7b85aa`).
 - **DL-055** — **integrada pelo PR #69** (squash `9ceda53`).

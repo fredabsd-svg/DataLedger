@@ -38,3 +38,10 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Arquivo de rascunho do agente (DL-063, 04/10/2026). Um `git add -A` pegou
+# um destes no commit e ele foi para o remoto: o mesmo tipo de artefato que a
+# auditoria da DL-062 apontou como A8, e a regra existe para que o proximo
+# `git add -A` nao repita. Nao e artefato do produto, e nao deve ser
+# versionado nunca.
+.dsh-*

@@ -215,6 +215,14 @@ CONTRATO_POST_CONTA = ContratoDeRequisicao(
         # contratado" ANTES de qualquer validação — e a recusa acontece por
         # contrato, não por tipo, então a mensagem nem nomeia o campo.
         "classificacao_dlpa",
+        # DL-063 (BL-606): mesma razão das duas de cima, e pela MESMA
+        # decisão do Fred de 04/10/2026 — a coluna da DMPL deixa de ser
+        # exclusivo da porta própria de classificação e passa a ser aceita no
+        # cadastro de conta, como a linha da DRE e a linha da DLPA. Sem esta
+        # linha, o campo novo do serializer é recusado com "dado não
+        # contratado" ANTES de qualquer validação, e a recusa acontece por
+        # contrato, sem nem nomear o campo.
+        "classificacao_dmpl",
     },
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="no cadastro de conta",
