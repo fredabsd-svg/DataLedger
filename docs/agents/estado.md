@@ -32,7 +32,13 @@ Medido em 25/09/2026 no código e no Git, não copiado de documento anterior; re
 | Trilha de auditoria | Na mesma transação da gravação, imutável, cobrindo também o admin |
 | Fiscal | Recepção e consulta de NFS-e nacional (DL-010 fatia 1): XML e ZIP, deduplicação, cancelamento por evento, isolamento por escritório |
 | Cadastro de cliente pessoa física | CPF e modo de escrituração livro-caixa (DL-038); CNPJ e CPF únicos por escritório (DL-041) |
-| **Não existe** | Compensação de lucros e prejuízos acumulados (HI-26/PE-38); as demonstrações anuais da DL-048 depois da DLPA (**DMPL, DFC, DRA e DVA**); escrituração fiscal e apuração; módulos Folha, Honorários e Processos/Paralegal; assistente de IA; servidor MCP |
+| **Não existe** | Compensação de lucros e prejuízos acumulados (HI-26/PE-38); as demonstrações anuais da DL-048 depois da DMPL (**DFC, DRA e DVA**); escrituração fiscal e apuração; módulos Folha, Honorários, Patrimônio e Lalur; assistente de IA; servidor MCP |
+
+⚠️ **Corrigido em 04/10/2026 (DL-064).** Esta linha listava a **DMPL** como
+inexistente, e a linha da tabela de etapas a registrava como **Integrada** —
+o próprio estado do projeto, que é a fonte única, se contradizendo a 90
+linhas de distância. Foi esse o defeito que quase fez planejar contra um
+mapa que afirma que a DMPL não existe.
 
 **Verificação de 30/09/2026** (contêiner Linux do Claude Code na web, Python
 3.13.12, PostgreSQL 16.13 local, sobre a `main` depois do PR #65, antes da
@@ -290,9 +296,11 @@ todos de ambiente), e é ela que vale como comparação.
 **Antes de continuar a leva, uma pendência de repositório:** o PR #82
 (DL-063) foi mesclado na branch intermediária e **não chegou à `main`**.
 Recuperado pelo **PR #84**, aberto a partir da `main` com a `base` reapontada
-para o destino real. O PR #83 (DL-064, documentos defasados) segue
-`CONFLICTING` por ter base anterior ao PR #81 e precisa ser rebased — ele vai
-conflitar em `estado.md` com o #84 e com este.
+para o destino real. Na integração do **PR #83** (DL-064, documentos
+defasados), a `main` foi incorporada à branch de trabalho por merge, sem
+reescrever o histórico. O conflito de acréscimos em `backlog.md` foi resolvido
+preservando os registros da DL-062, DL-064 e DL-065; este estado mantém também
+os registros posteriores da DL-063, DL-066 e DL-067.
 
 **Leva de 30/09 a 01/10/2026 concluída: DL-052 a DL-060 integradas**
 (PR #66 a #74). Desenvolvidas em até 4 cópias isoladas em paralelo (RC-149)
