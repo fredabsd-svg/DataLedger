@@ -58,6 +58,7 @@ from apps.contabilidade.services import (
     reabrir_competencia,
 )
 from apps.contabilidade.tests import test_dl061_dmpl as _base
+from apps.contabilidade.tests.test_dl061_dmpl import _lancar
 
 pytestmark = pytest.mark.django_db
 
@@ -600,6 +601,59 @@ def test_n2_o_custo_da_guarda_nao_cresce_com_o_historico():
     assert len(depois) <= len(antes), (
         f"a guarda pagou {len(antes)} consultas com 1 competência e "
         f"{len(depois)} com 480 — o custo não pode depender do histórico"
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_n2b_o_custo_nao_cresce_com_os_meses_que_tem_movimento():
+    """O segundo eixo do N2, que a verificação dirigida mediu e que o teste
+    anterior **não** pegava: 36 meses com movimento davam 39 consultas.
+
+    Este é o eixo que importa na prática. O teste anterior cria 480 períodos
+    **sem** movimento — e uma empresa real tem quase todo mês com movimento.
+    Aqui são 36 meses com movimento, e todos **encerrados**, que é a empresa de
+    três anos de contabilidade que o contador de verdade tem.
+
+    ⚠️ O que este teste **não** exige é número constante com muitos meses
+    **abertos**: a trava é uma por mês aberto com movimento, e isso é regra,
+    não sobrecarga — é o que impede o fechamento de passar por cima da
+    classificação. O que se exige aqui é que o custo não dependa nem do
+    histórico de períodos fechados (teste anterior) nem do volume de meses
+    movimentados."""
+    empresa, contas, gestor, conta_dlpa, _ = _cenario("n2b")
+    _movimentar(empresa, contas, conta_dlpa, data=date(2026, 3, 15))
+
+    with CaptureQueriesContext(connection) as antes:
+        conta_dlpa._competencia_fechada_com_movimento()
+
+    for ano in (2023, 2024, 2025):
+        for mes in range(1, 13):
+            obter_ou_criar_competencia(empresa=empresa, ano=ano, mes=mes)
+            _lancar(
+                empresa,
+                date(ano, mes, 15),
+                "Movimento do mês",
+                contas["caixa"],
+                conta_dlpa,
+                "10.00",
+            )
+            encerrar_competencia(empresa=empresa, ano=ano, mes=mes, usuario=gestor)
+
+    meses_com_movimento = {
+        lancamento.data.year * 100 + lancamento.data.month
+        for lancamento in LancamentoContabil.objects.filter(
+            itens__conta__in=[contas["caixa"], conta_dlpa]
+        )
+    }
+    # 3 anos cheios (36) mais o mês do movimento inicial, em março/2026.
+    assert len(meses_com_movimento) == 37, meses_com_movimento
+
+    with CaptureQueriesContext(connection) as depois:
+        assert conta_dlpa._competencia_fechada_com_movimento() is not None
+
+    assert len(depois) <= len(antes), (
+        f"a guarda pagou {len(antes)} consultas com 1 mês de movimento e "
+        f"{len(depois)} com 37 — o custo não pode depender do volume de meses"
     )
 
 
