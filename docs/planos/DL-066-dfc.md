@@ -228,7 +228,7 @@ declarado.
 | 1 | O caso de referência reproduz a tabela acima **ao centavo**, nos dois métodos | `test_criterio1_*` |
 | 2 | **Caixa final da DFC = saldo de caixa e equivalentes no Balanço na mesma data** (item 45), por identidade, nos dois métodos | `test_criterio2_*` |
 | 3 | Movimentos entre duas contas de caixa e equivalentes **não** entram como fluxo (item 9) | `test_criterio3_*` |
-| 4 | Lançamento com **duas** atividades, uma de cada lado, é aceito e nomeia as duas (item 12) | `test_criterio4_*` |
+| 4 | Lançamento com **duas** atividades é **vetado** e nomeia as duas (item 12) | `test_limite_uma_transacao_*` |
 | 5 | Classificação de atividade **ausente** numa conta de movimento veta a emissão e **nomeia a conta** | `test_criterio5_*` |
 | 6 | Conta de resultado marcada como **não caixa** aparece no ajuste do item 20(b) e **não** na variação de contas operacionais | `test_criterio6_*` |
 | 7 | Conta marcada como caixa e equivalentes **sem** movimento no período não entra no saldo conciliado | `test_criterio7_*` |
@@ -307,9 +307,31 @@ exclusão do item 9, o veto do item 12 nomeando as atividades em conflito, e a
 conciliação do item 45 como **identidade**; e `avaliar_emissao_da_dfc`, com
 todas as pendências vetando e cada motivo dizendo o que falta.
 
-**10 testes**, todos executados em PostgreSQL 16.15, e `apps/contabilidade`
-com **1.867 aprovados e os mesmos 8 reprovados de ambiente** — nenhuma
-regressão.
+**20 testes**, todos executados, e `apps/contabilidade` com **1.868 aprovados
+e os mesmos 8 reprovados de ambiente** — nenhuma regressão.
+
+⚠️ **O veto do item 12 é INTERINO, e o auditor foi quem o declarou.** O texto
+deste plano dizia que o lançamento com duas atividades *"é aceito e nomeia"*
+e o código **veta**; quem estava errado era o texto. O juízo do auditor é o que
+fica: o CPC 03 **não manda dividir** — diz que uma transação *pode* ter fluxos
+em mais de uma atividade, o que é exigência de **apresentação correta**, não de
+recusa. O veto é defensável (RC-137/RC-151: o sistema propõe, o contador
+corrige na exceção, e o que não dá para decidir **recusa e nomeia**) e é
+declarado como **interino** até a marcação manual da fatia 2 decidir. Um
+lançamento que a norma manda apresentar dividido fica inemitível por falta de
+ferramenta — e isso tem de estar escrito, não implícito.
+
+⚠️ **A auditoria encontrou dois achados GRAVES nesta apuração, e os dois são
+da premissa da E1, não de detalhe.** O **A1**: a versão anterior filtrava as
+contrapartes sem classificação antes de avaliar, e uma contraparte classificada
+sozinha decidia o lançamento inteiro — o auditor reproduziu número errado com
+`pode_emitir=True` e **zero pendências**, porque a identidade do item 45
+continuava fechando. Ou seja: exatamente o risco que o desenho da E1 promete
+eliminar, e a identidade **não** pegava. O **A2**: `atividades[chave] +=
+fluxo` lê antes de escrever em Python, então uma atividade fora do enum
+— que o `CheckConstraint` **não** barra, ele só barra `""` — subia `KeyError`
+cru, ou seja 500 sem nomear nada. Os dois foram corrigidos e têm teste de
+reprodução.
 
 ⚠️ **Ressalva de desenho que fica registrada:** `operacional_indireto` volta
 `None` nesta entrega, nomeado. O método indireto é a apresentação do mesmo

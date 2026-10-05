@@ -31,6 +31,7 @@ from django.core.exceptions import ValidationError
 
 from apps.contabilidade.models import (
     ClassificacaoFluxoCaixa,
+    Conta,
     NaturezaConta,
     TipoConta,
     TipoPartida,
@@ -63,11 +64,11 @@ def _dec(valor):
     return Decimal(valor)
 
 
-def _conta(empresa, codigo, nome, tipo, natureza, *, dfc=None, caixa=False):
+def _conta(empresa, codigo, nome, tipo, natureza, *, dfc=None, caixa=False, pai=None):
     """Conta criada e validada por `full_clean()`, no mesmo padrão do resto
     do módulo: o plano de teste só contém contas que o próprio cadastro
     aceitaria."""
-    conta = _base._conta(empresa, codigo, nome, tipo, natureza)
+    conta = _base._conta(empresa, codigo, nome, tipo, natureza, pai=pai)
     if dfc is not None:
         conta.classificacao_dfc = dfc
     conta.caixa_e_equivalentes = caixa
@@ -367,3 +368,218 @@ def test_classificacao_dfc_vazia_e_normalizada_para_none():
     contas["receita"].classificacao_dfc = ""
     contas["receita"].full_clean()
     assert contas["receita"].classificacao_dfc is None
+
+
+# ---------------------------------------------------------------------------
+# Correção única da auditoria da fatia 1 (AGENTS.md §3.1: uma auditoria, uma
+# correção, uma reconferência). Cada teste abaixo é a reprodução do achado.
+# ---------------------------------------------------------------------------
+
+
+def test_a1_contrapartida_sem_classificacao_veta_mesmo_com_outra_classificada():
+    """**Achado A1 (GRAVE).** A versão anterior filtrava as contrapartes sem
+    classificação ANTES de avaliar, e uma contraparte classificada sozinha
+    decidia o lançamento inteiro.
+
+    Reprodução do auditor: uma contraparte classificada decidia o lançamento
+    inteiro, e as outras eram silenciosamente descartadas — **sem nenhuma
+    pendência**, com `pode_emitir=True` e a conciliação fechando. O veto do
+    item 45 **não** pega isso, porque a identidade continua valendo — é
+    exatamente o risco que a E1 promete eliminar.
+
+    O caso **precisa tocar caixa** (é o lançamento que mexe caixa que é fluxo)
+    e precisa ter **as duas** situações no mesmo lançamento. Um lançamento que
+    não mexe caixa não é fluxo pelo item 9 e não chega nem aqui — foi o
+    defeito da primeira versão deste teste, apontado pela execução em SQLite
+    antes de subir para a CI."""
+    empresa, contas, gestor = _cenario("a1")
+    sem_atividade = _conta(empresa, "2.8", "Empréstimo a Classificar", TipoConta.PASSIVO, C)
+    _lancar(empresa, date(2026, 3, 10), "Venda", contas["banco"], contas["receita"], "100000.00")
+    # UM lançamento, três partidas: despesa classificada como operacional,
+    # empréstimo SEM classificação, e a saída de caixa. A versão anterior
+    # somava o fluxo inteiro na operação e não gerava pendência nenhuma.
+    criar_lancamento(
+        empresa=empresa,
+        data=date(2026, 3, 22),
+        historico="Amortização com contrapartida parcialmente classificada",
+        itens=[
+            {"conta": contas["despesa"], "tipo": TipoPartida.DEBITO, "valor": _dec("10000.00")},
+            {"conta": sem_atividade, "tipo": TipoPartida.DEBITO, "valor": _dec("10000.00")},
+            {"conta": contas["banco"], "tipo": TipoPartida.CREDITO, "valor": _dec("20000.00")},
+        ],
+    )
+
+    dfc = apurar_dfc(empresa=empresa, ano=ANO, mes=MES)
+
+    pendencia = dfc["pendencias"]["lancamentos_sem_atividade"]
+    assert len(pendencia) == 1, "a contraparte sem classificação tem de vetar"
+    assert "2.8" in pendencia[0]["contas"], "e o veto tem de dizer qual conta"
+    assert dfc["atividades"][ATIV] == _dec("100000.00"), (
+        "os 10.000 não podem entrar na operação: a classificação é do EMPRÉSTIMO, não da despesa"
+    )
+    assert avaliar_emissao_da_dfc(dfc)["pode_emitir"] is False
+
+
+def test_a2_atividade_fora_do_enum_veta_em_vez_de_explodir():
+    """**Achado A2 (GRAVE).** `atividades[chave] += fluxo` **lê antes de
+    escrever** em Python, então chave nova nunca nasce e o `KeyError` subia
+    cru — 500 em tela e API. O `CheckConstraint` barra `""`, mas **não** barra
+    valor fora do enum, e o padrão do módulo (BL-476/BL-493) é o oposto: valor
+    ilegível aparece **nomeado**."""
+    empresa, contas, gestor = _cenario("a2")
+    Conta.objects.filter(pk=contas["receita"].pk).update(classificacao_dfc="bancaria")
+    _lancar(empresa, date(2026, 3, 10), "Venda", contas["banco"], contas["receita"], "100000.00")
+
+    dfc = apurar_dfc(empresa=empresa, ano=ANO, mes=MES)
+
+    pendencia = dfc["pendencias"]["classificacao_fora_do_enum"]
+    assert len(pendencia) == 1, "atividade fora do enum tem de vetar, não estourar"
+    assert "4.1" in pendencia[0]["contas"]
+    assert "bancaria" in pendencia[0]["contas"], "o valor corrompido tem de aparecer"
+    assert avaliar_emissao_da_dfc(dfc)["pode_emitir"] is False
+
+
+def test_a3_grupo_de_caixa_marcado_nao_conta_a_filha_duas_vezes():
+    """**Achado A3 (MÉDIA).** O `saldo` do motor é consolidado (próprio +
+    subárvore), então somar um grupo marcado e a filha marcada contava o
+    mesmo dinheiro duas vezes — o auditor mediu 200.000 numa empresa com
+    100.000.
+
+    A apuração soma **só as contas marcadas mais altas**, e o modelo recusa a
+    marcação dupla — são as duas metades da mesma defesa.
+
+    ⚠️ O estado duplo é criado **por ORM direto**, de propósito: pelo caminho
+    validado ele é impossível, porque a guarda do modelo recusa. O que este
+    teste cobre é a **segunda** metade — a apuração não pode contar o mesmo
+    dinheiro duas vezes mesmo com dado corrompido vindo de fora."""
+    empresa, contas, gestor = _cenario("a3")
+    grupo = _conta(empresa, "1.0", "Tesouraria", ATIVO, D, caixa=True)
+    filha = _conta(empresa, "1.0.2", "Aplicação da Tesouraria", ATIVO, D, pai=grupo)
+    # Marca a filha por fora da validação: é o caminho que a apuração precisa
+    # sobreviver.
+    Conta.objects.filter(pk=filha.pk).update(caixa_e_equivalentes=True)
+    _lancar(empresa, date(2026, 3, 10), "Venda", filha, contas["receita"], "100000.00")
+
+    dfc = apurar_dfc(empresa=empresa, ano=ANO, mes=MES)
+
+    assert dfc["caixa"]["variacao"] == _dec("100000.00"), (
+        "o grupo e a filha marcadas não podem contar o mesmo dinheiro duas vezes"
+    )
+    assert dfc["conciliacao"]["diferenca"] == _dec("0.00")
+
+
+def test_a3_o_modelo_recusa_grupo_e_filha_marcados():
+    empresa, contas, gestor = _cenario("a3-modelo")
+    grupo = _conta(empresa, "1.0", "Tesouraria", ATIVO, D, caixa=True)
+    filha = _conta(empresa, "1.0.2", "Aplicação", ATIVO, D, pai=grupo)
+    filha.caixa_e_equivalentes = True
+    with pytest.raises(ValidationError) as erro:
+        filha.full_clean()
+    assert "duas vezes" in str(erro.value)
+
+
+def test_a4_o_item_9_preserva_o_vertice_de_emissao():
+    """**Achado A4 (MÉDIA).** O teste do item 9 só afirmava as atividades, o
+    saldo final e a conciliação — **não** afirmava `pode_emitir` nem que as
+    pendências estavam vazias. Desligando o `if not contrapartes`, a
+    transferência cairia em `lancamentos_sem_atividade` e os três asserts
+    seguiriam verdes. Aqui o teste aperta o que faltava."""
+    empresa, contas, gestor = _cenario("a4")
+    _lancar(empresa, date(2026, 3, 10), "Venda", contas["banco"], contas["receita"], "100000.00")
+    _lancar(
+        empresa,
+        date(2026, 3, 18),
+        "Transferência entre contas",
+        contas["caixa"],
+        contas["banco"],
+        "60000.00",
+    )
+
+    dfc = apurar_dfc(empresa=empresa, ano=ANO, mes=MES)
+
+    # A transferência NÃO pode virar pendência: o item 9 diz que ela não é
+    # fluxo, e "não é fluxo" não é "não sei classificar".
+    assert dfc["pendencias"]["lancamentos_sem_atividade"] == []
+    assert dfc["pendencias"]["lancamento_com_atividades_conflitantes"] == []
+    assert avaliar_emissao_da_dfc(dfc)["pode_emitir"] is True
+
+
+def test_a5_conta_com_os_dois_papeis_veta_nomeando():
+    """**Achado A5 (MÉDIA).** A guarda de coerência vive em `Conta.clean()`,
+    que é o caminho validado; por ORM direto as duas marcações convivem e o
+    lançamento que toca as duas **some da DFC sem veto** — o caixa é o lado do
+    fluxo e a atividade é da contrapartida, então nenhum dos dois o registra.
+    Cinquenta mil desapareciam com `pode_emitir=True`."""
+    empresa, contas, gestor = _cenario("a5")
+    Conta.objects.filter(pk=contas["emprestimo"].pk).update(caixa_e_equivalentes=True)
+    _lancar(
+        empresa, date(2026, 3, 15), "Empréstimo", contas["banco"], contas["emprestimo"], "50000.00"
+    )
+
+    dfc = apurar_dfc(empresa=empresa, ano=ANO, mes=MES)
+
+    pendencia = dfc["pendencias"]["conta_com_dois_papeis"]
+    assert len(pendencia) == 1, (
+        "conta com os dois papéis tem de vetar, mesmo vinda de dado corrompido"
+    )
+    assert pendencia[0]["conta"] == "2.1"
+    assert avaliar_emissao_da_dfc(dfc)["pode_emitir"] is False
+
+
+def test_a6_sem_data_inicio_a_apuracao_e_o_acumulado_do_ano():
+    """**Achado A6 (BAIXA).** Sem `data_inicio`, `apurar_dfc` devolve o
+    acumulado do ano até o mês — e nenhum teste passava `data_inicio`, então o
+    mês isolado não tinha prova nenhuma."""
+    empresa, contas, gestor = _cenario("a6")
+    _lancar(
+        empresa,
+        date(2026, 2, 10),
+        "Venda de fevereiro",
+        contas["banco"],
+        contas["receita"],
+        "1000.00",
+    )
+    _lancar(
+        empresa, date(2026, 3, 10), "Venda de março", contas["banco"], contas["receita"], "2000.00"
+    )
+
+    acumulado = apurar_dfc(empresa=empresa, ano=ANO, mes=MES)
+    so_marco = apurar_dfc(empresa=empresa, ano=ANO, mes=MES, data_inicio=date(2026, 3, 1))
+
+    assert acumulado["atividades"][ATIV] == _dec("3000.00"), "sem data_inicio é o acumulado do ano"
+    assert so_marco["atividades"][ATIV] == _dec("2000.00"), "com data_inicio é o mês"
+
+
+def test_criterio9_a_conciliacao_que_nao_fecha_veta_sem_ajustar_saldo():
+    """O auditor verificou por execução que a diferença veta e nomeia, mas
+    **não havia teste**. Veto que ninguém exercita é veto que ninguém sabe que
+    existe."""
+    empresa, contas, gestor = _cenario("c9")
+    _lancar(empresa, date(2026, 3, 10), "Venda", contas["banco"], contas["receita"], "100000.00")
+    dfc = apurar_dfc(empresa=empresa, ano=ANO, mes=MES)
+    # Corrompe a conciliação pelo caminho que só dado adulterado alcança.
+    dfc["pendencias"]["diferenca_de_caixa"].append({"diferenca": Decimal("1000.00")})
+
+    emissao = avaliar_emissao_da_dfc(dfc)
+
+    assert emissao["pode_emitir"] is False
+    assert "diferenca_de_caixa" in emissao["listas_pendentes"]
+    assert dfc["caixa"]["final"] == _dec("100000.00"), "nenhum saldo é ajustado para fechar"
+
+
+def test_criterio10_isolamento_entre_empresas():
+    """O auditor verificou por execução e não houve teste."""
+    empresa_a, contas_a, _ = _cenario("iso-a")
+    _lancar(
+        empresa_a, date(2026, 3, 10), "Venda", contas_a["banco"], contas_a["receita"], "777777.00"
+    )
+
+    empresa_b, contas_b, _ = _cenario("iso-b")
+    _lancar(empresa_b, date(2026, 3, 10), "Venda", contas_b["banco"], contas_b["receita"], "100.00")
+
+    dfc_a = apurar_dfc(empresa=empresa_a, ano=ANO, mes=MES)
+    dfc_b = apurar_dfc(empresa=empresa_b, ano=ANO, mes=MES)
+
+    assert dfc_a["atividades"][ATIV] == _dec("777777.00")
+    assert dfc_b["atividades"][ATIV] == _dec("100.00")
+    assert dfc_a["caixa"]["final"] != dfc_b["caixa"]["final"]

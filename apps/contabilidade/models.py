@@ -1677,6 +1677,30 @@ class Conta(models.Model):
                 "é da contrapartida. Escolha um dos dois — sem essa escolha a apuração "
                 "contaria o mesmo fluxo duas vezes."
             )
+        # ⚠️ **Achado A3 (MÉDIA) da auditoria da fatia 1.** Grupo de caixa e
+        # filha marcados ao mesmo tempo **contam o mesmo dinheiro duas vezes**
+        # na conciliação do item 45: o `saldo` que o motor de saldos devolve é
+        # consolidado (próprio + subárvore), e somar as duas contas duplica a
+        # árvore. A apuração já soma **só as contas marcadas mais altas** por
+        # isso; esta guarda é a metade do modelo, e transforma dado ambíguo em
+        # erro de cadastro — que é o lugar certo de pegá-lo.
+        if self.caixa_e_equivalentes and self.pk:
+            tem_ancestral_marcado = (
+                Conta.objects.filter(
+                    empresa_id=self.empresa_id,
+                    conta_pai_id__in=Conta.objects.filter(
+                        empresa_id=self.empresa_id, caixa_e_equivalentes=True
+                    ).values("id"),
+                )
+                .filter(pk=self.pk)
+                .exists()
+            )
+            if tem_ancestral_marcado:
+                raise ValidationError(
+                    "Uma conta de árvore não pode ser marcada como caixa e equivalentes "
+                    "quando uma conta acima dela já é: o saldo de caixa seria contado "
+                    "duas vezes. Marque a conta de cima, ou só as de baixo — nunca as duas."
+                )
         # (2) "Item de resultado que não movimenta caixa" fora de resultado: a
         # distinção do item 20(b) é sobre receita e despesa, e aplicá-la a um
         # ativo faria o ajuste do método indireto somar um saldo patrimonial ao
