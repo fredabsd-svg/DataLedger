@@ -1105,6 +1105,18 @@ class Conta(models.Model):
     # não serve: "Banco Conta Corrente" tanto serve quanto abriga ajustes de
     # regularização, e conta de aplicação só é equivalente se o contador
     # disser que é (item 7: curto prazo, até três meses).
+    #
+    # ⚠️ **Este campo NÃO é restrito a conta de ATIVO, e o motivo é o item 8**
+    # do CPC 03 (R2), não uma liberalidade: *"saldos bancários a descoberto,
+    # decorrentes de empréstimos obtidos por meio de instrumentos como cheques
+    # especiais ou contas correntes garantidas que são liquidados em curto
+    # lapso temporal, compõem parte integral da gestão de caixa da entidade.
+    # Nessas circunstâncias, saldos bancários a descoberto são incluídos como
+    # componente de caixa e equivalentes de caixa"*. Na prática contábil o
+    # descoberto é ativo negativo, e no plano de contas brasileiro ele costuma
+    # ser uma conta de PASSIVO. Uma guarda que exigisse ATIVO tiraria o cheque
+    # especial e a conta garantida de fora da conciliação do item 45 — que é
+    # justamente o que a entrega precisa provar. Ver **DE-099**.
     caixa_e_equivalentes = models.BooleanField(
         "caixa e equivalente de caixa",
         default=False,
@@ -1112,7 +1124,8 @@ class Conta(models.Model):
             "Entra na conciliação do item 45 do CPC 03 (R2) e é o lado CAIXA "
             "dos lançamentos na apuração da DFC. Equivalente de caixa é "
             "aplicação de curto prazo, em regra vencimento de três meses ou "
-            "menos (item 7) — o padrão fica a cargo do escritório, não do produto."
+            "menos (item 7) — o padrão fica a cargo do escritório, não do "
+            "produto, e por isso não há marcação automática."
         ),
     )
     # `classificacao_dfc` é a ATIVIDADE do fluxo em que a conta participa
