@@ -219,8 +219,32 @@ próprio. **O que fica de decisão do Fred:** essas três correções não passa
 por auditoria independente, e a forma honesta de tê-las seria um papel
 diferente do mesmo §3.1, não uma terceira rodada deste ciclo.
 
-**30 testes da demanda; `apps/contabilidade` com 1.839 aprovados e os mesmos
-8 reprovados** de antes da mudança.
+**31 testes da demanda; `apps/contabilidade` com 1.857 aprovados e os mesmos
+8 reprovados** de antes da mudança. (O 1.839 que este arquivo trazia era o de
+antes do merge da DL-063, que entrou no meio da verificação; a **verificação
+dirigida** mediu 1.856 e a medição de hoje, já com o teste do segundo eixo do
+custo, dá 1.857. Um nono reprovado apareceu numa rodada e **não se
+reproduziu**: era o PostgreSQL local caindo, não o código.)
+
+**A verificação dirigida dos achados N1, N2 e N3 saiu
+[APROVADA COM RESSALVAS](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md).**
+As três correções fazem o que prometem, medido: sob `FOR UPDATE` concorrente
+com `lock_timeout` de 200 ms, a **API responde 409** nas duas demonstrações
+(era a porta que a reconferência deixara de fora), a tela 200 com recusa e
+valor intacto, o `ModelForm` do admin recusa sem degradar a validação de
+constraint, e a transação volta a servir depois do savepoint. O custo ficou
+**constante em 8 consultas** de 0 a 480 períodos — contra 486 medidos antes.
+
+⚠️ **Mas a ressalva de custo era séria, e eu a tratei como defeito.** A
+primeira correção do N2 trocou o eixo do crescimento sem eliminá-lo: ela
+iterava os **meses com movimento** perguntando se cada um estava aberto, e a
+verificação mediu 39 consultas com 36 meses — que é justamente a empresa real,
+já que quase todo mês tem movimento. Pior: cada trava buscava a FK `empresa`
+da competência, que não vem em cache, e o teste que escrevi chegou a medir
+**152 consultas com 37 meses**. As duas causes foram corrigidas — itera-se o
+lado pequeno (as abertas da empresa, uma ou duas) e a empresa vem da conta —
+e o segundo eixo ganhou **teste próprio**, porque o teste anterior só pegava
+o primeiro.
 
 ⚠️ **Achado de ambiente que mudou a forma de verificar nesta máquina:** o
 `DATABASE_URL` do `.env` apontava para **SQLite**, e o cluster do PostgreSQL

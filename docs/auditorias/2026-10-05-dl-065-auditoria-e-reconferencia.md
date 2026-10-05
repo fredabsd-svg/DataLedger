@@ -294,3 +294,68 @@ auditoria independente**, porque o §3.1 proíbe a terceira rodada. Elas estão
 verificadas por teste de regressão próprio e pela CI. Se ele quiser a
 verificação independente delas, a decisão é dele — e a forma honesta seria um
 papel diferente do mesmo `§3.1`, não uma terceira rodada deste ciclo.
+
+---
+
+# VERIFICAÇÃO DIRIGIDA dos achados N1, N2 e N3
+
+**Auditor:** `auditor-qa`, somente leitura. **Objeto:** commit `a4c1189`.
+⚠️ **Não é a terceira rodada do §3.1** — é a verificação dirigida que o Fred
+autorizou, restrita aos três defeitos corrigidos. Ela **não reabre o ciclo**.
+
+## Parecer: **APROVADO COM RESSALVAS**
+
+As três correções fazem o que prometem, medido por execução própria. As
+ressalvas são documentais e de custo residual.
+
+| Achado | Veredito | O que o auditor mediu |
+| --- | --- | --- |
+| N1 | **Cumpriu** | Serviço levanta `ClassificacaoAlteraPeriodoFechado`, nunca `InternalError`; **API DLPA e DMPL respondem 409** (a porta que a reconferência deixara de fora); tela 200 com recusa e valor intacto; `ModelForm` recusa **sem** o `WARNING django.db.models`; a transação volta a servir depois do savepoint |
+| N2 | **Cumpriu no eixo prometido** | 8 consultas em 0, 12, 120 e 480 períodos, contra 486 medidos; **ressalva**: ainda crescia no outro eixo (abaixo) |
+| N3 | **Cumpriu** | `update(estado="arquivada")` → exceção de domínio, 409 pela API, sem `ValueError` |
+
+A ordem real do SQL também foi conferida: ler as **abertas** → `FOR SHARE` →
+ler as **fechadas**. A janela de corrida do A2 **não voltou**, e o `FOR
+SHARE` sobrevive ao savepoint.
+
+## A ressalva que eu tratei como defeito, e não como observação
+
+O auditor mediu que a correção do N2 **trocou o eixo do crescimento sem
+eliminá-lo**: ela iterava os **meses com movimento** perguntando se cada um
+estava aberto, e dava 39 consultas com 36 meses com movimento. Esse é o eixo
+que importa — quase todo mês de uma empresa real tem movimento, então a
+conta voltava aos mesmos ~480 por outro caminho. E o teste que eu tinha
+escrito cobria só o primeiro eixo, porque criava 480 períodos **sem**
+movimento.
+
+Ao escrever o teste do segundo eixo, a causa ficou pior do que o auditor
+havia medido: cada trava buscava `aberta.empresa`, **FK que não vem em
+cache** — o teste mediu **152 consultas com 37 meses**.
+
+Corrigido depois desta verificação: a trava itera o lado **pequeno** (as
+competências abertas da empresa, uma ou duas por natureza) e testa a
+pertinência no conjunto de meses, que já está em memória; a empresa vem de
+`self.empresa`. Cada eixo ganhou **teste próprio**:
+`test_n2_o_custo_da_guarda_nao_cresce_com_o_historico` (períodos fechados) e
+`test_n2b_o_custo_nao_cresce_com_os_meses_que_tem_movimento` (meses
+movimentados).
+
+## Correções documentais (achado R1 da verificação)
+
+Duas docstrings de `models.py` e uma linha do plano descreviam o **laço por
+competência que foi removido** — inclusive citando
+`_faixa_de_datas_da_competencia`, função que não existe mais em nenhum `.py`.
+A frase "três consultas, independentes do histórico" também era maior que o
+medido. Tudo reescrito para descrever a interseção em memória e o custo real,
+que é de **quatro consultas mais uma trava por competência aberta com
+movimento** — e a trava é regra, não sobrecarga: é o que impede o fechamento
+de passar por cima da classificação.
+
+## O que a verificação NÃO cobriu
+
+`EXPLAIN` e plano de execução; o ramo "a reclassificação vence a corrida" do
+A2; concorrência com `zerar_resultado`, `reabrir_competencia` e
+`marcar_competencia_como_entregue`; várias competências abertas com
+movimento sob contenção simultânea; o comportamento fora do PostgreSQL; a
+suíte fora de `apps/contabilidade`; e a qualidade da DL-066, que apareceu na
+árvore durante a verificação e está fora do escopo.

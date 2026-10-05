@@ -1186,9 +1186,10 @@ class Conta(models.Model):
         qualquer), numa consulta só.
 
         Mesma árvore de `_tem_movimento_proprio_ou_de_descendente` (BL-245),
-        devolvida em lista: a guarda de período fechado filtra o movimento
-        uma vez por competência, e refazer a recursiva a cada uma
-        multiplicaria o custo.
+        devolvida em lista: a guarda de período fechado precisa dos ids mais
+        de uma vez — uma para os meses com movimento, outra que se nada tiver
+        movimento — e refazer a recursiva a cada uso custaria mais que
+        guardá-los.
         """
         tabela_conta = Conta._meta.db_table
         coluna_conta_pai = Conta._meta.get_field("conta_pai").column
@@ -1228,9 +1229,8 @@ class Conta(models.Model):
         A árvore é a MESMA de `_tem_movimento_proprio_ou_de_descendente`
         (BL-245: `WITH RECURSIVE` dentro do PostgreSQL, `UNION` para
         deduplicar e não entrar em ciclo com hierarquia inconsistente),
-        devolvida em lista por `_ids_da_subarvore` — a guarda filtra o
-        movimento uma vez por competência, e refazer a recursiva a cada uma
-        multiplicaria o custo.
+        devolvida em lista por `_ids_da_subarvore`, que a guarda consulta uma
+        vez e reaproveita.
 
         ⚠️ **O movimento é filtrado por DATA, e é isso que amarra a guarda às
         demonstrações** (achado A1 da auditoria da DL-065). Toda a camada de
@@ -1260,13 +1260,23 @@ class Conta(models.Model):
         contra a corrida e sem estourar exceção em `full_clean()` chamada
         fora de transação.
 
-        **Custo: três consultas, independentes do histórico** (achado N2 da
-        reconferência). A versão intermediária fazia uma consulta por
-        competência e media 507 consultas e 393 ms com 480 períodos
-        fechados — e, como a travagem vem antes da varredura, segurava o
-        `FOR SHARE` por todo esse tempo, bloqueando o fechamento junto. A
-        pergunta é uma interseção de conjuntos (o mês com movimento × o mês
-        fechado), e interseção se faz em memória.
+        **Custo: quatro consultas, e constante nas DUAS dimensões que
+        importam** (achado N2 da reconferência, e sua própria medição
+        depois). A versão intermediária fazia uma consulta por competência e
+        media 507 consultas e 393 ms com 480 períodos fechados — e, como a
+        travagem vem antes da varredura, segurava o `FOR SHARE` por todo
+        esse tempo, bloqueando o fechamento junto. A pergunta é uma interseção
+        de conjuntos (o mês com movimento × o mês fechado), e interseção se
+        faz em memória: as consultas trazem sempre o lado pequeno — as
+        **abertas** da empresa, que são uma ou duas, e as **fechadas só dos
+        anos em que houve movimento**.
+
+        ⚠️ A primeira versão desta correção trocou o eixo do crescimento sem
+        eliminá-lo: ela iterava os **meses com movimento** perguntando se cada
+        um estava aberto, e a verificação dirigida mediu 39 consultas com 36
+        meses com movimento. Numa empresa de quarenta anos, quase todo mês tem
+        movimento — então a conta voltava aos mesmos ~480 por outro caminho.
+        Iterar do lado pequeno é o que fecha as duas dimensões.
 
         A lista de competências afetadas é recalculada a cada tentativa e não
         é memorizada: o que decide é o estado de agora, não o de antes.
@@ -1292,7 +1302,6 @@ class Conta(models.Model):
         )
         if not meses_com_movimento:
             return None
-        meses_ordenados = sorted(meses_com_movimento, reverse=True)
 
         # Import TARDIO e deliberado: `services` importa `models`, então o
         # caminho inverso só fecha aqui dentro do método — é o mesmo truque que
@@ -1309,27 +1318,39 @@ class Conta(models.Model):
             _travar_competencia_em_modo_compartilhado,
         )
 
-        # Trava TODAS as abertas com movimento, em ordem determinística
-        # (`-ano`, `-mes`), que é a ordem em que duas reclassificações
-        # concorrentes deste mesmo código pediriam o lock — o que é o que
-        # impede que duas delas travem uma a outra em linha de frente.
-        # Superconjunto do necessário de propósito: travar também uma aberta
-        # sem movimento deste plano só serializa um `encerrar_competencia`
-        # que viria a recuar, e é melhor que bloquear fechamentos sem
-        # relação nenhuma.
-        for ano, mes in meses_ordenados:
-            aberta = Competencia.objects.filter(
-                empresa_id=self.empresa_id,
-                ano=ano,
-                mes=mes,
-                estado=EstadoCompetencia.ABERTA,
-            ).first()
-            if aberta is None:
+        # Trava as ABERTAS **com movimento**, iterando do lado PEQUENO.
+        #
+        # Iterar os meses com movimento perguntando se cada um está aberto
+        # parecia a solução e era o **mesmo N+1 com outro eixo**: numa empresa
+        # de quarenta anos de contabilidade quase todo mês tem movimento, e a
+        # contagem voltava aos mesmos ~480 (medido: 36 meses com movimento já
+        # davam 39 consultas). O lado pequeno é o das competências **abertas**,
+        # que são uma ou duas por natureza, e a pertinência no conjunto de
+        # meses com movimento está em memória, sem consulta.
+        #
+        # Ordem `-ano`, `-mes`: é a ordem em que duas reclassificações
+        # concorrentes deste mesmo código pediriam o lock, e o que impede que
+        # duas delas travem uma a outra em linha de frente.
+        #
+        # ⚠️ A ordem das três leituras é o que fecha a corrida do A2, e ela é
+        # medida: ler as **abertas** → tomar o `FOR SHARE` → ler as
+        # **fechadas**. A trava vem ANTES da decisão, e é por isso que o
+        # `FOR SHARE` precisa sobreviver ao savepoint (achado N1).
+        for aberta in Competencia.objects.filter(
+            empresa_id=self.empresa_id, estado=EstadoCompetencia.ABERTA
+        ).order_by("-ano", "-mes"):
+            if (aberta.ano, aberta.mes) not in meses_com_movimento:
                 continue
             try:
                 with transaction.atomic():
+                    # `self.empresa`, e não `aberta.empresa`: a FK da
+                    # competência **não vem em cache**, e buscá-la a cada
+                    # trava era uma consulta por mês aberto — 37 numa empresa
+                    # com três anos de livros abertos. `self.empresa` é
+                    # buscada no máximo uma vez, e o parâmetro só existe para
+                    # a mensagem de erro do primitivo.
                     _travar_competencia_em_modo_compartilhado(
-                        aberta, ano=aberta.ano, mes=aberta.mes, empresa=aberta.empresa
+                        aberta, ano=aberta.ano, mes=aberta.mes, empresa=self.empresa
                     )
             except CompetenciaOcupada as exc:
                 # Estouro de `lock_timeout`: outra operação está em curso
@@ -1338,7 +1359,8 @@ class Conta(models.Model):
                 # contador receba "tente de novo" em vez de um 500.
                 raise ValidationError(
                     "Não foi possível verificar o período desta conta agora: outra "
-                    f"operação está em curso na competência {mes:02d}/{ano} ({exc}). "
+                    f"operação está em curso na competência "
+                    f"{aberta.mes:02d}/{aberta.ano} ({exc}). "
                     "Tente de novo em instantes.",
                     code=CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO,
                 ) from exc
@@ -1352,13 +1374,15 @@ class Conta(models.Model):
         # pergunta é uma interseção de conjuntos, e interseção se faz em
         # memória: o número de consultas aqui é **constante**, não cresce com
         # os meses que a empresa já fechou.
-        for ano, mes in meses_ordenados:
-            fechada = (
-                Competencia.objects.filter(empresa_id=self.empresa_id, ano=ano, mes=mes)
-                .exclude(estado=EstadoCompetencia.ABERTA)
-                .first()
+        for fechada in (
+            Competencia.objects.filter(
+                empresa_id=self.empresa_id,
+                ano__in={ano for ano, _ in meses_com_movimento},
             )
-            if fechada is not None:
+            .exclude(estado=EstadoCompetencia.ABERTA)
+            .order_by("-ano", "-mes")
+        ):
+            if (fechada.ano, fechada.mes) in meses_com_movimento:
                 return {
                     "ano": fechada.ano,
                     "mes": fechada.mes,

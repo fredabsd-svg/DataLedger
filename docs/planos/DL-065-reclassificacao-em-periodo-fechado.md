@@ -155,11 +155,12 @@ ficava cega ao lançamento sem competência gravada — e `competencia_id` é
 movimento por `lancamento__data__gte/__lte` e nunca pela FK, então esse
 lançamento entrava normalmente na DLPA do período encerrado.
 
-A regra passou a filtrar por data, com a mesma aritmética de calendário que
-os três pontos de apuração já usam (`calendar.monthrange`), escrita uma vez
-em `_faixa_de_datas_da_competencia`. **Princípio:** guarda que filtra por um
-critério diferente do que a apuração filtra é guarda que pode ser
-contornada.
+A regra passou a filtrar por **data**, com a mesma partição de mês que a
+apuração usa — `ExtractYear`/`ExtractMonth` sobre um `DateField` é
+exatamente `data__gte=date(ano, mes, 1)` / `data__lte=date(ano, mes, último
+dia)`, e sem componente de hora os dois não podem discordar, inclusive em
+fevereiro de ano bissexto. **Princípio:** guarda que filtra por um critério
+diferente do que a apuração filtra é guarda que pode ser contornada.
 
 ### E9 — A trava vem do módulo, e é `FOR SHARE`
 
@@ -231,11 +232,14 @@ a ser legítima.
 - **Contrato:** a API ganha um 409 novo **na mesma rota** que já existia; quem
   recebia 200 passa a receber 409 com `detail` — é a mudança de comportamento
   que o BL-550 pede, e ela é o objeto da demanda.
-- **Desempenho:** três consultas, **independentes de quantos meses a empresa
-  já fechou** (achado N2). O atalho é: conta sem movimento nenhum sai em duas;
-  conta com movimento paga a travagem e a verificação, e para na competência
-  mais recente que fecha o cruzamento. É o preço de uma regra que decide por
-  período — o mesmo que a classificação patrimonial já pagava.
+- **Desempenho:** **quatro consultas** — a árvore da conta, os meses com
+  movimento, as competências abertas da empresa e as fechadas dos anos com
+  movimento — e mais **uma trava por competência ABERTA com movimento**, que
+  é regra, não sobrecarga. O que não existe é crescimento: nem com o histórico
+  de períodos fechados (507 consultas medidas com 480 deles), nem com o volume
+  de meses movimentados. A [verificação dirigida](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md)
+  mediu a primeira correção como constante no primeiro eixo e ainda crescente
+  no segundo; ambos foram fechados, e cada eixo tem teste próprio.
 - **Permissões e isolamento:** nada muda. `PodeEscriturar` continua decidindo
   a porta; o filtro `empresa=empresa` continua decidindo a visibilidade, e a
   guarda só roda **depois** do `get_object_or_404`.
