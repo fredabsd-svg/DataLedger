@@ -152,11 +152,11 @@ como estava. Por isso a regra mora em `Conta.clean()`, que é o ponto de
 passagem de todo caminho validado, e a tradução para **409** acontece nos
 serviços, por um `code` de erro que só eles conhecem.
 
-**21 testes novos na primeira entrega, 27 depois da correção** — todos
+**21 testes novos na primeira entrega, 30 depois das duas correções** — todos
 executados em PostgreSQL 16.15 (critérios 1 a 11 do plano, mais quatro
 limites: competência do mês seguinte, a mais recente quando há duas, período
 reaberto e conta sem movimento no período fechado). A suíte de
-`apps/contabilidade` deu **1.836 aprovados e os mesmos 8 reprovados de antes
+`apps/contabilidade` deu **1.839 aprovados e os mesmos 8 reprovados de antes
 da mudança** — nenhuma regressão.
 
 **[Auditoria independente](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md):
@@ -191,6 +191,35 @@ real ficou registrado. **A6** (o script de medição grava a coluna da DMPL
 sem a guarda) foi **aceito como limite** e registrado no backlog como
 **BL-628**. **A7** — faltavam a tela da DMPL e o admin da coluna da DMPL —
 foi coberto.
+
+⚠️ **[Reconferência: REPROVADA](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md).**
+A1, A3, A4, A6 e A7 fecharam; **A2 não** — a corrida fecha (o auditor mediu
+8 de 8 com o fechamento vencendo e o vazamento da rodada 1 não reproduz),
+mas a tradução prometida do `lock_timeout` não acontecia. E a correção
+**introduziu dois defeitos**, um deles médio: **N1**, em que o `FOR SHARE`
+estourado aborta a transação e o `full_clean` do Django continua acumulando
+erro e consultando, de modo que a recusa virava **500 na porta de nível 1** —
+a mesma patologia que o docstring de BL-470 diz ter eliminado; e **N2**, em
+que a troca de uma consulta por um laço levou a guarda a **507 consultas e
+393 ms** com 480 períodos fechados, com o `FOR SHARE` segurado durante todo
+esse tempo, bloqueando o fechamento junto. Mais **N3** (baixa), em que
+estado fora do enum virava `ValueError` cru.
+
+**As três foram corrigidas sem terceira rodada de auditoria** — e é preciso
+dizer por quê: o §3.1 proíbe comprar outra rodada, e ela existe para parar
+quem tenta provar uma frase que promete mais do que o instrumento aguenta, não
+para deixar passar um 500 conhecido em porta de nível 1 e uma regressão de 1
+para 507 consultas. O ciclo fica **encerrado no veredito REPROVADO**. N1 virou
+um **savepoint** em torno da tentativa de lock, para o `ValidationError`
+chegar inteiro ao acumulador; N2 virou a **interseção de conjuntos** que a
+pergunta sempre foi — quantas consultas são constantes, não crescem com o
+histórico; N3 ganhou rótulo com reserva. Cada uma com teste de regressão
+próprio. **O que fica de decisão do Fred:** essas três correções não passaram
+por auditoria independente, e a forma honesta de tê-las seria um papel
+diferente do mesmo §3.1, não uma terceira rodada deste ciclo.
+
+**30 testes da demanda; `apps/contabilidade` com 1.839 aprovados e os mesmos
+8 reprovados** de antes da mudança.
 
 ⚠️ **Achado de ambiente que mudou a forma de verificar nesta máquina:** o
 `DATABASE_URL` do `.env` apontava para **SQLite**, e o cluster do PostgreSQL

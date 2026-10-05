@@ -34,6 +34,7 @@ from decimal import Decimal
 import pytest
 from django.core.exceptions import ValidationError
 from django.db import OperationalError, connection, transaction
+from django.test.utils import CaptureQueriesContext
 
 from apps.auditoria.models import RegistroAuditoria
 from apps.contabilidade.models import (
@@ -505,6 +506,119 @@ def test_a2_a_guarda_segura_a_competencia_aberta():
         t.join(timeout=30)
         assert not t.is_alive(), "thread não concluiu"
     assert erros == {}, erros
+
+
+# ---------------------------------------------------------------------------
+# Regressões da reconferência — N1, N2 e N3, defeitos que a PRÓPRIA correção
+# introduziu e que a reconferência mediu
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_n1_lock_timeout_vira_409_e_nao_500():
+    """Achado N1: o `FOR SHARE` estourado **aborta** a transação, e o
+    `Model.full_clean` do Django acumula o erro de `clean()` e continua para
+    `validate_constraints()` — consulta nova numa transação abortada, que
+    sobe `InternalError` e **substitui** a recusa por um 500 na porta de
+    nível 1. O `savepoint` em torno da tentativa de lock devolve a
+    transação ao estado servível."""
+    empresa, contas, gestor, conta_dlpa, _ = _cenario("n1")
+    _movimentar(empresa, contas, conta_dlpa)
+    competencia = obter_ou_criar_competencia(empresa=empresa, ano=ANO, mes=MES)
+
+    segurou = threading.Event()
+    largar = threading.Event()
+    erros = {}
+
+    def _segurar():
+        try:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute("SET LOCAL lock_timeout = '200ms'")
+                    # `FOR UPDATE` é o lock de `encerrar_competencia`: enquanto
+                    # esta transação viver, o `FOR SHARE` da guarda estoura.
+                    Competencia.objects.select_for_update().get(pk=competencia.pk)
+                segurou.set()
+                largar.wait(timeout=30)
+        except Exception as exc:  # noqa: BLE001 — vai para o assert, não some
+            erros["thread"] = exc
+            segurou.set()
+        finally:
+            connection.close()
+
+    t = threading.Thread(target=_segurar)
+    t.start()
+    try:
+        assert segurou.wait(timeout=30), "a outra transação não segurou a competência"
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '200ms'")
+            with pytest.raises(ClassificacaoAlteraPeriodoFechado) as erro:
+                classificar_conta_na_dlpa(
+                    conta=conta_dlpa,
+                    classificacao=ClassificacaoDlpa.RESERVA_LEGAL,
+                    usuario=gestor,
+                )
+        assert "Tente de novo" in str(erro.value)
+    finally:
+        largar.set()
+        t.join(timeout=30)
+        assert not t.is_alive(), "thread não concluiu"
+    assert erros == {}, erros
+
+    conta_dlpa.refresh_from_db()
+    assert conta_dlpa.classificacao_dlpa == ClassificacaoDlpa.DIVIDENDO, "recusa não grava"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_n2_o_custo_da_guarda_nao_cresce_com_o_historico():
+    """Achado N2: a versão intermediária media **507 consultas e 393 ms**
+    com 480 períodos fechados, porque fazia uma consulta por competência. O
+    defeito não é o número absoluto e sim que ele **crescia com o
+    histórico** — então é isso que o teste mede: mesma conta, mesma
+    empresa, 479 períodos a mais, o mesmo número de consultas."""
+    empresa, contas, gestor, conta_dlpa, _ = _cenario("n2")
+    _movimentar(empresa, contas, conta_dlpa)
+
+    with CaptureQueriesContext(connection) as antes:
+        resultado_antes = conta_dlpa._competencia_fechada_com_movimento()
+    assert resultado_antes is None, "março está ABERTA: a guarda não pode recusar"
+
+    Competencia.objects.bulk_create(
+        [
+            Competencia(empresa=empresa, ano=ano, mes=mes)
+            for ano in range(2000, 2040)
+            for mes in range(1, 13)
+            if (ano, mes) != (ANO, MES)
+        ]
+    )
+    assert Competencia.objects.filter(empresa=empresa).count() == 480
+
+    with CaptureQueriesContext(connection) as depois:
+        assert conta_dlpa._competencia_fechada_com_movimento() is None
+
+    assert len(depois) <= len(antes), (
+        f"a guarda pagou {len(antes)} consultas com 1 competência e "
+        f"{len(depois)} com 480 — o custo não pode depender do histórico"
+    )
+
+
+def test_n3_estado_fora_do_enum_nao_vira_valueerror():
+    """Achado N3: `Competencia.estado` não tem `CheckConstraint`, então um
+    valor fora do enum gravado por fora do ORM elevado `ValueError` cru —
+    fora do `try/except` do serviço, virava 500. Nenhum serviço grava valor
+    fora do enum, mas a mensagem não pode depender disso para não estourar."""
+    empresa, contas, gestor, conta_dlpa, _ = _cenario("n3")
+    _movimentar(empresa, contas, conta_dlpa)
+    encerrar_competencia(empresa=empresa, ano=ANO, mes=MES, usuario=gestor)
+    Competencia.objects.filter(empresa=empresa, ano=ANO, mes=MES).update(estado="arquivada")
+
+    with pytest.raises(ClassificacaoAlteraPeriodoFechado) as erro:
+        classificar_conta_na_dlpa(
+            conta=conta_dlpa, classificacao=ClassificacaoDlpa.RESERVA_LEGAL, usuario=gestor
+        )
+
+    assert "03/2026" in str(erro.value)
 
 
 # ---------------------------------------------------------------------------

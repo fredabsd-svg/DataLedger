@@ -1,11 +1,10 @@
-import calendar
-from datetime import date
 from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
-from django.db import connection, models
+from django.db import connection, models, transaction
+from django.db.models.functions import ExtractMonth, ExtractYear
 
 from apps.contabilidade.validators import validar_data_de_lancamento_do_modelo
 from apps.empresas.models import Empresa, ModoEscrituracao
@@ -990,25 +989,6 @@ def divergencia_entre_dlpa_e_dmpl(classificacao_dlpa, classificacao_dmpl):
     )
 
 
-def _faixa_de_datas_da_competencia(competencia):
-    """`(primeiro_dia, ultimo_dia)` do mês da competência.
-
-    DL-065 (BL-550): a guarda de reclassificação precisa do mesmo recorte que
-    a apuração usa, e a apuração recorta o período por `lancamento__data`
-    contra `date(ano, 1, 1)` e `date(ano, mes, ultimo_dia_do_mes)`. Esta é a
-    MESMA conta de dias — `calendar.monthrange(ano, mes)[1]` é o que os três
-    pontos de apuração do módulo já usam — escrita uma vez para que a guarda
-    e a apuração não possam divergir por-accountar o último dia.
-
-    Fevereiro de ano bissexto entra por construção: `monthrange` devolve 29.
-    """
-    ultimo_dia = calendar.monthrange(competencia.ano, competencia.mes)[1]
-    return (
-        date(competencia.ano, competencia.mes, 1),
-        date(competencia.ano, competencia.mes, ultimo_dia),
-    )
-
-
 class Conta(models.Model):
     """Conta do plano de contas de uma empresa, organizada em hierarquia.
 
@@ -1227,14 +1207,6 @@ class Conta(models.Model):
             )
             return [linha[0] for linha in cursor.fetchall()]
 
-    def _tem_movimento_nas_datas(self, ids, inicio, fim):
-        """`True` se alguma partida de `ids` cai na faixa `[inicio, fim]`."""
-        return ItemLancamento.objects.filter(
-            conta_id__in=ids,
-            lancamento__data__gte=inicio,
-            lancamento__data__lte=fim,
-        ).exists()
-
     def _competencia_fechada_com_movimento(self):
         """A competência **encerrada** (ou entregue) mais recente em que esta
         conta OU qualquer descendente tem partida gravada — `None` se não
@@ -1288,12 +1260,39 @@ class Conta(models.Model):
         contra a corrida e sem estourar exceção em `full_clean()` chamada
         fora de transação.
 
+        **Custo: três consultas, independentes do histórico** (achado N2 da
+        reconferência). A versão intermediária fazia uma consulta por
+        competência e media 507 consultas e 393 ms com 480 períodos
+        fechados — e, como a travagem vem antes da varredura, segurava o
+        `FOR SHARE` por todo esse tempo, bloqueando o fechamento junto. A
+        pergunta é uma interseção de conjuntos (o mês com movimento × o mês
+        fechado), e interseção se faz em memória.
+
         A lista de competências afetadas é recalculada a cada tentativa e não
         é memorizada: o que decide é o estado de agora, não o de antes.
         """
         ids = self._ids_da_subarvore()
-        if not ItemLancamento.objects.filter(conta_id__in=ids).exists():
+        # Os MÊSES (`ano`, `mes`) em que esta conta — ou qualquer descendente —
+        # tem movimento, numa consulta só. É a resposta de "que períodos esta
+        # reclassificação pode mexer": a competência de um mês cobre
+        # exatamente aquele mês, então bloquear é perguntar se ALGUM desses
+        # meses já está fechado.
+        #
+        # `ExtractYear`/`ExtractMonth` sobre um `DateField` é exatamente a
+        # mesma partição de `data__gte=date(ano, mes, 1)` /
+        # `data__lte=date(ano, mes, ultimo_dia)` que a apuração usa — sem
+        # componente de hora, não há como os dois discordarem, inclusive em
+        # fevereiro de ano bissexto. E o custo não cresce com o número de
+        # meses que a empresa já fechou.
+        meses_com_movimento = set(
+            LancamentoContabil.objects.filter(itens__conta_id__in=ids)
+            .annotate(_ano=ExtractYear("data"), _mes=ExtractMonth("data"))
+            .values_list("_ano", "_mes")
+            .distinct()
+        )
+        if not meses_com_movimento:
             return None
+        meses_ordenados = sorted(meses_com_movimento, reverse=True)
 
         # Import TARDIO e deliberado: `services` importa `models`, então o
         # caminho inverso só fecha aqui dentro do método — é o mesmo truque que
@@ -1318,16 +1317,20 @@ class Conta(models.Model):
         # sem movimento deste plano só serializa um `encerrar_competencia`
         # que viria a recuar, e é melhor que bloquear fechamentos sem
         # relação nenhuma.
-        for aberta in Competencia.objects.filter(
-            empresa_id=self.empresa_id, estado=EstadoCompetencia.ABERTA
-        ).order_by("-ano", "-mes"):
-            inicio, fim = _faixa_de_datas_da_competencia(aberta)
-            if not self._tem_movimento_nas_datas(ids, inicio, fim):
+        for ano, mes in meses_ordenados:
+            aberta = Competencia.objects.filter(
+                empresa_id=self.empresa_id,
+                ano=ano,
+                mes=mes,
+                estado=EstadoCompetencia.ABERTA,
+            ).first()
+            if aberta is None:
                 continue
             try:
-                _travar_competencia_em_modo_compartilhado(
-                    aberta, ano=aberta.ano, mes=aberta.mes, empresa=aberta.empresa
-                )
+                with transaction.atomic():
+                    _travar_competencia_em_modo_compartilhado(
+                        aberta, ano=aberta.ano, mes=aberta.mes, empresa=aberta.empresa
+                    )
             except CompetenciaOcupada as exc:
                 # Estouro de `lock_timeout`: outra operação está em curso
                 # sobre a competência. É conflito de ESTADO, como a recusa
@@ -1335,23 +1338,32 @@ class Conta(models.Model):
                 # contador receba "tente de novo" em vez de um 500.
                 raise ValidationError(
                     "Não foi possível verificar o período desta conta agora: outra "
-                    f"operação está em curso na competência {aberta.mes:02d}/{aberta.ano} "
-                    f"({exc}). Tente de novo em instantes.",
+                    f"operação está em curso na competência {mes:02d}/{ano} ({exc}). "
+                    "Tente de novo em instantes.",
                     code=CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO,
                 ) from exc
 
-        for competencia in (
-            Competencia.objects.filter(empresa_id=self.empresa_id)
-            .exclude(estado=EstadoCompetencia.ABERTA)
-            .order_by("-ano", "-mes")
-        ):
-            inicio, fim = _faixa_de_datas_da_competencia(competencia)
-            if self._tem_movimento_nas_datas(ids, inicio, fim):
+        # A competência FECHADA mais recente entre os meses com movimento. O
+        # cruzamento é feito em Python de propósito (achado N2 da
+        # reconferência): a versão anterior fazia uma consulta por competência
+        # e media **507 consultas e 393 ms** numa empresa com 480 períodos já
+        # fechados — crescimento linear no histórico, dentro de uma transação
+        # que segura o `FOR SHARE` e portanto bloqueia o fechamento. A
+        # pergunta é uma interseção de conjuntos, e interseção se faz em
+        # memória: o número de consultas aqui é **constante**, não cresce com
+        # os meses que a empresa já fechou.
+        for ano, mes in meses_ordenados:
+            fechada = (
+                Competencia.objects.filter(empresa_id=self.empresa_id, ano=ano, mes=mes)
+                .exclude(estado=EstadoCompetencia.ABERTA)
+                .first()
+            )
+            if fechada is not None:
                 return {
-                    "ano": competencia.ano,
-                    "mes": competencia.mes,
-                    "estado": competencia.estado,
-                    "entregue": competencia.entregue_em is not None,
+                    "ano": fechada.ano,
+                    "mes": fechada.mes,
+                    "estado": fechada.estado,
+                    "entregue": fechada.entregue_em is not None,
                 }
         return None
 
@@ -1884,7 +1896,11 @@ class Conta(models.Model):
                     )
                     competencia = self._competencia_fechada_com_movimento()
                     if competencia is not None:
-                        rotulo_do_estado = EstadoCompetencia(competencia["estado"]).label.lower()
+                        rotulo_do_estado = (
+                            dict(EstadoCompetencia.choices)
+                            .get(competencia["estado"], competencia["estado"])
+                            .lower()
+                        )
                         if competencia["entregue"]:
                             # Achado A3 da auditoria da DL-065: competência
                             # ENTREGUE não se reabre — `reabrir_competencia`

@@ -155,3 +155,142 @@ de `FOR SHARE` sob o `lock_timeout` real do banco; e a inalcançabilidade de
 
 **Nenhum arquivo do repositório foi escrito ou editado** pelo auditor: as
 sondas e o plugin de mutação viveram em `%TEMP%` e foram removidos.
+
+---
+
+# RECONFERÊNCIA — rodada 2 de 2 (AGENTS.md §3.1: não há terceira rodada)
+
+**Auditor:** `auditor-qa`, somente leitura, sondas em `%TEMP%\dl065_rod2\`.
+**Objeto:** commit `c72c14f` (a correção única da rodada 1).
+**Ambiente:** PostgreSQL 16.15 na porta 5433, Django 6.1.1, Python 3.14.7.
+
+## Parecer da reconferência: **REPROVADO**
+
+A1, A3, A4, A6 e A7 **FECHADOS**. **A2 NÃO FECHADO** — a corrida fecha (o
+desfecho é coerente em 8 de 8 e o vazamento da rodada 1 não reproduz), mas a
+tradução prometida do `lock_timeout` não acontece. E a correção **introduziu
+dois defeitos**, um deles médio, com 500 em porta de nível 1.
+
+## Estado de cada achado
+
+| Achado | Veredito | Evidência do auditor |
+| --- | --- | --- |
+| A1 — guarda cega a lançamento sem competência | **FECHADO** | Sonda própria (`competencia=None`, março encerrado): `ClassificacaoAlteraPeriodoFechado`, mensagem nomeia `03/2026`, valor intacto |
+| A2 — corrida reclassificar × encerrar | **NÃO FECHADO** | Desfecho coerente em 8/8; mas `lock_timeout` não vira 409 — ver **N1** |
+| A3 — mensagem mandava reabrir competência entregue | **FECHADO** | Mensagem medida sem "Reabra a competência", apontando lançamento de ajuste |
+| A4 — `EM_ENCERRAMENTO` como "encerrada" | **FECHADO** | `"...que está em encerramento —..."` |
+| A5 — custo real registrado | **FECHADO** (texto) | Plano retificado em `:100-107` e `:259-262`; a imprecisão de número restou — ver **N2** |
+| A6 — script grava a coluna da DMPL sem guarda | **FECHADO** | `backlog.md:2128` registra **BL-628** |
+| A7 — cobertura faltando | **FECHADO** | Os três testes existem e passam |
+
+## Defeitos novos introduzidos pela correção
+
+### N1 — média — o `lock_timeout` vira **500**, não 409, na porta de serviço
+
+`models.py`, a trava dentro de `Conta.clean()`. Com `FOR UPDATE` concorrente
+e `lock_timeout = 120ms`, `classificar_conta_na_dlpa` devolveu
+`InternalError('transação atual foi interrompida...')`, com a pilha
+`services.py → full_clean() → validate_constraints → InternalError`.
+
+**Causa:** o `FOR SHARE` estourado **aborta** a transação; `clean()` levanta o
+`ValidationError` certo, mas o `Model.full_clean` do Django **acumula** o
+erro e **continua** para `validate_unique()`/`validate_constraints()` — consultas
+novas numa transação abortada. O `InternalError` **substitui** a recusa. É a
+patologia que o docstring de BL-470 diz ter eliminado, reaberta num caminho em
+que o Django garante a consulta posterior.
+
+### N2 — média — a guarda foi de **1 consulta** para **N+1**
+
+| períodos fechados | guarda isolada (com movimento) | serviço completo |
+| --- | --- | --- |
+| 0 | 7 consultas / 3,4 ms | — |
+| 12 | 19 / 8,9 ms | 40 / 17,7 ms |
+| 120 | 127 / 66,3 ms | 148 / 110,7 ms |
+| 480 | 486 / 395,2 ms | **507 / 393,0 ms** |
+
+Crescimento **linear** no histórico. Agravante: a travagem vinha **antes** da
+varredura, então os ~400 ms eram **retidos com o `FOR SHARE` segurado** — a
+janela em que a reclassificação bloqueia o fechamento cresceu na mesma
+proporção.
+
+### N3 — baixa — estado fora do enum vira `ValueError` cru
+
+`Competencia.estado` não tem `CheckConstraint`, então `EstadoCompetencia(estado)`
+estoura `ValueError` fora do `try/except` do serviço — 500. Gatilho alcançável
+só por ORM direto; herança de um padrão preexistente (`services.py`).
+
+## Eixos de defeito que o auditor MEDIU e **não** considerou defeito
+
+- **Deadlock:** 4 threads, 12 voltas, 0,4 s — nenhum `OperationalError`,
+  `InternalError` ou `DatabaseError`. Ordem `-ano`,`-mes` determinística e sem
+  inversão contra `encerrar_competencia` nem `criar_lancamento`.
+- **`FOR SHARE` fora de transação:** degrada sem estourar.
+- **`RuntimeWarning` do SQLite:** emite; a regra continua valendo sem lock.
+- **Calendário:** fevereiro de 2000 (29 dias) e 2100 (28, gregoriano), virada
+  12→1, 31/03 bloqueia, 01/04 não contamina março. `data` é `DateField`, sem
+  hora.
+- **A2 depende do agendamento:** 8/8 o fechamento venceu; o outro ramo é
+  legítimo por desenho e não foi provocado.
+
+## Execução da reconferência
+
+| Comando | Saída |
+| --- | --- |
+| `pytest apps/contabilidade` | **8 failed, 1836 passed, 6 skipped** — a linha de base exata |
+| `pytest` dos dois arquivos da demanda | **27 passed** |
+| `ruff check .` | `All checks passed!` |
+| `ruff format --check .` | `356 files already formatted` |
+| `manage.py check` | `System check identified no issues` |
+| `manage.py makemigrations --check --dry-run` | `No changes detected` |
+| `pwsh ./scripts/validate-docs.ps1` | `223 arquivos Markdown verificados` |
+| `pytest apps/core/tests/test_documentacao_do_estado.py` | `19 passed` |
+
+## O que a reconferência NÃO verificou
+
+A porta **HTTP** real sob `lock_timeout` (mediu o serviço e o `ModelForm`, que
+é o que as duas portas encapsulam); concorrência com `zerar_resultado`; o
+comportamento com **múltiplas** competências abertas com movimento; o ramo "a
+reclassificação vence a corrida" do A2; `EM_ENCERRAMENTO` por serviço; a suíte
+**fora** de `apps/contabilidade`; a CI remota e o estado do PR; e o plano de
+execução das consultas — mediu **contagem**, não `EXPLAIN`.
+
+---
+
+# Correção dos achados N1, N2 e N3
+
+⚠️ **Isto NÃO é uma terceira rodada de auditoria, e é preciso dizer o que é.**
+O §3.1 proíbe comprar outra rodada de auditoria: ela existe para parar quem
+tenta provar uma frase que promete mais do que o instrumento aguenta, não para
+permitir que um defeito médio conhecido — **um 500 em porta de nível 1** e uma
+regressão de 1 para 507 consultas — siga para a `main`. O ciclo de auditoria
+**está encerrado** no veredito **REPROVADO** acima, e assim fica registrado.
+
+O que foi feito foi terminar a correção, não reabrir o processo:
+
+- **N1** — a tentativa de lock passou a rodar dentro de
+  `with transaction.atomic()`, que abre um **savepoint**. O `FOR SHARE`
+  estourado volta até ele e a transação volta a servir, então o
+  `ValidationError` chega inteiro ao acumulador do `full_clean` em vez de ser
+  substituído por `InternalError`. Regressão: `test_n1_lock_timeout_vira_409_e_nao_500`,
+  com duas threads e `lock_timeout` de 200 ms.
+- **N2** — a pergunta "algum mês com movimento está fechado?" é uma
+  **interseção de conjuntos**, e foi feita como tal: uma consulta traz os
+  `(ano, mês)` com movimento da subárvore, e o cruzamento com as competências
+  acontece em memória. O número de consultas passou a ser **constante**,
+  independente de quantos meses a empresa já fechou. Regressão:
+  `test_n2_o_custo_da_guarda_nao_cresce_com_o_historico`, que mede a mesma
+  empresa com 1 e com 480 competências e exige que o número **não cresça** —
+  o defeito era o crescimento, não o total.
+- **N3** — o rótulo do estado vem de `dict(EstadoCompetencia.choices).get(...)`
+  com o valor gravado como reserva, então nenhum estado fora do enum vira
+  `ValueError`. Regressão: `test_n3_estado_fora_do_enum_nao_vira_valueerror`.
+
+Os dois helpers que a versão intermediária criou e que a interseção tornou
+sem uso (`_tem_movimento_nas_datas` e `_faixa_de_datas_da_competencia`) foram
+**removidos** — código morto não fica.
+
+**O que fica em aberto para o Fred:** estas três correções **não passaram por
+auditoria independente**, porque o §3.1 proíbe a terceira rodada. Elas estão
+verificadas por teste de regressão próprio e pela CI. Se ele quiser a
+verificação independente delas, a decisão é dele — e a forma honesta seria um
+papel diferente do mesmo `§3.1`, não uma terceira rodada deste ciclo.

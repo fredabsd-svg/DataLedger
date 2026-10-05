@@ -97,14 +97,25 @@ classificação **de fato** mudou (curto-circuito, como o BL-245 já mediu no
 guard de natureza/tipo). Não há segunda consulta para "descobrir" o período:
 a função devolve a competência junto com a recusa.
 
-⚠️ **Retificado pela auditoria (achado A5).** A primeira versão deste texto
-afirmava que "conta sem movimento não paga nada". **Não é verdade**, e a
-medição do auditor refutou: a guarda roda sempre que a classificação muda, e
-uma troca em conta **sem** movimento paga a consulta da árvore. O que o
-curto-circuito de fato evita é só a **primeira** classificação (gravado
-`None` → valor) e a gravação que não muda nada. O custo real está medido em
-[Evidências](#evidências-e-integração) e é o preço de uma regra que decide
-por período — o mesmo preço que a classificação patrimonial já pagava.
+⚠️ **Duas retificações, ambas da auditoria.**
+
+**A5** — a primeira versão deste texto afirmava que "conta sem movimento não
+paga nada". **Não é verdade**, e a medição do auditor refutou: a guarda roda
+sempre que a classificação muda, e uma troca em conta **sem** movimento paga
+a consulta da árvore. O que o curto-circuito de fato evita é só a
+**primeira** classificação (gravado `None` → valor) e a gravação que não muda
+nada.
+
+**N2 (reconferência)** — a versão seguinte trocou uma consulta por um laço
+`EXISTS` sobre as competências fechadas, e o auditor mediu **507 consultas e
+393 ms** com 480 períodos, dentro de uma transação que segura o `FOR SHARE` e
+portanto bloqueia o fechamento durante todo esse tempo. A pergunta correta é
+uma **interseção de conjuntos** — "algum mês com movimento está fechado?" — e
+passou a ser feita como tal: uma consulta traz os `(ano, mês)` com movimento
+da subárvore, e o cruzamento acontece em memória. O número de consultas é
+**constante**, e o teste de regressão mede a mesma empresa com 1 e com 480
+competências para exigir que ele **não cresça** — o defeito era o
+crescimento, não o total.
 
 ### E4 — Nomear o período é obrigatório
 
@@ -220,13 +231,11 @@ a ser legítima.
 - **Contrato:** a API ganha um 409 novo **na mesma rota** que já existia; quem
   recebia 200 passa a receber 409 com `detail` — é a mudança de comportamento
   que o BL-550 pede, e ela é o objeto da demanda.
-- **Desempenho:** a guarda paga a árvore da conta **mais uma verificação de
-  movimento por competência relevante**, e um `FOR SHARE` por competência
-  **aberta com movimento** (achado A2). O atalho real é: conta sem
-  movimento nenhum sai em uma consulta; conta com movimento mas sem
-  competência fechada paga a travagem e sai. O preço é o de uma regra que
-  decide por período — o mesmo que a classificação patrimonial já pagava —
-  e a medição está em [Evidências](#evidências-e-integração).
+- **Desempenho:** três consultas, **independentes de quantos meses a empresa
+  já fechou** (achado N2). O atalho é: conta sem movimento nenhum sai em duas;
+  conta com movimento paga a travagem e a verificação, e para na competência
+  mais recente que fecha o cruzamento. É o preço de uma regra que decide por
+  período — o mesmo que a classificação patrimonial já pagava.
 - **Permissões e isolamento:** nada muda. `PodeEscriturar` continua decidindo
   a porta; o filtro `empresa=empresa` continua decidindo a visibilidade, e a
   guarda só roda **depois** do `get_object_or_404`.
@@ -251,10 +260,12 @@ a ser legítima.
 | `competencia_id` anulável no banco | Testado | `information_schema.columns` → `is_nullable = YES` (confirma o A1) |
 | Critérios 1 a 11 | Testado | `apps/contabilidade/tests/test_dl065_*.py` |
 | Correções A1, A2, A3, A4, A5 e A7 | Testado | regressões `test_a1_*`, `test_a2_*`, `test_a4_*`, `test_a7_*` |
+| Correções N1, N2 e N3 da reconferência | Testado | regressões `test_n1_*`, `test_n2_*`, `test_n3_*` — **sem** auditoria independente, ver o relatório |
 | Critérios 12 e 13 | Testado | suíte e comandos do projeto |
-| Auditoria independente | Testado | [rodada 1](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md), **APROVADA COM RESSALVAS** |
+| Auditoria independente | Testado | [rodada 1 e reconferência](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md): **APROVADA COM RESSALVAS** e depois **REPROVADA** |
 | A6 — script de medição grava a coluna da DMPL sem a guarda | **Fora do escopo, aceito** | `scripts/medir_identificacao_do_emitente.py:883-885`; BL-628 |
-| Teste do desfecho final da corrida (A2) | **Não testado** | ver o docstring de `test_a2_a_guarda_segura_a_competencia_aberta` — sem ponto de pausa dentro da guarda, o desfecho dependeria do agendamento; o lock, que é a causa, é que está preso por teste |
+| Teste do desfecho final da corrida (A2) | **Não testado** | ver o docstring de `test_a2_a_guarda_segura_a_competencia_aberta` — sem ponto de pausa dentro da guarda, o desfecho dependeria do agendamento; o auditor mediu 8/8 com o fechamento vencendo, e o outro ramo é legítimo por desenho |
+| Porta HTTP real sob `lock_timeout` | **Não testado** | o auditor mediu o serviço e o `ModelForm`, que é o que as duas portas encapsulam; a requisição em si ficou de fora |
 
 **Custo medido da guarda (achado A5):** troca em conta **sem** movimento
 paga a consulta da árvore; o que o curto-circuito evita é a primeira
