@@ -123,7 +123,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-061](../planos/DL-061-dmpl.md) | DMPL, etapa CTB-14 da DL-048 (RC-151) | Integrada (PR #76, #77 e #79) — fatias 1, etapa 2 e fatia 2; pontos abertos BL-606, BL-607, BL-622, BL-625, BL-626 e BL-627 |
 | [DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md) | Sinal da conta-RAIZ retificadora no Balanço Patrimonial (BL-604) | Integrada (PR #81, squash `46d80a1`) — auditoria aprovada com ressalvas, reconferência aprovada; ciclo do §3.1 encerrado |
 | [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) | Fecha a leva da DL-061: coluna da DMPL nas duas portas, teste do snapshot e dica condicionada (BL-606, BL-607, BL-625) | **Integrada (PR #84, squash `c32cfe6`)** — o conteúdo **não tinha chegado à `main`** (o PR #82 foi mesclado na branch intermediária `fix/dl-062-…`); recuperado com a `base` reapontada para o destino real |
-| [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md) | Reclassificar conta com movimento em competência encerrada ou entregue não pode reescrever DLPA nem DMPL já apuradas (BL-550) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md) | Reclassificar conta com movimento em competência encerrada ou entregue não pode reescrever DLPA nem DMPL já apuradas (BL-550) | **Integrada (PR #85, squash `012a759`)** — ciclo de auditoria encerrado no veredito **REPROVADO** da reconferência; N1, N2 e N3 corrigidos depois, sem terceira rodada |
+| [DL-066](../planos/DL-066-dfc.md) | DFC — Demonstração dos Fluxos de Caixa, direto e indireto (CTB-15 da DL-048) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md) | Plano do módulo fiscal de out/2026 a 2028, com a reforma tributária, conciliado com a paridade fiscal | Planejada |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
@@ -136,10 +137,38 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 
 ## Próximo passo
 
-**AGORA, em 05/10/2026: [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md)
-— BL-550, a trava de reclassificação em competência fechada.** Escolhida pelo
-Fred como primeiro item da leva do módulo de Contabilidade, na esteira do
-defeito de integridade. O recorte foi decidido **depois de medida a colisão
+**AGORA, em 05/10/2026: [DL-066](../planos/DL-066-dfc.md) — a DFC, etapa
+CTB-15 da DL-048**, o último item da Onda 1 depois da DLPA (CTB-13) e da DMPL
+(CTB-14). O plano está escrito e revisado contra o texto integral do
+[CPC 03 (R2)](https://www.normasbrasil.com.br/norma/?id=306227), item a item.
+
+**O número da DFC sai do lançamento, não de soma de ajustes.** Caixa contra
+uma conta de fora da lista de caixa é um fluxo, classificado pela atividade
+dessa conta; movimento entre duas contas de caixa **não** é fluxo (item 9, e é
+a resposta ao risco que o mapa de paridade apontava); e a soma das três
+atividades é a variação do caixa **por construção**. O método indireto passa a
+ser a apresentação do mesmo número, com os ajustes do item 20 derivados — o
+que faz da conciliação do item 45 uma identidade que precisa valer, e vira
+**veto** quando não vale, em vez de número errado publicado.
+
+**O item 20A é o que amarra os dois métodos que o Fred pediu**, e é bom que
+tenha vindo da norma e não da preferência: no Brasil a conciliação entre o
+lucro líquido e o fluxo das operações é **obrigatória para quem usa o método
+direto** (e a nota NE3 do próprio pronunciamento diz que essa exigência não
+existe no IAS 7). Ou seja, "os dois" não é escopo dobrado — é a norma
+exigindo que o direto traga a conciliação do indireto.
+
+⚠️ **Lacuna declarada, e ela é de fonte:** a obrigatoriedade vem da
+Lei 6.404/76, art. 176, IV, com a **§ 6 isentando a companhia fechada com
+patrimônio líquido abaixo de R$ 2.000.000,00** — e o texto compilado no
+Planalto **não foi obtido** neste ambiente. O plano traz quatro perguntas
+com recomendação para o Fred, das quais duas mudam o que o produto exige:
+o que conta como **equivalente de caixa** (item 7, três meses ou menos) e se
+a DFC deve ser exigida da empresa ou apenas oferecida.
+
+**Leva da DL-065 concluída e integrada.** [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md)
+— BL-550, a trava de reclassificação em competência fechada — escolhida pelo
+Fred como primeiro item. O recorte foi decidido **depois de medida a colisão
 com a DE-086**: a trava vale para a **DLPA e a DMPL**, e a **DRE continua
 livre** — a DE-086, de 26/09/2026, foi mantida. O caminho "classificação por
 vigência", que o backlog aceitava como alternativa, foi **descartado**: ele

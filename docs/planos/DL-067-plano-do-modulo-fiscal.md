@@ -164,7 +164,7 @@ registrado até ele mudar.**
 | --- | --- |
 | Objetivo e escopo | Versionar o plano do módulo fiscal e a conciliação com o repositório. Nada de código. |
 | Entregáveis | Este arquivo; a linha da DL-067 em [estado.md](../agents/estado.md) e no README. |
-| Dependências | Nenhuma de código. Os PRs abertos da DL-064 (#83) e da DL-066 (#86) mexem nas mesmas tabelas do `estado.md` e na lista do README: conflito textual, resolvido mantendo as duas linhas. |
+| Dependências | Nenhuma de código. A DL-066 (#86) foi integrada durante esta etapa e mexia nas mesmas linhas do `estado.md` e do README: o conflito foi resolvido mantendo as duas etapas. O PR da DL-064 (#83) toca o mesmo `estado.md`. |
 | Critérios de aceite | (1) `scripts/validate-docs.ps1` sem problema; (2) `apps/core/tests/test_documentacao_do_estado.py` passa; (3) nenhum dado identificável de cliente; (4) toda divergência com RC ou DE está declarada acima, sem decisão do Fred inventada. |
 | Testes | Documentais: os dois de cima. Sucesso, erro e limite de regra fiscal não se aplicam — não há regra implementada. |
 | Impacto | Nenhum em segurança, dados, cálculo, contrato ou desempenho. |
