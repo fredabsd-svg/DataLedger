@@ -132,6 +132,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md) | Reclassificar conta com movimento em competência encerrada ou entregue não pode reescrever DLPA nem DMPL já apuradas (BL-550) | **Integrada (PR #85, squash `012a759`)** — ciclo de auditoria encerrado no veredito **REPROVADO** da reconferência; N1, N2 e N3 corrigidos depois, sem terceira rodada |
 | [DL-066](../planos/DL-066-dfc.md) | DFC — Demonstração dos Fluxos de Caixa, direto e indireto (CTB-15 da DL-048) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md) | Plano do módulo fiscal de out/2026 a 2028, com a reforma tributária, conciliado com a paridade fiscal | Planejada |
+| [DL-068](../planos/DL-068-plano-do-modulo-contabil.md) | Plano do módulo Contabilidade de out/2026 a 2028: ciclo anual, normas por porte, Lei 15.270, IBS/CBS na contabilidade, NBC TG 51, ECD e ECF | Planejada |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -144,8 +145,21 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 ## Próximo passo
 
 **AGORA, em 05/10/2026: [DL-066](../planos/DL-066-dfc.md) — a DFC, etapa
-CTB-15 da DL-048**, o último item da Onda 1 depois da DLPA (CTB-13) e da DMPL
-(CTB-14). O plano está escrito e revisado contra o texto integral do
+CTB-15 da DL-048**, a próxima demonstração depois da DLPA (CTB-13) e da DMPL
+(CTB-14); DRA e DVA (CTB-16 e CTB-17) vêm depois.
+
+**Plano do módulo Contabilidade versionado em 05/10/2026:
+[DL-068](../planos/DL-068-plano-do-modulo-contabil.md).** Ordem pelo
+calendário do escritório: Onda A (out–dez/2026) põe o produto em condição de
+cliente real — escopo de acesso por empresa, backup verificado, origem do
+lançamento, implantação de saldos, matriz de demonstrações por porte e
+**comparativo com o exercício anterior** (LSA art. 176, §1º, que nenhuma
+demonstração tem hoje); Onda B (jan–mar/2027) encerra o exercício de 2026,
+com IBS/CBS na contabilidade antes do primeiro lançamento de 2027 e o controle
+de lucros por exercício de apuração da Lei 15.270/2025; Onda C (abr–jul/2027)
+gera ECD e ECF do AC 2026 em paralelo com o sistema atual; Onda D traz a
+NBC TG 51. Oito decisões esperam o Fred, a primeira é o comparativo (PE-79).
+Nada implementado. O plano está escrito e revisado contra o texto integral do
 [CPC 03 (R2)](https://www.normasbrasil.com.br/norma/?id=306227), item a item.
 
 **O número da DFC sai do lançamento, não de soma de ajustes.** Caixa contra
@@ -445,13 +459,10 @@ confiáveis) e PE-07 (backup e restauração).
 
 **Fila seguinte, sujeita ao Fred:**
 
-1. **DL-048, CTB-14 (DMPL)** — nível 1. A DLPA (CTB-12 + CTB-13) está
-   integrada pelo PR #59 e a API dela (D8) pelo PR #62. Decisões do Fred de
-   29/09 já fechadas: versionar pela data de início do exercício, com adoção
-   antecipada da NBC TG 51 prevista. Lacuna declarada: o ato da CVM que
-   aprovou o CPC 26 não foi lido em fonte oficial.
-2. **Reclassificação em período encerrado** (BL-550) e a titularidade do
-   CNPJ no cadastro (resto do BL-552, depende do Fred).
+1. **Onda A da [DL-068](../planos/DL-068-plano-do-modulo-contabil.md)** —
+   a DMPL (DL-061) e a reclassificação em período encerrado (DL-065), que
+   esta lista trazia aqui, **já estão integradas**.
+2. A titularidade do CNPJ no cadastro (resto do BL-552, depende do Fred).
 3. **DL-016 F3** (encerramento de competência) — só o plano existe.
 4. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50,
    PE-51 e PE-52 abertas.

@@ -19,6 +19,15 @@
 > Medir de novo: `python scripts/gerar_planilha_de_paridade.py` (quando
 > versionado), ou a varredura manual dos blocos `**Situação no DataLedger.**`.
 
+> ⚠️ **Leia também a [DL-068](../../planos/DL-068-plano-do-modulo-contabil.md)
+> (05/10/2026).** Ela diz **quando** cada item entra e **o que mudou** em 2026
+> e 2027, e lista na seção "Correções que este plano faz aos documentos" as
+> afirmações deste mapa que estão superadas (constraint de banco do CTB-02,
+> fontes do CTB-14 e do CTB-17, premissa do método direto do CTB-15, perguntas
+> já respondidas na DL-048, vigência da NBC TG 26 (R5), leiautes da ECD e da
+> ECF). **Onde divergirem, vale a DL-068.** Os itens novos CTB-75 a CTB-84
+> estão no fim deste documento.
+
 ## Introdução
 
 ### Escopo
@@ -3280,3 +3289,23 @@ conversa com o Fred sem precisar reabrir os 74 itens.
 > plano precisa de leitura da fonte oficial vigente, com item e data de
 > consulta citados, e validação do Fred como responsável técnico, antes de
 > qualquer linha de código de cálculo ou leiaute.
+
+## Itens acrescentados pela DL-068
+
+Encontrados na análise de 05/10/2026 (pesquisa normativa e releitura dos
+manuais). Detalhe, fonte e critério de aceite na
+[DL-068](../../planos/DL-068-plano-do-modulo-contabil.md); cada um vira plano
+próprio quando priorizado.
+
+| ID | Item | Por que entrou | Situação no DataLedger |
+| --- | --- | --- | --- |
+| CTB-75 | Subcontas correlatas | Lei 12.973/2014 (ajuste a valor justo, mais e menos-valia, ágio) e a ECD pedem o vínculo da subconta à conta principal | Não existe |
+| CTB-76 | Implantação de saldos | CON-03 do plano mestre não tinha item CTB; sem ela nenhum cliente novo entra; a Lei 15.270/2025 exige separar lucros acumulados por exercício de apuração | Não existe |
+| CTB-77 | Perfil contábil e matriz de demonstrações | O conjunto exigido muda por porte (NBC TG 1001 e 1002), natureza (LSA art. 176) e exercício | Não existe |
+| CTB-78 | Comparativo com o exercício anterior | LSA art. 176, §1º | Não existe em nenhuma demonstração |
+| CTB-79 | Lucros por exercício de apuração e deliberação | Transição da Lei 15.270/2025 (lucros até 2025 aprovados até 31/12/2025) | Não existe |
+| CTB-80 | Pré-validação da ECD e riscos contábeis-fiscais | Conferir antes do programa oficial; caixa credor, contas de sócios, AFAC, lucros acumulados positivos em S/A | Não existe |
+| CTB-81 | Cruzamentos com obrigações | ECD × ECF, ECF × DCTFWeb/MIT, Reinf × DARF × razão, EFD-Contribuições × ECD; os cruzamentos com DIRF e DCTF clássica não valem mais | Não existe |
+| CTB-82 | Demonstrações pela NBC TG 51 | Exercícios iniciados a partir de 01/01/2027 | Não existe |
+| CTB-83 | IBS e CBS na contabilidade | Orientação Técnica CFC nº 1/2026; CBS substitui PIS e Cofins em 01/2027 | Não existe |
+| CTB-84 | Reserva de incentivos fiscais | Lei 14.789/2023, arts. 16 e 18 | Não existe |

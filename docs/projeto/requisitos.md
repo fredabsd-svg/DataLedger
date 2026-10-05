@@ -794,3 +794,78 @@ dentro do "saldo do início do período"** (art. 186, I), **não** em linha pró
   e da medição na CI cita o item 51/52 da R5: vale para exercício até 31/12/2026 e
   **precisa de texto paralelo para 01/01/2027 em diante.** É mudança de nível 1 — o
   texto vai no documento entregue ao cliente.
+
+## Plano do módulo Contabilidade — DL-068, consultas de 05/10/2026
+
+Plano: [DL-068](../planos/DL-068-plano-do-modulo-contabil.md). As fontes abaixo
+foram lidas no texto oficial em 05/10/2026, salvo quando marcado "só fonte
+secundária".
+
+### Decisões da DL-048 registradas aqui (F0-12)
+
+As quatro respostas do Fred de 28/09/2026 foram escritas na
+[DL-048](../planos/DL-048-contabilidade-anual-demonstracoes.md) como RC-137 a
+RC-140, mas nunca tiveram linha neste arquivo — e RC-138 e RC-139 já
+nomeavam outra coisa (DL-049). Registradas com identificador livre; o texto da
+DL-048 continua valendo como origem.
+
+| ID | Categoria | Requisito e origem |
+| --- | --- | --- |
+| RC-157 | Confirmado | **Tipos de reserva:** seis reservas de lucros (legal, estatutária, para contingências, de incentivos fiscais, de retenção de lucros, de lucros a realizar) e as de capital; cada uma é coluna da DMPL e linha de destinação da DLPA. Fred, 28/09/2026 (DL-048, "RC-137"). |
+| RC-158 | Confirmado | **DFC nos dois métodos**, direto e indireto. Fred, 28/09/2026 (DL-048, "RC-138"). A premissa de que o direto depende de extrato e conciliação foi trocada pela DL-066; a troca espera o Fred (PE-82). |
+| RC-159 | Confirmado | **DRA e DVA exigidas**, não em espera. Fred, 28/09/2026 (DL-048, "RC-139"). |
+| RC-160 | Confirmado | **O escritório compensa lucros e prejuízos acumulados.** O mecanismo segue em aberto (PE-38). Fred, 28/09/2026 (DL-048, "RC-140"). |
+
+### Hipóteses e pendências da DL-068
+
+| ID | Categoria | Requisito e origem |
+| --- | --- | --- |
+| HI-51 | Hipótese de produto | O conjunto de demonstrações sai de uma **matriz por perfil contábil** (porte pela receita do exercício anterior, natureza, regime, exercício) e o conjunto incompleto é vetado. Lido em NBC TG 1002 item 3.6, NBC TG 1001 item 3.5, ITG 1000 itens 5, 7, 10, 11, 16 e 18, LSA art. 176. A aplicação a cada cliente é julgamento do Fred. |
+| HI-52 | Hipótese normativa | O comparativo com o exercício anterior vale para toda demonstração anual, não só para a S/A. Confirmado para a S/A pela LSA art. 176, §1º; o item da norma de apresentação (TG 26 R5 e TG 51) fica a conferir no PDF. |
+| HI-53 | Hipótese de política contábil | IBS e CBS **fora da receita bruta**; passivo e crédito por competência; crédito vedado em custo ou despesa. Orientação Técnica CFC nº 1/2026, itens 4 a 16 — **não vinculante** (itens 3 e 31). Conflita com a leitura de que todo tributo sobre venda é dedução (RC-123). |
+| HI-54 | Hipótese de entrega | A ECD do ano-calendário 2026 é gerada e validada pelo DataLedger e **transmitida pelo sistema atual**; a primeira transmissão própria fica para o AC 2027. |
+| HI-55 | Hipótese de regra | O encerramento avisa (não bloqueia) a distribuição de lucros quando houver débito não garantido com a União (Lei 4.357/1964, art. 32, lido no Planalto; redação posterior da multa não conferida). A situação fiscal nunca é presumida. |
+| HI-56 | Hipótese de leitura | A obrigatoriedade da ECD do Presumido que distribui lucro "sem incidência de IRRF" acima da base presumida (IN RFB 2.003/2021, art. 3º, §3º) pode mudar de leitura com a retenção de 10% da Lei 15.270/2025. Nenhuma IN tratou disso até 05/10/2026. |
+| PE-76 | Pendência | Política do teste de IBS/CBS de 2026: reconhecer ou não o passivo, por cliente. A orientação do CFC (itens 25 a 30) deixa ao julgamento da entidade, com divulgação em nota. |
+| PE-77 | Pendência | Perfil da carteira: quantas micro, pequenas e médias; quantas S/A; quantas no Lucro Real; quem recebe subvenção para investimento. Decide a ordem da Onda D da DL-068. |
+| PE-78 | Pendência | Regulamento das "demonstrações financeiras" que o art. 16-B, §4º, da Lei 15.270/2025 exige para o redutor do IRPFM. Não encontrado em 05/10/2026. |
+| PE-79 | Pendência | Rever RC-119: comparativo com o exercício anterior obrigatório nas demonstrações anuais (recomendação da DL-068). |
+| PE-80 | Pendência | A NBC TG 51 não traz cláusula expressa de adoção antecipada (apêndice C1). Manter a opção de 29/09/2026 como **decisão de produto**, registrada como tal? |
+| PE-81 | Pendência | Leiaute da ECD para o ano-calendário 2026: o leiaute 9 (ADE Cofis 01/2026) vale "enquanto não editado novo leiaute". Conferir antes de gerar o arquivo do AC 2026. |
+| PE-82 | Pendência | Método direto da DFC tirado das contas de caixa (DL-066), com o limite declarado do lançamento de ajuste que passa pelo caixa, ou esperar a conciliação bancária? |
+
+### Correções ao registro anterior
+
+- **Normas por porte** (corrige a nota "PMEs = NBC TG 1000; microempresas =
+  ITG 1000, não obrigatória" da seção da DL-048): microentidade segue a
+  **NBC TG 1002** (BP, DRE e DLPA; notas não obrigatórias, declarações do item
+  3.2 obrigatórias); pequena empresa segue a **NBC TG 1001** (BP, DRE, DMPL ou
+  DLPA, DFC e notas); média empresa segue a NBC TG 1000 (R1). A ITG 1000 de
+  2012 (Resolução CFC 1.418/2012) foi revogada pela NBC TG 1002; a vigente é a
+  ITG 1000 de 15/12/2022, que fixa os portes (item 5) e manda micro e pequena
+  que seja companhia fechada ou tributada pelo lucro real seguir a Lei 6.404/76
+  (item 10).
+- **LSA, art. 189:** a ordem de absorção do prejuízo está no **parágrafo
+  único**, não num §1º.
+- **Texto compilado da Lei 6.404/76:** obtido no Planalto em 05/10/2026 (com
+  identificação de navegador). Os trechos desta seção conferem.
+- **NBC TG 51:** a notícia do CFC dá o DOU de **22/12/2025**; a lista de normas
+  do próprio CFC mostra 25/02/2026. O ato não tem número de Resolução CFC no
+  título. Sem efeito na vigência (01/01/2027).
+
+### Fontes confirmadas nesta consulta
+
+| Tema | Ato e dispositivo |
+| --- | --- |
+| Apresentação | NBC TG 51, de 13/11/2025: itens 47 (cinco categorias), 69 a 72 (subtotais), 78 a 81 (natureza ou função), 117 a 125 (MPM), apêndice C (transição com conciliação do comparativo) |
+| Porte | ITG 1000, de 15/12/2022; NBC TG 1001 e 1002, de 18/11/2021; NBC TG 1000 (R1) |
+| Escrituração | ITG 2000 (R1), itens 10, 12, 13, 17, 31 e 32; CC arts. 1.179 a 1.195; DL 9.295/46, arts. 12, 25 e 26 |
+| Demonstrações na lei | LSA art. 176 (I a V, §§1º a 4º e 6º), 189, 193, 195-A e 202 |
+| Reforma na contabilidade | Orientação Técnica CFC nº 1/2026; LC 214/2025, arts. 343 a 348, 542 e 544; LC 227/2026 |
+| Dividendos | Lei 15.270/2025 (Lei 9.250/95, art. 6º-A; arts. 16-A e 16-B); DARF 1841 e Reinf R-4010 (Perguntas e Respostas RFB de 19/12/2025; NT EFD-Reinf 02/2026) |
+| Presumido e JCP | LC 224/2025, arts. 4º, 8º e 14; Decreto 12.808/2025 |
+| Subvenções | Lei 14.789/2023, arts. 1º a 6º, 16, 18 e 21 |
+| ECD | IN RFB 2.003/2021 (arts. 3º, 5º, 8º e 11, transcritos no manual oficial); leiaute 9, ADE Cofis 01/2026; Decretos 8.683/2016 e 9.555/2018 |
+| ECF | IN RFB 2.004/2021; leiaute 12, ADE Cofis 02/2026 |
+| DIRF e DCTF | DIRF extinta para fatos geradores desde 01/01/2025 (IN RFB 2.043/2021, art. 3º, §1º); DCTFWeb com MIT (IN RFB 2.237/2024) |
+| DECORE | Resolução CFC 1.777/2025, vigência 01/01/2026 |
