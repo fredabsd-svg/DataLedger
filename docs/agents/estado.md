@@ -125,6 +125,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) | Fecha a leva da DL-061: coluna da DMPL nas duas portas, teste do snapshot e dica condicionada (BL-606, BL-607, BL-625) | **Integrada (PR #84, squash `c32cfe6`)** — o conteúdo **não tinha chegado à `main`** (o PR #82 foi mesclado na branch intermediária `fix/dl-062-…`); recuperado com a `base` reapontada para o destino real |
 | [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md) | Reclassificar conta com movimento em competência encerrada ou entregue não pode reescrever DLPA nem DMPL já apuradas (BL-550) | **Integrada (PR #85, squash `012a759`)** — ciclo de auditoria encerrado no veredito **REPROVADO** da reconferência; N1, N2 e N3 corrigidos depois, sem terceira rodada |
 | [DL-066](../planos/DL-066-dfc.md) | DFC — Demonstração dos Fluxos de Caixa, direto e indireto (CTB-15 da DL-048) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md) | Plano do módulo fiscal de out/2026 a 2028, com a reforma tributária, conciliado com a paridade fiscal | Planejada |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -422,6 +423,14 @@ confiáveis) e PE-07 (backup e restauração).
 3. **DL-016 F3** (encerramento de competência) — só o plano existe.
 4. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50,
    PE-51 e PE-52 abertas.
+5. **Módulo fiscal — [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md).**
+   Plano versionado em 05/10/2026 e conciliado com a
+   [paridade fiscal](../projeto/paridade/fiscal.md): ela diz o quê, ele diz
+   quando e o que mudou com a reforma tributária. Nada implementado. Sete
+   divergências esperam o Fred, e a primeira é a ordem de prioridade: a RFB
+   apresenta a primeira apuração assistida da CBS até 15/02/2027. Primeira
+   fatia candidata: o validador de conformidade IBS/CBS sobre as NFS-e que o
+   sistema já recebe (PE-39).
 
 **Decisões com o Fred:**
 
