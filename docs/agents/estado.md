@@ -305,6 +305,28 @@ foi alterada.** Com o motor certo, a linha de base honesta é
 **8 reprovados** (1 de constraint de banco e 7 de Chromium/timeout de thread,
 todos de ambiente), e é ela que vale como comparação.
 
+🔴 **O cluster local voltou a ficar indisponível, e agora por política da
+máquina, não por configuração.** Em 05/10/2026, no meio da auditoria da
+fatia 1 da DL-066, o `postmaster` caiu e **não voltou**: uma **política de
+Controle de Aplicativo do Windows passou a bloquear a execução do
+`postgres.exe`** (*"Este comando não pode ser executado devido ao erro: uma
+política de Controle de Aplicativo bloqueou este arquivo"*). Nem `pg_ctl` nem
+o binário direto sobem; o `postmaster.pid` obsoleto que sobrou era sintoma, e
+removê-lo não resolveu. **Não há como contornar isso, e não deve haver.**
+
+**Consequência para a verificação, e ela é a mesma que o projeto já tinha
+antes:** a **CI é a evidência que vale para merge** — Python 3.14 e
+PostgreSQL 16. Rodada local que dependa do cluster está **Bloqueado**, com o
+motivo objetivo acima, e o número dela não entra em relatório nenhum. O
+`.env` continua apontando para SQLite e **não foi alterado**.
+
+⚠️ **O sintoma de banco morto tem forma própria, e ela engana:** com o
+cluster fora, o Django avisa que *"unable to create a connection to the
+'postgres' database and will use the first PostgreSQL database instead"* e
+cada teste passa a demorar segundos. A rodada de `apps/core` medida com ele
+assim deu **14 reprovados e 100 erros** em 573 s — número que, sem a causa,
+pareceria regressão séria. Nenhum deles foi usado para afirmar nada.
+
 **Antes de continuar a leva, uma pendência de repositório:** o PR #82
 (DL-063) foi mesclado na branch intermediária e **não chegou à `main`**.
 Recuperado pelo **PR #84**, aberto a partir da `main` com a `base` reapontada
