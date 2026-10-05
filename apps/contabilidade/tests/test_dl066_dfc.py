@@ -324,6 +324,41 @@ def test_receita_pode_ser_item_sem_caixa():
     assert contas["despesa"].item_de_resultado_sem_caixa is True
 
 
+def test_saldo_bancario_a_descoberto_e_caixa_e_equivalentes():
+    """**Item 8 do CPC 03 (R2)** (DE-099): *"saldos bancários a descoberto,
+    decorrentes de (…) cheques especiais ou contas correntes garantidas […]
+    são incluídos como componente de caixa e equivalentes de caixa"*.
+
+    É o caso que faz o campo aceitar conta de PASSIVO: o descoberto é ativo
+    negativo na prática contábil e conta de passivo no plano brasileiro. E é
+    justamente um caso em que o **sinal** importa — somar um saldo credor como
+    se fosse dinheiro em caixa inflaria a conciliação do item 45."""
+    empresa, contas, gestor = _cenario("descoberto")
+    descoberto = _conta(empresa, "2.9", "Cheque Especial", TipoConta.PASSIVO, C, caixa=True)
+    # A empresa recebe 100.000,00 e usa o cheque especial em 30.000,00.
+    _lancar(empresa, date(2026, 3, 10), "Venda", contas["banco"], contas["receita"], "100000.00")
+    _lancar(
+        empresa,
+        date(2026, 3, 15),
+        "Pagamento com cheque especial",
+        contas["despesa"],
+        descoberto,
+        "30000.00",
+    )
+
+    dfc = apurar_dfc(empresa=empresa, ano=ANO, mes=MES)
+
+    linha = next(linha for linha in dfc["caixa"]["contas"] if linha["conta"] == "2.9")
+    assert linha["saldo_final"] == _dec("-30000.00"), (
+        "o descoberto é ativo negativo: somar 30.000,00 de passivo como se fosse "
+        "caixa inflaria a conciliação do item 45"
+    )
+    # 100.000,00 entraram e 30.000,00 saíram pelo cheque especial: a variação
+    # do conjunto de caixa e equivalentes é 70.000,00.
+    assert dfc["caixa"]["variacao"] == _dec("70000.00")
+    assert dfc["conciliacao"]["diferenca"] == _dec("0.00")
+
+
 def test_classificacao_dfc_vazia_e_normalizada_para_none():
     """Mesma defesa das outras três classificações: `""` nunca é estado
     válido, senão a apuração a leria como atividade DESCONHECIDA em vez de

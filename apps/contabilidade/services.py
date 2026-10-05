@@ -6300,8 +6300,30 @@ def apurar_dfc(*, empresa, ano, mes, data_inicio=None):
         # é por isso que o saldo vem de `apurar_saldos` e não de uma soma
         # própria — que teria de repetir a convenção de sinal da natureza.
         def saldos_ate(data_base):
+            """`{código: saldo ECONÔMICO}` das contas de caixa e equivalentes.
+
+            ⚠️ **O `saldo` que `apurar_saldos` devolve é assinado pela
+            NATUREZA CADASTRADA** — devedor positivo, credor positivo — que é
+            o que o Balancete imprime. Para a conciliação do item 45 isso
+            **não serve**: o saldo bancário a descoberto é caixa e equivalentes
+            (CPC 03, item 8, e **DE-099**) e costuma ser conta de PASSIVO, em
+            que o valor credor chega **positivo**. Somá-lo sem inverter
+            contaria o descoberto como dinheiro em caixa, e inflaria a
+            conciliação — de 30.000,00 para 60.000,00 de erro, medido por
+            teste antes de a auditoria.
+
+            A inversão por natureza é o que torna "caixa e equivalentes" um
+            conceito **econômico** e não cadastral. Repare que o lado das
+            ATIVIDADES já estava certo sem isto: ele sai de débito e crédito,
+            não de saldo, e por isso o crédito no descoberto já contava como
+            saída.
+            """
             return {
-                linha["conta"]: linha["saldo"]
+                linha["conta"]: (
+                    -linha["saldo"]
+                    if linha["natureza"] == NaturezaConta.CREDORA
+                    else linha["saldo"]
+                )
                 for linha in apurar_saldos(empresa=empresa, data_base=data_base)["contas"]
             }
 
