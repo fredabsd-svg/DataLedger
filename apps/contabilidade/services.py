@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from apps.auditoria.services import registrar
 from apps.contabilidade.models import (
+    CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO,
     COLUNAS_DA_DMPL_ADMITIDAS_PARA_A_CLASSIFICACAO_DLPA,
     GRUPO_DA_CLASSIFICACAO_DMPL,
     GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL,
@@ -146,6 +147,76 @@ class ChaveIdempotenciaConflitante(Exception):
     409 (conflito de estado), não 400 (entrada inválida), para que o cliente
     perceba que precisa gerar uma nova chave, não corrigir o corpo enviado.
     """
+
+
+class ClassificacaoAlteraPeriodoFechado(Exception):
+    """Reclassificação de conta recusada: mudaria a demonstração de uma
+    competência já encerrada ou entregue (DL-065, BL-550).
+
+    Mesmo motivo de `CompetenciaEncerrada` e `ChaveIdempotenciaConflitante` para
+    ser uma classe própria, e a mesma tradução: **409**, não 400. O que recusa
+    não é o valor enviado — é o ESTADO do período que a demonstração daquele
+    valor leria. Um 400 diria ao cliente que o pedido está errado e que basta
+    corrigir o corpo; o pedido está certo, e a resposta honesta é que o
+    período está fechado.
+
+    A regra mora em `Conta.clean()` (uma só implementação, que fecha também o
+    admin — E1 do plano); esta exceção existe só para a TRADUÇÃO: os serviços
+    de classificação leem o `code` do `ValidationError` e relançam aqui, com
+    a mesma mensagem. A mensagem é escrita no modelo e nunca duplicada.
+    """
+
+
+def _codigos_da_validacao(exc):
+    """Os `code` de um `ValidationError`, em um `set`.
+
+    Medido no **Django 6.1** deste projeto: `error_list` é uma lista de
+    `ValidationError` (não de `ErrorList`), e cada elemento tem `.code`
+    direto. `error_dict` devolve listas desses mesmos elementos, e é a forma
+    que chega aqui — `Conta.clean()` levanta com uma string, mas
+    `full_clean()` agrega tudo num dicionário por campo, e nesse caso o
+    objeto **não** tem `error_list` (o acesso lança `AttributeError`), o que
+    explica o `hasattr`.
+
+    Devolve conjunto porque a pergunta que o serviço faz é "esta recusa É a
+    de período fechado", e um `ValidationError` pode acumular várias
+    mensagens — das quais só uma pode ser a que interessa.
+    """
+    if hasattr(exc, "error_dict"):
+        itens = [erro for erros in exc.error_dict.values() for erro in erros]
+    else:
+        itens = list(exc.error_list)
+    return {erro.code for erro in itens if getattr(erro, "code", None)}
+
+
+def _gravar_classificacao_de_demonstracao_anual(conta, *, campo, classificacao):
+    """Atribui a classificação de uma demonstração ANUAL, valida a conta e
+    traduz a recusa de período fechado (DL-065, E2).
+
+    Chamado por `classificar_conta_na_dlpa` e `classificar_conta_na_dmpl`, que
+    faziam antes a atribuição + `full_clean()` + `save()` na mão. O
+    `full_clean()` é o MESMO — a regra mora em `Conta.clean()`, que é o que
+    fecha também o admin, e por isso não há uma segunda implementação da
+    regra aqui. O que este função acrescenta é a TRADUÇÃO: quando o
+    `ValidationError` é o de período fechado, ele vira
+    `ClassificacaoAlteraPeriodoFechado` (409 na API, recusa na tela); qualquer
+    OUTRO `ValidationError` sobe intacto, para a view tratar como 400 como
+    sempre.
+
+    `campo` é o nome do atributo, e não o valor: os dois serviços já recebem
+    o valor validado pelo serializer e pelo form, e repassar o nome mantém a
+    lista de campos gravados (`update_fields`) em um lugar só.
+    """
+    setattr(conta, campo, classificacao or None)
+    try:
+        conta.full_clean()
+    except DjangoValidationError as exc:
+        if CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO in _codigos_da_validacao(exc):
+            raise ClassificacaoAlteraPeriodoFechado(
+                " ".join(mensagens_da_validacao_django(exc))
+            ) from exc
+        raise
+    conta.save(update_fields=[campo])
 
 
 class CompetenciaEncerrada(Exception):
@@ -5976,11 +6047,22 @@ def classificar_conta_na_dlpa(*, conta, classificacao, usuario, request=None):
     `full_clean()` (abaixo) já recusa qualquer valor fora dos `choices`, e
     a guarda de compatibilidade com o TIPO da conta roda em `Conta.clean()`.
 
-    A classificação da DLPA é propriedade de APRESENTAÇÃO, como a da DRE
-    (DE-086): qualquer mudança é livre mesmo com movimento — ela não
-    altera saldo nenhum, e a trilha (abaixo) mostra quando e por quem
-    mudou. A consequência é a mesma da DRE: a DLPA de um período passado
-    reflete a classificação VIGENTE na emissão.
+    DL-065 (BL-550): a classificação da DLPA **não** é mais livre em período
+    fechado. Trocar — ou remover — a linha de uma conta que tem movimento em
+    competência ENCERRADA ou ENTREGUE é recusado com
+    `ClassificacaoAlteraPeriodoFechado` (409), porque a DLPA apurada daquele
+    período mudaria retroativamente, depois de o período ter sido fechado.
+
+    A PRIMEIRA classificação continua sempre livre, mesmo com movimento em
+    período fechado: é o caminho que limpa o veto da própria DLPA, e nenhuma
+    migração do projeto classificou conta alguma — bloquear a primeira
+    classificação tornaria impossível classificar o plano de contas de uma
+    empresa já em operação.
+
+    A REGRA mora em `Conta.clean()`, que é o que fecha também o admin; aqui
+    só há a tradução para 409 (E2 do plano, em
+    `_gravar_classificacao_de_demonstracao_anual`). A classificação da DRE
+    segue a DE-086 e **não** é afetada por esta regra.
 
     CORRIDA: `select_for_update()` antes de ler o valor gravado — duas
     classificações concorrentes da MESMA conta serializam, e o "antes" da
@@ -6001,9 +6083,9 @@ def classificar_conta_na_dlpa(*, conta, classificacao, usuario, request=None):
         .values_list("classificacao_dlpa", flat=True)
         .get()
     )
-    conta.classificacao_dlpa = classificacao or None
-    conta.full_clean()
-    conta.save(update_fields=["classificacao_dlpa"])
+    _gravar_classificacao_de_demonstracao_anual(
+        conta, campo="classificacao_dlpa", classificacao=classificacao
+    )
     registrar(
         acao="conta.classificacao_dlpa_alterada",
         usuario=usuario,
@@ -7342,10 +7424,13 @@ def classificar_conta_na_dmpl(*, conta, classificacao, usuario, request=None):
     `full_clean()` recusa valor fora dos `choices`, e `Conta.clean()` confere
     o TIPO (só Patrimônio Líquido) e a consistência com a linha da DLPA.
 
-    A coluna é propriedade de APRESENTAÇÃO, como a da DLPA e a da DRE
-    (DE-086): qualquer mudança é livre mesmo com movimento — não altera saldo
-    nenhum, e a trilha mostra quando e por quem mudou. A DMPL de um período
-    passado reflete a classificação VIGENTE na emissão.
+    DL-065 (BL-550): a coluna da DMPL **não** é mais livre em período
+    fechado — mesma regra da linha da DLPA, e pela mesma razão: a DMPL
+    apurada do período mudaria retroativamente depois de o período ter sido
+    fechado. Trocar ou remover vira `ClassificacaoAlteraPeriodoFechado` (409);
+    a PRIMEIRA classificação continua livre. A regra mora em
+    `Conta.clean()`; aqui só a tradução (E2 do plano). A coluna da DRE segue a
+    DE-086 e **não** é afetada.
 
     CORRIDA: `select_for_update()` antes de ler o valor gravado, para duas
     classificações concorrentes da MESMA conta serializarem e o "antes" da
@@ -7360,9 +7445,9 @@ def classificar_conta_na_dmpl(*, conta, classificacao, usuario, request=None):
         .values_list("classificacao_dmpl", flat=True)
         .get()
     )
-    conta.classificacao_dmpl = classificacao or None
-    conta.full_clean()
-    conta.save(update_fields=["classificacao_dmpl"])
+    _gravar_classificacao_de_demonstracao_anual(
+        conta, campo="classificacao_dmpl", classificacao=classificacao
+    )
     registrar(
         acao="conta.classificacao_dmpl_alterada",
         usuario=usuario,

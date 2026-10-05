@@ -3,7 +3,8 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
-from django.db import connection, models
+from django.db import connection, models, transaction
+from django.db.models.functions import ExtractMonth, ExtractYear
 
 from apps.contabilidade.validators import validar_data_de_lancamento_do_modelo
 from apps.empresas.models import Empresa, ModoEscrituracao
@@ -12,6 +13,21 @@ from apps.empresas.services import MENSAGEM_RECUSA_CONTABILIDADE_LIVRO_CAIXA
 
 class LancamentoImutavelError(Exception):
     """Levantado ao tentar alterar ou excluir um lançamento já efetivado."""
+
+
+# DL-065 (BL-550): `code` do `ValidationError` levantado por `Conta.clean()`
+# quando trocar (ou remover) a classificação da DLPA ou da DMPL reescreveria a
+# demonstração de uma competência já encerrada ou entregue.
+#
+# Existe para que os SERVIÇOS de classificação consigam distinguir ESTA
+# recusa das demais e respondam **409** (conflito de estado — o mesmo
+# tratamento de `CompetenciaEncerrada`) em vez de 400 (entrada inválida). O
+# admin, que passa pelo mesmo `clean()` sem conhecer o código, continua
+# mostrando o erro no formulário.
+#
+# Uma regra, um código, UMA mensagem (escrita no modelo): duas traduções com
+# textos próprios divergem assim que alguém edita uma delas.
+CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO = "classificacao_de_periodo_fechado"
 
 
 class EstadoCompetencia(models.TextChoices):
@@ -1165,6 +1181,192 @@ class Conta(models.Model):
             (existe,) = cursor.fetchone()
         return existe
 
+    def _ids_da_subarvore(self):
+        """Os ids desta conta e de todos os descendentes (profundidade
+        qualquer), numa consulta só.
+
+        Mesma árvore de `_tem_movimento_proprio_ou_de_descendente` (BL-245),
+        devolvida em lista: a guarda de período fechado filtra o movimento
+        uma vez por competência, e refazer a recursiva a cada uma
+        multiplicaria o custo.
+        """
+        tabela_conta = Conta._meta.db_table
+        coluna_conta_pai = Conta._meta.get_field("conta_pai").column
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                WITH RECURSIVE arvore(id) AS (
+                    SELECT id FROM {tabela_conta} WHERE id = %s
+                    UNION
+                    SELECT c.id FROM {tabela_conta} c
+                    INNER JOIN arvore a ON c.{coluna_conta_pai} = a.id
+                )
+                SELECT id FROM arvore
+                """,
+                [self.pk],
+            )
+            return [linha[0] for linha in cursor.fetchall()]
+
+    def _competencia_fechada_com_movimento(self):
+        """A competência **encerrada** (ou entregue) mais recente em que esta
+        conta OU qualquer descendente tem partida gravada — `None` se não
+        houver nenhuma.
+
+        DL-065 (BL-550). Devolve a LINHA da competência, não um booleano, por
+        um motivo de produto: a recusa precisa **nomear** o período. Uma
+        recusa que não diz qual competência impede a troca devolve o trabalho
+        ao contador sem caminho, e o caminho é a parte mais cara de uma regra
+        de bloqueio (a mesma razão que fez `CompetenciaEncerrada` dizer o que
+        fazer, e não só que não pode).
+
+        Só entra `estado <> 'aberta'`: a regra acompanha o **estado** da
+        competência, não o registro de que houve recusa. Reabrir o período
+        encerra o bloqueio, que é o comportamento correto — competência
+        reaberta é um período em aberto. Por isso a lista de competências
+        afetadas é recalculada a cada tentativa, e não é memorizada.
+
+        A árvore é a MESMA de `_tem_movimento_proprio_ou_de_descendente`
+        (BL-245: `WITH RECURSIVE` dentro do PostgreSQL, `UNION` para
+        deduplicar e não entrar em ciclo com hierarquia inconsistente),
+        devolvida em lista por `_ids_da_subarvore` — a guarda filtra o
+        movimento uma vez por competência, e refazer a recursiva a cada uma
+        multiplicaria o custo.
+
+        ⚠️ **O movimento é filtrado por DATA, e é isso que amarra a guarda às
+        demonstrações** (achado A1 da auditoria da DL-065). Toda a camada de
+        apuração — Balancete, `apurar_saldos`, DRE, DLPA e DMPL — lê o
+        movimento por `lancamento__data__gte/__lte` e **nunca** pela FK
+        `LancamentoContabil.competencia`. A primeira versão desta guarda
+        ligava pela FK e por isso era cega ao lançamento sem competência
+        gravada: `competencia_id` é **anulável** no banco (a restrição
+        `NOT NULL` da DL-016 F6 cobre `empresa_id`), e a data desse
+        lançamento entrava normalmente na DLPA do período encerrado. Guarda
+        que filtra por um critério diferente do que a apuração filtra é
+        guarda que pode ser contornada; o critério tem de ser o mesmo.
+
+        ⚠️ **A trava das competências ABERTAS vem ANTES da verificação**
+        (achado A2 da mesma auditoria, demonstrado com duas threads: sem ela
+        o fechamento do mês commita entre a leitura do estado e o commit da
+        reclassificação, e o período termina encerrado com a classificação já
+        trocada). O que segura a corrida é o MESMO `FOR SHARE` que
+        `criar_lancamento` usa: ele não impede o fechamento — impede que ele
+        passe POR CIMA da reclassificação. Qualquer ordem passa a ser
+        legítima: ou a reclassificação entra primeiro e o mês fecha em
+        seguida, ou o mês fecha primeiro e a reclassificação acorda vendo o
+        estado novo e recusa.
+
+        A trava só é pedida dentro de uma transação, e só onde o motor a
+        suporta — nos dois casos a REGRA continua valendo, sem a proteção
+        contra a corrida e sem estourar exceção em `full_clean()` chamada
+        fora de transação.
+
+        **Custo: três consultas, independentes do histórico** (achado N2 da
+        reconferência). A versão intermediária fazia uma consulta por
+        competência e media 507 consultas e 393 ms com 480 períodos
+        fechados — e, como a travagem vem antes da varredura, segurava o
+        `FOR SHARE` por todo esse tempo, bloqueando o fechamento junto. A
+        pergunta é uma interseção de conjuntos (o mês com movimento × o mês
+        fechado), e interseção se faz em memória.
+
+        A lista de competências afetadas é recalculada a cada tentativa e não
+        é memorizada: o que decide é o estado de agora, não o de antes.
+        """
+        ids = self._ids_da_subarvore()
+        # Os MÊSES (`ano`, `mes`) em que esta conta — ou qualquer descendente —
+        # tem movimento, numa consulta só. É a resposta de "que períodos esta
+        # reclassificação pode mexer": a competência de um mês cobre
+        # exatamente aquele mês, então bloquear é perguntar se ALGUM desses
+        # meses já está fechado.
+        #
+        # `ExtractYear`/`ExtractMonth` sobre um `DateField` é exatamente a
+        # mesma partição de `data__gte=date(ano, mes, 1)` /
+        # `data__lte=date(ano, mes, ultimo_dia)` que a apuração usa — sem
+        # componente de hora, não há como os dois discordarem, inclusive em
+        # fevereiro de ano bissexto. E o custo não cresce com o número de
+        # meses que a empresa já fechou.
+        meses_com_movimento = set(
+            LancamentoContabil.objects.filter(itens__conta_id__in=ids)
+            .annotate(_ano=ExtractYear("data"), _mes=ExtractMonth("data"))
+            .values_list("_ano", "_mes")
+            .distinct()
+        )
+        if not meses_com_movimento:
+            return None
+        meses_ordenados = sorted(meses_com_movimento, reverse=True)
+
+        # Import TARDIO e deliberado: `services` importa `models`, então o
+        # caminho inverso só fecha aqui dentro do método — é o mesmo truque que
+        # `MarcacaoDmpl.clean()` já usa, e pelo mesmo motivo.
+        #
+        # Reusar o PRIMITIVO do módulo, e não um lock novo, é o que importa
+        # aqui: `_travar_competencia_em_modo_compartilhado` já sabe das três
+        # coisas que esta trava precisa saber — que `FOR SHARE` é
+        # PostgreSQL, que fora dele a degradação tem de ser AVISADA e não
+        # silenciosa, e que o estouro de `lock_timeout` precisa virar erro de
+        # domínio e não `InternalError` de transação abortada.
+        from apps.contabilidade.services import (  # noqa: PLC0415 (cíclico por natureza)
+            CompetenciaOcupada,
+            _travar_competencia_em_modo_compartilhado,
+        )
+
+        # Trava TODAS as abertas com movimento, em ordem determinística
+        # (`-ano`, `-mes`), que é a ordem em que duas reclassificações
+        # concorrentes deste mesmo código pediriam o lock — o que é o que
+        # impede que duas delas travem uma a outra em linha de frente.
+        # Superconjunto do necessário de propósito: travar também uma aberta
+        # sem movimento deste plano só serializa um `encerrar_competencia`
+        # que viria a recuar, e é melhor que bloquear fechamentos sem
+        # relação nenhuma.
+        for ano, mes in meses_ordenados:
+            aberta = Competencia.objects.filter(
+                empresa_id=self.empresa_id,
+                ano=ano,
+                mes=mes,
+                estado=EstadoCompetencia.ABERTA,
+            ).first()
+            if aberta is None:
+                continue
+            try:
+                with transaction.atomic():
+                    _travar_competencia_em_modo_compartilhado(
+                        aberta, ano=aberta.ano, mes=aberta.mes, empresa=aberta.empresa
+                    )
+            except CompetenciaOcupada as exc:
+                # Estouro de `lock_timeout`: outra operação está em curso
+                # sobre a competência. É conflito de ESTADO, como a recusa
+                # abaixo — mesmo código, para que a API responda 409 e o
+                # contador receba "tente de novo" em vez de um 500.
+                raise ValidationError(
+                    "Não foi possível verificar o período desta conta agora: outra "
+                    f"operação está em curso na competência {mes:02d}/{ano} ({exc}). "
+                    "Tente de novo em instantes.",
+                    code=CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO,
+                ) from exc
+
+        # A competência FECHADA mais recente entre os meses com movimento. O
+        # cruzamento é feito em Python de propósito (achado N2 da
+        # reconferência): a versão anterior fazia uma consulta por competência
+        # e media **507 consultas e 393 ms** numa empresa com 480 períodos já
+        # fechados — crescimento linear no histórico, dentro de uma transação
+        # que segura o `FOR SHARE` e portanto bloqueia o fechamento. A
+        # pergunta é uma interseção de conjuntos, e interseção se faz em
+        # memória: o número de consultas aqui é **constante**, não cresce com
+        # os meses que a empresa já fechou.
+        for ano, mes in meses_ordenados:
+            fechada = (
+                Competencia.objects.filter(empresa_id=self.empresa_id, ano=ano, mes=mes)
+                .exclude(estado=EstadoCompetencia.ABERTA)
+                .first()
+            )
+            if fechada is not None:
+                return {
+                    "ano": fechada.ano,
+                    "mes": fechada.mes,
+                    "estado": fechada.estado,
+                    "entregue": fechada.entregue_em is not None,
+                }
+        return None
+
     def clean(self):
         # A4 (auditoria DL-045, rodada 1): `""` (string vazia) normalizado
         # para `None` AQUI, antes de qualquer guarda ler o campo — a mesma
@@ -1419,6 +1621,15 @@ class Conta(models.Model):
                     "conta_pai_id",
                     "empresa__escritorio_id",
                     "classificacao_patrimonial",
+                    # DL-065 (BL-550): a guarda de período fechado abaixo
+                    # precisa do valor GRAVADO das duas classificações de
+                    # demonstração anual, pelo mesmo motivo do
+                    # `classificacao_patrimonial` acima — a regra é de
+                    # TRANSIÇÃO, e transição se mede contra o que está no
+                    # banco, não contra o atributo da instância (que o
+                    # chamador acabou de atribuir).
+                    "classificacao_dlpa",
+                    "classificacao_dmpl",
                 )
                 .first()
             )
@@ -1641,6 +1852,89 @@ class Conta(models.Model):
                         "com a classificação correta e lance a RECLASSIFICAÇÃO "
                         "(a transferência do saldo), em vez de editar esta conta."
                     )
+
+                # DL-065 (BL-550): as DUAS classificações de demonstração
+                # anual — a linha da DLPA e a coluna da DMPL — não podem ser
+                # trocadas, nem removidas, quando a conta (ou qualquer
+                # descendente) tem movimento em competência já ENCERRADA ou
+                # entregue.
+                #
+                # É a MESMA classe de dano da classificação patrimonial acima,
+                # com uma condição a mais: lá o bloqueio vale em qualquer
+                # competência porque o Balanço é lido por data; aqui ele só
+                # começa no fechamento, porque enquanto o período está
+                # aberto a classificação ainda é trabalho em curso — é
+                # exatamente o caminho que limpa o veto da própria DLPA e da
+                # própria DMPL, e bloqueá-lo antes deixaria as duas
+                # demonstrações inemitíveis sem caminho.
+                #
+                # A PRIMEIRA classificação (gravado `None` -> valor) é livre,
+                # pelo mesmo motivo pelo qual a patrimonial a mantém livre e
+                # por um mais forte aqui: nenhuma migração do projeto
+                # classificou conta alguma, então bloquear a primeira
+                # classificação tornaria impossível classificar o plano de
+                # contas de uma empresa que já está em operação.
+                #
+                # A DRE NÃO entra — DE-086 (reconferência da DL-045): a linha
+                # da DRE é propriedade de apresentação e muda com movimento,
+                # sempre. O critério 10 do plano da DL-065 existe para provar
+                # que este bloco não vazou para lá: travar a DRE em período
+                # encerrado tiraria do contador a única saída do veto do A2.
+                mudou_dlpa = (
+                    original["classificacao_dlpa"] is not None
+                    and original["classificacao_dlpa"] != self.classificacao_dlpa
+                )
+                mudou_dmpl = (
+                    original["classificacao_dmpl"] is not None
+                    and original["classificacao_dmpl"] != self.classificacao_dmpl
+                )
+                if mudou_dlpa or mudou_dmpl:
+                    nome_da_demonstracao = (
+                        "a linha da DLPA e a coluna da DMPL"
+                        if mudou_dlpa and mudou_dmpl
+                        else ("a linha da DLPA" if mudou_dlpa else "a coluna da DMPL")
+                    )
+                    competencia = self._competencia_fechada_com_movimento()
+                    if competencia is not None:
+                        rotulo_do_estado = (
+                            dict(EstadoCompetencia.choices)
+                            .get(competencia["estado"], competencia["estado"])
+                            .lower()
+                        )
+                        if competencia["entregue"]:
+                            # Achado A3 da auditoria da DL-065: competência
+                            # ENTREGUE não se reabre — `reabrir_competencia`
+                            # recusa sempre (RC-101). Dizer "reabra a
+                            # competência" aqui mandava o contador para uma
+                            # porta que o próprio produto fecha, e a frase
+                            # seguinte ("a correção nunca é uma
+                            # reclassificação") ainda contradizia o caminho
+                            # da competência apenas encerrada, onde reabrir
+                            # É a saída. Cada situação recebe o caminho que
+                            # ela realmente tem, como o BL-468 fez em
+                            # `criar_lancamento`.
+                            caminho = (
+                                "Esta competência já foi entregue ao cliente e não pode "
+                                "ser reaberta: a correção é um lançamento de ajuste na "
+                                "competência aberta, transferindo o valor para uma conta "
+                                "já com a classificação certa — esta conta não muda."
+                            )
+                        else:
+                            caminho = (
+                                "Reabra a competência para corrigir a classificação; "
+                                "enquanto ela estiver fechada, a demonstração do período "
+                                "não pode mudar. Se houver movimento em outro período "
+                                "ainda aberto, o ajuste pode ser lançado nele."
+                            )
+                        raise ValidationError(
+                            f"Não é possível mudar {nome_da_demonstracao} desta conta: "
+                            "ela ou uma conta descendente tem lançamento na competência "
+                            f"{competencia['mes']:02d}/{competencia['ano']}, que está "
+                            f"{rotulo_do_estado} — a demonstração daquele período mudaria "
+                            "retroativamente, depois de o período ter sido fechado. "
+                            f"{caminho}",
+                            code=CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO,
+                        )
 
                 # DE-086 (reconferência da DL-045): NÃO HÁ guarda de
                 # transição para `classificacao_dre` aqui — a linha da DRE

@@ -122,7 +122,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-060](../planos/DL-060-confirmacao-da-cascata.md) | A reabertura em cascata confirma exatamente os meses mostrados (BL-588, BL-589) | Integrada (PR #74) — reconferência aprovada com ressalvas; BL-602 |
 | [DL-061](../planos/DL-061-dmpl.md) | DMPL, etapa CTB-14 da DL-048 (RC-151) | Integrada (PR #76, #77 e #79) — fatias 1, etapa 2 e fatia 2; pontos abertos BL-606, BL-607, BL-622, BL-625, BL-626 e BL-627 |
 | [DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md) | Sinal da conta-RAIZ retificadora no Balanço Patrimonial (BL-604) | Integrada (PR #81, squash `46d80a1`) — auditoria aprovada com ressalvas, reconferência aprovada; ciclo do §3.1 encerrado |
-| [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) | Fecha a leva da DL-061: coluna da DMPL nas duas portas, teste do snapshot e dica condicionada (BL-606, BL-607, BL-625) | Em revisão — **o conteúdo não tinha chegado à `main`** (o PR #82 foi mesclado na branch intermediária `fix/dl-062-…`); recuperado por este PR |
+| [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) | Fecha a leva da DL-061: coluna da DMPL nas duas portas, teste do snapshot e dica condicionada (BL-606, BL-607, BL-625) | **Integrada (PR #84, squash `c32cfe6`)** — o conteúdo **não tinha chegado à `main`** (o PR #82 foi mesclado na branch intermediária `fix/dl-062-…`); recuperado com a `base` reapontada para o destino real |
+| [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md) | Reclassificar conta com movimento em competência encerrada ou entregue não pode reescrever DLPA nem DMPL já apuradas (BL-550) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -133,6 +134,111 @@ competência) tem só o plano, na branch `claude/dl-016-f3-encerramento-competen
 não integrada — por isso a DL-016 aponta para o Próximo passo.
 
 ## Próximo passo
+
+**AGORA, em 05/10/2026: [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md)
+— BL-550, a trava de reclassificação em competência fechada.** Escolhida pelo
+Fred como primeiro item da leva do módulo de Contabilidade, na esteira do
+defeito de integridade. O recorte foi decidido **depois de medida a colisão
+com a DE-086**: a trava vale para a **DLPA e a DMPL**, e a **DRE continua
+livre** — a DE-086, de 26/09/2026, foi mantida. O caminho "classificação por
+vigência", que o backlog aceitava como alternativa, foi **descartado**: ele
+exigiria versionar as quatro classificações da conta e recontar demonstrações
+já emitidas, que é trabalho de Onda 2.
+
+O que a meditura encontrou antes de qualquer linha de código: nenhuma das
+duas classificação de demonstração anual consulta a competência antes de
+gravar, e o `ContaAdmin` grava os quatro campos **por fora** dos três
+serviços — uma trava colocada só nos serviços deixaria o admin funcionando
+como estava. Por isso a regra mora em `Conta.clean()`, que é o ponto de
+passagem de todo caminho validado, e a tradução para **409** acontece nos
+serviços, por um `code` de erro que só eles conhecem.
+
+**21 testes novos na primeira entrega, 30 depois das duas correções** — todos
+executados em PostgreSQL 16.15 (critérios 1 a 11 do plano, mais quatro
+limites: competência do mês seguinte, a mais recente quando há duas, período
+reaberto e conta sem movimento no período fechado). A suíte de
+`apps/contabilidade` deu **1.839 aprovados e os mesmos 8 reprovados de antes
+da mudança** — nenhuma regressão.
+
+**[Auditoria independente](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md):
+APROVADA COM RESSALVAS, nenhum bloqueador**, com os treze critérios verificados
+por execução do próprio auditor e **mutação em memória** — sem a guarda, 13
+dos 21 testes caem. Três achados médios, corrigidos numa **rodada única**
+(§3.1):
+
+- **A1 — a guarda lia o movimento pela FK `competencia`, e as apurações leem
+  por `data`.** O auditor mediu `competencia_id` como **anulável** no banco
+  (a restrição F6 da DL-016 cobre `empresa_id`), então um lançamento legado
+  sem competência gravada entrava na DLPA do período encerrado sem a trava o
+  ver. A guarda passou a filtrar por data, com a mesma aritmética de
+  calendário das apurações. *Princípio: guarda que filtra por critério
+  diferente do que a apuração filtra é guarda que pode ser contornada.*
+- **A2 — corrida entre reclassificar e fechar o mês**, demonstrada com duas
+  threads: o fechamento commita entre a leitura do estado e o commit da
+  reclassificação, e o período terminava encerrado com a classificação trocada.
+  A trava agora **reusa o primitivo do módulo**,
+  `_travar_competencia_em_modo_compartilhado` (`FOR SHARE`), que impede o
+  fechamento de passar por cima sem impedir o fechamento. No caminho, ficou
+  registrado que o Django **não expõe** `FOR SHARE` em `QuerySet` — quase
+  escrevi uma checagem de feature que não existe.
+- **A3 — a mensagem mandava "reabra a competência"** para competência
+  **entregue**, que `reabrir_competencia` recusa sempre (RC-101): instrução
+  falsa ao contador, a mesma classe do BL-142. Bifurcada por `entregue`, com
+  teste de regressão que proíbe a frase.
+
+**A5 corrigiu o próprio plano:** ele afirmava que conta sem movimento não
+paga consulta, e o auditor mediu que paga — o texto foi corrigido e o custo
+real ficou registrado. **A6** (o script de medição grava a coluna da DMPL
+sem a guarda) foi **aceito como limite** e registrado no backlog como
+**BL-628**. **A7** — faltavam a tela da DMPL e o admin da coluna da DMPL —
+foi coberto.
+
+⚠️ **[Reconferência: REPROVADA](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md).**
+A1, A3, A4, A6 e A7 fecharam; **A2 não** — a corrida fecha (o auditor mediu
+8 de 8 com o fechamento vencendo e o vazamento da rodada 1 não reproduz),
+mas a tradução prometida do `lock_timeout` não acontecia. E a correção
+**introduziu dois defeitos**, um deles médio: **N1**, em que o `FOR SHARE`
+estourado aborta a transação e o `full_clean` do Django continua acumulando
+erro e consultando, de modo que a recusa virava **500 na porta de nível 1** —
+a mesma patologia que o docstring de BL-470 diz ter eliminado; e **N2**, em
+que a troca de uma consulta por um laço levou a guarda a **507 consultas e
+393 ms** com 480 períodos fechados, com o `FOR SHARE` segurado durante todo
+esse tempo, bloqueando o fechamento junto. Mais **N3** (baixa), em que
+estado fora do enum virava `ValueError` cru.
+
+**As três foram corrigidas sem terceira rodada de auditoria** — e é preciso
+dizer por quê: o §3.1 proíbe comprar outra rodada, e ela existe para parar
+quem tenta provar uma frase que promete mais do que o instrumento aguenta, não
+para deixar passar um 500 conhecido em porta de nível 1 e uma regressão de 1
+para 507 consultas. O ciclo fica **encerrado no veredito REPROVADO**. N1 virou
+um **savepoint** em torno da tentativa de lock, para o `ValidationError`
+chegar inteiro ao acumulador; N2 virou a **interseção de conjuntos** que a
+pergunta sempre foi — quantas consultas são constantes, não crescem com o
+histórico; N3 ganhou rótulo com reserva. Cada uma com teste de regressão
+próprio. **O que fica de decisão do Fred:** essas três correções não passaram
+por auditoria independente, e a forma honesta de tê-las seria um papel
+diferente do mesmo §3.1, não uma terceira rodada deste ciclo.
+
+**30 testes da demanda; `apps/contabilidade` com 1.839 aprovados e os mesmos
+8 reprovados** de antes da mudança.
+
+⚠️ **Achado de ambiente que mudou a forma de verificar nesta máquina:** o
+`DATABASE_URL` do `.env` apontava para **SQLite**, e o cluster do PostgreSQL
+16 estava desligado. Isso produzia **64 reprovações falsas** só em
+`apps/contabilidade` — número que, lido sem verificação, pareceria regressão.
+O cluster **PostgreSQL 16.15** foi criado em
+`C:\Users\conta\AppData\Local\PostgreSQL\dataledger`, porta **5433**, e é
+ele que produz todas as evidências desta seção. **A `.env` do repositório não
+foi alterada.** Com o motor certo, a linha de base honesta é
+**8 reprovados** (1 de constraint de banco e 7 de Chromium/timeout de thread,
+todos de ambiente), e é ela que vale como comparação.
+
+**Antes de continuar a leva, uma pendência de repositório:** o PR #82
+(DL-063) foi mesclado na branch intermediária e **não chegou à `main`**.
+Recuperado pelo **PR #84**, aberto a partir da `main` com a `base` reapontada
+para o destino real. O PR #83 (DL-064, documentos defasados) segue
+`CONFLICTING` por ter base anterior ao PR #81 e precisa ser rebased — ele vai
+conflitar em `estado.md` com o #84 e com este.
 
 **Leva de 30/09 a 01/10/2026 concluída: DL-052 a DL-060 integradas**
 (PR #66 a #74). Desenvolvidas em até 4 cópias isoladas em paralelo (RC-149)
