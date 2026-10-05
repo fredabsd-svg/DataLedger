@@ -558,6 +558,23 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "para `None`); só ORM/SQL direto, fora de qualquer requisição de "
         'cliente, alcançaria esta constraint com `""`.'
     ),
+    # DL-066/CTB-15: mesma defesa de BANCO das duas de cima, desde o dia um
+    # do campo — `""` nunca é estado válido, e sem a constraint ele
+    # apareceria como atividade DESCONHECIDA na apuração da DFC em vez de
+    # "sem classificação". O `choices=` do campo e o `ChoiceField` do
+    # formulário restringem o domínio antes de qualquer escrita de cliente;
+    # `Conta.clean()` normaliza `""` → `None` no caminho validado. Só
+    # ORM/SQL direto, fora de qualquer requisição, alcançaria a constraint
+    # com `""`.
+    "ck_conta_classificacao_dfc_nao_vazia": (
+        "`CheckConstraint` de `Conta.classificacao_dfc` (DL-066/CTB-15): "
+        'recusa `""` (string vazia) — só `NULL` ou um valor de '
+        "`ClassificacaoFluxoCaixa`. Todos os caminhos de cliente que gravam "
+        "o campo passam por `Conta.clean()` (topo do método normaliza `"
+        "` "
+        "para `None`); só ORM/SQL direto, fora de qualquer requisição de "
+        'cliente, alcançaria esta constraint com `""`.'
+    ),
     # DL-046 (fatia 1): domínio de `ContaLivroCaixa.natureza` — mesmo
     # motivo de `empresa_modo_escrituracao_valido` acima (achado B8/
     # DL-038): `choices=` no campo só vale para form/serializer, nunca
