@@ -264,7 +264,29 @@ o que ela acrescenta, não sobre a base de novo.
 | Base normativa do CPC 03 (itens 6 a 52A) | **Testado** — texto integral lido nesta sessão |
 | Texto do art. 176 da Lei 6.404/76 | **Não testado** — Planalto inacessível neste ambiente; **lacuna declarada** |
 | Manual do sistema de referência (p. 622-631 e 666-667) | **Não lido** — declarado, não conformidade; a rotina do manual não autoriza nem refuta a regra |
-| Implementação | Pendente |
+
+### Fatia 1 — núcleo da apuração: entregue, e **incompleto**
+
+**Entregue e testado:** os três campos da conta (`caixa_e_equivalentes`,
+`classificacao_dfc`, `item_de_resultado_sem_caixa`) com a constraint de banco,
+a normalização de `""` e as duas guardas de coerência do modelo;
+`apurar_dfc`, com as três atividades apuradas **a partir dos lançamentos**, a
+exclusão do item 9, o veto do item 12 nomeando as atividades em conflito, e a
+conciliação do item 45 como **identidade**; e `avaliar_emissao_da_dfc`, com
+todas as pendências vetando e cada motivo dizendo o que falta.
+
+**10 testes**, todos executados em PostgreSQL 16.15, e `apps/contabilidade`
+com **1.867 aprovados e os mesmos 8 reprovados de ambiente** — nenhuma
+regressão.
+
+⚠️ **Ressalva de desenho que fica registrada:** `operacional_indireto` volta
+`None` nesta entrega, nomeado. O método indireto é a apresentação do mesmo
+número, e apresentar um número que ninguém auditou ainda seria pior do que não
+apresentar.
+
+**O que falta para a fatia 1 fechar:** o serviço de classificação da atividade
+(com trava e trilha, no molde das outras três), a tela, a API, e a apresentação
+do método indireto com os ajustes do item 20.
 
 > A nota de ambiente (`.env` apontando para SQLite, cluster PostgreSQL criado
 > na porta 5433, linha de base honesta de 8 reprovados) está em

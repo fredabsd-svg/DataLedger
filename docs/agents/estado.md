@@ -146,7 +146,19 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 **AGORA, em 05/10/2026: [DL-066](../planos/DL-066-dfc.md) — a DFC, etapa
 CTB-15 da DL-048**, o último item da Onda 1 depois da DLPA (CTB-13) e da DMPL
 (CTB-14). O plano está escrito e revisado contra o texto integral do
-[CPC 03 (R2)](https://www.normasbrasil.com.br/norma/?id=306227), item a item.
+[CPC 03 (R2)](https://www.normasbrasil.com.br/norma/?id=306227), item a item,
+e foi **integrado pelo PR #86**.
+
+**A fatia 1 começou pelo núcleo da apuração — e está incompleta.** Entregue e
+testado: os três campos da conta (`caixa_e_equivalentes`, `classificacao_dfc`,
+`item_de_resultado_sem_caixa`), as guardas de coerência do modelo, `apurar_dfc`
+com as três atividades apuradas **a partir dos lançamentos**, a exclusão do
+item 9, o veto do item 12 e a conciliação do item 45 como **identidade**.
+**10 testes**, e `apps/contabilidade` com 1.867 aprovados e os mesmos 8
+reprovados de ambiente — nenhuma regressão. Falta para fechar a fatia: o
+serviço de classificação com trilha, a tela, a API e a apresentação do método
+indireto — que volta `None` por enquanto, nomeado, porque apresentar número
+não auditado é pior do que não apresentar.
 
 **O número da DFC sai do lançamento, não de soma de ajustes.** Caixa contra
 uma conta de fora da lista de caixa é um fluxo, classificado pela atividade
