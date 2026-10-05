@@ -243,6 +243,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-060** — A reabertura em cascata do livro-caixa confirma exatamente os meses mostrados: mês encerrado entre a tela e o clique faz a reabertura parar, sem alterar nada. Plano em [docs/planos/DL-060-confirmacao-da-cascata.md](docs/planos/DL-060-confirmacao-da-cascata.md)
 - **DL-061** — DMPL (Demonstração das Mutações do Patrimônio Líquido), etapa CTB-14 da DL-048: uma columna por componente do PL, linha descoberta pela contrapartida do lançamento, conciliação com o Balanço e com a DLPA. Plano em [docs/planos/DL-061-dmpl.md](docs/planos/DL-061-dmpl.md)
 - **DL-062** — O sinal da conta-RAIZ retificadora no Balanço Patrimonial: a retificadora de patrimônio líquido cadastrada fora do grupo entrava no total **somando** em vez de subtrair, e o Balanço saía para o cliente com o PL errado e a equação contábil aberta, sem veto nenhum. Plano em [docs/planos/DL-062-sinal-da-raiz-retificadora.md](docs/planos/DL-062-sinal-da-raiz-retificadora.md)
+- **DL-063** — Fecha a leva da DL-061: a coluna da DMPL passa a ser gravável pelo formulário de conta nova **e pela API** (como a linha da DRE e a da DLPA), o snapshot `REPEATABLE READ` da DMPL ganha o par de testes que provam que o número não é fantasia, e a dica da divergência de fechamento deixa de ser constante para apontar a causa que a apuração encontrou. Plano em [docs/planos/DL-063-fecha-a-leva-da-dl-061.md](docs/planos/DL-063-fecha-a-leva-da-dl-061.md)
 
 Ainda não existem:
 
