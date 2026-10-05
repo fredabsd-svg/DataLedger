@@ -822,13 +822,13 @@ DL-048 continua valendo como origem.
 | --- | --- | --- |
 | HI-51 | Hipótese de produto | O conjunto de demonstrações sai de uma **matriz por perfil contábil** (porte pela receita do exercício anterior, natureza, regime, exercício) e o conjunto incompleto é vetado. Lido em NBC TG 1002 item 3.6, NBC TG 1001 item 3.5, ITG 1000 itens 5, 7, 10, 11, 16 e 18, LSA art. 176. A aplicação a cada cliente é julgamento do Fred. |
 | HI-52 | Hipótese normativa | O comparativo com o exercício anterior vale para toda demonstração anual, não só para a S/A. Confirmado para a S/A pela LSA art. 176, §1º; o item da norma de apresentação (TG 26 R5 e TG 51) fica a conferir no PDF. |
-| HI-53 | Hipótese de política contábil | IBS e CBS **fora da receita bruta**; passivo e crédito por competência; crédito vedado em custo ou despesa. Orientação Técnica CFC nº 1/2026, itens 4 a 16 — **não vinculante** (itens 3 e 31). Conflita com a leitura de que todo tributo sobre venda é dedução (RC-123). |
+| HI-53 | Hipótese de política contábil | IBS e CBS **fora da receita bruta** e, em regra, sem passar pelo resultado (exceções: brindes e certas bonificações, item 16.2); passivo e crédito por competência; crédito vedado em custo ou despesa. Orientação Técnica CFC nº 1/2026, itens 4 a 16 — **não vinculante** (itens 3 e 31). Conflita com a leitura de que todo tributo sobre venda é dedução (RC-123). |
 | HI-54 | Hipótese de entrega | A ECD do ano-calendário 2026 é gerada e validada pelo DataLedger e **transmitida pelo sistema atual**; a primeira transmissão própria fica para o AC 2027. |
 | HI-55 | Hipótese de regra | O encerramento avisa (não bloqueia) a distribuição de lucros quando houver débito não garantido com a União (Lei 4.357/1964, art. 32, lido no Planalto; redação posterior da multa não conferida). A situação fiscal nunca é presumida. |
 | HI-56 | Hipótese de leitura | A obrigatoriedade da ECD do Presumido que distribui lucro "sem incidência de IRRF" acima da base presumida (IN RFB 2.003/2021, art. 3º, §3º) pode mudar de leitura com a retenção de 10% da Lei 15.270/2025. Nenhuma IN tratou disso até 05/10/2026. |
 | PE-76 | Pendência | Política do teste de IBS/CBS de 2026: reconhecer ou não o passivo, por cliente. A orientação do CFC (itens 25 a 30) deixa ao julgamento da entidade, com divulgação em nota. |
 | PE-77 | Pendência | Perfil da carteira: quantas micro, pequenas e médias; quantas S/A; quantas no Lucro Real; quem recebe subvenção para investimento. Decide a ordem da Onda D da DL-068. |
-| PE-78 | Pendência | Regulamento das "demonstrações financeiras" que o art. 16-B, §4º, da Lei 15.270/2025 exige para o redutor do IRPFM. Não encontrado em 05/10/2026. |
+| PE-78 | Pendência | Regulamento das "demonstrações financeiras" que o art. 16-B, §4º, da Lei 9.250/95 (incluído pela Lei 15.270/2025) exige para o redutor do IRPFM. Não encontrado em 05/10/2026. |
 | PE-79 | Pendência | Rever RC-119: comparativo com o exercício anterior obrigatório nas demonstrações anuais (recomendação da DL-068). |
 | PE-80 | Pendência | A NBC TG 51 não traz cláusula expressa de adoção antecipada (apêndice C1). Manter a opção de 29/09/2026 como **decisão de produto**, registrada como tal? |
 | PE-81 | Pendência | Leiaute da ECD para o ano-calendário 2026: o leiaute 9 (ADE Cofis 01/2026) vale "enquanto não editado novo leiaute". Conferir antes de gerar o arquivo do AC 2026. |
@@ -862,7 +862,7 @@ DL-048 continua valendo como origem.
 | Escrituração | ITG 2000 (R1), itens 10, 12, 13, 17, 31 e 32; CC arts. 1.179 a 1.195; DL 9.295/46, arts. 12, 25 e 26 |
 | Demonstrações na lei | LSA art. 176 (I a V, §§1º a 4º e 6º), 189, 193, 195-A e 202 |
 | Reforma na contabilidade | Orientação Técnica CFC nº 1/2026; LC 214/2025, arts. 343 a 348, 542 e 544; LC 227/2026 |
-| Dividendos | Lei 15.270/2025 (Lei 9.250/95, art. 6º-A; arts. 16-A e 16-B); DARF 1841 e Reinf R-4010 (Perguntas e Respostas RFB de 19/12/2025; NT EFD-Reinf 02/2026) |
+| Dividendos | Lei 15.270/2025 (inclui na Lei 9.250/95 os arts. 6º-A, 16-A e 16-B); DARF 1841 e Reinf R-4010 (Perguntas e Respostas RFB de 19/12/2025; NT EFD-Reinf 02/2026) |
 | Presumido e JCP | LC 224/2025, arts. 4º, 8º e 14; Decreto 12.808/2025 |
 | Subvenções | Lei 14.789/2023, arts. 1º a 6º, 16, 18 e 21 |
 | ECD | IN RFB 2.003/2021 (arts. 3º, 5º, 8º e 11, transcritos no manual oficial); leiaute 9, ADE Cofis 01/2026; Decretos 8.683/2016 e 9.555/2018 |

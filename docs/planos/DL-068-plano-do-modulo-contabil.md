@@ -84,7 +84,7 @@ topo apontando para esta lista. **Onde divergirem, vale este plano.**
 | F0-5 | Paridade, CTB-13, 14, 15, 16, 17 e perguntas 3 a 5 | Perguntam o que a DL-048 já respondeu (DLPA isolada, reservas, métodos da DFC, DRA e DVA) | Respondido em 28/09/2026 — RC-157 a RC-160 |
 | F0-6 | Paridade, todas as demonstrações | Citam NBC TG 26 (R5) sem a vigência | R5 vale para exercícios iniciados até 31/12/2026; NBC TG 51 depois |
 | F0-7 | Paridade, CTB-25 e CTB-26 | Dependência circular (termo depende de livro, livro depende de termo) | O livro contém os termos: CTB-26 depende de CTB-25, não o contrário |
-| F0-8 | Paridade, Onda 0 | "Dez" itens, lista onze | CTB-08 não existe; sai da Onda 0 |
+| F0-8 | Paridade, Onda 0 | A contagem foi corrigida para "dez" em 04/10/2026 (DL-064), mas o CTB-08 continua listado no diagrama da Onda 0 | CTB-08 (período de trabalho) não está implementado: sai do diagrama da Onda 0 e fica na Frente 1, condicionado ao uso confirmado |
 | F0-9 | Paridade, CTB-50 a CTB-52 | Leiaute e prazo "a confirmar" | ECD: IN RFB 2.003/2021, leiaute 9 (ADE Cofis 01/2026), último dia útil de junho. ECF: IN RFB 2.004/2021, leiaute 12 (ADE Cofis 02/2026), último dia útil de julho |
 | F0-10 | [paridade/lalur.md](../projeto/paridade/lalur.md), LAL-26 | "M350 (Parte B)" | M350 é a **Parte A do e-Lacs**; a Parte B está em M010, M410 e M500 |
 | F0-11 | [requisitos.md](../projeto/requisitos.md), fontes da DL-048 | "PMEs = NBC TG 1000; microempresas = ITG 1000, não obrigatória" | Microentidade: **NBC TG 1002**; pequena empresa: **NBC TG 1001**; média: NBC TG 1000 (R1); a ITG 1000 de 2012 foi revogada e a vigente é a de 15/12/2022 |
@@ -112,6 +112,26 @@ topo apontando para esta lista. **Onde divergirem, vale este plano.**
 | Testes | `pytest apps/core/tests/test_documentacao_do_estado.py`; verificação de links, título, espaço no fim de linha e nova linha final dos arquivos alterados |
 | Reversão | Reverter o commit — só documentação |
 | Estado | em validação |
+
+### Verificação desta etapa
+
+Verificação independente por `auxiliar-verificacao` em 05/10/2026, sobre o
+commit `933b977`: **aprovado com ressalvas**. Coerência de identificadores,
+símbolos do código e seis fontes oficiais (LSA, Lei 15.270, LC 214,
+Orientação Técnica CFC 1/2026, NBC TG 1002, Lei 14.789) **conferem**;
+`test_documentacao_do_estado.py` deu 19 aprovados; `validate-docs.ps1` **não
+executado** (sem `pwsh` no contêiner), substituído por verificação
+equivalente em Python. Não verificados por ele: LC 224 arts. 8º e 14,
+Decreto 12.955 art. 46, Lei 4.357 art. 32, DEFIS.
+
+| # | Gravidade | Achado do verificador | Tratamento |
+| --- | --- | --- | --- |
+| V1 | Média | A matriz atribuía DVA a "grande porte"; o art. 176, V, só a exige da companhia aberta, e a matriz poderia vetar empresa fechada por falta de DVA | Corrigido: linhas separadas; grande porte pela Lei 11.638/2007, art. 3º, lido no Planalto, sem DVA obrigatória |
+| V2 | Média | MC-DEM-04 mais categórico que a orientação do CFC, que ressalva brindes e certas bonificações (item 16.2) | Corrigido no MC-DEM-04, na Frente 4 e na HI-53 |
+| V3 | Baixa | Lei 14.789, art. 16, I, resumido sem a exceção da reserva legal | Corrigido na Frente 5 e no MC-ENC-05 |
+| V4 | Baixa | "Art. 16-B da Lei 15.270" — o artigo é da Lei 9.250/95, incluído pela Lei 15.270 | Corrigido no plano e em `requisitos.md` |
+| V5 | Baixa | F0-8 repetia a correção da contagem já feita em 04/10 (DL-064) e dizia "CTB-08 não existe" no sentido de ID | Reescrito: o item existe e não está implementado; sai do diagrama da Onda 0 |
+| V6 | Baixa | A DL-048 escreve "ORA e DVA" no título do RC-139, e o resto do projeto usa DRA | Registrado; sem efeito aqui |
 
 ## Plano
 
@@ -181,12 +201,13 @@ aplicação a cada cliente é julgamento profissional dele.
 | Pequena empresa (R$ 4,8 mi a R$ 78 mi) | NBC TG 1001 | BP, DRE, DMPL, DFC e notas; DLPA no lugar da DMPL quando o PL só movimenta lucros ou prejuízos acumulados | TG 1001, itens 3.5 e 6.2; ITG 1000, itens 16 e 18 |
 | Média empresa (R$ 78 mi a R$ 300 mi) | NBC TG 1000 (R1) | Conjunto da TG 1000 | ITG 1000, item 7 |
 | Micro ou pequena que seja **companhia fechada** ou tributada pelo **lucro real** | Lei 6.404/76 | BP, DLPA, DRE, DFC (dispensada se PL < R$ 2 mi), notas | ITG 1000, item 10; LSA art. 176, I a IV e §6º |
-| Companhia aberta ou grande porte | NBC TG completas (TG 26 R5 → TG 51) | BP, DRE, DRA, DMPL, DFC, **DVA**, notas | LSA art. 176, V; TG 26 (R5) item 10 |
+| Companhia aberta | NBC TG completas (TG 26 R5 → TG 51) | BP, DRE, DRA, DMPL, DFC, **DVA**, notas | LSA art. 176, V; TG 26 (R5) item 10 |
+| Sociedade de grande porte não aberta (ativo total acima de R$ 240 mi ou receita bruta acima de R$ 300 mi no exercício anterior) | Lei 6.404/76 na escrituração e nas demonstrações, com auditoria independente; NBC TG completas | BP, DRE, DRA, DMPL, DFC, notas — **DVA não exigida pela lei** (art. 176, V, é só da aberta); DVA voluntária | Lei 11.638/2007, art. 3º (lido no Planalto em 05/10/2026); LSA art. 176; TG 26 (R5) item 10 |
 | Optante do Simples | LC 123/2006 | Contabilidade simplificada **opcional** (art. 27); livro-caixa obrigatório para quem não a mantém (art. 26, §2º). A Lei 15.270 também alcança o dividendo pago pelo Simples | Planalto; Perguntas e Respostas RFB |
 | Pessoa física (livro-caixa) | — | Livro-caixa e carnê-leão (CTB-63, já existe) | DL-046 |
 
 **Reflexo que o contador sênior não pode perder:** o redutor do imposto mínimo
-da pessoa física (Lei 15.270/2025, art. 16-B, §4º) depende de a empresa
+da pessoa física (Lei 9.250/95, art. 16-B, §4º, incluído pela Lei 15.270/2025) depende de a empresa
 pagadora apresentar **demonstrações financeiras "na forma de regulamento"** —
 o regulamento não foi encontrado (PE-78). Se vier como se lê, o sócio de
 empresa do Presumido ou do Simples com distribuição alta passa a **precisar**
@@ -262,7 +283,7 @@ retenção é política de dados, nunca botão.
 | DVA | Riqueza gerada e distribuída; fecha em si mesma | CTB-17 | 1 |
 | Notas explicativas | Versão simples: notas numeradas por exercício, ligadas a conta ou demonstração; para microentidade, as declarações do item 3.2 da TG 1002 | CTB-18 | 1 (compõe a demonstração) |
 | NBC TG 51 | Versão paralela da DRE com cinco categorias e três subtotais (lucro operacional; lucro antes de financiamento e tributos; lucro líquido), MPM em nota, despesas por natureza ou função; DFC partindo do lucro operacional; conciliação de transição do comparativo | **CTB-82** (novo) | 1 |
-| IBS e CBS na DRE | Contas padrão de IBS/CBS a recolher, a recuperar e a apropriar; IBS e CBS **fora da receita bruta** (Orientação Técnica CFC 1/2026, item 16.2); PIS, Cofins, ICMS e ISS continuam como dedução enquanto existirem; nota da política do teste de 2026 | **CTB-83** (novo) | 1 |
+| IBS e CBS na DRE | Contas padrão de IBS/CBS a recolher, a recuperar e a apropriar; IBS e CBS **fora da receita bruta** e, em regra, sem passar pelo resultado — ressalvados brindes e certas bonificações, em que o tributo pode transitar pelo resultado (Orientação Técnica CFC 1/2026, item 16.2); PIS, Cofins, ICMS e ISS continuam como dedução enquanto existirem; nota da política do teste de 2026 | **CTB-83** (novo) | 1 |
 | Vedação de designação genérica | Conferência que aponta "diversas contas" ou "contas-correntes" e agregação acima de 0,1 do grupo | (dentro de CTB-06) | 2 |
 
 ⚠️ **Atenção ao RC-123** ("deduções só em conta de receita"): com a
@@ -279,7 +300,7 @@ não é vinculante, e a política contábil é do Fred.
 | Compensação e absorção de prejuízo | Ordem legal de absorção: lucros acumulados, reservas de lucros, reserva legal (LSA art. 189, **parágrafo único**); mecanismo do escritório (PE-38) | CTB-24 (RC-160) | 1 |
 | Reserva legal e destinação | 5% do lucro líquido até 20% do capital, dispensa acima de 30% com reservas de capital (LSA art. 193); dividendo mínimo (art. 202); proposta da administração nas demonstrações (art. 176, §3º); excedente distribuído (art. 202, §6º) | CTB-24 | 1 |
 | Lucros por exercício de apuração | Saldo de lucros disponíveis **por ano de apuração**, deliberações datadas, dividendos a pagar por sócio; marca dos lucros até 2025 aprovados até 31/12/2025 (transição da Lei 15.270) | **CTB-79** (novo) | 1 |
-| Reserva de incentivos fiscais | Controle por origem; uso só para absorver prejuízo, depois de esgotadas as demais reservas de lucros, ou para aumentar capital; recomposição obrigatória (Lei 14.789/2023, art. 16); fora da base do JCP (art. 18) | **CTB-84** (novo) | 1 — só para quem tem subvenção |
+| Reserva de incentivos fiscais | Controle por origem; uso só para absorver prejuízo, depois de totalmente absorvidas as demais reservas de lucros **exceto a reserva legal**, ou para aumentar capital; recomposição obrigatória (Lei 14.789/2023, art. 16); fora da base do JCP (art. 18) | **CTB-84** (novo) | 1 — só para quem tem subvenção |
 | Carta de responsabilidade da administração | Obtida ao término de cada exercício (ITG 1000, itens 12 a 15 e Anexo 1) | CTB-27 | 2 |
 | Desfazer zeramento com parâmetro errado | Procedimento rastreável, por estorno | PE-69 | 1 |
 
@@ -492,7 +513,7 @@ que o implementar.
 | MC-DEM-01 | O produto lista o conjunto exigido pelo perfil e veta a emissão do conjunto incompleto, nomeando o que falta | CTB-77; HI-51 |
 | MC-DEM-02 | Toda demonstração anual traz o exercício anterior pelo mesmo critério; conta sem saldo anterior aparece com zero declarado | CTB-78; LSA art. 176, §1º; HI-52 |
 | MC-DEM-03 | Exercício iniciado a partir de 01/01/2027 sai pela NBC TG 51; o comparativo de 2026 é reapresentado e conciliado por rubrica | CTB-82; TG 51 apêndice C |
-| MC-DEM-04 | IBS e CBS não compõem a receita bruta da DRE; crédito vedado vai a custo ou despesa | CTB-83; HI-53 |
+| MC-DEM-04 | IBS e CBS não compõem a receita bruta da DRE e, em regra, não passam pelo resultado; brinde e bonificação são as exceções declaradas, com o tributo no resultado; crédito vedado vai a custo ou despesa | CTB-83; HI-53; OT CFC 1/2026 item 16.2 |
 | MC-DEM-05 | DRA, DVA e DFC conciliam com DRE e Balanço; a DVA fecha em si mesma | CTB-15 a CTB-17 |
 | MC-DEM-06 | Nota explicativa referenciada na demonstração existe; microentidade traz as declarações do item 3.2 da TG 1002 | CTB-18 |
 
@@ -504,7 +525,7 @@ que o implementar.
 | MC-ENC-02 | Absorção de prejuízo na ordem do art. 189, parágrafo único, da LSA | LSA (Planalto, 05/10/2026) |
 | MC-ENC-03 | Reserva legal calculada pelo art. 193, com o teto e a dispensa | LSA art. 193 |
 | MC-ENC-04 | Cada distribuição aponta o exercício de apuração do lucro e a deliberação datada; lucro até 2025 aprovado até 31/12/2025 fica marcado para a transição | CTB-79; Lei 15.270/2025 |
-| MC-ENC-05 | Reserva de incentivos fiscais só é usada nos casos do art. 16 da Lei 14.789/2023, com recomposição controlada | CTB-84 |
+| MC-ENC-05 | Reserva de incentivos fiscais só é usada nos casos do art. 16 da Lei 14.789/2023 — absorção de prejuízo depois de absorvidas as demais reservas de lucros, exceto a legal, ou aumento de capital — com recomposição controlada | CTB-84 |
 
 ### Obrigações e conferência
 
@@ -530,7 +551,7 @@ que o implementar.
 | NBC TG 1000 (R2), terceira edição do IFRS for SMEs | Não adotada no Brasil até 05/10/2026 |
 | OCPC ou CTG sobre IBS/CBS | Não encontrado; só a Orientação Técnica CFC nº 1/2026 |
 | Leiaute da ECD para o AC 2026 | Não publicado; o leiaute 9 vale "enquanto não editado novo leiaute" (PE-81) |
-| Regulamento das demonstrações do art. 16-B, §4º, da Lei 15.270/2025 | Não encontrado (PE-78) |
+| Regulamento das demonstrações do art. 16-B, §4º, da Lei 9.250/95 (incluído pela Lei 15.270/2025) | Não encontrado (PE-78) |
 | IN RFB 2.299/2025 (dividendos) e IN RFB 2.319/2026 (adicional da CSLL) | Só fonte secundária |
 | Norma do CFC sobre assinatura de demonstrações | Não encontrada; a exigência vem do CC art. 1.184, §2º, da ITG 2000 e da ITG 1000 |
 | Item da norma de apresentação que exige comparativo | LSA art. 176, §1º, confirmado; o item da TG 26 (R5) e o da TG 51 ficam a conferir no PDF antes do código |
