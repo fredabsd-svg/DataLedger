@@ -7,6 +7,7 @@ from apps.contabilidade.models import (
     ClassificacaoDlpa,
     ClassificacaoDmpl,
     ClassificacaoDre,
+    ClassificacaoFluxoCaixa,
     Conta,
     ItemLancamento,
     LancamentoContabil,
@@ -126,6 +127,25 @@ class ContaSerializer(serializers.ModelSerializer):
             # INICIAL, que não tem histórico a preservar — são operações
             # diferentes, com contratos diferentes (D2 do plano da DL-063).
             "classificacao_dmpl",
+            # DL-066 (etapa 2): os três campos da DFC — EXPPOSTOS para leitura
+            # (quem integra precisa ver o que está marcado) e marcados
+            # `read_only`: a escrita destes campos é a porta própria
+            # `ContaClassificacaoDfcView`, que grava pelo serviço
+            # `classificar_conta_na_dfc` — com `full_clean()` (as quatro
+            # coerências de `Conta.clean()`) e trilha antes/depois. Gravá-los
+            # pelo POST/PUT exigiria replicar essas coerências aqui (BL-40/
+            # DE-008: o DRF não chama `full_clean()`), e a duplicata teria de
+            # ser COMPLETA para não virar furo (a lição da DL-063). A
+            # extensão da escrita ao cadastro inicial é a decisão D2 da
+            # DL-063 aplicada a estes campos — fica declarada, não escondida.
+            "caixa_e_equivalentes",
+            "classificacao_dfc",
+            "item_de_resultado_sem_caixa",
+        ]
+        read_only_fields = [
+            "caixa_e_equivalentes",
+            "classificacao_dfc",
+            "item_de_resultado_sem_caixa",
         ]
 
     def validate_classificacao_dre(self, value):
@@ -408,6 +428,32 @@ class ClassificacaoDmplPatchSerializer(serializers.Serializer):
     classificacao_dmpl = serializers.ChoiceField(
         choices=ClassificacaoDmpl.choices, allow_null=True, allow_blank=True, required=False
     )
+
+
+class ClassificacaoDfcPatchSerializer(serializers.Serializer):
+    """DL-066 (etapa 2): valida o CORPO do `PATCH` de
+    `ContaClassificacaoDfcView` — os TRÊS campos da DFC de uma conta
+    existente, no mesmo molde das irmãs (R3 da auditoria DL-045): corpo
+    malformado não vaza como 500 mudo, `ChoiceField` recusa o corpo que não é
+    `Mapping` e o valor que não é chave de `ClassificacaoFluxoCaixa`, e
+    `BooleanField` recusa `"true"`/`1` crus.
+
+    Aqui só FORMA. As regras — caixa × atividade na mesma conta, item sem
+    caixa só em resultado, a guarda de período fechado da DL-065 — são de
+    `Conta.clean()`, rodado pelo `classificar_conta_na_dfc` (uma fonte só,
+    mesma divisão das irmãs: o serializer julga o tipo; o serviço julga a
+    regra). Os campos são `required=False` porque o PATCH é parcial: quem não
+    veio no corpo não muda (a fusão acontece na view, que conhece o serviço).
+    """
+
+    caixa_e_equivalentes = serializers.BooleanField(required=False)
+    classificacao_dfc = serializers.ChoiceField(
+        choices=ClassificacaoFluxoCaixa.choices,
+        allow_null=True,
+        allow_blank=True,
+        required=False,
+    )
+    item_de_resultado_sem_caixa = serializers.BooleanField(required=False)
 
 
 # DL-061 (fatia 2, BL-605): o corpo do PUT de `MarcacaoDmplView` é o
