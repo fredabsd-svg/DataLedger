@@ -190,25 +190,29 @@ def _codigos_da_validacao(exc):
     return {erro.code for erro in itens if getattr(erro, "code", None)}
 
 
-def _gravar_classificacao_de_demonstracao_anual(conta, *, campo, classificacao):
-    """Atribui a classificação de uma demonstração ANUAL, valida a conta e
-    traduz a recusa de período fechado (DL-065, E2).
+def _validar_e_gravar_classificacoes(conta, campos):
+    """Atribui os campos de classificação pedidos, valida a conta e traduz a
+    recusa de período fechado (DL-065, E2) — o miolo compartilhado por
+    `classificar_conta_na_dlpa`, `classificar_conta_na_dmpl` e
+    `classificar_conta_na_dfc`.
 
-    Chamado por `classificar_conta_na_dlpa` e `classificar_conta_na_dmpl`, que
-    faziam antes a atribuição + `full_clean()` + `save()` na mão. O
-    `full_clean()` é o MESMO — a regra mora em `Conta.clean()`, que é o que
-    fecha também o admin, e por isso não há uma segunda implementação da
-    regra aqui. O que este função acrescenta é a TRADUÇÃO: quando o
+    `campos` é `{nome_do_atributo: valor}`. A atribuição acontece de uma vez
+    e o `full_clean()` roda UMA vez depois delas: na classificação da DFC os
+    três campos mudam juntos e as guardas de coerência de `Conta.clean()`
+    (caixa **e** atividade na mesma conta, DL-066/BL-514) enxergam o estado
+    FINAL da transição, nunca um estado intermediário em que um campo já foi
+    gravado e o outro ainda não.
+
+    O `full_clean()` é o MESMO de sempre — a regra mora em `Conta.clean()`,
+    que é o que fecha também o admin, e por isso não há segunda implementação
+    da regra aqui. O que esta função acrescenta é a TRADUÇÃO: quando o
     `ValidationError` é o de período fechado, ele vira
     `ClassificacaoAlteraPeriodoFechado` (409 na API, recusa na tela); qualquer
     OUTRO `ValidationError` sobe intacto, para a view tratar como 400 como
     sempre.
-
-    `campo` é o nome do atributo, e não o valor: os dois serviços já recebem
-    o valor validado pelo serializer e pelo form, e repassar o nome mantém a
-    lista de campos gravados (`update_fields`) em um lugar só.
     """
-    setattr(conta, campo, classificacao or None)
+    for campo, valor in campos.items():
+        setattr(conta, campo, valor)
     try:
         conta.full_clean()
     except DjangoValidationError as exc:
@@ -217,7 +221,23 @@ def _gravar_classificacao_de_demonstracao_anual(conta, *, campo, classificacao):
                 " ".join(mensagens_da_validacao_django(exc))
             ) from exc
         raise
-    conta.save(update_fields=[campo])
+    conta.save(update_fields=list(campos))
+
+
+def _gravar_classificacao_de_demonstracao_anual(conta, *, campo, classificacao):
+    """Atribui a classificação de uma demonstração ANUAL, valida a conta e
+    traduz a recusa de período fechado (DL-065, E2).
+
+    Chamado por `classificar_conta_na_dlpa` e `classificar_conta_na_dmpl`, que
+    faziam antes a atribuição + `full_clean()` + `save()` na mão. O miolo é
+    `_validar_e_gravar_classificacoes`; esta camada só mantém a assinatura de
+    um campo das duas irmãs e a normalização de `None`/`""` para `None`.
+
+    `campo` é o nome do atributo, e não o valor: os dois serviços já recebem
+    o valor validado pelo serializer e pelo form, e repassar o nome mantém a
+    lista de campos gravados (`update_fields`) em um lugar só.
+    """
+    _validar_e_gravar_classificacoes(conta, {campo: classificacao or None})
 
 
 class CompetenciaEncerrada(Exception):
@@ -6108,6 +6128,91 @@ def classificar_conta_na_dlpa(*, conta, classificacao, usuario, request=None):
 # 10, 13 a 21 e 43 a 45. O plano é `docs/planos/DL-066-dfc.md`; as decisões
 # E1 a E6 citadas abaixo são as dele.
 # ---------------------------------------------------------------------------
+
+
+@transaction.atomic
+def classificar_conta_na_dfc(
+    *,
+    conta,
+    caixa_e_equivalentes,
+    classificacao_dfc,
+    item_de_resultado_sem_caixa,
+    usuario,
+    request=None,
+):
+    """Classifica (ou reclassifica) os TRÊS campos da DFC de uma conta
+    EXISTENTE — a porta de serviço da tela `conta_classificacao_dfc`
+    (DL-066, etapa 2), no molde de `classificar_conta_na_dlpa` e
+    `classificar_conta_na_dmpl`.
+
+    Os campos são as decisões **E2/E3** do plano:
+
+    - `caixa_e_equivalentes` — a conta entra na lista de caixa e
+      equivalentes (o item 45 do CPC 03 exige saber quais contas conciliam);
+    - `classificacao_dfc` — a ATIVIDADE do fluxo em que a conta participa
+      (operacional/investimento/financiamento, ou `None` para REMOVER);
+    - `item_de_resultado_sem_caixa` — item de resultado que não movimenta
+      caixa (depreciação, amortização, provisão), o item 20(b) do método
+      indireto.
+
+    Os três são recebidos como ESTADO DESEJADO completo, não como patch: quem
+    chama (serializer, form) faz a fusão com o valor gravado quando o pedido é
+    parcial, e aqui não existe sentinela de "não mexer". Por isso a comparação
+    de "não houve mudança" é campo a campo, e a trilha registra só os campos
+    que de fato mudaram.
+
+    DL-065 (BL-550), estendida aos três campos na etapa 2: qualquer um deles
+    muda a DFC do período RETROATIVAMENTE, como a linha da DLPA e a coluna da
+    DMPL mudam as deles. Trocar, remover ou desmarcar em conta (ou descendente)
+    com movimento em competência ENCERRADA ou ENTREGUE é recusado com
+    `ClassificacaoAlteraPeriodoFechado` (409). A PRIMEIRA marcação
+    (`None`/`False` -> valor) continua livre, pelo mesmo motivo das irmãs:
+    nenhuma migração classificou conta alguma, e bloquear a primeira marcação
+    tornaria impossível montar o plano de caixa de uma empresa já em operação.
+    A REGRA mora em `Conta.clean()`; aqui só a tradução.
+
+    CORRIDA: `select_for_update()` antes de ler os valores gravados — duas
+    classificações concorrentes da MESMA conta serializam, e o "antes" da
+    trilha é sempre o valor real (mesmo molde das irmãs).
+
+    PERMISSÃO: verificada pela VIEW (`PodeEscriturar`, no servidor) — esta
+    função não verifica papel, mesmo limite das irmãs.
+
+    TRILHA: um `registrar()` na MESMA transação, com `{campo: {antes,
+    depois}}` dos campos alterados. Sem mudança nenhuma, não grava nem
+    registra — devolve a conta como veio.
+
+    Devolve a `Conta` já salva (mesma instância, atualizada).
+    """
+    valores_antes = (
+        Conta.objects.select_for_update()
+        .filter(pk=conta.pk)
+        .values("caixa_e_equivalentes", "classificacao_dfc", "item_de_resultado_sem_caixa")
+        .get()
+    )
+    desejados = {
+        "caixa_e_equivalentes": bool(caixa_e_equivalentes),
+        "classificacao_dfc": classificacao_dfc or None,
+        "item_de_resultado_sem_caixa": bool(item_de_resultado_sem_caixa),
+    }
+    alteracoes = {
+        campo: {"antes": valores_antes[campo], "depois": valor}
+        for campo, valor in desejados.items()
+        if valores_antes[campo] != valor
+    }
+    if not alteracoes:
+        return conta
+    _validar_e_gravar_classificacoes(conta, desejados)
+    registrar(
+        acao="conta.classificacao_dfc_alterada",
+        usuario=usuario,
+        escritorio=conta.empresa.escritorio,
+        objeto=conta,
+        request=request,
+        detalhes=alteracoes,
+    )
+    return conta
+
 
 _TITULOS_DAS_PENDENCIAS_DA_DFC = {
     "conta_com_dois_papeis": (
