@@ -5161,3 +5161,93 @@ permite enumerar usuários por fora. O texto gravado para conta existente é o
 digitado (por exemplo `ANA` para a conta `ana`), não o nome canônico — pode
 ser trocado pelo canônico numa etapa futura sem efeito sobre a segurança.
 
+
+## DE-098 — A DFC é oferecida por empresa, nunca exigida nem bloqueada
+
+Data: 05/10/2026. Decidido pelo `arquiteto-senior`, por instrução do Fred
+(*"pesquise na internet e decida"*), a partir da pesquisa que fechou as duas
+lacunas que travavam a DL-066.
+
+**O que a pesquisa encontrou, com fonte.**
+
+1. **NBC TG 26 (R5), item 10** — o conjunto completo de demonstrações
+   contábeis inclui, na alínea **(e), a "demonstração dos fluxos de caixa do
+   período"**. O item 11 manda apresentar **com igualdade de importância** todas
+   as demonstrações desse conjunto. Não há limite de patrimônio líquido
+   nenhuma na norma do CFC.
+2. **A própria norma sabe escrever uma condicionalidade e não a escreveu para
+   a DFC.** A alínea (f) do mesmo item 10 traz a demonstração do valor
+   adicionado *"se exigido legalmente ou por algum órgão regulador ou mesmo se
+   apresentada voluntariamente"*; a alínea (e), a DFC, não tem nada disso.
+3. **Lei 6.404/76, art. 176, § 6** — *"a companhia fechada com patrimônio
+   líquido, na data do balanço, inferior a R$ 2.000.000,00 (dois milhões de
+   reais) não será obrigada à elaboração e publicação da demonstração dos fluxos
+   de caixa"*. Texto confirmado literalmente em duas fontes independentes.
+
+⚠️ **Lacuna de fonte, declarada:** o texto compilado no Planalto **não foi
+obtido** — a requisição falha neste ambiente, e é a terceira tentativa. A
+confirmação do § 6 vem de fontes secundárias que reproduzem o mesmo texto
+literal. A **lacuna que isso fecha é a da redação**, não a da dúvida sobre a
+existência da isenção, e a redação do § 6 não é o que decide esta DE.
+
+**A decisão.** A DFC é **oferecida** por empresa, e o produto **não a exige e
+não a impede** — em nenhuma tela, em nenhum parâmetro, em nenhum veto.
+
+O motivo não é prudência de advogado, é de domínio:
+
+- A obrigação é da **entidade** perante quem a fiscaliza, e quem a fiscaliza é
+  o cliente, não o produto. Um escritório com carteira de LTDA, SLU, MEI e
+  S.A. **não tem como saber, pelo produto**, o regime da empresa, o patrimônio
+  líquido na data do balanço, nem se aquela companhia é aberta ou fechada.
+- A isenção do art. 176, § 6 **existe e é real**. Um produto que transformasse
+  "ausência de DFC" em bloqueio impediria um cliente de exercer uma faculdade
+  que a lei lhe dá.
+- E o inverso também é defeito: o produto que **calculasse e emitisse** DFC por
+  conta própria estaria affirmando uma obrigação que não pode verificar.
+
+**O que o produto FAZ, então, e é o meio-termo honesto:** a tela da DFC
+declara a base da norma — conjunto completo da NBC TG 26, item 10(e) — e **não**
+afirma obrigação nem dispensa. É a diferença entre dizer ao contador o que a
+norma diz e decidir por ele o que a lei exige da empresa dele.
+
+**Reversão:** é uma decisão de produto, não de estrutura. Tornar a DFC
+obrigatória seria acrescentar um parâmetro por empresa e uma condição de veto —
+nenhuma reescrita.
+
+## DE-099 — "Caixa e equivalentes" é campo por conta, sem padrão, e pode ser passivo
+
+Data: 05/10/2026. Mesma pesquisa da DE-098.
+
+**Item 6 do CPC 03 (R2)** — *"equivalentes de caixa são aplicações financeiras
+de curto prazo, de alta liquidez, que são prontamente conversíveis em montante
+conhecido de caixa e que estão sujeitas a um insignificante risco de mudança de
+valor"*. **Item 7** — normalmente se qualifica quando o vencimento é de **três
+meses ou menos** a contar da data de aquisição; os investimentos em
+instrumentos patrimoniais **não** estão contemplados, salvo equivalência
+substantial.
+
+**Item 8** — *"empréstimos bancários são geralmente considerados como atividades
+de financiamento. Entretanto, saldos bancários a descoberto, decorrentes de
+empréstimos obtidos por meio de instrumentos como cheques especiais ou contas
+correntes garantidas que são liquidados em curto lapso temporal, compõem parte
+integral da gestão de caixa da entidade. Nessas circunstâncias, saldos bancários
+a descoberto são incluídos como componente de caixa e equivalentes de caixa."*
+
+**Decisão:**
+
+1. **Campo por conta, sem padrão automático.** Declarar no produto quais contas
+   são equivalentes seria **inventar política de tesouraria alheia** — o
+   escritório decide o que é aplicação de curto prazo dele. Os três critérios
+   do item 6 e a referência de "três meses ou menos" vão no `help_text` do
+   campo, que é onde o contador os lê na hora de marcar.
+2. **`caixa_e_equivalentes` pode ser marcada em conta de PASSIVO**, e a razão é
+   o item 8: o saldo bancário a descoberto é **ativo negativo na prática
+   contábil e componente de caixa na norma**. Uma guarda que exigisse ATIVO
+   faria o cheque especial e a conta garantida ficarem de fora da conciliação
+   do item 45 — e a conciliação é justamente o que a entrega precisa provar.
+   O código de hoje **permite**, e o comentário agora diz por quê.
+3. **Não inferir de nome nem de código**, pelas mesmas razões dos demais campos
+   de classificação do módulo. "Banco Conta Corrente" tanto serve quanto abriga
+   ajuste de regularização.
+
+**Reversão:** os três pontos são locais ao campo e ao seu comentário.

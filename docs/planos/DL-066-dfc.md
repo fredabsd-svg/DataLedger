@@ -160,34 +160,66 @@ diferença entre a variação do caixa apurada e a variação dos saldos de caix
 equivalentes no Balanço, e a emissão é **recusada** com a diferença nomeada.
 Nenhum saldo é ajustado para fechar.
 
-## Perguntas para o Fred — e a recomendação de cada uma
+## Perguntas respondidas — pesquisa de 05/10/2026 e decisões
 
-1. **O que conta como "equivalentes de caixa"?** A norma diz aplicação de
-   curto prazo, três meses ou menos (item 7). O produto precisa de um padrão
-   que o escritório use, e a resposta muda o que a conciliação do item 45
-   compara. **Recomendação:** campo por conta, com o padrão do produto
-   sugerindo ausência de equivalente por omissão — quem tiver aplicação
-   curta marca a conta. Declarar um padrão automático seria inventar
-   política de tesouraria alheia.
-2. **A empresa é obrigada a elaborar a DFC?** A Lei 6.404/76, art. 176, IV,
-   com a § 6 isentando a companhia fechada com PL abaixo de R$ 2.000.000,00.
-   O produto atende escritório de contabilidade, com carteira heterogênea.
-   **Recomendação:** a DFC é emitida por empresa que a pedir, sem TRAVAR
-   nenhuma; a pergunta da obrigatoriedade é do cliente, não do produto. E
-   nenhuma nota de rodapé legal entra antes de o texto do Planalto ser
-   lido — a lacuna está declarada.
-3. **O produto oferece a apresentação em base líquida?** O item 22 lista os
-   casos, e o 23(a) é a movimentação em conta de depósito à vista — exatamente
-   o caso do escritório brasileiro. **Recomendação:** não nesta primeira
-   entrega. É uma opção de apresentação que só faz sentido depois que a
-   conta de caixa está classificada, e ela polui a leitura de quem está
-   aprendendo. Registrar como pendência.
-4. **Onde entram os juros e os dividendos?** O item 34A **encoraja
-   fortemente** classificar juros recebidos e pagos e dividendos recebidos
-   como operacionais, e dividendos e JCP pagos como de financiamento — e
-   exige que a escolha diferente venha com nota. **Recomendação:** seguir a
-   34A como padrão do produto, e deixar a conta marcável para o caso
-   diferente, que a norma já autoriza desde que declarado.
+As quatro perguntas desta seção foram respondidas por pesquisa e **decididas**,
+por instrução do Fred (*"pesquise na internet e decidiu"*). As duas decisões
+que mudam o produto estão em
+[DE-098](../projeto/decisoes.md) e **DE-099**.
+
+**1. O que conta como "equivalente de caixa"?** — **DE-099.** CPC 03 (R2), item
+6 define equivalente de caixa (curto prazo, alta liquidez, conversível a
+montante conhecido, risco insignificante de mudança de valor) e o item 7 dá o
+critério de praxe: vencimento de **três meses ou menos** a contar da aquisição,
+com os instrumentos patrimoniais de fora. **Decisão: campo por conta, sem
+marcação automática** — declarar no produto quais contas são equivalentes seria
+inventar política de tesouraria alheia; os três critérios vão no `help_text` do
+campo, onde o contador os lê na hora de marcar.
+
+⚠️ **Achado da pesquisa que mudou o código:** o **item 8** do CPC 03 diz que
+*"saldos bancários a descoberto, decorrentes de (…) cheques especiais ou
+contas correntes garantidas que são liquidados em curto lapso temporal,
+comõem parte integral da gestão de caixa da entidade"* e **são incluídos como
+componente de caixa e equivalentes de caixa**. Na prática contábil o
+descoberto é ativo negativo e costuma ser conta de PASSIVO. Uma guarda que
+exigisse ATIVO — que era a intuição antes de ler o item — tiraria cheque
+especial e conta garantida de fora da conciliação do item 45. **O campo não
+tem restrição de tipo**, e o comentário agora registra o motivo.
+
+**2. A empresa é obrigada a elaborar a DFC?** — **DE-098.** A resposta é
+**não é decisão do produto**:
+
+- **NBC TG 26 (R5), item 10(e)** — o conjunto completo de demonstrações inclui
+  a *"demonstração dos fluxos de caixa do período"*, e o item 11 manda
+  apresentá-la com igualdade de importância. **Não há limite de patrimônio
+  líquido na norma do CFC.**
+- A mesma norma **sabe escrever condicionalidade e não a escreveu para a DFC**:
+  a alínea (f) do item 10 traz a DVA *"se exigido legalmente ou por algum órgão
+  regulador"*, e a alínea (e), a DFC, não tem nada disso.
+- **Lei 6.404/76, art. 176, § 6** — *"a companhia fechada com patrimônio líquido
+  […] inferior a R$ 2.000.000,00 […] não será obrigada à elaboração e
+  publicação da demonstração dos fluxos de caixa"*.
+
+**Decisão: a DFC é oferecida por empresa; o produto não a exige e não a
+impede.** O escritório não tem como saber, pelo produto, o regime da empresa,
+o patrimônio líquido na data do balanço nem se aquela companhia é aberta ou
+fechada; e a isenção do § 6 existe e é real — um produto que transformasse
+"ausência de DFC" em bloqueio impediria um cliente de exercer faculdade que a
+lei lhe dá. **O que o produto faz é declarar a base** (conjunto completo da
+NBC TG 26, item 10(e)) **sem afirmar obrigação nem dispensa.**
+
+**3. Base líquida (itens 22 e 23)?** — **não nesta entrega.** O item 23(a) é
+justamente a movimentação em conta de depósito à vista, que é o caso do
+escritório brasileiro — e é por isso que a decisão não pode ser adiada para
+depois de pronto: oferecer a opção antes de a conta de caixa estar classificada
+só produziria número que o contador não sabe ler. Registrada como pendência.
+
+**4. Onde entram juros e dividendos?** — **o item 34A encoraja fortemente**
+classificar juros recebidos e pagos e dividendos recebidos como **operacionais**,
+e dividendos e JCP pagos como de **financiamento**; e exige que a escolha
+diferente venha com nota. **Decisão: seguir a 34A como padrão do produto**, com
+a conta marcável para o caso diferente, que a norma já autoriza desde que
+declarado.
 
 ## Critérios de aceite
 
@@ -196,7 +228,7 @@ Nenhum saldo é ajustado para fechar.
 | 1 | O caso de referência reproduz a tabela acima **ao centavo**, nos dois métodos | `test_criterio1_*` |
 | 2 | **Caixa final da DFC = saldo de caixa e equivalentes no Balanço na mesma data** (item 45), por identidade, nos dois métodos | `test_criterio2_*` |
 | 3 | Movimentos entre duas contas de caixa e equivalentes **não** entram como fluxo (item 9) | `test_criterio3_*` |
-| 4 | Lançamento com **duas** atividades, uma de cada lado, é aceito e nomeia as duas (item 12) | `test_criterio4_*` |
+| 4 | Lançamento com **duas** atividades é **vetado** e nomeia as duas (item 12) | `test_limite_uma_transacao_*` |
 | 5 | Classificação de atividade **ausente** numa conta de movimento veta a emissão e **nomeia a conta** | `test_criterio5_*` |
 | 6 | Conta de resultado marcada como **não caixa** aparece no ajuste do item 20(b) e **não** na variação de contas operacionais | `test_criterio6_*` |
 | 7 | Conta marcada como caixa e equivalentes **sem** movimento no período não entra no saldo conciliado | `test_criterio7_*` |
@@ -264,7 +296,72 @@ o que ela acrescenta, não sobre a base de novo.
 | Base normativa do CPC 03 (itens 6 a 52A) | **Testado** — texto integral lido nesta sessão |
 | Texto do art. 176 da Lei 6.404/76 | **Não testado** — Planalto inacessível neste ambiente; **lacuna declarada** |
 | Manual do sistema de referência (p. 622-631 e 666-667) | **Não lido** — declarado, não conformidade; a rotina do manual não autoriza nem refuta a regra |
-| Implementação | Pendente |
+
+### Fatia 1 — núcleo da apuração: entregue, e **incompleto**
+
+**Entregue e testado:** os três campos da conta (`caixa_e_equivalentes`,
+`classificacao_dfc`, `item_de_resultado_sem_caixa`) com a constraint de banco,
+a normalização de `""` e as duas guardas de coerência do modelo;
+`apurar_dfc`, com as três atividades apuradas **a partir dos lançamentos**, a
+exclusão do item 9, o veto do item 12 nomeando as atividades em conflito, e a
+conciliação do item 45 como **identidade**; e `avaliar_emissao_da_dfc`, com
+todas as pendências vetando e cada motivo dizendo o que falta.
+
+⚠️ **N3 (MÉDIA) da reconferência, e ela está certa: este parágrafo afirmava
+números que nenhuma execução media.** O texto dizia "em PostgreSQL 16.15
+(porta 5433)" e "1.868 aprovados com os mesmos 8 reprovados de ambiente" — e o
+próprio repositório registra, desde o commit `5e953b1`, que o **PostgreSQL
+local está bloqueado por Controle de Aplicativo do Windows**, de modo que
+esses 8 reprovados **não são reproduzíveis** aqui. Número que ninguém mediu é
+tão grave quanto número medido errado, e este projeto proíbe os dois
+(AGENTS.md §6 e §15).
+
+**O que foi realmente medido**, e é a evidência que vale:
+
+| Item | Classificação | Onde |
+| --- | --- | --- |
+| Suíte completa: **4.688 passed, 53 skipped, 0 failed** | **Testado** | CI, run `37386866890`, PostgreSQL 16.15.15, Python 3.14.7, pytest 9.1.1, no commit `7c0eae7` |
+| Os **quatro checks** do PR #89 verdes | **Testado** | CI |
+| `ruff check .`, `makemigrations --check --dry-run` | **Testado** | CI |
+| **Reexecução local dos 20 testes** | **Bloqueado** | a política de Controle de Aplicativo bloqueou o `postgres.exe`; `pg_ctl` não sobe e a porta 5433 não abre |
+| Reprodução local do laço infinito do N1 e do teste de três níveis do N2 | **Bloqueado** | idem |
+
+Os **20 testes** são reais e foram executados — na CI, dentro dos 4.688. O que
+não se pode afirmar é "em PostgreSQL 16.15 na porta 5433" nem "8 reprovados de
+ambiente", porque **esta máquina não roda o motor da evidência** desde que a
+política de bloqueio entrou.
+
+⚠️ **O veto do item 12 é INTERINO, e o auditor foi quem o declarou.** O texto
+deste plano dizia que o lançamento com duas atividades *"é aceito e nomeia"*
+e o código **veta**; quem estava errado era o texto. O juízo do auditor é o que
+fica: o CPC 03 **não manda dividir** — diz que uma transação *pode* ter fluxos
+em mais de uma atividade, o que é exigência de **apresentação correta**, não de
+recusa. O veto é defensável (RC-137/RC-151: o sistema propõe, o contador
+corrige na exceção, e o que não dá para decidir **recusa e nomeia**) e é
+declarado como **interino** até a marcação manual da fatia 2 decidir. Um
+lançamento que a norma manda apresentar dividido fica inemitível por falta de
+ferramenta — e isso tem de estar escrito, não implícito.
+
+⚠️ **A auditoria encontrou dois achados GRAVES nesta apuração, e os dois são
+da premissa da E1, não de detalhe.** O **A1**: a versão anterior filtrava as
+contrapartes sem classificação antes de avaliar, e uma contraparte classificada
+sozinha decidia o lançamento inteiro — o auditor reproduziu número errado com
+`pode_emitir=True` e **zero pendências**, porque a identidade do item 45
+continuava fechando. Ou seja: exatamente o risco que o desenho da E1 promete
+eliminar, e a identidade **não** pegava. O **A2**: `atividades[chave] +=
+fluxo` lê antes de escrever em Python, então uma atividade fora do enum
+— que o `CheckConstraint` **não** barra, ele só barra `""` — subia `KeyError`
+cru, ou seja 500 sem nomear nada. Os dois foram corrigidos e têm teste de
+reprodução.
+
+⚠️ **Ressalva de desenho que fica registrada:** `operacional_indireto` volta
+`None` nesta entrega, nomeado. O método indireto é a apresentação do mesmo
+número, e apresentar um número que ninguém auditou ainda seria pior do que não
+apresentar.
+
+**O que falta para a fatia 1 fechar:** o serviço de classificação da atividade
+(com trava e trilha, no molde das outras três), a tela, a API, e a apresentação
+do método indireto com os ajustes do item 20.
 
 > A nota de ambiente (`.env` apontando para SQLite, cluster PostgreSQL criado
 > na porta 5433, linha de base honesta de 8 reprovados) está em

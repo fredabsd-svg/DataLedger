@@ -130,7 +130,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md) | Sinal da conta-RAIZ retificadora no Balanço Patrimonial (BL-604) | Integrada (PR #81, squash `46d80a1`) — auditoria aprovada com ressalvas, reconferência aprovada; ciclo do §3.1 encerrado |
 | [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) | Fecha a leva da DL-061: coluna da DMPL nas duas portas, teste do snapshot e dica condicionada (BL-606, BL-607, BL-625) | **Integrada (PR #84, squash `c32cfe6`)** — o conteúdo **não tinha chegado à `main`** (o PR #82 foi mesclado na branch intermediária `fix/dl-062-…`); recuperado com a `base` reapontada para o destino real |
 | [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md) | Reclassificar conta com movimento em competência encerrada ou entregue não pode reescrever DLPA nem DMPL já apuradas (BL-550) | **Integrada (PR #85, squash `012a759`)** — ciclo de auditoria encerrado no veredito **REPROVADO** da reconferência; N1, N2 e N3 corrigidos depois, sem terceira rodada |
-| [DL-066](../planos/DL-066-dfc.md) | DFC — Demonstração dos Fluxos de Caixa, direto e indireto (CTB-15 da DL-048) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-066](../planos/DL-066-dfc.md) | DFC — Demonstração dos Fluxos de Caixa, direto e indireto (CTB-15 da DL-048) | Situação em **[Próximo passo](#próximo-passo)** — **fatia 1 integrada pelo PR #89** (núcleo da apuração; auditoria e reconferência aprovadas com ressalvas, N1 e N2 corrigidos); falta a porta de classificação, a tela, a API e o método indireto |
 | [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md) | Plano do módulo fiscal de out/2026 a 2028, com a reforma tributária, conciliado com a paridade fiscal | Planejada |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
@@ -145,8 +145,22 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 
 **AGORA, em 05/10/2026: [DL-066](../planos/DL-066-dfc.md) — a DFC, etapa
 CTB-15 da DL-048**, o último item da Onda 1 depois da DLPA (CTB-13) e da DMPL
-(CTB-14). O plano está escrito e revisado contra o texto integral do
-[CPC 03 (R2)](https://www.normasbrasil.com.br/norma/?id=306227), item a item.
+(CTB-14). O plano foi **integrado pelo PR #86**, e a **fatia 1 pelo PR #89**,
+depois de auditoria de rodada 1 e reconferência, as duas **APROVADAS COM
+RESSALVAS**.
+
+**O que a fatia 1 entregou, e o que falta.** Entregue e testado: os três
+campos da conta (`caixa_e_equivalentes`, `classificacao_dfc`,
+`item_de_resultado_sem_caixa`), as guardas de coerência do modelo,
+`apurar_dfc` com as três atividades apuradas **a partir dos lançamentos**, a
+exclusão do item 9, os vetos dos itens 9, 12 e 45 e a conciliação do item 45
+como **identidade**. **20 testes**, e a execução que vale é a da CI: **4.688
+aprovados, 53 pulados, zero reprovados**.
+
+**Falta para a fatia fechar:** o serviço de classificação da atividade com
+trilha, a tela, a API e a apresentação do método indireto — que volta `None`
+por enquanto, nomeado, porque apresentar número que ninguém auditou é pior do
+que não apresentar. **É esse o próximo passo da DL-066.**
 
 **O número da DFC sai do lançamento, não de soma de ajustes.** Caixa contra
 uma conta de fora da lista de caixa é um fluxo, classificado pela atividade
@@ -255,32 +269,55 @@ próprio. **O que fica de decisão do Fred:** essas três correções não passa
 por auditoria independente, e a forma honesta de tê-las seria um papel
 diferente do mesmo §3.1, não uma terceira rodada deste ciclo.
 
-**31 testes da demanda; `apps/contabilidade` com 1.857 aprovados e os mesmos
-8 reprovados** de antes da mudança. (O 1.839 que este arquivo trazia era o de
-antes do merge da DL-063, que entrou no meio da verificação; a **verificação
-dirigida** mediu 1.856 e a medição de hoje, já com o teste do segundo eixo do
-custo, dá 1.857. Um nono reprovado apareceu numa rodada e **não se
-reproduziu**: era o PostgreSQL local caindo, não o código.)
-
-**A verificação dirigida dos achados N1, N2 e N3 saiu
+**A verificação dirigida dos achados N1, N2 e N3 da DL-065 saiu
 [APROVADA COM RESSALVAS](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md).**
-As três correções fazem o que prometem, medido: sob `FOR UPDATE` concorrente
-com `lock_timeout` de 200 ms, a **API responde 409** nas duas demonstrações
-(era a porta que a reconferência deixara de fora), a tela 200 com recusa e
-valor intacto, o `ModelForm` do admin recusa sem degradar a validação de
-constraint, e a transação volta a servir depois do savepoint. O custo ficou
-**constante em 8 consultas** de 0 a 480 períodos — contra 486 medidos antes.
+Sob `FOR UPDATE` concorrente com `lock_timeout` de 200 ms, a **API responde
+409** nas duas demonstrações (era a porta que a reconferência deixara de
+fora), a tela 200 com recusa e valor intacto, o `ModelForm` do admin recusa
+sem degradar a validação de constraint, e a transação volta a servir depois
+do savepoint. O custo ficou **constante em 8 consultas** de 0 a 480 períodos,
+contra 486 medidos antes — e a ressalva de que ainda crescia no **segundo**
+eixo (meses com movimento, não períodos fechados) foi corrigida em seguida,
+com teste próprio, depois de eu escrever um teste que media **152 consultas
+com 37 meses** por buscar a FK `empresa` a cada trava.
 
-⚠️ **Mas a ressalva de custo era séria, e eu a tratei como defeito.** A
-primeira correção do N2 trocou o eixo do crescimento sem eliminá-lo: ela
-iterava os **meses com movimento** perguntando se cada um estava aberto, e a
-verificação mediu 39 consultas com 36 meses — que é justamente a empresa real,
-já que quase todo mês tem movimento. Pior: cada trava buscava a FK `empresa`
-da competência, que não vem em cache, e o teste que escrevi chegou a medir
-**152 consultas com 37 meses**. As duas causes foram corrigidas — itera-se o
-lado pequeno (as abertas da empresa, uma ou duas) e a empresa vem da conta —
-e o segundo eixo ganhou **teste próprio**, porque o teste anterior só pegava
-o primeiro.
+**Auditoria da DL-066, fatia 1 (DFC): rodada 1 APROVADA COM RESSALVAS,
+correção, e reconferência rodada 2 APROVADA COM RESSALVAS — os sete achados
+FECHADOS.** A execução que vale é a da **CI**: **4.688 aprovados, 53 pulados,
+zero reprovados**, no commit `7c0eae7`.
+
+⚠️ **Os dois achados graves da rodada 1 eram meus, e um deles tinha por base a
+própria premissa do desenho.** O **A1**: eu filtrava as contrapartes sem
+classificação **antes** de avaliar, e uma contraparte classificada sozinha
+decidia o lançamento inteiro — o auditor reproduziu **número errado com
+`pode_emitir=True` e zero pendências**, porque a identidade do item 45
+continua fechando. Ou seja: a identidade, que era a rede de segurança do
+desenho, **não** pegava o defeito. O **A2**: `atividades[chave] += fluxo` lê
+antes de escrever em Python, então atividade fora do enum subia `KeyError`
+cru — 500 sem nomear nada, contra o padrão do módulo (BL-476/BL-493) de
+nomear valor ilegível.
+
+⚠️ **A reconferência encontrou três coisas minhas novas, e uma delas é sobre
+honestidade do registro.** O **N1** (média): a caminhada de árvore que
+escrevi para a deduplicação era a **única** do módulo **sem guarda de
+ciclo**, e as outras quatro estão defendidas exatamente por isso, com
+justificativa escrita. Ciclo alcançável por ORM direto seria **travamento**
+de worker. O **N2** (média): a guarda de modelo que escrevi só olhava o pai
+**direto**, enquanto a mensagem dizia "uma conta acima dela" e o serviço sobe
+a cadeia inteira — as "duas metades da mesma defesa" mediam coisas diferentes.
+E o **N3** (média): **o plano e o PR afirmavam números que nenhuma execução
+havia medido** — "em PostgreSQL 16.15 na porta 5433" e "8 reprovados de
+ambiente", quando o cluster local está bloqueado por política de Controle de
+Aplicativo e esses 8 **não são reproduzíveis** aqui. Número que ninguém mediu
+é tão grave quanto número medido errado. Os três foram corrigidos nesta
+entrega, e o registro passa a citar a CI pelo identificador do run.
+
+⚠️ **Sobre o §3.1 e o que eu fiz:** a regra proíbe uma **terceira rodada de
+auditoria**, e não proíbe corrigir defeito conhecido. Corrigir um travamento e
+uma afirmação sem medição no registro não é comprar rodada — é terminar o
+trabalho. O que **não** houve, e não vai haver, é nova auditoria para avaliar
+estas correções: a verificação delas é da CI e dos testes de regressão, e o
+parecer do ciclo continua sendo o da rodada 2.
 
 ⚠️ **Achado de ambiente que mudou a forma de verificar nesta máquina:** o
 `DATABASE_URL` do `.env` apontava para **SQLite**, e o cluster do PostgreSQL
@@ -292,6 +329,28 @@ ele que produz todas as evidências desta seção. **A `.env` do repositório n�
 foi alterada.** Com o motor certo, a linha de base honesta é
 **8 reprovados** (1 de constraint de banco e 7 de Chromium/timeout de thread,
 todos de ambiente), e é ela que vale como comparação.
+
+🔴 **O cluster local voltou a ficar indisponível, e agora por política da
+máquina, não por configuração.** Em 05/10/2026, no meio da auditoria da
+fatia 1 da DL-066, o `postmaster` caiu e **não voltou**: uma **política de
+Controle de Aplicativo do Windows passou a bloquear a execução do
+`postgres.exe`** (*"Este comando não pode ser executado devido ao erro: uma
+política de Controle de Aplicativo bloqueou este arquivo"*). Nem `pg_ctl` nem
+o binário direto sobem; o `postmaster.pid` obsoleto que sobrou era sintoma, e
+removê-lo não resolveu. **Não há como contornar isso, e não deve haver.**
+
+**Consequência para a verificação, e ela é a mesma que o projeto já tinha
+antes:** a **CI é a evidência que vale para merge** — Python 3.14 e
+PostgreSQL 16. Rodada local que dependa do cluster está **Bloqueado**, com o
+motivo objetivo acima, e o número dela não entra em relatório nenhum. O
+`.env` continua apontando para SQLite e **não foi alterado**.
+
+⚠️ **O sintoma de banco morto tem forma própria, e ela engana:** com o
+cluster fora, o Django avisa que *"unable to create a connection to the
+'postgres' database and will use the first PostgreSQL database instead"* e
+cada teste passa a demorar segundos. A rodada de `apps/core` medida com ele
+assim deu **14 reprovados e 100 erros** em 573 s — número que, sem a causa,
+pareceria regressão séria. Nenhum deles foi usado para afirmar nada.
 
 **Antes de continuar a leva, uma pendência de repositório:** o PR #82
 (DL-063) foi mesclado na branch intermediária e **não chegou à `main`**.

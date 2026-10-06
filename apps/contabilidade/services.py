@@ -32,6 +32,7 @@ from apps.contabilidade.models import (
     ClassificacaoDlpa,
     ClassificacaoDmpl,
     ClassificacaoDre,
+    ClassificacaoFluxoCaixa,
     ClassificacaoPatrimonial,
     Competencia,
     Conta,
@@ -6098,6 +6099,449 @@ def classificar_conta_na_dlpa(*, conta, classificacao, usuario, request=None):
         },
     )
     return conta
+
+
+# ---------------------------------------------------------------------------
+# DL-066, fatia 1 (CTB-15) — DFC (Demonstração dos Fluxos de Caixa)
+#
+# Fonte normativa: CPC 03 (R2), lido item a item no planejamento — itens 6 a
+# 10, 13 a 21 e 43 a 45. O plano é `docs/planos/DL-066-dfc.md`; as decisões
+# E1 a E6 citadas abaixo são as dele.
+# ---------------------------------------------------------------------------
+
+_TITULOS_DAS_PENDENCIAS_DA_DFC = {
+    "conta_com_dois_papeis": (
+        "conta marcada como caixa e equivalentes **e** com atividade — papel duplo"
+    ),
+    "lancamentos_sem_atividade": "lançamento com caixa cuja contrapartida não tem atividade",
+    "classificacao_fora_do_enum": (
+        "conta com atividade gravada que não existe no enum — dado corrompido"
+    ),
+    "lancamento_com_atividades_conflitantes": (
+        "lançamento cujo fluxo cai em mais de uma atividade — precisa da marcação manual"
+    ),
+    "diferenca_de_caixa": (
+        "a soma das três atividades não bate com a variação do saldo de caixa e equivalentes"
+    ),
+}
+
+
+def apurar_dfc(*, empresa, ano, mes, data_inicio=None):
+    """Apura a DFC do período a partir dos **lançamentos** — E1 do plano.
+
+    A escolha de desenho que sustenta tudo: o FATO da DFC é o lançamento que
+    mexe uma conta de caixa e equivalentes e uma conta de fora dela. A
+    atividade vem da conta de fora, e a soma das três atividades é a variação
+    do saldo de caixa **por construção** — não por conciliação posterior. É o
+    que faz do item 45 uma identidade que precisa valer, com **veto** quando
+    não vale, em vez de um número que fecha errado.
+
+    Três regras da norma entram literalmente aqui:
+
+    - **item 9** — movimento entre dois itens que são caixa e equivalentes
+      NÃO é fluxo de caixa, e é ignorado. É também a resposta ao risco que o
+      mapa de paridade apontava, o de inferir "é banco, então é caixa" e
+      transformar reclassificação e ajuste em fluxo;
+    - **item 12** — uma única transação pode ter fluxos em mais de uma
+      atividade. A regra por conta não decide esse caso, e ele **veta** com o
+      nome dos lançamentos, para a marcação manual da fatia 2 decidir;
+    - **item 45** — a conciliação com o Balanço. A diferença entre a variação
+      apurada pelas atividades e a variação dos SALDOS das contas de caixa
+      vai para `conciliacao` e veta.
+
+    O método INDIRETO **não entra nesta fatia** — ele é a apresentação do
+    mesmo número, e a decomposição dos ajustes do item 20 é o que vem depois
+    do fato estar medido. `operacional_indireto` volta `None` aqui, nomeado,
+    em vez de vir com um número que ninguém auditou ainda.
+
+    Devolve `{"periodo", "atividades", "caixa", "conciliacao",
+    "operacional_indireto", "pendencias"}`; `Decimal` em todo o cálculo.
+    """
+    ultimo_dia = calendar.monthrange(ano, mes)[1]
+    fim_do_mes = date(ano, mes, ultimo_dia)
+    inicio = data_inicio or date(ano, 1, 1)
+    zero = Decimal("0")
+    atividades_vazias = {
+        atividade: zero
+        for atividade in (
+            ClassificacaoFluxoCaixa.OPERACIONAL,
+            ClassificacaoFluxoCaixa.INVESTIMENTO,
+            ClassificacaoFluxoCaixa.FINANCIAMENTO,
+        )
+    }
+
+    ja_estava_em_transacao = connection.in_atomic_block
+    with transaction.atomic():
+        if not ja_estava_em_transacao:
+            with connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+
+        ids_do_caixa = list(
+            Conta.objects.filter(empresa=empresa, caixa_e_equivalentes=True).values_list(
+                "id", flat=True
+            )
+        )
+        if not ids_do_caixa:
+            return {
+                "periodo": {
+                    "ano": ano,
+                    "mes": mes,
+                    "data_inicio": inicio,
+                    "data_fim": fim_do_mes,
+                },
+                "atividades": atividades_vazias,
+                "caixa": {"inicial": zero, "final": zero, "variacao": zero, "contas": []},
+                "conciliacao": {
+                    "variacao_pelas_atividades": zero,
+                    "variacao_dos_saldos": zero,
+                    "diferenca": zero,
+                },
+                "operacional_indireto": None,
+                "pendencias": {nome: [] for nome in _TITULOS_DAS_PENDENCIAS_DA_DFC},
+            }
+
+        pendencias = {nome: [] for nome in _TITULOS_DAS_PENDENCIAS_DA_DFC}
+
+        # ⚠️ **Achado A1 (GRAVE) da auditoria da fatia 1.** A versão anterior
+        # filtrava as contrapartes SEM classificação antes de avaliar, e uma
+        # contraparte classificada sozinha decidia o lançamento inteiro.
+        # Reproduzido pelo auditor: `D Despesa 10.000 / C Empréstimo (sem
+        # classificação) 10.000` somava os 10.000 na operação e **não gerava
+        # pendência nenhuma** — número errado, com `pode_emitir=True` e
+        # conciliação fechando. O veto do item 45 **não** pega isso, porque a
+        # identidade continua valendo: é o risco exato que o desenho da E1
+        # prometia eliminar. Qualquer contraparte sem classificação agora
+        # **veta e nomeia**, mesmo havendo outra classificada no mesmo
+        # lançamento.
+
+        # ⚠️ **Achado A5 (MÉDIA) da mesma auditoria.** A guarda de coerência
+        # (caixa **e** atividade) vive em `Conta.clean()`, que é o caminho
+        # validado; por ORM direto as duas marcações convivem, e o lançamento
+        # que as duas touch disappears da DFC — sem veto, porque o caixa é o
+        # lado do fluxo e a atividade é da contrapartida. Nomear aqui é
+        # transformar dado corrompido em recusa que diz o que é.
+        for conta in (
+            Conta.objects.filter(empresa=empresa, caixa_e_equivalentes=True)
+            .exclude(classificacao_dfc__isnull=True)
+            .values("codigo", "nome", "classificacao_dfc")
+        ):
+            pendencias["conta_com_dois_papeis"].append(
+                {
+                    "conta": conta["codigo"],
+                    "nome": conta["nome"],
+                    "atividade": conta["classificacao_dfc"],
+                }
+            )
+
+        # ⚠️ **Achado A3 (MÉDIA) da mesma auditoria — e a armadilha JÁ ESTÁ
+        # DESCRITA no `apurar_saldos`, 4.000 linhas acima, neste mesmo
+        # arquivo.** O `saldo` que o motor devolve é **consolidado**
+        # (próprio + subárvore), então somar um grupo de caixa e uma filha
+        # marcada conta o mesmo dinheiro duas vezes: medido, uma venda de
+        # 100.000 na filha de um grupo marcado dava 200.000 de caixa.
+        # Somamos **só as contas marcadas mais altas** — as que não têm
+        # ancestral também marcado —, que é o que faz cada árvore contar
+        # exatamente uma vez. A guarda de `clean()` correspondente (pai e filho
+        # marcados) é a segunda metade da defesa e está no modelo.
+        arvore = {
+            linha["id"]: linha["conta_pai_id"]
+            for linha in Conta.objects.filter(empresa=empresa).values("id", "conta_pai_id")
+        }
+        marcados = set(ids_do_caixa)
+
+        def tem_ancestral_marcado(conta_id):
+            """`True` se algum ANCESTRAL — a cadeia inteira, não só o pai
+            direto — também está marcado como caixa e equivalentes.
+
+            ⚠️ **N1 (MÉDIA) da reconferência: esta caminhada tinha laço
+            infinito.** O `while pai is not None` sem conjunto de visitados
+            é a **única** caminhada de árvore do módulo sem guarda — e o
+            próprio módulo já decidiu o contrário, quatro vezes e por
+            justamente este motivo: `_construir_hierarquia` carrega o plano
+            inteiro **com a justificativa explícita** de que um ciclo em
+            QUALQUER ramo derrubava o Razão de QUALQUER conta
+            (`services.py`, achado 14 da DL-023); a recursiva do modelo usa
+            `UNION` para o ciclo pré-existente "terminar sozinho"; o guard de
+            `conta_pai` no `clean()` tem teto de PROFUNDIDADE — *"sem ele,
+            `ancestral.conta_pai` desse laço alheio faria este laço FOR nunca
+            terminar"*; e `nivel_de` carrega `visitando`.
+
+            Ciclo entre contas **não** marcadas na cadeia de ancestrais de uma
+            conta marcada é alcançável por ORM/SQL direto (o guard de ciclo
+            do `clean()` só impede pelo caminho validado), e aqui o efeito
+            seria **travamento**: a apuração não devolve e o worker da tela
+            fica preso. A defesa agora é a mesma das outras quatro — conjunto
+            de visitados — e o ciclo **vira nome**, em vez de travar.
+            """
+            visitados = {conta_id}
+            pai = arvore.get(conta_id)
+            while pai is not None:
+                if pai in marcados:
+                    return True
+                if pai in visitados:
+                    raise HierarquiaInconsistente(
+                        f"A conta {pai} se refere a si mesma pela cadeia de "
+                        "conta-pai: o plano de contas tem ciclo, e a apuração da DFC "
+                        "não consegue decidir o que é caixa e equivalentes sem ele. "
+                        "Conserte o ciclo (é a conferência de hierarquia que o acusa)."
+                    )
+                visitados.add(pai)
+                pai = arvore.get(pai)
+            return False
+
+        # A deduplicação vale para o **SALDO**, não para o **movimento**: a filha
+        # marcada continua sendo por onde o dinheiro ENTRA, e é o lançamento
+        # nela que descobre o fluxo. Somente a soma de saldos é que não pode
+        # contar a mesma árvore duas vezes — e é ela que usa `ids_do_caixa`.
+        # Filtrar também o movimento por aqui zerava a apuração de uma empresa
+        # cuja venda caiu na filha de um grupo marcado, e a conciliação do
+        # item 45 acusava −100.000 sem causa contábil nenhuma.
+        ids_para_buscar_movimento = list(ids_do_caixa)
+        ids_do_caixa = [
+            conta_id for conta_id in ids_do_caixa if not tem_ancestral_marcado(conta_id)
+        ]
+
+        # Movimentação do período nas contas de caixa: uma consulta, e dela
+        # saem os dois fatos — os lançamentos que mexeram caixa e o saldo
+        # final. A lista vem ordenada por lançamento porque a apuração agrupa
+        # por lançamento e a ordem do banco não é contrato.
+        movimentos = list(
+            ItemLancamento.objects.filter(
+                lancamento__empresa=empresa,
+                lancamento__data__gte=inicio,
+                lancamento__data__lte=fim_do_mes,
+                conta_id__in=ids_para_buscar_movimento,
+            )
+            .values(
+                "lancamento_id",
+                "tipo",
+                "valor",
+                "lancamento__data",
+                "lancamento__historico",
+            )
+            .order_by("lancamento_id")
+        )
+        partidas_por_lancamento = defaultdict(list)
+        for item in movimentos:
+            partidas_por_lancamento[item["lancamento_id"]].append(item)
+
+        # As CONTRAPARTIDAS: as partidas dos mesmos lançamentos que NÃO estão
+        # em conta de caixa. É esta consulta — e não uma soma por conta — que
+        # implementa o item 9.
+        ids_dos_lancamentos = list(partidas_por_lancamento)
+        contrapartes_por_lancamento = defaultdict(list)
+        if ids_dos_lancamentos:
+            for item in (
+                ItemLancamento.objects.filter(lancamento_id__in=ids_dos_lancamentos)
+                .exclude(conta_id__in=ids_para_buscar_movimento)
+                .values(
+                    "lancamento_id",
+                    "conta__codigo",
+                    "conta__nome",
+                    "conta__classificacao_dfc",
+                )
+            ):
+                contrapartes_por_lancamento[item["lancamento_id"]].append(item)
+
+        atividades = dict(atividades_vazias)
+
+        for lancamento_id, partidas_caixa in partidas_por_lancamento.items():
+            entradas = sum(
+                (item["valor"] for item in partidas_caixa if item["tipo"] == TipoPartida.DEBITO),
+                zero,
+            )
+            saidas = sum(
+                (item["valor"] for item in partidas_caixa if item["tipo"] == TipoPartida.CREDITO),
+                zero,
+            )
+            fluxo = entradas - saidas
+            data = partidas_caixa[0]["lancamento__data"]
+            historico = partidas_caixa[0]["lancamento__historico"]
+            contrapartes = contrapartes_por_lancamento[lancamento_id]
+
+            if not contrapartes:
+                # **Item 9**: todas as partidas em conta de caixa e equivalentes
+                # é movimentação da própria tesouraria, não fluxo da entidade.
+                # Somá-la faria a variação apurada deixar de bater com a
+                # variação do saldo, e o item 45 acusaria uma diferença que
+                # não tem causa contábil nenhuma.
+                continue
+
+            atividades_distintas = {
+                item["conta__classificacao_dfc"]
+                for item in contrapartes
+                if item["conta__classificacao_dfc"]
+            }
+            sem_classificacao = [
+                item for item in contrapartes if not item["conta__classificacao_dfc"]
+            ]
+            # ⚠️ **Achado A1 (GRAVE) da auditoria da fatia 1.** A versão
+            # anterior decidia por `atividades_distintas` e só vetava quando
+            # **todas** as contrapartes estavam sem classificação. Com uma só
+            # classificada, as outras eram silenciosamente descartadas: o
+            # auditor reproduziu `D Despesa 10.000 / C Empréstimo (sem
+            # classificação) 10.000` somando os 10.000 na operação, **sem
+            # nenhuma pendência** e com `pode_emitir=True` — porque a
+            # identidade do item 45 continuava fechando. É exatamente o risco
+            # que a E1 promete eliminar: erro de classificação virando número
+            # publicado. Qualquer contraparte sem classificação **veta e
+            # nomeia**, mesmo havendo outra classificada no mesmo lançamento.
+            if sem_classificacao:
+                pendencias["lancamentos_sem_atividade"].append(
+                    {
+                        "lancamento_id": lancamento_id,
+                        "data": data,
+                        "historico": historico,
+                        "contas": ", ".join(
+                            f"{item['conta__codigo']} — {item['conta__nome']}"
+                            for item in sem_classificacao
+                        ),
+                    }
+                )
+                continue
+            # ⚠️ **Achado A2 (GRAVE).** `atividades[chave] += fluxo` em Python
+            # **lê antes de escrever**, então uma chave nova nunca nasce e o
+            # `KeyError` subia cru — 500 em tela e API, sem nomear nada. O
+            # `CheckConstraint` barra `""`, mas **não** barra valor fora do
+            # enum (`"bancaria"` passa), e o padrão do módulo (BL-476/BL-493) é
+            # o oposto: valor ilegível aparece **nomeado**, nunca como
+            # exceção. O conjunto de atividades é fechado, e o que cai fora
+            # dele vira pendência que diz a conta e o valor encontrado.
+            fora_do_enum = sorted(
+                valor for valor in atividades_distintas if valor not in atividades_vazias
+            )
+            if fora_do_enum:
+                pendencias["classificacao_fora_do_enum"].append(
+                    {
+                        "lancamento_id": lancamento_id,
+                        "data": data,
+                        "historico": historico,
+                        "contas": ", ".join(
+                            f"{item['conta__codigo']} — {item['conta__nome']} "
+                            f"(atividade gravada: {item['conta__classificacao_dfc']})"
+                            for item in contrapartes
+                            if item["conta__classificacao_dfc"] in fora_do_enum
+                        ),
+                    }
+                )
+                continue
+            if len(atividades_distintas) > 1:
+                # **Item 12**: a regra por conta não decide transação com
+                # fluxos em mais de uma atividade. Veta nomeando; a marcação
+                # manual da fatia 2 é quem decide.
+                pendencias["lancamento_com_atividades_conflitantes"].append(
+                    {
+                        "lancamento_id": lancamento_id,
+                        "data": data,
+                        "historico": historico,
+                        "atividades": sorted(atividades_distintas),
+                    }
+                )
+                continue
+            atividades[atividades_distintas.pop()] += fluxo
+
+        # Saldo de caixa e equivalentes, pela MESMA camada de saldos que o
+        # Balanço e o Balancete leem: a conciliação do item 45 só tem sentido
+        # se os dois lados da conferência virem do mesmo motor (DE-020), e
+        # é por isso que o saldo vem de `apurar_saldos` e não de uma soma
+        # própria — que teria de repetir a convenção de sinal da natureza.
+        def saldos_ate(data_base):
+            """`{código: saldo ECONÔMICO}` das contas de caixa e equivalentes.
+
+            ⚠️ **O `saldo` que `apurar_saldos` devolve é assinado pela
+            NATUREZA CADASTRADA** — devedor positivo, credor positivo — que é
+            o que o Balancete imprime. Para a conciliação do item 45 isso
+            **não serve**: o saldo bancário a descoberto é caixa e equivalentes
+            (CPC 03, item 8, e **DE-099**) e costuma ser conta de PASSIVO, em
+            que o valor credor chega **positivo**. Somá-lo sem inverter
+            contaria o descoberto como dinheiro em caixa, e inflaria a
+            conciliação — de 30.000,00 para 60.000,00 de erro, medido por
+            teste antes de a auditoria.
+
+            A inversão por natureza é o que torna "caixa e equivalentes" um
+            conceito **econômico** e não cadastral. Repare que o lado das
+            ATIVIDADES já estava certo sem isto: ele sai de débito e crédito,
+            não de saldo, e por isso o crédito no descoberto já contava como
+            saída.
+            """
+            return {
+                linha["conta"]: (
+                    -linha["saldo"]
+                    if linha["natureza"] == NaturezaConta.CREDORA
+                    else linha["saldo"]
+                )
+                for linha in apurar_saldos(empresa=empresa, data_base=data_base)["contas"]
+            }
+
+        saldos_fim = saldos_ate(fim_do_mes)
+        saldos_inicio = saldos_ate(inicio - timedelta(days=1))
+        inicial = zero
+        final = zero
+        contas_de_caixa = []
+        for conta in sorted(
+            Conta.objects.filter(id__in=ids_do_caixa).values("codigo", "nome"),
+            key=lambda linha: linha["codigo"],
+        ):
+            saldo_inicial = saldos_inicio.get(conta["codigo"], zero)
+            saldo_final = saldos_fim.get(conta["codigo"], zero)
+            inicial += saldo_inicial
+            final += saldo_final
+            contas_de_caixa.append(
+                {
+                    "conta": conta["codigo"],
+                    "nome": conta["nome"],
+                    "saldo_inicial": saldo_inicial,
+                    "saldo_final": saldo_final,
+                }
+            )
+
+        variacao_atividades = sum(atividades.values(), zero)
+        variacao_dos_saldos = final - inicial
+        diferenca = variacao_atividades - variacao_dos_saldos
+        if diferenca != zero:
+            pendencias["diferenca_de_caixa"].append(
+                {
+                    "variacao_pelas_atividades": variacao_atividades,
+                    "variacao_dos_saldos": variacao_dos_saldos,
+                    "diferenca": diferenca,
+                }
+            )
+
+        return {
+            "periodo": {"ano": ano, "mes": mes, "data_inicio": inicio, "data_fim": fim_do_mes},
+            "atividades": atividades,
+            "caixa": {
+                "inicial": inicial,
+                "final": final,
+                "variacao": variacao_dos_saldos,
+                "contas": contas_de_caixa,
+            },
+            "conciliacao": {
+                "variacao_pelas_atividades": variacao_atividades,
+                "variacao_dos_saldos": variacao_dos_saldos,
+                "diferenca": diferenca,
+            },
+            "operacional_indireto": None,
+            "pendencias": pendencias,
+        }
+
+
+def avaliar_emissao_da_dfc(dfc):
+    """Decide, no SERVIDOR, se a DFC pode ser emitida — mesmo contrato de
+    `avaliar_emissao_do_balanco` e `avaliar_emissao_da_dmpl`: lista explícita
+    de pendências que vetam, cada uma com um rótulo que diz o que fazer.
+
+    Hoje **todas** as três pendências vetam: a `diferenca_de_caixa` é o item
+    45, e as outras duas são classificação ausente — nenhuma delas é
+    "melhoria sugerida", e uma lista só-aviso aqui treinaria o contador a ler
+    número publicada como se fosse conferência de bancada.
+    """
+    pendentes = {nome: itens for nome, itens in dfc["pendencias"].items() if itens}
+    motivos = [
+        f"{_TITULOS_DAS_PENDENCIAS_DA_DFC.get(nome, nome)} ({len(itens)})"
+        for nome, itens in pendentes.items()
+    ]
+    return {"pode_emitir": not pendentes, "listas_pendentes": pendentes, "motivos": motivos}
 
 
 # ---------------------------------------------------------------------------

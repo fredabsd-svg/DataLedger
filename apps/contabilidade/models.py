@@ -989,6 +989,40 @@ def divergencia_entre_dlpa_e_dmpl(classificacao_dlpa, classificacao_dmpl):
     )
 
 
+class ClassificacaoFluxoCaixa(models.TextChoices):
+    """Atividade do fluxo de caixa — DL-066 (CTB-15).
+
+    CPC 03 (R2), item 6 (definições) e item 10 (apresentação): a DFC classifica
+    os fluxos do período por **atividades operacionais, de investimento e de
+    financiamento**, e essa é a classificação que a demonstração apresenta.
+
+    O enum traz os três rótulos da norma e **nada além deles**: a repartição
+    dentro de cada atividade (quais receitas são operacionais, quais
+    aquisições são de investimento) é do cadastro da empresa, exatamente como
+    nas demais classificações de conta do módulo — e é por isso que este é um
+    campo da conta, e não um tipo derivado de `TipoConta`. `TipoConta` separa
+    ativo, passivo, patrimônio líquido, receita e despesa; a norma separa
+    fluxo operacional, de investimento e de financiamento, e nenhuma das duas
+    divisions é a outra.
+
+    Ordem do enum = ordem de apresentação na demonstração, como nos demais
+    enums do módulo.
+    """
+
+    OPERACIONAL = "operacional", "Operacional"
+    INVESTIMENTO = "investimento", "Investimento"
+    FINANCIAMENTO = "financiamento", "Financiamento"
+
+
+# A atividade é permitida em qualquer `TipoConta`, e o motivo merece a nota
+# porque o módulo tem o contrário nos outros campos: "operacional" inclui uma
+# obrigação que é de operação (juros sobre empréstimo, item 31) e
+# "financiamento" inclui uma conta de resultado (a despesa de juros, cujo
+# pagamento a norma manda classificar pelo item 34A). Filtrar por tipo aqui
+# estreitaria a regra e faria a conta legítima virar "classificação
+# desconhecida" na apuração.
+
+
 class Conta(models.Model):
     """Conta do plano de contas de uma empresa, organizada em hierarquia.
 
@@ -1059,6 +1093,72 @@ class Conta(models.Model):
     ativo = models.BooleanField("ativo", default=True)
     criado_em = models.DateTimeField("criado em", auto_now_add=True)
 
+    # -------------------------------------------------------------------------
+    # DL-066 (CTB-15) — DFC. Três campos, no mesmo molde da CTB-12 (E2 e E3
+    # do plano), e todos com a mesma justificativa: são **propriedade da
+    # conta**, nunca inferidos de nome nem de código.
+    #
+    # `caixa_e_equivalentes` responde ao item 45 do CPC 03 (R2) — "divulgar os
+    # componentes de caixa e equivalentes de caixa e apresentar uma conciliação
+    # dos montantes na DFC com os respectivos itens no balanço patrimonial". Sem
+    # esse campo a conciliação não tem contra o que conferir. NOME de conta
+    # não serve: "Banco Conta Corrente" tanto serve quanto abriga ajustes de
+    # regularização, e conta de aplicação só é equivalente se o contador
+    # disser que é (item 7: curto prazo, até três meses).
+    #
+    # ⚠️ **Este campo NÃO é restrito a conta de ATIVO, e o motivo é o item 8**
+    # do CPC 03 (R2), não uma liberalidade: *"saldos bancários a descoberto,
+    # decorrentes de empréstimos obtidos por meio de instrumentos como cheques
+    # especiais ou contas correntes garantidas que são liquidados em curto
+    # lapso temporal, compõem parte integral da gestão de caixa da entidade.
+    # Nessas circunstâncias, saldos bancários a descoberto são incluídos como
+    # componente de caixa e equivalentes de caixa"*. Na prática contábil o
+    # descoberto é ativo negativo, e no plano de contas brasileiro ele costuma
+    # ser uma conta de PASSIVO. Uma guarda que exigisse ATIVO tiraria o cheque
+    # especial e a conta garantida de fora da conciliação do item 45 — que é
+    # justamente o que a entrega precisa provar. Ver **DE-099**.
+    caixa_e_equivalentes = models.BooleanField(
+        "caixa e equivalente de caixa",
+        default=False,
+        help_text=(
+            "Entra na conciliação do item 45 do CPC 03 (R2) e é o lado CAIXA "
+            "dos lançamentos na apuração da DFC. Equivalente de caixa é "
+            "aplicação de curto prazo, em regra vencimento de três meses ou "
+            "menos (item 7) — o padrão fica a cargo do escritório, não do "
+            "produto, e por isso não há marcação automática."
+        ),
+    )
+    # `classificacao_dfc` é a ATIVIDADE do fluxo em que a conta participa
+    # (itens 13 a 17). Fica na conta porque é a regra geral; o que a regra não
+    # decide — uma transação com duas atividades (item 12) — é exceção por
+    # lançamento, e vive na marcação manual (E4, fatia 2).
+    classificacao_dfc = models.CharField(
+        "atividade do fluxo de caixa",
+        max_length=60,
+        choices=ClassificacaoFluxoCaixa.choices,
+        null=True,
+        blank=True,
+        help_text=(
+            "CPC 03 (R2), itens 10 e 13 a 17: em qual das três atividades o "
+            "movimento desta conta entra na DFC. Vazio quando a conta ainda "
+            "não foi classificada — e a apuração veta enquanto houver conta "
+            "movimentada sem classificação."
+        ),
+    )
+    # `item_de_resultado_sem_caixa` é o item 20(b) do método indireto:
+    # despesa ou receita que NÃO movimenta caixa (depreciação, amortização,
+    # provisões). Só existe para conta de resultado — a mesma restrição que
+    # a linha da DRE e a da DLPA já fazem com `tipo`.
+    item_de_resultado_sem_caixa = models.BooleanField(
+        "item de resultado que não movimenta caixa",
+        default=False,
+        help_text=(
+            "CPC 03 (R2), item 20(b): depreciação, amortização, provisões e "
+            "semelhantes entram no ajuste do método indireto e não como fluxo. "
+            "Só vale para conta de resultado."
+        ),
+    )
+
     class Meta:
         verbose_name = "conta"
         verbose_name_plural = "contas"
@@ -1105,6 +1205,15 @@ class Conta(models.Model):
             models.CheckConstraint(
                 condition=~models.Q(classificacao_dmpl=""),
                 name="ck_conta_classificacao_dmpl_nao_vazia",
+            ),
+            # DL-066/CTB-15: mesma defesa de BANCO (DE-008, camada 1) das três
+            # anteriores, desde o dia um do campo — `""` nunca é estado
+            # válido, e sem a constraint ele apareceria como atividade
+            # DESCONHECIDA na apuração da DFC em vez de "sem classificação".
+            # `Conta.clean()` normaliza `""` → `None` no caminho validado.
+            models.CheckConstraint(
+                condition=~models.Q(classificacao_dfc=""),
+                name="ck_conta_classificacao_dfc_nao_vazia",
             ),
         ]
 
@@ -1417,6 +1526,9 @@ class Conta(models.Model):
         # DL-061/CTB-14: a coluna da DMPL, na mesma batida e pelo mesmo motivo.
         if self.classificacao_dmpl == "":
             self.classificacao_dmpl = None
+        # DL-066/CTB-15: a atividade do fluxo de caixa, idem.
+        if self.classificacao_dfc == "":
+            self.classificacao_dfc = None
 
         # Achado B4 da auditoria rodada 1 (DL-038, R5): a recusa de
         # contabilidade por partidas dobradas para empresa em modo
@@ -1546,6 +1658,85 @@ class Conta(models.Model):
         )
         if divergencia is not None:
             raise ValidationError(divergencia)
+
+        # DL-066 (CTB-15): duas coerências que a apuração da DFC pressupõe e
+        # que, sem guarda aqui, virariam **número errado** em vez de erro.
+        #
+        # (1) Conta marcada como caixa e equivalentes com atividade atribuída:
+        # na DFC a conta de caixa é o LADO CAIXA do fluxo, e a atividade vem da
+        # contrapartida (E1 do plano). Uma conta que é as duas coisas não tem
+        # atividade — ou o contador a declarou caixa por engano, ou quer que ela
+        # conte duas vezes. Nos dois casos é cadastro a corrigir, e a apuração
+        # não pode escolher por ele.
+        if self.caixa_e_equivalentes and self.classificacao_dfc:
+            rotulo = ClassificacaoFluxoCaixa(self.classificacao_dfc).label
+            raise ValidationError(
+                "Esta conta está marcada como caixa e equivalente de caixa e ao mesmo "
+                f'tempo com a atividade "{rotulo}" na DFC. São papéis diferentes: a '
+                "conta de caixa é o lado por onde o dinheiro entra e sai, e a atividade "
+                "é da contrapartida. Escolha um dos dois — sem essa escolha a apuração "
+                "contaria o mesmo fluxo duas vezes."
+            )
+        # ⚠️ **Achado A3 (MÉDIA) da auditoria da fatia 1.** Grupo de caixa e
+        # filha marcados ao mesmo tempo **contam o mesmo dinheiro duas vezes**
+        # na conciliação do item 45: o `saldo` que o motor de saldos devolve é
+        # consolidado (próprio + subárvore), e somar as duas contas duplica a
+        # árvore. A apuração já soma **só as contas marcadas mais altas** por
+        # isso; esta guarda é a metade do modelo, e transforma dado ambíguo em
+        # erro de cadastro — que é o lugar certo de pegá-lo.
+        if self.caixa_e_equivalentes and self.pk:
+            # ⚠️ **N2 (MÉDIA) da reconferência: esta guarda só olhava o PAI
+            # DIRETO**, enquanto a mensagem diz "uma conta **acima** dela" e a
+            # deduplicação do serviço sobe a cadeia INTEIRA — as "duas metades
+            # da mesma defesa" mediam coisas diferentes, e o estado proibido era
+            # alcançável pelo caminho validado a partir da profundidade 2
+            # (marcar a raiz, criar um filho sem marcação, marcar o neto).
+            #
+            # Agora deriva da MESMA propriedade do serviço: subir a cadeia.
+            # Uma consulta, e só quando a conta é de caixa e já está gravada —
+            # o atalho `if` acima evita a consulta nas demais gravações.
+            #
+            # `visitados` fecha o laço contra `conta_pai` cíclico alcançável
+            # por ORM direto, pelo mesmo motivo do guard de profundidade mais
+            # abaixo deste mesmo `clean()`.
+            marcados = set(
+                Conta.objects.filter(empresa_id=self.empresa_id, caixa_e_equivalentes=True)
+                .exclude(pk=self.pk)
+                .values_list("id", flat=True)
+            )
+            if marcados:
+                pais = dict(
+                    Conta.objects.filter(empresa_id=self.empresa_id).values_list(
+                        "id", "conta_pai_id"
+                    )
+                )
+                visitados = {self.pk}
+                pai = self.conta_pai_id
+                while pai is not None and pai not in visitados:
+                    if pai in marcados:
+                        raise ValidationError(
+                            "Uma conta de árvore não pode ser marcada como caixa e "
+                            "equivalentes quando uma conta ACIMA dela já é: o saldo de "
+                            "caixa seria contado duas vezes. Marque a conta de cima, ou "
+                            "só as de baixo — nunca as duas."
+                        )
+                    visitados.add(pai)
+                    pai = pais.get(pai)
+        # (2) "Item de resultado que não movimenta caixa" fora de resultado: a
+        # distinção do item 20(b) é sobre receita e despesa, e aplicá-la a um
+        # ativo faria o ajuste do método indireto somar um saldo patrimonial ao
+        # resultado — que é o tipo de erro que a conciliação do item 45
+        # acusaria só depois, longe da causa.
+        if self.item_de_resultado_sem_caixa and self.tipo not in (
+            TipoConta.RECEITA,
+            TipoConta.DESPESA,
+        ):
+            raise ValidationError(
+                "Só conta de resultado pode ser marcada como item que não movimenta "
+                f"caixa; esta conta é do tipo {TipoConta(self.tipo).label}. A marcação "
+                "existe para depreciação, amortização e provisões (CPC 03, item 20(b)), "
+                "que são receita ou despesa."
+            )
 
         # Impede o ciclo NA ORIGEM (achado 6 da auditoria DL-015, rodada 1):
         # sem esta checagem, atribuir como pai uma conta descendente da
