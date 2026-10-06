@@ -366,3 +366,89 @@ do método indireto com os ajustes do item 20.
 > A nota de ambiente (`.env` apontando para SQLite, cluster PostgreSQL criado
 > na porta 5433, linha de base honesta de 8 reprovados) está em
 > [`estado.md`](../agents/estado.md) e vale para todas as etapas desta leva.
+
+### Etapa 2 — o fecho da fatia 1: portas, telas e método indireto (10/10/2026)
+
+**Ordem do Fred:** *"fechar o que falta dela"* — a fatia 1 entrou na `main`
+pelo PR #89 só com o núcleo da apuração, e esta etapa entrega o resto da
+linha da fatia 1 na tabela acima. **Branch:** `feat/dl-066-portas-e-indireto`
+→ `main`. **Nível 1** (demonstração entregue ao cliente): auditoria
+independente com uma correção e uma reconferência (§3.1 do `AGENTS.md`), e a
+CI é a evidência que vale para merge.
+
+**Escopo — quatro entregas:**
+
+1. **Porta de classificação da conta** — `classificar_conta_na_dfc`, no molde
+   de `classificar_conta_na_dlpa`/`classificar_conta_na_dmpl`: os três campos
+   já existentes (`caixa_e_equivalentes`, `classificacao_dfc`,
+   `item_de_resultado_sem_caixa`), com `select_for_update()`, trilha
+   antes/depois na mesma transação e tradução da recusa de período fechado
+   para `ClassificacaoAlteraPeriodoFechado` (409).
+2. **A trava da DL-065 estendida aos três campos** em `Conta.clean()`: mudar
+   qualquer um deles muda a DFC retroativamente, como a linha da DLPA e a
+   coluna da DMPL — recusa com movimento em competência encerrada ou
+   entregue, primeira classificação livre. As lições da DL-065 valem
+   literalmente: filtro por **data** e não pela FK `competencia` (A1);
+   corrida com o fechamento pelo primitivo `_travar_competencia_em_modo_
+   compartilhado` (A2); savepoint em torno do lock (N1); custo de consultas
+   constante (N2); e a mensagem bifurcada por `entregue`, sem nunca mandar
+   "reabra a competência" para competência entregue (A3).
+3. **Telas** — `conta_classificacao_dfc.html` (molde
+   `conta_classificacao_dlpa.html`) e a tela da própria **DFC**
+   (`dfc.html`, molde `dmpl.html`), que **obedece** o veredito de
+   `avaliar_emissao_da_dfc` e nunca imprime a demonstração na página de
+   recusa (B.2/B.3). Documento da classe **Demonstração**: bloco de
+   identificação obrigatório, e **nenhum campo de valor por ação** (item
+   52A do CPC 03 — na DFC é proibido). Universo de telas atualizado.
+4. **API (padrão D8)** — GET `empresas/<id>/dfc/<ano>/<mes>/` e PATCH
+   `contas/<id>/classificacao-dfc/`, espelho exato dos endpoints da DMPL.
+
+**O método indireto entra agora, e o contrato dele é este** (interface entre
+a frente de serviços e a de telas — as chaves não mudam):
+
+```python
+"operacional_indireto": {
+    "lucro_liquido": Decimal,       # DRE do MESMO período (início do exercício..fim do mês)
+    "ajustes": [                    # ordenados: 20(a), 20(b), 20(c); dentro do item, por código
+        {"item": "20(a)|20(b)|20(c)", "conta": str, "nome": str, "descricao": str,
+         "valor": Decimal (>= 0, sem sinal), "sinal": "+"|"-", "efeito": Decimal (com sinal)},
+    ],
+    "total_dos_ajustes": Decimal,
+    "fluxo_operacional": Decimal,              # lucro_liquido + total_dos_ajustes
+    "fluxo_operacional_pelo_direto": Decimal,  # == atividades["operacional"]
+    "diferenca": Decimal,
+    "confere": bool,
+}
+```
+
+Sem nenhuma conta de caixa marcada, o retorno antecipado mantém
+`operacional_indireto = None` — semântica da fatia 1 preservada, e a tela
+nomeia a ausência.
+
+**A regra de derivação, decidida aqui (e comentada no código):**
+
+| Família | O que entra | Ajuste |
+| --- | --- | --- |
+| **20(a)** | conta **patrimonial** com `classificacao_dfc = operacional` | `−(variação do saldo econômico no período)` — aumento de ativo operacional consome caixa; aumento de passivo gera |
+| **20(b)** | conta de **resultado** com `item_de_resultado_sem_caixa` | `−(efeito da conta no lucro do período)` — depreciação volta |
+| **20(c)** | conta de **resultado** classificada como investimento/financiamento | `−(efeito da conta no lucro do período)` — sai do operacional |
+
+O lucro líquido vem do **motor da DRE** (DE-020), nunca recalculado; o
+lançamento de **zeramento do resultado** fica de fora do movimento das contas
+de resultado, pela mesma regra que a DRE já aplica; e a identidade
+`lucro_liquido + Σ ajustes = atividades["operacional"]` é o que a E1 promete
+— quando não valer, a nova pendência `indireto_nao_fecha` **veta e nomeia a
+diferença** (E6). Nenhum saldo se ajusta para fechar.
+
+**Critérios de aceite desta etapa** (somam os 13 da fatia 1):
+
+| # | Critério | Verificação |
+| --- | --- | --- |
+| 14 | A classificação da conta grava com trava, trilha antes/depois e recusa de período fechado (encerrada e entregue) com mensagem verdadeira | `test_dl066_classificacao_*` |
+| 15 | A recusa vale também pelo caminho validado do admin (a regra mora em `Conta.clean()`) | idem |
+| 16 | O caso de referência fecha **ao centavo** também no método indireto, com `confere = True` | `test_dl066_indireto_*` |
+| 17 | As três famílias do item 20 aparecem nomeadas, com sinal, e o zeramento do resultado não contamina | idem |
+| 18 | A identidade que não fecha veta (`indireto_nao_fecha`) e nomeia a diferença | idem |
+| 19 | API GET e PATCH espelham as irmãs, com 409 em período fechado e isolamento entre empresas | `test_dl066_api_*` |
+| 20 | A tela da DFC obedece o veredito, não imprime a demonstração na recusa, traz o bloco de identificação e **não** tem valor por ação (item 52A) | testes de tela |
+| 21 | Telas novas no universo de telas; navegação da empresa presente; lint, formatação, `manage.py check` e migrações limpos | guardas derivadas e comandos |
