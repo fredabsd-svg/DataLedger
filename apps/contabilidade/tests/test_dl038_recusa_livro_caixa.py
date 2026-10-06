@@ -135,8 +135,12 @@ def test_a_derivacao_encontrou_as_vinte_e_quatro_rotas_web_e_as_vinte_da_api():
     # POST grava o conjunto de marcações, `acao=salvar`, ou limpa,
     # `acao=remover`) — 23 -> 24 do lado da tela. Nenhuma rota nova na API
     # nesta etapa (a API da marcação existe desde a fatia 2 do servidor).
+    # DL-066/CTB-15 (etapa 2, servidor): DUAS rotas novas na API — "dfc" (GET
+    # da apuração da DFC) e "conta-classificacao-dfc" (PATCH dos três campos
+    # da conta) — 20 -> 22 do lado da API. As rotas de TELA desta etapa são
+    # contadas no bloco da tela, quando a frente de telas entrar.
     assert len(ROTAS_WEB) == 24, ROTAS_WEB
-    assert len(ROTAS_API) == 20, ROTAS_API
+    assert len(ROTAS_API) == 22, ROTAS_API
 
 
 @pytest.fixture
