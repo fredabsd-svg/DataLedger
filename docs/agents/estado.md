@@ -130,7 +130,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md) | Sinal da conta-RAIZ retificadora no Balanço Patrimonial (BL-604) | Integrada (PR #81, squash `46d80a1`) — auditoria aprovada com ressalvas, reconferência aprovada; ciclo do §3.1 encerrado |
 | [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) | Fecha a leva da DL-061: coluna da DMPL nas duas portas, teste do snapshot e dica condicionada (BL-606, BL-607, BL-625) | **Integrada (PR #84, squash `c32cfe6`)** — o conteúdo **não tinha chegado à `main`** (o PR #82 foi mesclado na branch intermediária `fix/dl-062-…`); recuperado com a `base` reapontada para o destino real |
 | [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md) | Reclassificar conta com movimento em competência encerrada ou entregue não pode reescrever DLPA nem DMPL já apuradas (BL-550) | **Integrada (PR #85, squash `012a759`)** — ciclo de auditoria encerrado no veredito **REPROVADO** da reconferência; N1, N2 e N3 corrigidos depois, sem terceira rodada |
-| [DL-066](../planos/DL-066-dfc.md) | DFC — Demonstração dos Fluxos de Caixa, direto e indireto (CTB-15 da DL-048) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-066](../planos/DL-066-dfc.md) | DFC — Demonstração dos Fluxos de Caixa, direto e indireto (CTB-15 da DL-048) | Situação em **[Próximo passo](#próximo-passo)** — **fatia 1 integrada pelo PR #89** (núcleo da apuração; auditoria e reconferência aprovadas com ressalvas, N1 e N2 corrigidos); falta a porta de classificação, a tela, a API e o método indireto |
 | [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md) | Plano do módulo fiscal de out/2026 a 2028, com a reforma tributária, conciliado com a paridade fiscal | Planejada |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
 
@@ -145,20 +145,22 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 
 **AGORA, em 05/10/2026: [DL-066](../planos/DL-066-dfc.md) — a DFC, etapa
 CTB-15 da DL-048**, o último item da Onda 1 depois da DLPA (CTB-13) e da DMPL
-(CTB-14). O plano está escrito e revisado contra o texto integral do
-[CPC 03 (R2)](https://www.normasbrasil.com.br/norma/?id=306227), item a item,
-e foi **integrado pelo PR #86**.
+(CTB-14). O plano foi **integrado pelo PR #86**, e a **fatia 1 pelo PR #89**,
+depois de auditoria de rodada 1 e reconferência, as duas **APROVADAS COM
+RESSALVAS**.
 
-**A fatia 1 começou pelo núcleo da apuração — e está incompleta.** Entregue e
-testado: os três campos da conta (`caixa_e_equivalentes`, `classificacao_dfc`,
-`item_de_resultado_sem_caixa`), as guardas de coerência do modelo, `apurar_dfc`
-com as três atividades apuradas **a partir dos lançamentos**, a exclusão do
-item 9, o veto do item 12 e a conciliação do item 45 como **identidade**.
-**10 testes**, e `apps/contabilidade` com 1.867 aprovados e os mesmos 8
-reprovados de ambiente — nenhuma regressão. Falta para fechar a fatia: o
-serviço de classificação com trilha, a tela, a API e a apresentação do método
-indireto — que volta `None` por enquanto, nomeado, porque apresentar número
-não auditado é pior do que não apresentar.
+**O que a fatia 1 entregou, e o que falta.** Entregue e testado: os três
+campos da conta (`caixa_e_equivalentes`, `classificacao_dfc`,
+`item_de_resultado_sem_caixa`), as guardas de coerência do modelo,
+`apurar_dfc` com as três atividades apuradas **a partir dos lançamentos**, a
+exclusão do item 9, os vetos dos itens 9, 12 e 45 e a conciliação do item 45
+como **identidade**. **20 testes**, e a execução que vale é a da CI: **4.688
+aprovados, 53 pulados, zero reprovados**.
+
+**Falta para a fatia fechar:** o serviço de classificação da atividade com
+trilha, a tela, a API e a apresentação do método indireto — que volta `None`
+por enquanto, nomeado, porque apresentar número que ninguém auditou é pior do
+que não apresentar. **É esse o próximo passo da DL-066.**
 
 **O número da DFC sai do lançamento, não de soma de ajustes.** Caixa contra
 uma conta de fora da lista de caixa é um fluxo, classificado pela atividade
