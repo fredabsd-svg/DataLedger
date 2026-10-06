@@ -17,6 +17,8 @@ from apps.contabilidade.views_web import (
     conta_classificacao_dmpl,
     conta_classificacao_dre,
     conta_nova,
+    # DL-066/CTB-15: a própria demonstração dos fluxos de caixa.
+    dfc,
     diario,
     # DL-048/CTB-13: a própria demonstração.
     dlpa,
@@ -128,6 +130,11 @@ urlpatterns = [
     # <h1>/<title>. 'ano'/'mes' viajam por querystring (GET), mesma gramática
     # da DRE e da DLPA — nunca no caminho da URL.
     path("empresas/<int:empresa_id>/dmpl/", dmpl, name="dmpl"),
+    # DL-066/CTB-15: mesmo padrão curto de "dmpl" — o nome completo
+    # ("Demonstração dos Fluxos de Caixa") fica no <h1>/<title>. 'ano'/'mes'
+    # viajam por querystring (GET), mesma gramática da DRE, DLPA e DMPL —
+    # nunca no caminho da URL.
+    path("empresas/<int:empresa_id>/dfc/", dfc, name="dfc"),
     # DL-061/CTB-14: classificar a Coluna da DMPL de uma conta existente —
     # mesmo prefixo e mesmo padrão de caminho curto das telas irmãs.
     path(

@@ -109,6 +109,13 @@ NOMES_DE_TELA_DE_CONTABILIDADE = {
     # (`nenhuma_coluna_classificada` veta): a tela RESPONDE "não, e eis o
     # porquê", nunca 500.
     "dmpl": "contabilidade_web:dmpl",
+    # DL-066/CTB-15: MESMA classe da DMPL logo acima — sob o `cenario` PADRÃO
+    # deste módulo (nenhuma conta marcada como caixa e equivalentes), a DFC
+    # renderiza 200 emitindo a estrutura apurada com zero (o retorno
+    # antecipado de `apurar_dfc` devolve a estrutura vazia SEM pendência —
+    # ver o docstring do serviço) e nomeando a ausência do método indireto:
+    # um 200 de verdade, a mesma classe de estado das irmãs.
+    "dfc": "contabilidade_web:dfc",
     "conferencia": "contabilidade_web:conferencia",
     "lancamento_novo": "contabilidade_web:lancamento_novo",
     "lancamento_detalhe": "contabilidade_web:lancamento_detalhe",
@@ -238,6 +245,10 @@ def _urls_de_contabilidade(cenario):
         "dlpa": ([empresa_id], ""),
         # DL-061/CTB-14: sem querystring — mesma convenção da DLPA.
         "dmpl": ([empresa_id], ""),
+        # DL-066/CTB-15: sem querystring — mesma convenção da DLPA e da DMPL
+        # (mês corrente como referência; a DFC apura o acumulado do ano até
+        # ele, mesmo recorte do serviço).
+        "dfc": ([empresa_id], ""),
         "conferencia": ([empresa_id], ""),
         "lancamento_novo": ([empresa_id], ""),
         "lancamento_detalhe": ([empresa_id, cenario["lancamento"].id], ""),
