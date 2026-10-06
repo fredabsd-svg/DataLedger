@@ -145,7 +145,8 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 
 **AGORA, em 06/10/2026: a fatia 1 da [DL-066](../planos/DL-066-dfc.md) está
 FECHADA** — a etapa 2 desta data completou o que o PR #89 deixou em aberto,
-na branch `feat/dl-066-portas-e-indireto` (PR desta entrega):
+na branch `feat/dl-066-portas-e-indireto`, pelo
+[PR #90](https://github.com/fredabsd-svg/DataLedger/pull/90):
 
 - **Porta de classificação** `classificar_conta_na_dfc` (os três campos da
   conta, `select_for_update`, trilha antes/depois na mesma transação) e a
