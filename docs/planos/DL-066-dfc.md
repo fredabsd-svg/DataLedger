@@ -42,14 +42,25 @@ versão nacional do mesmo pronunciamento.
 | **45** | ⚠️ **Divulgar os componentes de caixa e equivalentes e apresentar conciliação dos montantes com os itens do Balanço Patrimonial** | **O critério de aceite desta demanda** |
 | **52A** | As demonstrações **não** devem divulgar fluxo de caixa por ação | Restrição: nenhum campo "por ação" na DFC (o oposto do item E8 pendente da DMPL) |
 
-⚠️ **Lacuna declarada, e ela é de fonte e não de conteúdo:** a obrigatoriedade
-veio da [Lei 6.404/76, art. 176, IV](https://www.planalto.gov.br/ccivil_03/leis/l6404compilada.htm)
-(introduzido pela Lei 11.638/2007), com a **§ 6 isentando a companhia fechada
-com patrimônio líquido inferior a R$ 2.000.000,00**. O texto compilado no
-Planalto **não foi obtido** neste ambiente (a requisição falhou), e as fontes
-que responderam foram secundárias. **Conferir no Planalto antes de colocar a
-obrigatoriedade como regra de produto** — e a pergunta 2 abaixo é justamente
-sobre isso, porque a resposta muda o que o produto exige.
+**Lacuna de fonte FECHADA em 06/10/2026.** A obrigatoriedade veio da
+[Lei 6.404/76, art. 176, IV](https://www.planalto.gov.br/ccivil_03/leis/l6404compilada.htm)
+(introduzido pela Lei 11.638/2007), e o texto compilado foi **obtido em duas
+fontes oficiais** que conferem palavra por palavra: o PDF da
+[Câmara dos Deputados — norma atualizada](https://www2.camara.leg.br/legin/fed/lei/1970-1979/lei-6404-15-dezembro-1976-368447-normaatualizada-pl.pdf)
+(extraído com `pypdf`) e o próprio Planalto por download direto (`web_fetch`
+do Planalto falha com "fetch failed"; `urllib` funciona). A redação do § 6º,
+confirmada literalmente:
+
+> § 6º A companhia fechada com patrimônio líquido, na data do balanço,
+> inferior a R$ 2.000.000,00 (dois milhões de reais) não será obrigada à
+> elaboração e publicação da demonstração dos fluxos de caixa. *(redação da
+> Lei 11.638/2007 — conferida também na publicação original da Câmara)*
+
+Atualidade conferida: a última alteração do art. 176 foi o § 5º pela Lei
+11.941/2009; a Lei 15.177/2025 **não** atingiu o art. 176 (o "§ 6º de
+política de equidade" das buscas é do art. 133). A única divergência entre as
+fontes é grafia antiga ("subseqüentes" no Planalto × "subsequentes" na
+Câmara, alínea i do § 5º) — irrelevante para a regra.
 
 **Nota de contexto (NE2, do próprio pronunciamento):** o item 18 **não dá
 preferência** ao método direto nem ao indireto — a escolha é da entidade. Por
@@ -294,7 +305,7 @@ o que ela acrescenta, não sobre a base de novo.
 | Item | Classificação |
 | --- | --- |
 | Base normativa do CPC 03 (itens 6 a 52A) | **Testado** — texto integral lido nesta sessão |
-| Texto do art. 176 da Lei 6.404/76 | **Não testado** — Planalto inacessível neste ambiente; **lacuna declarada** |
+| Texto do art. 176 da Lei 6.404/76 | **Testado** — obtido em 06/10/2026 em fonte oficial (Câmara, PDF da norma atualizada) e conferido no Planalto por download direto; § 6º literal acima |
 | Manual do sistema de referência (p. 622-631 e 666-667) | **Não lido** — declarado, não conformidade; a rotina do manual não autoriza nem refuta a regra |
 
 ### Fatia 1 — núcleo da apuração: entregue, e **incompleto**
@@ -366,3 +377,103 @@ do método indireto com os ajustes do item 20.
 > A nota de ambiente (`.env` apontando para SQLite, cluster PostgreSQL criado
 > na porta 5433, linha de base honesta de 8 reprovados) está em
 > [`estado.md`](../agents/estado.md) e vale para todas as etapas desta leva.
+
+### Etapa 2 — o fecho da fatia 1: portas, telas e método indireto (06/10/2026)
+
+**Ordem do Fred:** *"fechar o que falta dela"* — a fatia 1 entrou na `main`
+pelo PR #89 só com o núcleo da apuração, e esta etapa entrega o resto da
+linha da fatia 1 na tabela acima. **Branch:** `feat/dl-066-portas-e-indireto`
+→ `main`. **Nível 1** (demonstração entregue ao cliente): auditoria
+independente com uma correção e uma reconferência (§3.1 do `AGENTS.md`), e a
+CI é a evidência que vale para merge.
+
+**Escopo — quatro entregas:**
+
+1. **Porta de classificação da conta** — `classificar_conta_na_dfc`, no molde
+   de `classificar_conta_na_dlpa`/`classificar_conta_na_dmpl`: os três campos
+   já existentes (`caixa_e_equivalentes`, `classificacao_dfc`,
+   `item_de_resultado_sem_caixa`), com `select_for_update()`, trilha
+   antes/depois na mesma transação e tradução da recusa de período fechado
+   para `ClassificacaoAlteraPeriodoFechado` (409).
+2. **A trava da DL-065 estendida aos três campos** em `Conta.clean()`: mudar
+   qualquer um deles muda a DFC retroativamente, como a linha da DLPA e a
+   coluna da DMPL — recusa com movimento em competência encerrada ou
+   entregue, primeira classificação livre. As lições da DL-065 valem
+   literalmente: filtro por **data** e não pela FK `competencia` (A1);
+   corrida com o fechamento pelo primitivo `_travar_competencia_em_modo_
+   compartilhado` (A2); savepoint em torno do lock (N1); custo de consultas
+   constante (N2); e a mensagem bifurcada por `entregue`, sem nunca mandar
+   "reabra a competência" para competência entregue (A3).
+3. **Telas** — `conta_classificacao_dfc.html` (molde
+   `conta_classificacao_dlpa.html`) e a tela da própria **DFC**
+   (`dfc.html`, molde `dmpl.html`), que **obedece** o veredito de
+   `avaliar_emissao_da_dfc` e nunca imprime a demonstração na página de
+   recusa (B.2/B.3). Documento da classe **Demonstração**: bloco de
+   identificação obrigatório, e **nenhum campo de valor por ação** (item
+   52A do CPC 03 — na DFC é proibido). Universo de telas atualizado.
+4. **API (padrão D8)** — GET `empresas/<id>/dfc/<ano>/<mes>/` e PATCH
+   `contas/<id>/classificacao-dfc/`, espelho exato dos endpoints da DMPL.
+
+**O método indireto entra agora, e o contrato dele é este** (interface entre
+a frente de serviços e a de telas — as chaves não mudam):
+
+```python
+"operacional_indireto": {
+    "lucro_liquido": Decimal,       # DRE do MESMO período (início do exercício..fim do mês)
+    "ajustes": [                    # ordenados: 20(a), 20(b), 20(c); dentro do item, por código
+        {"item": "20(a)|20(b)|20(c)", "conta": str, "nome": str, "descricao": str,
+         "valor": Decimal (>= 0, sem sinal), "sinal": "+"|"-", "efeito": Decimal (com sinal)},
+    ],
+    "total_dos_ajustes": Decimal,
+    "fluxo_operacional": Decimal,              # lucro_liquido + total_dos_ajustes
+    "fluxo_operacional_pelo_direto": Decimal,  # == atividades["operacional"]
+    "diferenca": Decimal,
+    "confere": bool,
+}
+```
+
+Sem nenhuma conta de caixa marcada, o retorno antecipado mantém
+`operacional_indireto = None` — semântica da fatia 1 preservada, e a tela
+nomeia a ausência.
+
+**A regra de derivação, decidida aqui (e comentada no código):**
+
+| Família | O que entra | Ajuste |
+| --- | --- | --- |
+| **20(a)** | conta **patrimonial** com `classificacao_dfc = operacional` | `−(variação do saldo econômico no período)` — aumento de ativo operacional consome caixa; aumento de passivo gera |
+| **20(b)** | conta de **resultado** com `item_de_resultado_sem_caixa` | `−(efeito da conta no lucro do período)` — depreciação volta |
+| **20(c)** | conta de **resultado** classificada como investimento/financiamento | `−(efeito da conta no lucro do período)` — sai do operacional |
+
+O lucro líquido vem do **motor da DRE** (DE-020), nunca recalculado; o
+lançamento de **zeramento do resultado** fica de fora do movimento das contas
+de resultado, pela mesma regra que a DRE já aplica; e a identidade
+`lucro_liquido + Σ ajustes = atividades["operacional"]` é o que a E1 promete
+— quando não valer, a nova pendência `indireto_nao_fecha` **veta e nomeia a
+diferença** (E6). Nenhum saldo se ajusta para fechar.
+
+⚠️ **A2 (MÉDIO) da auditoria da etapa 2 — o limite da derivação, decidido
+aqui.** A identidade vale por construção quando cada FATO contábil cai em um
+lado só. Ela não fecha quando um mesmo lançamento mistura perna de família
+20(b)/(c) com perna patrimonial operacional — o caso clássico é a **provisão
+operacional**: despesa marcada "sem caixa" **e** passivo marcado "operacional"
+ajustam o mesmo fato duas vezes (na constituição **e** depois de paga), e a
+DFC vira inemitível com marcações que cada uma parece correta. **Decisão:**
+não há ajuste calibrado para fechar — o caminho que fecha é UM só: marcar o
+**passivo** como operacional (a variação dele já é o ajuste 20(a)) e **não**
+marcar a despesa. A orientação vive no `help_text` de
+`item_de_resultado_sem_caixa`, na mensagem da pendência `indireto_nao_fecha`
+e no docstring do `_apurar_operacional_indireto`; quem marcar as duas mesmo
+assim recebe o veto nomeando a diferença.
+
+**Critérios de aceite desta etapa** (somam os 13 da fatia 1):
+
+| # | Critério | Verificação |
+| --- | --- | --- |
+| 14 | A classificação da conta grava com trava, trilha antes/depois e recusa de período fechado (encerrada e entregue) com mensagem verdadeira | `test_dl066_classificacao_*` |
+| 15 | A recusa vale também pelo caminho validado do admin (a regra mora em `Conta.clean()`) | idem |
+| 16 | O caso de referência fecha **ao centavo** também no método indireto, com `confere = True` | `test_dl066_indireto_*` |
+| 17 | As três famílias do item 20 aparecem nomeadas, com sinal, e o zeramento do resultado não contamina | idem |
+| 18 | A identidade que não fecha veta (`indireto_nao_fecha`) e nomeia a diferença | idem |
+| 19 | API GET e PATCH espelham as irmãs, com 409 em período fechado e isolamento entre empresas | `test_dl066_api_*` |
+| 20 | A tela da DFC obedece o veredito, não imprime a demonstração na recusa, traz o bloco de identificação e **não** tem valor por ação (item 52A) | testes de tela |
+| 21 | Telas novas no universo de telas; navegação da empresa presente; lint, formatação, `manage.py check` e migrações limpos | guardas derivadas e comandos |

@@ -3,10 +3,12 @@ from django.urls import path
 from apps.contabilidade.views import (
     BalanceteView,
     ConferenciaLotesDesbalanceadosView,
+    ContaClassificacaoDfcView,
     ContaClassificacaoDlpaView,
     ContaClassificacaoDmplView,
     ContaClassificacaoDreView,
     ContaListCreateView,
+    DfcView,
     DiarioView,
     DlpaView,
     DmplView,
@@ -134,6 +136,22 @@ urlpatterns = [
         "empresas/<int:empresa_id>/contas/<int:conta_id>/classificacao-dmpl/",
         ContaClassificacaoDmplView.as_view(),
         name="conta-classificacao-dmpl",
+    ),
+    # DL-066 (etapa 2): a porta de API da DFC — o mesmo padrão das rotas D8
+    # das irmãs. `ano`/`mes` identificam o RECURSO (o exercício até a
+    # competência pedida), como em `dmpl/`.
+    path(
+        "empresas/<int:empresa_id>/dfc/<int:ano>/<int:mes>/",
+        DfcView.as_view(),
+        name="dfc",
+    ),
+    # DL-066 (etapa 2): classificar/reclassificar os TRÊS campos da DFC de
+    # uma conta existente — espelho de `conta-classificacao-dmpl/`, com o
+    # PATCH aceitando qualquer subconjunto dos três.
+    path(
+        "empresas/<int:empresa_id>/contas/<int:conta_id>/classificacao-dfc/",
+        ContaClassificacaoDfcView.as_view(),
+        name="conta-classificacao-dfc",
     ),
     # DL-061 (fatia 2, BL-605): a marcação manual da DMPL de UM lançamento
     # (GET/PUT/DELETE — ler, substituir o conjunto, limpar). `lancamento_id`

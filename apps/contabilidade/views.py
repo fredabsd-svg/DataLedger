@@ -23,6 +23,7 @@ from apps.contabilidade.models import (
 )
 from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
 from apps.contabilidade.serializers import (
+    ClassificacaoDfcPatchSerializer,
     ClassificacaoDlpaPatchSerializer,
     ClassificacaoDmplPatchSerializer,
     ClassificacaoDrePatchSerializer,
@@ -43,13 +44,16 @@ from apps.contabilidade.services import (
     ParametroContabilInvalido,
     VigenciaParametroContabilConflitante,
     apurar_balancete,
+    apurar_dfc,
     apurar_dlpa,
     apurar_dmpl,
     apurar_dre,
     apurar_razao,
+    avaliar_emissao_da_dfc,
     avaliar_emissao_da_dlpa,
     avaliar_emissao_da_dmpl,
     avaliar_emissao_da_dre,
+    classificar_conta_na_dfc,
     classificar_conta_na_dlpa,
     classificar_conta_na_dmpl,
     classificar_conta_na_dre,
@@ -305,6 +309,17 @@ CONTRATO_PATCH_CLASSIFICACAO_DLPA = ContratoDeRequisicao(
 CONTRATO_PATCH_CLASSIFICACAO_DMPL = ContratoDeRequisicao(
     campos={"classificacao_dmpl"},
     contexto="na classificação da coluna da DMPL",
+)
+# DL-066 (etapa 2): PATCH dos TRÊS campos da DFC de uma conta — contrato
+# NOVO (e não o mesmo da DMPL) pelo motivo de sempre: a política recusa
+# chave desconhecida por NOME, e um corpo com `classificacao_dmpl` neste
+# PATCH tem de ser recusado, não aplicado à classificação errada em silêncio.
+# Os três campos juntos porque `classificar_conta_na_dfc` recebe o ESTADO
+# DESEJADO completo e grava com UMA trilha — a fusão do PATCH parcial é na
+# view, que é quem conhece a conta.
+CONTRATO_PATCH_CLASSIFICACAO_DFC = ContratoDeRequisicao(
+    campos={"caixa_e_equivalentes", "classificacao_dfc", "item_de_resultado_sem_caixa"},
+    contexto="na classificação da DFC",
 )
 # DL-061 (fatia 2, BL-605): PUT da marcação manual da DMPL — o corpo é o
 # CONJUNTO completo de marcações do lançamento (substituição atômica); o
@@ -2207,6 +2222,115 @@ class ContaClassificacaoDmplView(EmpresaEscopadaContabilMixin, APIView):
         except DjangoValidationError as exc:
             raise DRFValidationError(
                 {"classificacao_dmpl": mensagens_da_validacao_django(exc)}
+            ) from exc
+
+        return Response(ContaSerializer(conta).data, status=status.HTTP_200_OK)
+
+
+class DfcView(EmpresaEscopadaContabilMixin, APIView):
+    """DL-066 (etapa 2): `GET` da DFC — a apuração inteira, o MESMO contrato
+    da tela (e o mesmo padrão de `DmplView`: a view REVELA, não recalcula —
+    regra de negócio, autorização, isolamento e veto moram no serviço e na
+    camada de permissões).
+
+    **Autorização:** a das outras saídas contábeis com período —
+    `PodeLerContabilidade`; CLIENTE nunca lê (403).
+
+    **Período:** `ano`/`mes` identificam o RECURSO (o exercício até a
+    competência pedida), mesmo padrão de `dmpl/<int:ano>/<int:mes>/`;
+    `_validar_ano_mes` recusa fora da faixa com 400.
+
+    **409 quando `pode_emitir` é falso, com o corpo INTEIRO mesmo assim:**
+    mesmo desenho de `DmplView` — o status informa o veto, não substitui a
+    apuração (o cliente vê o que falta, nomeado, inclusive a conciliação do
+    método indireto quando ela não fecha).
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
+
+    def get(self, request, empresa_id, ano, mes):
+        empresa = self.get_empresa()
+        _validar_ano_mes(ano, mes)
+
+        try:
+            dfc = apurar_dfc(empresa=empresa, ano=ano, mes=mes)
+        except HierarquiaInconsistente as exc:
+            # Mesmo padrão do Balancete/Razão/DRE/DLPA/DMPL: ciclo ou
+            # `conta_pai` de outra empresa na hierarquia — resposta
+            # controlada, nunca 500.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        emissao = avaliar_emissao_da_dfc(dfc)
+        corpo = _para_json_da_apuracao(dfc)
+        corpo.update(
+            {
+                "pode_emitir": emissao["pode_emitir"],
+                "motivos": list(emissao["motivos"]),
+                "listas_pendentes": _para_json_da_apuracao(emissao["listas_pendentes"]),
+            }
+        )
+        status_code = status.HTTP_200_OK if emissao["pode_emitir"] else status.HTTP_409_CONFLICT
+        return Response(corpo, status=status_code)
+
+
+class ContaClassificacaoDfcView(EmpresaEscopadaContabilMixin, APIView):
+    """DL-066 (etapa 2): `PATCH` dos TRÊS campos da DFC
+    (`caixa_e_equivalentes`, `classificacao_dfc`,
+    `item_de_resultado_sem_caixa`) de uma conta já existente — o espelho de
+    `ContaClassificacaoDmplView`, com a diferença de que o serviço recebe o
+    ESTADO DESEJADO completo e grava com UMA trilha.
+
+    Autenticação e autorização são as MESMAS da tela e das irmãs:
+    `TemEscritorioAtivo` + `PodeEscriturar` (quem escritura classifica);
+    CLIENTE 403. Corpo (`CONTRATO_PATCH_CLASSIFICACAO_DFC`): qualquer
+    subconjunto dos três campos — o PATCH é parcial, e a fusão com o valor
+    gravado acontece AQUI, nunca no serviço (que não tem sentinela de "não
+    mexer").
+
+    Validação em DUAS camadas, sem duplicar regra: o serializer valida a
+    FORMA do corpo e do valor (400, nunca 500); as coerências (caixa ×
+    atividade, item sem caixa só em resultado, guarda de período fechado da
+    DL-065) são decididas por `Conta.full_clean()` dentro de
+    `classificar_conta_na_dfc`, com trilha (antes/depois) na MESMA transação.
+    200 com a conta serializada quando aceito; **409** para período fechado
+    (recusa de ESTADO, nada gravado); **404** quando a conta não existe NESTA
+    empresa (isolamento — `filter(empresa=empresa)`, nunca consulta sem esse
+    filtro).
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturar]
+
+    def patch(self, request, empresa_id, conta_id):
+        empresa = self.get_empresa()
+        conta = get_object_or_404(Conta, pk=conta_id, empresa=empresa)
+        _recusar_dado_nao_contratado(request, CONTRATO_PATCH_CLASSIFICACAO_DFC)
+
+        entrada = ClassificacaoDfcPatchSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+
+        try:
+            classificar_conta_na_dfc(
+                conta=conta,
+                caixa_e_equivalentes=entrada.validated_data.get(
+                    "caixa_e_equivalentes", conta.caixa_e_equivalentes
+                ),
+                classificacao_dfc=entrada.validated_data.get(
+                    "classificacao_dfc", conta.classificacao_dfc
+                ),
+                item_de_resultado_sem_caixa=entrada.validated_data.get(
+                    "item_de_resultado_sem_caixa", conta.item_de_resultado_sem_caixa
+                ),
+                usuario=request.user,
+                request=request,
+            )
+        except ClassificacaoAlteraPeriodoFechado as exc:
+            # DL-065 (BL-550), estendida aos três campos: 409 pelo mesmo
+            # motivo da porta da DMPL — recusa de ESTADO (competência
+            # encerrada ou entregue), não de entrada. Nada gravado.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except DjangoValidationError as exc:
+            raise DRFValidationError(
+                {"classificacao_dfc": mensagens_da_validacao_django(exc)}
             ) from exc
 
         return Response(ContaSerializer(conta).data, status=status.HTTP_200_OK)

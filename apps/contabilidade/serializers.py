@@ -7,6 +7,7 @@ from apps.contabilidade.models import (
     ClassificacaoDlpa,
     ClassificacaoDmpl,
     ClassificacaoDre,
+    ClassificacaoFluxoCaixa,
     Conta,
     ItemLancamento,
     LancamentoContabil,
@@ -126,6 +127,32 @@ class ContaSerializer(serializers.ModelSerializer):
             # INICIAL, que não tem histórico a preservar — são operações
             # diferentes, com contratos diferentes (D2 do plano da DL-063).
             "classificacao_dmpl",
+            # DL-066 (etapa 2): os três campos da DFC — EXPPOSTOS para leitura
+            # (quem integra precisa ver o que está marcado) e marcados
+            # `read_only`, o que significa que **POST e PUT não os gravam**.
+            # A escrita destes campos é a porta própria
+            # `ContaClassificacaoDfcView`, que grava pelo serviço
+            # `classificar_conta_na_dfc` — com `full_clean()` (as coerências
+            # de `Conta.clean()`) e trilha antes/depois. Gravá-los por aqui
+            # exigiria replicar essas coerências neste serializer (BL-40/
+            # DE-008: o DRF não chama `full_clean()`), e a duplicata teria de
+            # ser COMPLETA para não virar furo (a lição da DL-063).
+            #
+            # ⚠️ **A5 (MÉDIO) da auditoria da etapa 2:** `read_only` puro
+            # DESCARTAVA em silêncio o que o cliente mandasse (BL-196: dado
+            # enviado nunca é ignorado em silêncio). Agora `validate()`
+            # RECUSA a chave com 400 e aponta a porta certa. O que permanece
+            # em aberto é aceitar a escrita no cadastro inicial, como a
+            # decisão D2 da DL-063 fez para `classificacao_dmpl` — decisão do
+            # Fred, registrada como BL-631 no backlog.
+            "caixa_e_equivalentes",
+            "classificacao_dfc",
+            "item_de_resultado_sem_caixa",
+        ]
+        read_only_fields = [
+            "caixa_e_equivalentes",
+            "classificacao_dfc",
+            "item_de_resultado_sem_caixa",
         ]
 
     def validate_classificacao_dre(self, value):
@@ -176,6 +203,38 @@ class ContaSerializer(serializers.ModelSerializer):
         tabela de tipos aceitos. Cada uma consulta a sua, e a validação do
         tipo da conta é a MESMA (`tipo`), porque é a mesma conta.
         """
+        # A5 (MÉDIO) da auditoria da etapa 2 / BL-196: os três campos da DFC
+        # são `read_only`, e `read_only` sozinho DESCARTA em silêncio o que
+        # chega no corpo. Hoje a PRIMEIRA porta já recusa a chave por nome —
+        # o contrato de requisição do cadastro (`CONTRATO_POST_CONTA`), medido
+        # em `test_a5_os_campos_da_dfc_no_cadastro_sao_recusados_nunca_
+        # descartados` —, e esta é a SEGUNDA: defesa em profundidade para
+        # quando uma rota aceitar o corpo sem contrato, e a única que aponta a
+        # porta que grava (o PATCH da classificação). Dado enviado nunca é
+        # ignorado em silêncio. A checagem é no `initial_data` (o corpo CRÚ)
+        # porque o DRF já teria descartado os campos antes de `validate`
+        # receber os `attrs`.
+        if self.initial_data:
+            for campo in (
+                "caixa_e_equivalentes",
+                "classificacao_dfc",
+                "item_de_resultado_sem_caixa",
+            ):
+                if campo in self.initial_data:
+                    raise serializers.ValidationError(
+                        {
+                            campo: (
+                                f'O campo "{campo}" não é gravado por esta porta: '
+                                "a classificação da DFC tem porta própria "
+                                "(PATCH em "
+                                "empresas/<empresa_id>/contas/<conta_id>/"
+                                "classificacao-dfc/), que grava com trilha e "
+                                "validação da conta. Remova a chave do corpo "
+                                "deste POST/PUT e use a porta certa."
+                            )
+                        }
+                    )
+
         tipo = attrs.get("tipo")
         if tipo is None and self.instance is not None:
             tipo = self.instance.tipo
@@ -408,6 +467,32 @@ class ClassificacaoDmplPatchSerializer(serializers.Serializer):
     classificacao_dmpl = serializers.ChoiceField(
         choices=ClassificacaoDmpl.choices, allow_null=True, allow_blank=True, required=False
     )
+
+
+class ClassificacaoDfcPatchSerializer(serializers.Serializer):
+    """DL-066 (etapa 2): valida o CORPO do `PATCH` de
+    `ContaClassificacaoDfcView` — os TRÊS campos da DFC de uma conta
+    existente, no mesmo molde das irmãs (R3 da auditoria DL-045): corpo
+    malformado não vaza como 500 mudo, `ChoiceField` recusa o corpo que não é
+    `Mapping` e o valor que não é chave de `ClassificacaoFluxoCaixa`, e
+    `BooleanField` recusa `"true"`/`1` crus.
+
+    Aqui só FORMA. As regras — caixa × atividade na mesma conta, item sem
+    caixa só em resultado, a guarda de período fechado da DL-065 — são de
+    `Conta.clean()`, rodado pelo `classificar_conta_na_dfc` (uma fonte só,
+    mesma divisão das irmãs: o serializer julga o tipo; o serviço julga a
+    regra). Os campos são `required=False` porque o PATCH é parcial: quem não
+    veio no corpo não muda (a fusão acontece na view, que conhece o serviço).
+    """
+
+    caixa_e_equivalentes = serializers.BooleanField(required=False)
+    classificacao_dfc = serializers.ChoiceField(
+        choices=ClassificacaoFluxoCaixa.choices,
+        allow_null=True,
+        allow_blank=True,
+        required=False,
+    )
+    item_de_resultado_sem_caixa = serializers.BooleanField(required=False)
 
 
 # DL-061 (fatia 2, BL-605): o corpo do PUT de `MarcacaoDmplView` é o

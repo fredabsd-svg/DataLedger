@@ -72,6 +72,13 @@ NOMES_DE_TELA_DE_CONTABILIDADE = {
     # que recusa conta fora do patrimônio líquido, via `classificar_conta_na_
     # dmpl`). Reaproveita `cenario["caixa"]`, como as irmãs.
     "conta_classificacao_dmpl": "contabilidade_web:conta_classificacao_dmpl",
+    # DL-066/CTB-15: a irmã da DFC (classificação dos TRÊS campos da conta
+    # EXISTENTE — caixa e equivalentes, atividade do fluxo, item de resultado
+    # sem caixa) — MESMA permissão e MESMO comportamento no GET das irmãs
+    # acima: renderiza 200 para qualquer conta do cenário padrão (só o POST
+    # passa por `Conta.clean()`, via `classificar_conta_na_dfc`). Reaproveita
+    # `cenario["caixa"]`, como as irmãs.
+    "conta_classificacao_dfc": "contabilidade_web:conta_classificacao_dfc",
     "diario": "contabilidade_web:diario",
     "razao": "contabilidade_web:razao",
     "balancete": "contabilidade_web:balancete",
@@ -102,6 +109,13 @@ NOMES_DE_TELA_DE_CONTABILIDADE = {
     # (`nenhuma_coluna_classificada` veta): a tela RESPONDE "não, e eis o
     # porquê", nunca 500.
     "dmpl": "contabilidade_web:dmpl",
+    # DL-066/CTB-15: MESMA classe da DMPL logo acima — sob o `cenario` PADRÃO
+    # deste módulo (nenhuma conta marcada como caixa e equivalentes), a DFC
+    # renderiza 200 emitindo a estrutura apurada com zero (o retorno
+    # antecipado de `apurar_dfc` devolve a estrutura vazia SEM pendência —
+    # ver o docstring do serviço) e nomeando a ausência do método indireto:
+    # um 200 de verdade, a mesma classe de estado das irmãs.
+    "dfc": "contabilidade_web:dfc",
     "conferencia": "contabilidade_web:conferencia",
     "lancamento_novo": "contabilidade_web:lancamento_novo",
     "lancamento_detalhe": "contabilidade_web:lancamento_detalhe",
@@ -213,6 +227,8 @@ def _urls_de_contabilidade(cenario):
         "conta_classificacao_dlpa": ([empresa_id, cenario["caixa"].id], ""),
         # DL-061/CTB-14: mesmíssimos args das irmãs — empresa + conta.
         "conta_classificacao_dmpl": ([empresa_id, cenario["caixa"].id], ""),
+        # DL-066/CTB-15: mesmíssimos args das irmãs — empresa + conta.
+        "conta_classificacao_dfc": ([empresa_id, cenario["caixa"].id], ""),
         "diario": ([empresa_id], periodo),
         "razao": ([empresa_id, cenario["caixa"].id], periodo),
         "balancete": ([empresa_id], periodo),
@@ -229,6 +245,10 @@ def _urls_de_contabilidade(cenario):
         "dlpa": ([empresa_id], ""),
         # DL-061/CTB-14: sem querystring — mesma convenção da DLPA.
         "dmpl": ([empresa_id], ""),
+        # DL-066/CTB-15: sem querystring — mesma convenção da DLPA e da DMPL
+        # (mês corrente como referência; a DFC apura o acumulado do ano até
+        # ele, mesmo recorte do serviço).
+        "dfc": ([empresa_id], ""),
         "conferencia": ([empresa_id], ""),
         "lancamento_novo": ([empresa_id], ""),
         "lancamento_detalhe": ([empresa_id, cenario["lancamento"].id], ""),

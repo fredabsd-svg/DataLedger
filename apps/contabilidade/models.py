@@ -1146,16 +1146,29 @@ class Conta(models.Model):
         ),
     )
     # `item_de_resultado_sem_caixa` é o item 20(b) do método indireto:
-    # despesa ou receita que NÃO movimenta caixa (depreciação, amortização,
-    # provisões). Só existe para conta de resultado — a mesma restrição que
-    # a linha da DRE e a da DLPA já fazem com `tipo`.
+    # despesa ou receita que NÃO movimenta caixa (depreciação, amortização).
+    # Só existe para conta de resultado — a mesma restrição que a linha da
+    # DRE e a da DLPA já fazem com `tipo`.
+    #
+    # ⚠️ **A2 (MÉDIO) da auditoria da etapa 2: provisão NÃO se marca aqui.**
+    # A provisão operacional tem duas metades — a despesa e o passivo —, e
+    # marcar a despesa como "sem caixa" E o passivo como operacional ajusta o
+    # MESMO fato duas vezes no método indireto (20(b) e 20(a)): a identidade
+    # do item 20A nunca fecha, mesmo depois de a provisão ser paga, e a DFC
+    # fica inemitível com marcações que cada uma, isolada, parece correta. O
+    # caminho que fecha é UM só: marcar o PASSIVO como operacional (a variação
+    # dele já é o ajuste 20(a), tanto na constituição quanto no pagamento) e
+    # deixar a despesa sem esta marcação.
     item_de_resultado_sem_caixa = models.BooleanField(
         "item de resultado que não movimenta caixa",
         default=False,
         help_text=(
-            "CPC 03 (R2), item 20(b): depreciação, amortização, provisões e "
-            "semelhantes entram no ajuste do método indireto e não como fluxo. "
-            "Só vale para conta de resultado."
+            "CPC 03 (R2), item 20(b): depreciação, amortização e semelhantes "
+            "entram no ajuste do método indireto e não como fluxo. Só vale "
+            "para conta de resultado. Para PROVISÃO operacional, não use esta "
+            "marcação: marque a contrapartida (o passivo) como atividade "
+            "operacional — marcar as duas ajusta o mesmo fato duas vezes e a "
+            "conciliação do item 20A veta a DFC."
         ),
     )
 
@@ -1845,6 +1858,13 @@ class Conta(models.Model):
                     # chamador acabou de atribuir).
                     "classificacao_dlpa",
                     "classificacao_dmpl",
+                    # DL-066, etapa 2: os TRÊS campos da DFC entram na mesma
+                    # guarda de período fechado abaixo — cada um deles muda a
+                    # DFC apurada do período retroativamente, como a linha da
+                    # DLPA e a coluna da DMPL mudam as deles.
+                    "caixa_e_equivalentes",
+                    "classificacao_dfc",
+                    "item_de_resultado_sem_caixa",
                 )
                 .first()
             )
@@ -2068,11 +2088,11 @@ class Conta(models.Model):
                         "(a transferência do saldo), em vez de editar esta conta."
                     )
 
-                # DL-065 (BL-550): as DUAS classificações de demonstração
-                # anual — a linha da DLPA e a coluna da DMPL — não podem ser
-                # trocadas, nem removidas, quando a conta (ou qualquer
-                # descendente) tem movimento em competência já ENCERRADA ou
-                # entregue.
+                # DL-065 (BL-550) + DL-066 etapa 2: as classificações de
+                # demonstração — a linha da DLPA, a coluna da DMPL e os três
+                # campos da DFC — não podem ser trocadas, nem removidas,
+                # quando a conta (ou qualquer descendente) tem movimento em
+                # competência já ENCERRADA ou entregue.
                 #
                 # É a MESMA classe de dano da classificação patrimonial acima,
                 # com uma condição a mais: lá o bloqueio vale em qualquer
@@ -2103,12 +2123,39 @@ class Conta(models.Model):
                     original["classificacao_dmpl"] is not None
                     and original["classificacao_dmpl"] != self.classificacao_dmpl
                 )
-                if mudou_dlpa or mudou_dmpl:
-                    nome_da_demonstracao = (
-                        "a linha da DLPA e a coluna da DMPL"
-                        if mudou_dlpa and mudou_dmpl
-                        else ("a linha da DLPA" if mudou_dlpa else "a coluna da DMPL")
-                    )
+                # DL-066, etapa 2: os TRÊS campos da DFC são a MESMA classe de
+                # dano — a DFC apurada do período mudaria depois de ele ter
+                # sido fechado. A distinção é a das duas irmãs acima, levada
+                # aos booleanos: a PRIMEIRA marcação (`None`/`False` -> valor)
+                # é livre — é o caminho que limpa o veto da própria DFC, e sem
+                # ela o plano de caixa de uma empresa em operação nunca seria
+                # montado —, e DESMARCAR ou TROCAR o que já estava declarado é
+                # que é reescrita retroativa e fica recusado.
+                mudou_atividade_dfc = (
+                    original["classificacao_dfc"] is not None
+                    and original["classificacao_dfc"] != self.classificacao_dfc
+                )
+                mudou_marcacao_de_caixa = (
+                    original["caixa_e_equivalentes"] is True
+                    and original["caixa_e_equivalentes"] != self.caixa_e_equivalentes
+                )
+                mudou_item_sem_caixa = (
+                    original["item_de_resultado_sem_caixa"] is True
+                    and original["item_de_resultado_sem_caixa"] != self.item_de_resultado_sem_caixa
+                )
+                partes_mudadas = []
+                if mudou_dlpa:
+                    partes_mudadas.append("a linha da DLPA")
+                if mudou_dmpl:
+                    partes_mudadas.append("a coluna da DMPL")
+                if mudou_atividade_dfc:
+                    partes_mudadas.append("a atividade da DFC")
+                if mudou_marcacao_de_caixa:
+                    partes_mudadas.append("a marcação de caixa e equivalentes da DFC")
+                if mudou_item_sem_caixa:
+                    partes_mudadas.append("a marcação de item de resultado sem caixa da DFC")
+                if partes_mudadas:
+                    nome_da_demonstracao = " e ".join(partes_mudadas)
                     competencia = self._competencia_fechada_com_movimento()
                     if competencia is not None:
                         rotulo_do_estado = (

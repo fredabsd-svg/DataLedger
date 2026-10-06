@@ -596,8 +596,8 @@ SELETOR_IDENTIFICACAO_DO_DOCUMENTO_FILHOS = ".identificacao-do-documento p"
 # Piso de regressão, MESMA lógica de `TELAS_MINIMAS_COM_TIMBRE_ESPERADAS`
 # (ver o comentário completo lá sobre por que um piso pequeno e
 # versionado, ao lado da derivação que cresce sozinha): Balanço (DL-034),
-# DRE (DL-045), DLPA (DL-048/CTB-13) e DMPL (DL-061/CTB-14) são classe 2
-# hoje. Um módulo novo
+# DRE (DL-045), DLPA (DL-048/CTB-13), DMPL (DL-061/CTB-14) e DFC
+# (DL-066/CTB-15) são classe 2 hoje. Um módulo novo
 # que ganhe demonstração própria (Fiscal, Folha) e o comentário deste piso
 # não crescer junto é erro visível, revisado — nunca divergência silenciosa
 # entre duas cópias.
@@ -607,6 +607,7 @@ TELAS_MINIMAS_COM_IDENTIFICACAO_DO_DOCUMENTO_ESPERADAS = frozenset(
         "contabilidade_web:dre",
         "contabilidade_web:dlpa",
         "contabilidade_web:dmpl",
+        "contabilidade_web:dfc",
     }
 )
 

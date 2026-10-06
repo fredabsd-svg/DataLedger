@@ -71,6 +71,11 @@ from apps.contabilidade.models import (
     # conta (`ContaCriarForm`, campo "Linha da DRE" e a humanização das
     # pendências de classificação nas listas do veto).
     ClassificacaoDre,
+    # DL-066/CTB-15: atividade do fluxo de caixa da conta (CPC 03, itens 10 e
+    # 13 a 17) — o campo do meio da classificação da DFC
+    # (`conta_classificacao_dfc`, opções do formulário) e os rótulos das
+    # três atividades na tela da própria DFC.
+    ClassificacaoFluxoCaixa,
     # DL-034: os cinco nomes abaixo (ClassificacaoPatrimonial, GrupoDaLei,
     # GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL, TIPO_DA_CLASSIFICACAO_
     # PATRIMONIAL, TipoConta) servem só a tela do Balanço — ver
@@ -126,6 +131,8 @@ from apps.contabilidade.services import (
     # DL-061: títulos humanos de cada lista de pendência da DMPL — fonte
     # ÚNICA no serviço (a tela só acrescenta a AÇÃO que resolve); uma cópia
     # escrita aqui divergiria na primeira edição.
+    # DL-066/CTB-15: mesma fonte única para os títulos das pendências da DFC.
+    _TITULOS_DAS_PENDENCIAS_DA_DFC,
     _TITULOS_DAS_PENDENCIAS_DA_DMPL,
     DATA_MINIMA_LANCAMENTO,
     LIMITE_PARTIDAS_POR_LANCAMENTO,
@@ -165,6 +172,9 @@ from apps.contabilidade.services import (
     # agora para a DRE. `apurar_dre` passou a pagar o mesmo snapshot
     # REPEATABLE READ que `apurar_balanco_patrimonial` paga (A5, rodada 1
     # de auditoria da DL-045) — nada para esta tela fazer a respeito.
+    # DL-066/CTB-15: apuração da DFC — mesmo contrato de snapshot e de
+    # "quem chama verifica permissão" das irmãs abaixo.
+    apurar_dfc,
     # DL-048/CTB-13: apuração da DLPA — mesma família de nome da DRE,
     # mesmo contrato de snapshot e de "quem chama verifica permissão".
     apurar_dlpa,
@@ -173,6 +183,8 @@ from apps.contabilidade.services import (
     apurar_dmpl,
     apurar_dre,
     apurar_razao,
+    # DL-066: decisão de emissão da DFC, no servidor (a tela só obedece).
+    avaliar_emissao_da_dfc,
     # DL-048: decisão de emissão da DLPA, no servidor (a tela só obedece).
     avaliar_emissao_da_dlpa,
     # DL-061: decisão de emissão da DMPL, no servidor (a tela só obedece).
@@ -185,6 +197,11 @@ from apps.contabilidade.services import (
     # (`ContaClassificacaoDreView`), nunca uma segunda cópia da regra
     # (todas as guardas moram em `Conta.clean()`). Ver `conta_
     # classificacao_dre`, mais abaixo.
+    # DL-066/CTB-15: porta ÚNICA de gravação dos TRÊS campos da DFC de uma
+    # conta existente — mesmo desenho das irmãs abaixo (guarda em
+    # `Conta.clean()` + trilha na MESMA transação + recusa de período
+    # fechado em `ClassificacaoAlteraPeriodoFechado`).
+    classificar_conta_na_dfc,
     # DL-048/CTB-12: porta ÚNICA de gravação da classificação da DLPA —
     # mesmo desenho de `classificar_conta_na_dre` (guarda em
     # `Conta.clean()` + trilha na MESMA transação), nunca uma segunda cópia.
@@ -1399,6 +1416,130 @@ def conta_classificacao_dmpl(request, empresa_id, conta_id):
     )
 
 
+class ClassificacaoDfcForm(forms.Form):
+    """Formulário de TRÊS campos — a classificação da DFC de uma conta
+    EXISTENTE (DL-066/CTB-15, no molde de `ClassificacaoDlpaForm`). Não é um
+    `ModelForm`: a gravação passa SEMPRE por `classificar_conta_na_dfc`
+    (services.py), que chama `full_clean()` e carrega as guardas de
+    `Conta.clean()` (caixa **e** atividade não convivem na mesma conta; item
+    sem caixa só em conta de resultado; recusa de período fechado) + a
+    trilha de auditoria.
+
+    Os TRÊS campos são recebidos como ESTADO DESEJADO completo, não como
+    patch (ver o docstring do serviço): por isso o formulário sempre envia
+    os dois marcadores, mesmo desligados — desmarcar é decisão, não ausência
+    de decisão. As opções do meio vêm do MESMO enum que o modelo usa
+    (`ClassificacaoFluxoCaixa`), e o texto de ajuda vem do `help_text` do
+    modelo — FONTE ÚNICA: a regra e a citação normativa já moram lá, e uma
+    cópia aqui divergiria na primeira edição.
+    """
+
+    caixa_e_equivalentes = forms.BooleanField(
+        label="Caixa e equivalentes",
+        required=False,
+        help_text=Conta._meta.get_field("caixa_e_equivalentes").help_text,
+    )
+    classificacao_dfc = forms.ChoiceField(
+        label="Atividade do fluxo de caixa",
+        choices=[("", "Sem atividade")] + list(ClassificacaoFluxoCaixa.choices),
+        required=False,
+        help_text=Conta._meta.get_field("classificacao_dfc").help_text,
+    )
+    item_de_resultado_sem_caixa = forms.BooleanField(
+        label="Item de resultado que não movimenta caixa",
+        required=False,
+        help_text=Conta._meta.get_field("item_de_resultado_sem_caixa").help_text,
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def conta_classificacao_dfc(request, empresa_id, conta_id):
+    """Classifica (ou reclassifica) os TRÊS campos da DFC de uma conta
+    EXISTENTE — DL-066/CTB-15: a porta de TELA no molde de
+    `conta_classificacao_dlpa`. Chamada pelo veto da tela `dfc` (cada conta
+    pendente ganha link direto) e pelo Plano de contas.
+
+    Autorização: `_pode_escriturar` (MESMO papel das classificações irmãs —
+    nenhuma permissão nova); filtro `empresa=empresa` — conta de outra
+    empresa/escritório dá 404, nunca confirma existência.
+
+    A GRAVAÇÃO passa inteira por `classificar_conta_na_dfc`; esta view só
+    traduz `ClassificacaoAlteraPeriodoFechado` (DL-065/BL-550, estendida aos
+    três campos na etapa 2) e `ValidationError` para `form.add_error(None,
+    ...)` e re-renderiza com 200 (recusa de regra é a tela respondendo, nunca
+    um 500). O `refresh_from_db()` em caso de recusa restaura o valor
+    REALMENTE gravado — o serviço muta a instância antes do `full_clean()`
+    recusar (mesmo achado R6 da reconferência da DL-045).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite classificar a DFC nesta empresa."
+        )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    conta = get_object_or_404(Conta, pk=conta_id, empresa=empresa)
+
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, _CONTRATO_DO_FORMULARIO_DE_CLASSIFICACAO_DFC)
+        except DadoNaoContratado as exc:
+            messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+            return render(
+                request,
+                "contabilidade/conta_classificacao_dfc.html",
+                {"empresa": empresa, "conta": conta, "form": ClassificacaoDfcForm(request.POST)},
+                status=400,
+            )
+
+        form = ClassificacaoDfcForm(request.POST)
+        if form.is_valid():
+            try:
+                classificar_conta_na_dfc(
+                    conta=conta,
+                    caixa_e_equivalentes=form.cleaned_data["caixa_e_equivalentes"],
+                    classificacao_dfc=form.cleaned_data["classificacao_dfc"] or None,
+                    item_de_resultado_sem_caixa=form.cleaned_data["item_de_resultado_sem_caixa"],
+                    usuario=request.user,
+                    request=request,
+                )
+            except ClassificacaoAlteraPeriodoFechado as exc:
+                # DL-065 (BL-550), estendida aos três campos: mesma tradução
+                # da porta da DLPA — recusa no formulário com 200 e valor
+                # gravado restaurado, nunca um 500.
+                conta.refresh_from_db()
+                form.add_error(None, str(exc))
+            except DjangoValidationError as exc:
+                conta.refresh_from_db()
+                for mensagem in mensagens_da_validacao_django(exc):
+                    form.add_error(None, mensagem)
+            else:
+                messages.success(
+                    request, f"Classificação da DFC de “{conta}” atualizada com sucesso."
+                )
+                return redirect("contabilidade_web:plano_de_contas", empresa_id=empresa.id)
+    else:
+        form = ClassificacaoDfcForm(
+            initial={
+                "caixa_e_equivalentes": conta.caixa_e_equivalentes,
+                "classificacao_dfc": conta.classificacao_dfc or "",
+                "item_de_resultado_sem_caixa": conta.item_de_resultado_sem_caixa,
+            }
+        )
+
+    return render(
+        request,
+        "contabilidade/conta_classificacao_dfc.html",
+        {"empresa": empresa, "conta": conta, "form": form},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Lançamento (critérios 10 e 11)
 # ---------------------------------------------------------------------------
@@ -2150,6 +2291,25 @@ _CONTRATO_DO_FORMULARIO_DE_CLASSIFICACAO_DMPL = ContratoDeRequisicao(
     aceita_querystring=False,
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na classificação da coluna da DMPL",
+)
+
+# DL-066/CTB-15: o mesmo contrato para a tela da DFC — TRÊS campos (os dois
+# marcadores são enviados mesmo desligados: desmarcar é decisão, e o serviço
+# recebe estado desejado completo, nunca patch). Um contrato por tela, pelo
+# mesmo motivo das irmãs acima.
+_CONTRATO_DO_FORMULARIO_DE_CLASSIFICACAO_DFC = ContratoDeRequisicao(
+    campos=frozenset(
+        {
+            "csrfmiddlewaretoken",
+            "caixa_e_equivalentes",
+            "classificacao_dfc",
+            "item_de_resultado_sem_caixa",
+        }
+    ),
+    aceita_arquivo=False,
+    aceita_querystring=False,
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na classificação da DFC",
 )
 
 # DL-061, fatia 2 (BL-605): o contrato da guia "DMPL" do lançamento. Os
@@ -5800,6 +5960,403 @@ def dmpl(request, empresa_id):
         }
     )
     return render(request, "contabilidade/dmpl.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# DFC (DL-066/CTB-15)
+# ---------------------------------------------------------------------------
+
+
+# A AÇÃO que resolve cada pendência da DFC — o TÍTULO continua morando no
+# serviço (`_TITULOS_DAS_PENDENCIAS_DA_DFC`), fonte única; esta é a tela
+# dizendo o que fazer, no mesmo molde de `ACAO_QUE_RESOLVE_A_PENDENCIA_
+# DA_DMPL_POR_LISTA`. Lista nova no serviço sem ação cadastrada aqui aparece
+# na tela como "ação não cadastrada" — nunca em silêncio.
+ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DFC_POR_LISTA = {
+    "conta_com_dois_papeis": (
+        "Cada conta tem UM papel na DFC: ou é caixa e equivalentes (o lado do caixa "
+        "dos lançamentos), ou tem atividade (a contrapartida que dá o sentido do "
+        "fluxo) — nunca os dois. Para cada conta listada, desmarque o papel que ela "
+        "não exerce (link ao lado)."
+    ),
+    "lancamentos_sem_atividade": (
+        "Classifique cada contrapartida listada com a atividade do fluxo em que o "
+        "movimento dela entra (operacional, investimento ou financiamento) — o link "
+        "de conferência abre o lançamento, onde as contas aparecem."
+    ),
+    "classificacao_fora_do_enum": (
+        "A atividade gravada nessas contas não existe mais no cadastro. "
+        "Reclassifique cada uma delas com uma das três atividades válidas no campo "
+        "“Atividade do fluxo de caixa”."
+    ),
+    "lancamento_com_atividades_conflitantes": (
+        "A DFC não rateia um lançamento entre atividades, e o lançamento efetivado "
+        "não se altera. A saída prevista é a marcação manual do lançamento (etapa "
+        "seguinte desta demanda), que reparte o efeito dele entre as atividades — "
+        "até lá, a emissão fica impedida."
+    ),
+    "diferenca_de_caixa": (
+        "A soma das três atividades precisa ser a variação do saldo de caixa e "
+        "equivalentes (conciliação do item 45 do CPC 03). Confira no plano de "
+        "contas quais contas são caixa e equivalentes e qual atividade cada "
+        "contrapartida tem; nenhum saldo é ajustado para fechar a diferença."
+    ),
+    "indireto_nao_fecha": (
+        "A conciliação do método indireto precisa reproduzir o fluxo operacional "
+        "apurado pelos lançamentos (item 20A do CPC 03). Confira as marcações de "
+        "item de resultado sem caixa e de atividade das contas: cada fato contábil "
+        "é ajustado UMA vez. Nenhum ajuste é calibrado para fechar a diferença."
+    ),
+}
+
+
+def _listas_de_pendencia_dfc_para_contexto(emissao, empresa, pode_escriturar):
+    """O veto da DFC pronto para o template: cada lista com o título do
+    SERVIÇO e, por item, o texto já humano e os links — mesmo formato das
+    pendências da DMPL (`_listas_de_pendencia_dmpl_para_contexto`, que é o
+    molde desta tela).
+
+    Link de CORREÇÃO (classificar a conta) só existe para quem escritura —
+    quem só lê vê a pendência e o link de CONFERÊNCIA do lançamento (leitura),
+    nunca um convite a uma ação que o servidor recusaria. O id da conta vem
+    de UMA consulta pelo código citado no item (`conta_com_dois_papeis`); o
+    restante das listas cita conta como texto, e o caminho de correção delas
+    é o Plano de contas (link fechando o bloco, no template).
+    """
+    listas = emissao["listas_pendentes"]
+    ids_de_lancamento = {
+        item["lancamento_id"]
+        for itens in listas.values()
+        for item in itens
+        if item.get("lancamento_id")
+    }
+    lancamentos_por_id = _lancamentos_da_dlpa_por_id(ids_de_lancamento, empresa)
+    codigos = {item["conta"] for item in listas.get("conta_com_dois_papeis", [])}
+    id_por_codigo = (
+        dict(Conta.objects.filter(empresa=empresa, codigo__in=codigos).values_list("codigo", "id"))
+        if codigos
+        else {}
+    )
+
+    resultado = []
+    for nome, itens in listas.items():
+        linhas = []
+        for item in itens:
+            links = []
+            if nome == "conta_com_dois_papeis":
+                texto = (
+                    f"Conta {item['conta']} — {item['nome']}: marcada como caixa e "
+                    "equivalentes e com atividade gravada "
+                    f"(“{item['atividade']}”) — papel duplo."
+                )
+                conta_id = id_por_codigo.get(item["conta"])
+                if conta_id:
+                    links.append(
+                        {
+                            "rotulo": "classificar esta conta",
+                            "url": reverse(
+                                "contabilidade_web:conta_classificacao_dfc",
+                                args=[empresa.id, conta_id],
+                            ),
+                            "correcao": True,
+                        }
+                    )
+            elif nome == "lancamentos_sem_atividade":
+                texto = (
+                    f"Lançamento de {_data_ptbr(item['data'])} — {item['historico']}: "
+                    f"contrapartida sem atividade — {item['contas']}."
+                )
+            elif nome == "classificacao_fora_do_enum":
+                texto = (
+                    f"Lançamento de {_data_ptbr(item['data'])} — {item['historico']}: "
+                    f"{item['contas']}."
+                )
+            elif nome == "lancamento_com_atividades_conflitantes":
+                texto = (
+                    f"Lançamento de {_data_ptbr(item['data'])} — {item['historico']}: "
+                    f"o fluxo cai em mais de uma atividade ({', '.join(item['atividades'])})."
+                )
+            elif nome == "diferenca_de_caixa":
+                texto = (
+                    "Variação apurada pelas três atividades "
+                    f"{_saldo_entre_parenteses(item['variacao_pelas_atividades'])}, "
+                    "variação dos saldos das contas de caixa e equivalentes "
+                    f"{_saldo_entre_parenteses(item['variacao_dos_saldos'])} — diferença "
+                    f"{_saldo_entre_parenteses(item['diferenca'])}."
+                )
+            elif nome == "indireto_nao_fecha":
+                texto = (
+                    f"Lucro líquido {_saldo_entre_parenteses(item['lucro_liquido'])} mais "
+                    f"ajustes {_saldo_entre_parenteses(item['total_dos_ajustes'])} = "
+                    f"{_saldo_entre_parenteses(item['fluxo_operacional'])} no método indireto, "
+                    "contra "
+                    f"{_saldo_entre_parenteses(item['fluxo_operacional_pelo_direto'])} apurado "
+                    f"pelos lançamentos — diferença {_saldo_entre_parenteses(item['diferenca'])}."
+                )
+            else:
+                # Lista nova sem tratamento nunca quebra a tela: sai o dict
+                # cru, que denuncia a lacuna (mesmo molde da DMPL).
+                texto = str(item)
+            if item.get("lancamento_id") in lancamentos_por_id:
+                links.append(
+                    {
+                        "rotulo": (
+                            "lançamento de "
+                            f"{lancamentos_por_id[item['lancamento_id']]['descricao']}"
+                        ),
+                        "url": reverse(
+                            "contabilidade_web:lancamento_detalhe",
+                            args=[empresa.id, item["lancamento_id"]],
+                        ),
+                        "correcao": False,
+                    }
+                )
+            if not pode_escriturar:
+                links = [link for link in links if not link["correcao"]]
+            linhas.append({"texto": texto, "links": links})
+        resultado.append(
+            {
+                "titulo": _TITULOS_DAS_PENDENCIAS_DA_DFC.get(nome, nome),
+                "linhas": linhas,
+                "acao": ACAO_QUE_RESOLVE_A_PENDENCIA_DA_DFC_POR_LISTA.get(
+                    nome, f"Ação não cadastrada para a pendência '{nome}' — avise o suporte."
+                ),
+            }
+        )
+    return resultado
+
+
+def _data_ptbr(valor):
+    """Data em pt-BR para o texto das pendências — `None` sai "data não
+    encontrada", nunca exceção (o dado vem da apuração e pode ter sido
+    montado fora do caminho validado)."""
+    return date_format(valor, "d/m/Y") if valor else "data não encontrada"
+
+
+def _montar_dfc_para_contexto(dfc):
+    """A DFC pronta para o template — só FORMATAÇÃO, nenhum cálculo: o número
+    vem inteiro de `apurar_dfc` (services.py) e aqui vira texto pt-BR pelo
+    MESMO `_valor_dre` de todas as demonstrações (negativo entre parênteses,
+    RC-90). Dinheiro nunca viaja para o template como `Decimal` cru.
+
+    Duas seções, no molde do documento:
+
+    - **direto** (resumido): as três atividades, a variação, o caixa inicial
+      e final e a conciliação do item 45 — as nove linhas, na ordem em que o
+      CPC 03 (R2) item 43 apresenta o fluxo e o item 45 pede a conciliação;
+    - **indireto** (item 20/20A): lucro líquido, a tabela dos ajustes (cada
+      um com item, conta, nome, descrição, sinal e valor), o total, o fluxo
+      operacional e a conferência contra o direto. `None` quando a apuração
+      não o devolveu (nenhuma conta de caixa marcada) — a tela NOMEIA a
+      ausência em vez de inventar o número.
+
+    Zero sai "0,00", não "—": aqui cada valor é APURADO (as irmãs DRE/DLPA
+    fazem o mesmo); o "—" das células da DMPL marca célula SEM lançamento de
+    origem, conceito que as linhas da DFC não têm.
+    """
+    direto = [
+        {
+            "titulo": "Fluxos de caixa das atividades operacionais",
+            "valor": _valor_dre(dfc["atividades"][ClassificacaoFluxoCaixa.OPERACIONAL]),
+        },
+        {
+            "titulo": "Fluxos de caixa das atividades de investimento",
+            "valor": _valor_dre(dfc["atividades"][ClassificacaoFluxoCaixa.INVESTIMENTO]),
+        },
+        {
+            "titulo": "Fluxos de caixa das atividades de financiamento",
+            "valor": _valor_dre(dfc["atividades"][ClassificacaoFluxoCaixa.FINANCIAMENTO]),
+        },
+        {
+            "titulo": "Variação do caixa e equivalentes de caixa no período",
+            "valor": _valor_dre(dfc["caixa"]["variacao"]),
+            "total": True,
+        },
+        {
+            "titulo": "Caixa e equivalentes de caixa no início do período",
+            "valor": _valor_dre(dfc["caixa"]["inicial"]),
+        },
+        {
+            "titulo": "Caixa e equivalentes de caixa no fim do período",
+            "valor": _valor_dre(dfc["caixa"]["final"]),
+            "total": True,
+        },
+        {
+            "titulo": ("Conciliação do item 45 — variação apurada pelas três atividades"),
+            "valor": _valor_dre(dfc["conciliacao"]["variacao_pelas_atividades"]),
+        },
+        {
+            "titulo": (
+                "Conciliação do item 45 — variação dos saldos das contas de caixa e equivalentes"
+            ),
+            "valor": _valor_dre(dfc["conciliacao"]["variacao_dos_saldos"]),
+        },
+        {
+            "titulo": "Conciliação do item 45 — diferença entre as duas variações",
+            "valor": _valor_dre(dfc["conciliacao"]["diferenca"]),
+        },
+    ]
+
+    indireto = dfc["operacional_indireto"]
+    if indireto is None:
+        return {"direto": direto, "indireto": None}
+
+    linhas = [
+        {"resumo": "Lucro líquido do período", "valor": _valor_dre(indireto["lucro_liquido"])}
+    ]
+    linhas.extend(
+        {
+            "item": ajuste["item"],
+            "conta": ajuste["conta"],
+            "nome": ajuste["nome"],
+            "descricao": ajuste["descricao"],
+            "sinal": ajuste["sinal"],
+            # O serviço devolve `valor` SEM sinal e `sinal` à parte (e `efeito`
+            # assinado): a tabela mostra a magnitude e o sinal, cada um na sua
+            # coluna — é o contrato do item 20, e o teste de tela mede as duas.
+            "valor": _valor_dre(ajuste["valor"]),
+        }
+        for ajuste in indireto["ajustes"]
+    )
+    linhas.append(
+        {
+            "resumo": "Total dos ajustes do método indireto",
+            "valor": _valor_dre(indireto["total_dos_ajustes"]),
+            "total": True,
+        }
+    )
+    linhas.append(
+        {
+            "resumo": "Fluxo de caixa das atividades operacionais — método indireto",
+            "valor": _valor_dre(indireto["fluxo_operacional"]),
+            "total": True,
+        }
+    )
+    linhas.append(
+        {
+            "resumo": "Fluxo de caixa das atividades operacionais — método direto",
+            "valor": _valor_dre(indireto["fluxo_operacional_pelo_direto"]),
+        }
+    )
+    linhas.append(
+        {"resumo": "Diferença entre os dois métodos", "valor": _valor_dre(indireto["diferenca"])}
+    )
+    linhas.append(
+        {"resumo": "Os dois métodos conferem", "texto": "Sim" if indireto["confere"] else "Não"}
+    )
+    return {"direto": direto, "indireto": {"linhas": linhas}}
+
+
+@login_required
+@require_safe
+def dfc(request, empresa_id):
+    """Demonstração dos Fluxos de Caixa (DL-066/CTB-15) — tela no molde de
+    `dmpl`: MESMA autorização de leitura (`_pode_ler`), mesma recusa de
+    livro-caixa, mesmo veto do servidor com pendências nomeadas, mesma
+    competência e navegação por mês, mesmo bloco de identificação em cada
+    página impressa.
+
+    Período: EXERCÍCIO (ano civil, HI-28) até a competência pedida —
+    `?ano=&mes=` por querystring (mesma gramática da DRE/DLPA/DMPL), nunca no
+    caminho da URL. O início vem do CONTEXTO da apuração (`periodo.data_
+    inicio`), nunca de "01/01/{ano}" escrito no template.
+
+    **O veredito é do servidor** (`avaliar_emissao_da_dfc`) e a tela só
+    OBEDECE: com QUALQUER pendência, a página de recusa não monta nada da
+    demonstração — sem tabela, sem totais, sem carimbo e sem o bloco de
+    identificação impresso (regra B.2/B.3 do projeto; mesmo molde do veto da
+    DMPL).
+
+    **Item 52A do CPC 03 (R2):** a DFC não apresenta campo de valor por ação
+    — o produto não registra quantidade de ações, e na DFC a norma veda esse
+    dado. Nenhum desfecho desta tela o monta (o teste de tela varre o HTML
+    inteiro atrás do trecho).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite ler a contabilidade desta empresa."
+        )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    # O link de correção do veto só aparece para quem PODE ESCRITURAR — vale
+    # para TODOS os `render()` desta view (mesmo molde da DMPL).
+    pode_escriturar = _pode_escriturar(request)
+    contexto = {"empresa": empresa, "pode_escriturar": pode_escriturar}
+
+    ano, mes, erro_competencia = _competencia_dre_do_formulario(request)
+    if erro_competencia:
+        messages.error(request, erro_competencia)
+        return render(request, "contabilidade/dfc.html", contexto, status=400)
+
+    ano_anterior, mes_anterior = _competencia_adjacente(ano, mes, -1)
+    ano_seguinte, mes_seguinte = _competencia_adjacente(ano, mes, 1)
+    contexto.update(
+        {
+            "ano": ano,
+            "mes": mes,
+            "data_referencia": date(ano, mes, 1),
+            # Link só quando a competência adjacente é VÁLIDA: perto da borda
+            # da faixa some, em vez de levar a um 400 (mesmo R10 da DRE).
+            "ano_anterior": ano_anterior
+            if _ano_mes_de_competencia_valido(ano_anterior, mes_anterior)
+            else None,
+            "mes_anterior": mes_anterior,
+            "ano_seguinte": ano_seguinte
+            if _ano_mes_de_competencia_valido(ano_seguinte, mes_seguinte)
+            else None,
+            "mes_seguinte": mes_seguinte,
+        }
+    )
+
+    # Estado VAZIO: empresa sem NENHUMA conta — nada para classificar ainda.
+    empresa_tem_plano_de_contas = Conta.objects.filter(empresa=empresa).exists()
+    contexto["empresa_tem_plano_de_contas"] = empresa_tem_plano_de_contas
+    if not empresa_tem_plano_de_contas:
+        return render(request, "contabilidade/dfc.html", contexto)
+
+    try:
+        dfc_apurada = apurar_dfc(empresa=empresa, ano=ano, mes=mes)
+    except HierarquiaInconsistente as exc:
+        messages.error(request, str(exc))
+        return render(request, "contabilidade/dfc.html", contexto, status=409)
+
+    emissao = avaliar_emissao_da_dfc(dfc_apurada)
+
+    rotulo_inscricao, inscricao_formatada = rotulo_e_inscricao_da_empresa(empresa)
+    contexto.update(
+        {
+            "identificacao": identificacao_da_demonstracao(),
+            "rotulo_inscricao": rotulo_inscricao,
+            "inscricao_formatada": inscricao_formatada,
+            "timbre_linhas": empresa.escritorio.linhas_do_timbre,
+            # O período coberto tem DUAS pontas e a inicial vem da apuração.
+            "data_inicio": dfc_apurada["periodo"]["data_inicio"],
+            "data_fim": dfc_apurada["periodo"]["data_fim"],
+        }
+    )
+
+    if not emissao["pode_emitir"]:
+        # Havendo QUALQUER pendência a tela NÃO monta a demonstração — só o
+        # que falta, nomeado, com link de correção. 200, não erro de
+        # protocolo: a tela respondeu "pode emitir? → não".
+        contexto.update(
+            {
+                "pode_emitir": False,
+                "listas_pendentes": _listas_de_pendencia_dfc_para_contexto(
+                    emissao, empresa, pode_escriturar
+                ),
+            }
+        )
+        return render(request, "contabilidade/dfc.html", contexto)
+
+    contexto.update({"pode_emitir": True, "dfc": _montar_dfc_para_contexto(dfc_apurada)})
+    return render(request, "contabilidade/dfc.html", contexto)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+
+{% block titulo %}Demonstração dos Fluxos de Caixa — {{ empresa.razao_social }}{% endblock %}
+{% comment %}
+Mesmo formato "nome do relatório — razão social do cliente" que
+Balancete/Diário/Razão/Balanço/DRE/DLPA/DMPL usam (BL-332/RC-97).
+
+⚠️ Nunca escreva "title" (nem outra palavra) entre sinais de menor/maior
+neste arquivo — ver o comentário completo em templates/base.html.
+{% endcomment %}
+{% block titulo_sufixo_do_fornecedor %}{% endblock %}
+
+{% comment %}
+DL-066/CTB-15: mesmo padrão do Balanço, da DRE, da DLPA e da DMPL — timbre
+de impressão do ESCRITÓRIO (BL-282/BL-338) e o bloco de identificação da
+ENTIDADE (cliente) em CADA página, dentro do `<thead>` de cada tabela
+impressa (parcial `_identificacao_do_documento_dfc.html`). Classe 2
+(demonstração): identificação é obrigação, não opção de layout (NBC TG 26
+(R5), item 51).
+{% endcomment %}
+{% block classe_escritorio_ativo_na_impressao %} contexto-item--somente-tela{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    {% if data_referencia %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Até</span>
+            <strong>{{ data_referencia|date:"F \d\e Y"|capfirst }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% block titulo_pagina %}<h1>Demonstração dos Fluxos de Caixa</h1>{% endblock %}
+
+{% block content %}
+    <div class="timbre-impressao">
+        {% for linha in timbre_linhas %}
+            <p>{{ linha }}</p>
+        {% endfor %}
+    </div>
+
+    {% comment %}
+    Navegação de competência "‹ Mês anterior / Até Março de 2026 / Mês
+    seguinte ›" — mesma gramática da DRE, da DLPA e da DMPL (mês/ano na
+    querystring, sem JavaScript). Cada link só aparece quando `dfc()`
+    (views_web.py) confirma que a competência adjacente é VÁLIDA.
+    {% endcomment %}
+    <nav class="navegacao-competencia" aria-label="Navegação de competência">
+        {% if ano_anterior %}
+            <a class="botao botao--secundario"
+               href="{% url 'contabilidade_web:dfc' empresa.id %}?ano={{ ano_anterior }}&mes={{ mes_anterior }}">
+                ‹ Mês anterior
+            </a>
+        {% endif %}
+        <strong class="navegacao-competencia__atual">
+            {% if data_referencia %}Até {{ data_referencia|date:"F \d\e Y"|capfirst }}{% endif %}
+        </strong>
+        {% if ano_seguinte %}
+            <a class="botao botao--secundario"
+               href="{% url 'contabilidade_web:dfc' empresa.id %}?ano={{ ano_seguinte }}&mes={{ mes_seguinte }}">
+                Mês seguinte ›
+            </a>
+        {% endif %}
+    </nav>
+
+    {% if not data_referencia %}
+        <p>
+            A competência informada não pôde ser usada, por isso nenhum dado foi carregado.
+            <a href="{% url 'contabilidade_web:dfc' empresa.id %}">Voltar à competência padrão (mês corrente)</a>
+            para ver a DFC.
+        </p>
+    {% elif not empresa_tem_plano_de_contas %}
+        {% comment %}
+        Estado VAZIO (mesmo critério do Balancete/Balanço/DRE/DLPA/DMPL).
+        {% endcomment %}
+        <p>
+            Esta empresa ainda não tem nenhuma conta cadastrada.
+            <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Ir para o plano de contas</a>
+            para cadastrar a primeira.
+        </p>
+    {% elif not pode_emitir %}
+        {% comment %}
+        Quem decidiu que NÃO pode emitir foi o SERVIDOR
+        (`avaliar_emissao_da_dfc`); esta tela só OBEDECE e EXPLICA: nenhum
+        valor é montado enquanto houver pendência (regra B.2/B.3 — sem
+        tabela, sem totais, sem carimbo, sem bloco de identificação
+        impresso), e cada pendência nomeia a SI MESMA (`lista.titulo`) e a
+        AÇÃO que resolve (`lista.acao`) — mesmo molde do veto da DMPL.
+        {% endcomment %}
+        <div class="faixa-fechamento faixa-fechamento--nao-fecha" role="status">
+            <strong class="faixa-fechamento__veredito">A DFC NÃO pode ser emitida nesta competência</strong>
+        </div>
+        <div class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> há pendência que impede a emissão — veja abaixo.
+            {% for lista in listas_pendentes %}
+                <p><strong>{{ lista.titulo }}</strong></p>
+                <ul>
+                    {% for linha in lista.linhas %}
+                        <li>
+                            {{ linha.texto }}
+                            {% for link in linha.links %}
+                                — <a href="{{ link.url }}">{{ link.rotulo }}</a>
+                            {% endfor %}
+                        </li>
+                    {% endfor %}
+                </ul>
+                <p class="texto-apoio">{{ lista.acao }}</p>
+            {% endfor %}
+            <p>
+                <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">Ir ao plano de contas</a>
+                para ver a classificação de todas as contas.
+            </p>
+            {% if not pode_escriturar %}
+                <p class="texto-apoio">
+                    Seu papel consulta a contabilidade mas não classifica contas: peça a quem
+                    escritura esta empresa para resolver as pendências acima.
+                </p>
+            {% endif %}
+        </div>
+    {% else %}
+        {% comment %}
+        Controle POSITIVO: `pode_emitir` chegou `True` do servidor, então a
+        demonstração é montada. A faixa é estado de FLUXO interno (decisão de
+        bancada antes de emitir), não conteúdo do documento: não sai no papel.
+        {% endcomment %}
+        <div class="faixa-fechamento faixa-fechamento--somente-tela" role="status">
+            <strong class="faixa-fechamento__veredito">DFC pronta para emissão</strong>
+            <span class="texto-apoio">
+                As três atividades somam a variação do caixa e equivalentes, conciliada
+                com o Balanço da mesma data (item 45 do CPC 03).
+            </span>
+        </div>
+
+        {% comment %}
+        O invólucro com rolagem horizontal existe para telas estreitas (390 px):
+        rola só a TABELA, nunca a PÁGINA (mesma técnica da DMPL). `role=
+        "region"` + `tabindex="0"` + nome acessível: sem eles, quem usa só o
+        teclado não consegue rolar a região. No papel o rolamento desliga
+        (base.css, `@media print`).
+
+        O bloco de identificação vive DENTRO do `<thead>` (parcial
+        `_identificacao_do_documento_dfc.html`) — repete em TODA página
+        impressa, medido no navegador real por
+        scripts/medir_identificacao_do_emitente.py.
+        {% endcomment %}
+        <section aria-labelledby="titulo-dfc-metodo-direto">
+            <h2 id="titulo-dfc-metodo-direto">Método direto resumido</h2>
+            <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0"
+                 aria-label="Demonstração dos Fluxos de Caixa — método direto resumido — tabela com rolagem horizontal">
+            <table class="tabela-dados tabela-dfc">
+                <caption class="visualmente-oculto">
+                    Demonstração dos Fluxos de Caixa de {{ empresa.razao_social }} —
+                    método direto resumido, período de {{ data_inicio|date:"d/m/Y" }} a
+                    {{ data_fim|date:"d/m/Y" }}
+                </caption>
+                <thead>
+                    {% include "contabilidade/_identificacao_do_documento_dfc.html" with colspan_da_identificacao=2 %}
+                    <tr>
+                        <th scope="col">Rubrica</th>
+                        <th scope="col" class="cabecalho-numerico">Valor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% comment %}
+                    A ORDEM das linhas vem do SERVIÇO (`_montar_dfc_para_
+                    contexto`, views_web.py, na ordem do CPC 03 (R2) item 43
+                    mais a conciliação do item 45); aqui é só um laço. Valor
+                    negativo entre parênteses (`_valor_dre.html`, RC-90) —
+                    a apresentação de todas as células assinadas deste
+                    produto.
+                    {% endcomment %}
+                    {% for linha in dfc.direto %}
+                        <tr{% if linha.total %} class="linha-total"{% endif %}>
+                            <th scope="row" class="cabecalho-de-linha">{{ linha.titulo }}</th>
+                            <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linha.valor %}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            </div>
+        </section>
+
+        <section aria-labelledby="titulo-dfc-metodo-indireto">
+            <h2 id="titulo-dfc-metodo-indireto">Método indireto</h2>
+            {% if not dfc.indireto %}
+                {% comment %}
+                `operacional_indireto` vem `None` do SERVIDOR quando nenhuma
+                conta está marcada como caixa e equivalentes (retorno
+                antecipado de `apurar_dfc`) — a tela NOMEIA a ausência, nunca
+                apresenta um número que a apuração não apurou.
+                {% endcomment %}
+                <p class="texto-apoio">
+                    Método indireto não apresentado: nenhuma conta está marcada como
+                    caixa e equivalentes, então a apuração não tem lucro do período nem
+                    ajustes do item 20 a conciliar. Marque as contas de caixa e
+                    equivalentes no
+                    <a href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">plano de contas</a>
+                    para a conciliação do método indireto ser apurada.
+                </p>
+            {% else %}
+                <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0"
+                     aria-label="Demonstração dos Fluxos de Caixa — método indireto — tabela com rolagem horizontal">
+                <table class="tabela-dados tabela-dfc-indireto">
+                    <caption class="visualmente-oculto">
+                        Demonstração dos Fluxos de Caixa de {{ empresa.razao_social }} —
+                        método indireto (conciliação do item 20 do CPC 03), período de
+                        {{ data_inicio|date:"d/m/Y" }} a {{ data_fim|date:"d/m/Y" }}
+                    </caption>
+                    <thead>
+                        {% include "contabilidade/_identificacao_do_documento_dfc.html" with colspan_da_identificacao=6 %}
+                        <tr>
+                            <th scope="col">Item</th>
+                            <th scope="col">Conta</th>
+                            <th scope="col">Nome</th>
+                            <th scope="col">Descrição</th>
+                            <th scope="col">Sinal</th>
+                            <th scope="col" class="cabecalho-numerico">Valor</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% comment %}
+                        Cada ajuste vem do serviço com item (20(a), 20(b) ou
+                        20(c)), conta, nome, descrição, SINAL e VALOR (o
+                        valor sem sinal; a magnitude é o `valor` e a direção é
+                        a coluna "Sinal" — o `efeito` assinado do serviço não
+                        é reimpresso aqui). As linhas de resumo ocupam as
+                        cinco primeiras colunas fundidas.
+                        {% endcomment %}
+                        {% for linha in dfc.indireto.linhas %}
+                            <tr{% if linha.total %} class="linha-total"{% endif %}>
+                                {% if linha.resumo %}
+                                    <th scope="row" class="cabecalho-de-linha" colspan="5">{{ linha.resumo }}</th>
+                                    {% if linha.valor %}
+                                        <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linha.valor %}</td>
+                                    {% else %}
+                                        <td>{{ linha.texto }}</td>
+                                    {% endif %}
+                                {% else %}
+                                    <th scope="row" class="cabecalho-de-linha">{{ linha.item }}</th>
+                                    <td>{{ linha.conta }}</td>
+                                    <td>{{ linha.nome }}</td>
+                                    <td>{{ linha.descricao }}</td>
+                                    <td>{{ linha.sinal }}</td>
+                                    <td class="valor-monetario">{% include "contabilidade/_valor_dre.html" with valor=linha.valor %}</td>
+                                {% endif %}
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+            {% endif %}
+        </section>
+
+        {% comment %}
+        Notas do documento — saem NO PAPEL. A demonstração é do período de
+        apuração acumulado do exercício até a competência pedida; o método
+        direto é o RESUMIDO (uma linha por atividade, CPC 03 (R2) item 43),
+        e o indireto é a conciliação do item 20 exigida pelo 20A de quem
+        apresenta o direto.
+        {% endcomment %}
+        <div class="notas-do-documento">
+            <p>
+                Demonstração elaborada conforme o CPC 03 (R2): método direto resumido
+                (item 43) e conciliação do fluxo operacional pelo método indireto
+                (itens 20 e 20A), com a conciliação dos montantes de caixa e
+                equivalentes com os itens do Balanço Patrimonial (item 45).
+            </p>
+        </div>
+    {% endif %}
+{% endblock %}

@@ -135,8 +135,18 @@ def test_a_derivacao_encontrou_as_vinte_e_quatro_rotas_web_e_as_vinte_da_api():
     # POST grava o conjunto de marcações, `acao=salvar`, ou limpa,
     # `acao=remover`) — 23 -> 24 do lado da tela. Nenhuma rota nova na API
     # nesta etapa (a API da marcação existe desde a fatia 2 do servidor).
-    assert len(ROTAS_WEB) == 24, ROTAS_WEB
-    assert len(ROTAS_API) == 20, ROTAS_API
+    # DL-066/CTB-15 (etapa 2, servidor): DUAS rotas novas na API — "dfc" (GET
+    # da apuração da DFC) e "conta-classificacao-dfc" (PATCH dos três campos
+    # da conta) — 20 -> 22 do lado da API.
+    #
+    # DL-066/CTB-15 (etapa 2, tela): as DUAS rotas de tela da etapa —
+    # "conta_classificacao_dfc" (GET mostra o formulário dos TRÊS campos da
+    # DFC; POST grava por `classificar_conta_na_dfc`) e "dfc" (a própria
+    # demonstração, com `?ano=&mes=` por querystring) — 24 -> 26 do lado da
+    # tela. As duas caem na varredura derivada abaixo: as views usam o MESMO
+    # recuso de livro-caixa das irmãs.
+    assert len(ROTAS_WEB) == 26, ROTAS_WEB
+    assert len(ROTAS_API) == 22, ROTAS_API
 
 
 @pytest.fixture

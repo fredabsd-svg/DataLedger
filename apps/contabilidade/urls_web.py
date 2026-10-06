@@ -9,11 +9,16 @@ from apps.contabilidade.views_web import (
     conferencia,
     # DL-048/CTB-12: tela irmã de `conta_classificacao_dre` — classificar
     # (ou reclassificar, ou remover) a Linha da DLPA de uma conta existente.
+    # DL-066/CTB-15: idem para os TRÊS campos da DFC (caixa e equivalentes,
+    # atividade do fluxo, item de resultado sem caixa).
+    conta_classificacao_dfc,
     conta_classificacao_dlpa,
     # DL-061/CTB-14: idem para a Coluna da DMPL (só conta de patrimônio líquido).
     conta_classificacao_dmpl,
     conta_classificacao_dre,
     conta_nova,
+    # DL-066/CTB-15: a própria demonstração dos fluxos de caixa.
+    dfc,
     diario,
     # DL-048/CTB-13: a própria demonstração.
     dlpa,
@@ -125,12 +130,24 @@ urlpatterns = [
     # <h1>/<title>. 'ano'/'mes' viajam por querystring (GET), mesma gramática
     # da DRE e da DLPA — nunca no caminho da URL.
     path("empresas/<int:empresa_id>/dmpl/", dmpl, name="dmpl"),
+    # DL-066/CTB-15: mesmo padrão curto de "dmpl" — o nome completo
+    # ("Demonstração dos Fluxos de Caixa") fica no <h1>/<title>. 'ano'/'mes'
+    # viajam por querystring (GET), mesma gramática da DRE, DLPA e DMPL —
+    # nunca no caminho da URL.
+    path("empresas/<int:empresa_id>/dfc/", dfc, name="dfc"),
     # DL-061/CTB-14: classificar a Coluna da DMPL de uma conta existente —
     # mesmo prefixo e mesmo padrão de caminho curto das telas irmãs.
     path(
         "empresas/<int:empresa_id>/plano-de-contas/<int:conta_id>/classificacao-dmpl/",
         conta_classificacao_dmpl,
         name="conta_classificacao_dmpl",
+    ),
+    # DL-066/CTB-15: classificar os TRÊS campos da DFC de uma conta existente
+    # — mesmo prefixo e mesmo padrão de caminho curto das telas irmãs.
+    path(
+        "empresas/<int:empresa_id>/plano-de-contas/<int:conta_id>/classificacao-dfc/",
+        conta_classificacao_dfc,
+        name="conta_classificacao_dfc",
     ),
     path("empresas/<int:empresa_id>/conferencia/", conferencia, name="conferencia"),
     # DL-044 (3ª iteração): hub de relatórios (Diário/Razão/Balancete/

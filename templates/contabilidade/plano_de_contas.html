@@ -109,7 +109,7 @@ mesma regra de servidor de antes, só reposicionada.
                             <td>{% if linha.conta.ativo %}Ativa{% else %}Inativa{% endif %}</td>
                             {% if pode_escriturar %}
                                 <td>
-                                    {# DL-061: até três botões por linha — `.acoes-de-linha` (DE-084) em vez de botões soltos que a célula estreita empilharia sem espaço. #}
+                                    {# DL-061: até quatro botões por linha — `.acoes-de-linha` (DE-084) em vez de botões soltos que a célula estreita empilharia sem espaço. #}
                                     <div class="acoes-de-linha acoes-de-linha--sem-quebra">
                                     {% comment %}
                                     DL-045, correção da rodada 1 de
@@ -159,6 +159,20 @@ mesma regra de servidor de antes, só reposicionada.
                                             Coluna da DMPL
                                         </a>
                                     {% endif %}
+                                    {% comment %}
+                                    DL-066/CTB-15: o botão da DFC também não
+                                    tem condição de TIPO — como na DLPA, os
+                                    três campos valem para qualquer tipo de
+                                    conta (caixa e equivalentes aceita até
+                                    conta de passivo, pelo item 8 do CPC 03 —
+                                    DE-099). Quem escolher uma combinação
+                                    inválida recebe a recusa do servidor no
+                                    formulário.
+                                    {% endcomment %}
+                                    <a class="botao botao--secundario botao--pequeno"
+                                       href="{% url 'contabilidade_web:conta_classificacao_dfc' empresa.id linha.conta.id %}">
+                                        Classificação da DFC
+                                    </a>
                                     </div>
                                 </td>
                             {% endif %}

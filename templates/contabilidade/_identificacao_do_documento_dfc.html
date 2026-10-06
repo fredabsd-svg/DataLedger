@@ -1,0 +1,42 @@
+{% comment %}
+DL-066/CTB-15 — o bloco de identificação do documento (NBC TG 26 (R5), item
+51; classe "Demonstração", docs/projeto/personalizacao-de-relatorio.md),
+repetido no `<thead>` de CADA tabela impressa da DFC (`display:
+table-header-group`, BL-282 — mesmo mecanismo provado pelo Balanço e
+repetido pelo Balanço/DRE/DLPA/DMPL). Parcial porque a DFC tem DUAS
+tabelas impressas (método direto resumido e método indireto) e o bloco é o
+MESMO nas duas — duas cópias divergiriam na primeira edição.
+
+Variáveis esperadas (todas já montadas pela view `dfc`):
+`empresa`, `rotulo_inscricao`, `inscricao_formatada`, `identificacao`,
+`data_inicio`, `data_fim`, `data_referencia` e `colspan_da_identificacao`.
+{% endcomment %}
+<tr class="linha-identificacao-do-documento">
+    <th scope="colgroup" colspan="{{ colspan_da_identificacao }}">
+        <div class="identificacao-do-documento">
+            <p><strong>{{ empresa.razao_social }}</strong> — {{ rotulo_inscricao }} {{ inscricao_formatada }}</p>
+            <p>
+                Demonstração dos Fluxos de Caixa
+                ({{ identificacao.entidade_individual_ou_grupo|capfirst }}) —
+                período de {{ data_inicio|date:"d/m/Y" }} a {{ data_fim|date:"d/m/Y" }}
+                (até a competência de {{ data_referencia|date:"F \d\e Y" }})
+            </p>
+            <p>
+                Valores em {{ identificacao.moeda_de_apresentacao }} —
+                {{ identificacao.nivel_de_arredondamento|capfirst }}
+            </p>
+            <p>
+                Base normativa: CPC 03 (R2), itens 6 a 10, 13 a 21 e 43 a 45
+                (método direto resumido, método indireto pelo item 20 e
+                conciliação do item 45); identificação conforme a NBC TG 26
+                (R5), item 51.
+            </p>
+            <p>
+                Critério de apuração: cada linha de fluxo vem dos lançamentos que
+                movimentaram as contas de caixa e equivalentes; a soma das três
+                atividades é a variação do caixa, conciliada com os saldos das
+                contas de caixa no Balanço Patrimonial de {{ data_fim|date:"d/m/Y" }}.
+            </p>
+        </div>
+    </th>
+</tr>

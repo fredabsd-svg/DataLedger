@@ -190,25 +190,29 @@ def _codigos_da_validacao(exc):
     return {erro.code for erro in itens if getattr(erro, "code", None)}
 
 
-def _gravar_classificacao_de_demonstracao_anual(conta, *, campo, classificacao):
-    """Atribui a classificação de uma demonstração ANUAL, valida a conta e
-    traduz a recusa de período fechado (DL-065, E2).
+def _validar_e_gravar_classificacoes(conta, campos):
+    """Atribui os campos de classificação pedidos, valida a conta e traduz a
+    recusa de período fechado (DL-065, E2) — o miolo compartilhado por
+    `classificar_conta_na_dlpa`, `classificar_conta_na_dmpl` e
+    `classificar_conta_na_dfc`.
 
-    Chamado por `classificar_conta_na_dlpa` e `classificar_conta_na_dmpl`, que
-    faziam antes a atribuição + `full_clean()` + `save()` na mão. O
-    `full_clean()` é o MESMO — a regra mora em `Conta.clean()`, que é o que
-    fecha também o admin, e por isso não há uma segunda implementação da
-    regra aqui. O que este função acrescenta é a TRADUÇÃO: quando o
+    `campos` é `{nome_do_atributo: valor}`. A atribuição acontece de uma vez
+    e o `full_clean()` roda UMA vez depois delas: na classificação da DFC os
+    três campos mudam juntos e as guardas de coerência de `Conta.clean()`
+    (caixa **e** atividade na mesma conta, DL-066/BL-514) enxergam o estado
+    FINAL da transição, nunca um estado intermediário em que um campo já foi
+    gravado e o outro ainda não.
+
+    O `full_clean()` é o MESMO de sempre — a regra mora em `Conta.clean()`,
+    que é o que fecha também o admin, e por isso não há segunda implementação
+    da regra aqui. O que esta função acrescenta é a TRADUÇÃO: quando o
     `ValidationError` é o de período fechado, ele vira
     `ClassificacaoAlteraPeriodoFechado` (409 na API, recusa na tela); qualquer
     OUTRO `ValidationError` sobe intacto, para a view tratar como 400 como
     sempre.
-
-    `campo` é o nome do atributo, e não o valor: os dois serviços já recebem
-    o valor validado pelo serializer e pelo form, e repassar o nome mantém a
-    lista de campos gravados (`update_fields`) em um lugar só.
     """
-    setattr(conta, campo, classificacao or None)
+    for campo, valor in campos.items():
+        setattr(conta, campo, valor)
     try:
         conta.full_clean()
     except DjangoValidationError as exc:
@@ -217,7 +221,23 @@ def _gravar_classificacao_de_demonstracao_anual(conta, *, campo, classificacao):
                 " ".join(mensagens_da_validacao_django(exc))
             ) from exc
         raise
-    conta.save(update_fields=[campo])
+    conta.save(update_fields=list(campos))
+
+
+def _gravar_classificacao_de_demonstracao_anual(conta, *, campo, classificacao):
+    """Atribui a classificação de uma demonstração ANUAL, valida a conta e
+    traduz a recusa de período fechado (DL-065, E2).
+
+    Chamado por `classificar_conta_na_dlpa` e `classificar_conta_na_dmpl`, que
+    faziam antes a atribuição + `full_clean()` + `save()` na mão. O miolo é
+    `_validar_e_gravar_classificacoes`; esta camada só mantém a assinatura de
+    um campo das duas irmãs e a normalização de `None`/`""` para `None`.
+
+    `campo` é o nome do atributo, e não o valor: os dois serviços já recebem
+    o valor validado pelo serializer e pelo form, e repassar o nome mantém a
+    lista de campos gravados (`update_fields`) em um lugar só.
+    """
+    _validar_e_gravar_classificacoes(conta, {campo: classificacao or None})
 
 
 class CompetenciaEncerrada(Exception):
@@ -6109,6 +6129,91 @@ def classificar_conta_na_dlpa(*, conta, classificacao, usuario, request=None):
 # E1 a E6 citadas abaixo são as dele.
 # ---------------------------------------------------------------------------
 
+
+@transaction.atomic
+def classificar_conta_na_dfc(
+    *,
+    conta,
+    caixa_e_equivalentes,
+    classificacao_dfc,
+    item_de_resultado_sem_caixa,
+    usuario,
+    request=None,
+):
+    """Classifica (ou reclassifica) os TRÊS campos da DFC de uma conta
+    EXISTENTE — a porta de serviço da tela `conta_classificacao_dfc`
+    (DL-066, etapa 2), no molde de `classificar_conta_na_dlpa` e
+    `classificar_conta_na_dmpl`.
+
+    Os campos são as decisões **E2/E3** do plano:
+
+    - `caixa_e_equivalentes` — a conta entra na lista de caixa e
+      equivalentes (o item 45 do CPC 03 exige saber quais contas conciliam);
+    - `classificacao_dfc` — a ATIVIDADE do fluxo em que a conta participa
+      (operacional/investimento/financiamento, ou `None` para REMOVER);
+    - `item_de_resultado_sem_caixa` — item de resultado que não movimenta
+      caixa (depreciação, amortização, provisão), o item 20(b) do método
+      indireto.
+
+    Os três são recebidos como ESTADO DESEJADO completo, não como patch: quem
+    chama (serializer, form) faz a fusão com o valor gravado quando o pedido é
+    parcial, e aqui não existe sentinela de "não mexer". Por isso a comparação
+    de "não houve mudança" é campo a campo, e a trilha registra só os campos
+    que de fato mudaram.
+
+    DL-065 (BL-550), estendida aos três campos na etapa 2: qualquer um deles
+    muda a DFC do período RETROATIVAMENTE, como a linha da DLPA e a coluna da
+    DMPL mudam as deles. Trocar, remover ou desmarcar em conta (ou descendente)
+    com movimento em competência ENCERRADA ou ENTREGUE é recusado com
+    `ClassificacaoAlteraPeriodoFechado` (409). A PRIMEIRA marcação
+    (`None`/`False` -> valor) continua livre, pelo mesmo motivo das irmãs:
+    nenhuma migração classificou conta alguma, e bloquear a primeira marcação
+    tornaria impossível montar o plano de caixa de uma empresa já em operação.
+    A REGRA mora em `Conta.clean()`; aqui só a tradução.
+
+    CORRIDA: `select_for_update()` antes de ler os valores gravados — duas
+    classificações concorrentes da MESMA conta serializam, e o "antes" da
+    trilha é sempre o valor real (mesmo molde das irmãs).
+
+    PERMISSÃO: verificada pela VIEW (`PodeEscriturar`, no servidor) — esta
+    função não verifica papel, mesmo limite das irmãs.
+
+    TRILHA: um `registrar()` na MESMA transação, com `{campo: {antes,
+    depois}}` dos campos alterados. Sem mudança nenhuma, não grava nem
+    registra — devolve a conta como veio.
+
+    Devolve a `Conta` já salva (mesma instância, atualizada).
+    """
+    valores_antes = (
+        Conta.objects.select_for_update()
+        .filter(pk=conta.pk)
+        .values("caixa_e_equivalentes", "classificacao_dfc", "item_de_resultado_sem_caixa")
+        .get()
+    )
+    desejados = {
+        "caixa_e_equivalentes": bool(caixa_e_equivalentes),
+        "classificacao_dfc": classificacao_dfc or None,
+        "item_de_resultado_sem_caixa": bool(item_de_resultado_sem_caixa),
+    }
+    alteracoes = {
+        campo: {"antes": valores_antes[campo], "depois": valor}
+        for campo, valor in desejados.items()
+        if valores_antes[campo] != valor
+    }
+    if not alteracoes:
+        return conta
+    _validar_e_gravar_classificacoes(conta, desejados)
+    registrar(
+        acao="conta.classificacao_dfc_alterada",
+        usuario=usuario,
+        escritorio=conta.empresa.escritorio,
+        objeto=conta,
+        request=request,
+        detalhes=alteracoes,
+    )
+    return conta
+
+
 _TITULOS_DAS_PENDENCIAS_DA_DFC = {
     "conta_com_dois_papeis": (
         "conta marcada como caixa e equivalentes **e** com atividade — papel duplo"
@@ -6123,7 +6228,154 @@ _TITULOS_DAS_PENDENCIAS_DA_DFC = {
     "diferenca_de_caixa": (
         "a soma das três atividades não bate com a variação do saldo de caixa e equivalentes"
     ),
+    "indireto_nao_fecha": (
+        "a conciliação do método indireto não fecha — os ajustes do item 20 não "
+        "reproduzem o fluxo operacional apurado pelos lançamentos (confira se uma "
+        "despesa marcada como sem caixa e sua contrapartida patrimonial "
+        "operacional estão marcadas as DUAS — nesse caso mantenha a marcação do "
+        "passivo operacional e desmarque a despesa; só uma das duas pode ajustar "
+        "o mesmo fato)"
+    ),
 }
+
+
+def _apurar_operacional_indireto(*, empresa, inicio, fim, fluxo_operacional_pelo_direto):
+    """Apresentação do método INDIRETO do fluxo operacional (item 20 do CPC
+    03) — DL-066, etapa 2, decisões E1 e E5 do plano.
+
+    O número é o MESMO do direto: o fato continua sendo o lançamento, e esta
+    função apenas apresenta a conciliação entre o LUCRO LÍQUIDO do período e
+    o fluxo operacional já apurado pelos lançamentos. É a exigência do item
+    20A — obrigatória para quem usa o método direto (a nota NE3 registra que
+    essa exigência é brasileira e não existe no IAS 7) — e a razão de "os
+    dois métodos" não ser escopo dobrado.
+
+    As três famílias do item 20, com cada CONTA em exatamente UMA delas:
+
+    - **20(a)** — conta PATRIMONIAL com `classificacao_dfc = operacional`
+      (estoques, contas a receber e a pagar operacionais): o ajuste é a
+      variação do saldo ECONÔMICO da conta no período, com sinal negativo —
+      aumento de ativo operacional consome caixa; aumento de passivo gera.
+      Como a variação do saldo econômico é `débitos − créditos` do movimento
+      próprio (qualquer que seja a natureza cadastrada), o ajuste é
+      `créditos − débitos`.
+    - **20(b)** — conta de RESULTADO com `item_de_resultado_sem_caixa`
+      (depreciação, amortização): o efeito dela no lucro não veio em caixa, e
+      o ajuste é o inverso desse efeito (`débitos − créditos`).
+    - **20(c)** — conta de RESULTADO classificada como investimento ou
+      financiamento: o efeito dela no lucro pertence a outra atividade e sai
+      do operacional pelo mesmo inverso.
+
+    Precedência: **20(b) antes de 20(c)** — "não afeta caixa" declara que a
+    conta está fora do fluxo inteiro; a atividade dela não a move de família.
+
+    ⚠️ **A2 (MÉDIO) da auditoria da etapa 2 — o limite do desenho, dito
+    direito.** A identidade `lucro_liquido + Σ ajustes = fluxo operacional do
+    direto` vale por construção quando cada FATO contábil cai em um lado só:
+    ou ele é fluxo, ou seus ajustes se cancelam. Ela **não** fecha quando um
+    MESMO lançamento mistura uma perna de família 20(b)/(c) com uma perna
+    patrimonial operacional — o caso clássico é a provisão operacional com a
+    despesa marcada "sem caixa" **e** o passivo marcado "operacional": as duas
+    pernas ajustam o mesmo fato, a identidade não fecha (nem depois de a
+    provisão ser paga) e a DFC vira inemitível. A saída não é ajustar o
+    número — é marcar **uma** das duas metades (a orientação está no
+    `help_text` de `item_de_resultado_sem_caixa` e na mensagem da pendência):
+    o passivo operacional marcado, a despesa sem a marcação. Um fato que
+    misture as famílias mesmo assim vira `indireto_nao_fecha`, que veta e
+    nomeia a diferença (E6). A conta de resultado SEM linha da DRE é outro
+    caso de veto nomeado — ela cai no resíduo (`residuo_por_tipo`), não entra
+    no lucro do motor, e a própria DRE já exige a classificação antes de
+    emitir.
+
+    Insumos, todos do mesmo snapshot da apuração (DE-020): o lucro vem de
+    `_apurar_coluna_dre` — o MESMO motor que publica a DRE — e o movimento
+    das contas de `_agregar_movimento_dre_por_conta`, cujo filtro já exclui
+    os lançamentos de zeramento e seus estornos (DL-043): o zeramento é
+    escrituração interna, não é fato de resultado nem de fluxo.
+
+    Não verifica autorização — quem chama (`apurar_dfc`, dentro da mesma
+    transação) já está no mesmo grau das irmãs.
+    """
+    zero = Decimal("0")
+    contas = list(Conta.objects.filter(empresa=empresa).order_by("codigo"))
+    contas_por_id, filhos_de, _nivel_de = _construir_hierarquia(contas)
+    dre = _apurar_coluna_dre(
+        empresa=empresa,
+        inicio=inicio,
+        fim=fim,
+        contas=contas,
+        filhos_de=filhos_de,
+        contas_por_id=contas_por_id,
+    )
+    lucro_liquido = dre["subtotais"]["lucro_liquido"]
+    movimentos = _agregar_movimento_dre_por_conta(empresa=empresa, inicio=inicio, fim=fim)
+
+    ajustes = []
+    for conta in contas:
+        movimento = movimentos.get(conta.id)
+        if movimento is None or conta.caixa_e_equivalentes:
+            # Sem movimento no período não há ajuste; e a conta de caixa é o
+            # LADO do fluxo, nunca ajuste dele (e se tiver atividade também,
+            # é o papel duplo que `apurar_dfc` já nomeia como pendência).
+            continue
+        # `creditos_menos_debitos` é, de uma vez, o efeito da conta no lucro
+        # (conta de resultado) e a variação com sinal do saldo econômico
+        # (conta patrimonial) — as duas leituras são o mesmo número porque a
+        # partida dobrada amarra tudo a uma única identidade.
+        creditos_menos_debitos = movimento["credito"] - movimento["debito"]
+        if conta.tipo in (TipoConta.RECEITA, TipoConta.DESPESA):
+            if conta.item_de_resultado_sem_caixa:
+                item, efeito = "20(b)", -creditos_menos_debitos
+                descricao = "item de resultado que não afeta o caixa"
+            elif conta.classificacao_dfc in (
+                ClassificacaoFluxoCaixa.INVESTIMENTO,
+                ClassificacaoFluxoCaixa.FINANCIAMENTO,
+            ):
+                item, efeito = "20(c)", -creditos_menos_debitos
+                descricao = (
+                    "item de resultado tratado como "
+                    f"{ClassificacaoFluxoCaixa(conta.classificacao_dfc).label.lower()}"
+                )
+            else:
+                # Operacional (marcado ou implícito): o efeito dela permanece
+                # no lucro líquido, e não há ajuste a fazer.
+                continue
+        elif conta.classificacao_dfc == ClassificacaoFluxoCaixa.OPERACIONAL:
+            item, efeito = "20(a)", creditos_menos_debitos
+            descricao = "variação de conta patrimonial operacional"
+        else:
+            # Patrimonial fora do operacional (investimento, financiamento ou
+            # sem atividade): o fluxo dela já é direto de outra atividade — ou
+            # não é fluxo nenhum — e não toca o lucro.
+            continue
+        if efeito == zero:
+            continue
+        ajustes.append(
+            {
+                "item": item,
+                "conta": conta.codigo,
+                "nome": conta.nome,
+                "descricao": descricao,
+                "valor": abs(efeito),
+                "sinal": "+" if efeito > zero else "-",
+                "efeito": efeito,
+            }
+        )
+
+    ordem_dos_itens = {"20(a)": 0, "20(b)": 1, "20(c)": 2}
+    ajustes.sort(key=lambda ajuste: (ordem_dos_itens[ajuste["item"]], ajuste["conta"]))
+    total_dos_ajustes = sum((ajuste["efeito"] for ajuste in ajustes), zero)
+    fluxo_operacional = lucro_liquido + total_dos_ajustes
+    diferenca = fluxo_operacional - fluxo_operacional_pelo_direto
+    return {
+        "lucro_liquido": lucro_liquido,
+        "ajustes": ajustes,
+        "total_dos_ajustes": total_dos_ajustes,
+        "fluxo_operacional": fluxo_operacional,
+        "fluxo_operacional_pelo_direto": fluxo_operacional_pelo_direto,
+        "diferenca": diferenca,
+        "confere": diferenca == zero,
+    }
 
 
 def apurar_dfc(*, empresa, ano, mes, data_inicio=None):
@@ -6149,10 +6401,12 @@ def apurar_dfc(*, empresa, ano, mes, data_inicio=None):
       apurada pelas atividades e a variação dos SALDOS das contas de caixa
       vai para `conciliacao` e veta.
 
-    O método INDIRETO **não entra nesta fatia** — ele é a apresentação do
-    mesmo número, e a decomposição dos ajustes do item 20 é o que vem depois
-    do fato estar medido. `operacional_indireto` volta `None` aqui, nomeado,
-    em vez de vir com um número que ninguém auditou ainda.
+    O método INDIRETO (etapa 2) é a apresentação do MESMO número:
+    `_apurar_operacional_indireto` deriva os ajustes do item 20 a partir dos
+    lançamentos e do lucro do motor da DRE, e a identidade dele com o fluxo
+    operacional do direto vira a pendência `indireto_nao_fecha` quando não
+    vale. Na ausência de qualquer conta de caixa marcada (retorno antecipado,
+    acima) `operacional_indireto` continua `None`, nomeado.
 
     Devolve `{"periodo", "atividades", "caixa", "conciliacao",
     "operacional_indireto", "pendencias"}`; `Decimal` em todo o cálculo.
@@ -6507,6 +6761,29 @@ def apurar_dfc(*, empresa, ano, mes, data_inicio=None):
                 }
             )
 
+        # Método indireto (etapa 2): a apresentação do mesmo número pela
+        # conciliação do item 20. A identidade com o direto é a promessa da
+        # E1 — quando não vale, a pendência veta e nomeia a diferença
+        # (`indireto_nao_fecha`), e nenhum saldo é ajustado para fechar.
+        operacional_indireto = _apurar_operacional_indireto(
+            empresa=empresa,
+            inicio=inicio,
+            fim=fim_do_mes,
+            fluxo_operacional_pelo_direto=atividades[ClassificacaoFluxoCaixa.OPERACIONAL],
+        )
+        if not operacional_indireto["confere"]:
+            pendencias["indireto_nao_fecha"].append(
+                {
+                    "lucro_liquido": operacional_indireto["lucro_liquido"],
+                    "total_dos_ajustes": operacional_indireto["total_dos_ajustes"],
+                    "fluxo_operacional": operacional_indireto["fluxo_operacional"],
+                    "fluxo_operacional_pelo_direto": operacional_indireto[
+                        "fluxo_operacional_pelo_direto"
+                    ],
+                    "diferenca": operacional_indireto["diferenca"],
+                }
+            )
+
         return {
             "periodo": {"ano": ano, "mes": mes, "data_inicio": inicio, "data_fim": fim_do_mes},
             "atividades": atividades,
@@ -6521,7 +6798,7 @@ def apurar_dfc(*, empresa, ano, mes, data_inicio=None):
                 "variacao_dos_saldos": variacao_dos_saldos,
                 "diferenca": diferenca,
             },
-            "operacional_indireto": None,
+            "operacional_indireto": operacional_indireto,
             "pendencias": pendencias,
         }
 
@@ -6531,10 +6808,11 @@ def avaliar_emissao_da_dfc(dfc):
     `avaliar_emissao_do_balanco` e `avaliar_emissao_da_dmpl`: lista explícita
     de pendências que vetam, cada uma com um rótulo que diz o que fazer.
 
-    Hoje **todas** as três pendências vetam: a `diferenca_de_caixa` é o item
-    45, e as outras duas são classificação ausente — nenhuma delas é
-    "melhoria sugerida", e uma lista só-aviso aqui treinaria o contador a ler
-    número publicada como se fosse conferência de bancada.
+    Hoje **todas** as pendências vetam: a `diferenca_de_caixa` é o item 45, a
+    `indireto_nao_fecha` é a identidade do item 20/20A, e as demais são
+    classificação ausente ou corrompida — nenhuma delas é "melhoria sugerida",
+    e uma lista só-aviso aqui treinaria o contador a ler número publicada como
+    se fosse conferência de bancada.
     """
     pendentes = {nome: itens for nome, itens in dfc["pendencias"].items() if itens}
     motivos = [
