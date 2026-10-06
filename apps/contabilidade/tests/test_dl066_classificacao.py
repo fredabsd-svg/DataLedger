@@ -429,6 +429,13 @@ def test_b1_os_tres_campos_continuam_visiveis_no_admin():
 # ---------------------------------------------------------------------------
 
 
+# N1 (MÉDIO) da reconferência: `transaction=True` é OBRIGATÓRIO nos testes de
+# threads deste repositório (o molde R4 da DRE o tem, e `test_concorrencia.py`
+# explica o porquê) — sem ele as threads não enxergam a transação do teste, a
+# primeira consulta do cenário morre antes da barreira, e o teste reprova
+# SEMPRE sem medir a trava (na CI viraria `Conta.DoesNotExist`, deixando o
+# build vermelho sem provar nada).
+@pytest.mark.django_db(transaction=True)
 def test_a4_corrida_na_classificacao_da_dfc_serializa_e_a_trilha_fica_coerente(monkeypatch):
     """Espelho do R4 da DRE (`test_dl045_dre.py`): sem o
     `select_for_update()` do serviço, duas classificações concorrentes da

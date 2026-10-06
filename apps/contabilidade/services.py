@@ -6232,8 +6232,9 @@ _TITULOS_DAS_PENDENCIAS_DA_DFC = {
         "a conciliação do método indireto não fecha — os ajustes do item 20 não "
         "reproduzem o fluxo operacional apurado pelos lançamentos (confira se uma "
         "despesa marcada como sem caixa e sua contrapartida patrimonial "
-        "operacional estão marcadas as DUAS — só uma das duas pode ajustar o "
-        "mesmo fato)"
+        "operacional estão marcadas as DUAS — nesse caso mantenha a marcação do "
+        "passivo operacional e desmarque a despesa; só uma das duas pode ajustar "
+        "o mesmo fato)"
     ),
 }
 
