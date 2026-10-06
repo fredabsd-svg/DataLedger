@@ -1146,16 +1146,29 @@ class Conta(models.Model):
         ),
     )
     # `item_de_resultado_sem_caixa` é o item 20(b) do método indireto:
-    # despesa ou receita que NÃO movimenta caixa (depreciação, amortização,
-    # provisões). Só existe para conta de resultado — a mesma restrição que
-    # a linha da DRE e a da DLPA já fazem com `tipo`.
+    # despesa ou receita que NÃO movimenta caixa (depreciação, amortização).
+    # Só existe para conta de resultado — a mesma restrição que a linha da
+    # DRE e a da DLPA já fazem com `tipo`.
+    #
+    # ⚠️ **A2 (MÉDIO) da auditoria da etapa 2: provisão NÃO se marca aqui.**
+    # A provisão operacional tem duas metades — a despesa e o passivo —, e
+    # marcar a despesa como "sem caixa" E o passivo como operacional ajusta o
+    # MESMO fato duas vezes no método indireto (20(b) e 20(a)): a identidade
+    # do item 20A nunca fecha, mesmo depois de a provisão ser paga, e a DFC
+    # fica inemitível com marcações que cada uma, isolada, parece correta. O
+    # caminho que fecha é UM só: marcar o PASSIVO como operacional (a variação
+    # dele já é o ajuste 20(a), tanto na constituição quanto no pagamento) e
+    # deixar a despesa sem esta marcação.
     item_de_resultado_sem_caixa = models.BooleanField(
         "item de resultado que não movimenta caixa",
         default=False,
         help_text=(
-            "CPC 03 (R2), item 20(b): depreciação, amortização, provisões e "
-            "semelhantes entram no ajuste do método indireto e não como fluxo. "
-            "Só vale para conta de resultado."
+            "CPC 03 (R2), item 20(b): depreciação, amortização e semelhantes "
+            "entram no ajuste do método indireto e não como fluxo. Só vale "
+            "para conta de resultado. Para PROVISÃO operacional, não use esta "
+            "marcação: marque a contrapartida (o passivo) como atividade "
+            "operacional — marcar as duas ajusta o mesmo fato duas vezes e a "
+            "conciliação do item 20A veta a DFC."
         ),
     )
 

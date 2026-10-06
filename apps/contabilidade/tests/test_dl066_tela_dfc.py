@@ -468,3 +468,40 @@ def test_a_classificacao_feita_na_tela_libera_a_emissao_da_dfc(client):
     assert "DFC pronta para emissão" in html
     assert "Fluxos de caixa das atividades operacionais" in html
     assert "100.500,00" in html
+
+
+# ---------------------------------------------------------------------------
+# A3 (MÉDIO) da auditoria da etapa 2 — permissões das telas novas, MEDIDAS
+# ---------------------------------------------------------------------------
+
+
+def test_a3_a_tela_da_dfc_nao_e_de_cliente(client):
+    """A3: a permissão das telas novas era afirmada em docstring sem
+    medição — a mutação que zera a checagem de papel derrubava zero testes.
+    CLIENTE não lê a contabilidade (mesma regra da API e das telas irmãs)."""
+    empresa, contas, gestor = _cenario_de_referencia("perm-tela")
+    _entrar(client, empresa, papel=Papel.CLIENTE, nome="cliente-tela-dfc")
+
+    resposta = client.get(_url(empresa))
+
+    assert resposta.status_code == 403
+
+
+def test_a3_a_tela_de_classificacao_nao_e_de_cliente(client):
+    """E CLIENTE tampouco classifica conta — a porta de escrita é de quem
+    escritura, e nada pode ser gravado sem o papel."""
+    empresa, contas, gestor = _cenario_de_referencia("perm-class")
+    _entrar(client, empresa, papel=Papel.CLIENTE, nome="cliente-tela-classificacao")
+
+    resposta = client.post(
+        _url_classificar(empresa, contas["receita"]),
+        {
+            "caixa_e_equivalentes": "",
+            "classificacao_dfc": "investimento",
+            "item_de_resultado_sem_caixa": "",
+        },
+    )
+
+    assert resposta.status_code == 403
+    contas["receita"].refresh_from_db()
+    assert contas["receita"].classificacao_dfc == ATIV, "a recusa por papel não pode deixar rastro"

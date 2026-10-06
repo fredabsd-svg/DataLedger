@@ -20,15 +20,21 @@ na porta nova.
 Dados 100% sintéticos. Datas em 2026, no passado.
 """
 
+import threading
 from datetime import date
 
 import pytest
+from django.contrib.admin.sites import AdminSite
 from django.core.exceptions import ValidationError
+from django.db import connection
+from django.test import RequestFactory
 
 from apps.auditoria.models import RegistroAuditoria
+from apps.contabilidade.admin import ContaAdmin
 from apps.contabilidade.models import (
     CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO,
     ClassificacaoFluxoCaixa,
+    Conta,
     NaturezaConta,
     TipoConta,
 )
@@ -355,3 +361,134 @@ def test_o_full_clean_puro_tambem_recusa_e_carrega_o_codigo_da_dl065():
     assert CODIGO_CLASSIFICACAO_DE_PERIODO_FECHADO in codigos
     receita.refresh_from_db()
     assert receita.classificacao_dfc == ATIV
+
+
+# ---------------------------------------------------------------------------
+# B1 (BAIXO) da auditoria da etapa 2 — o critério 15 pelo caminho do admin
+# ---------------------------------------------------------------------------
+
+
+def _para_o_formulario(valor):
+    if valor is None:
+        return ""
+    if isinstance(valor, bool):
+        return "on" if valor else ""
+    return str(valor)
+
+
+def _formulario_do_admin(conta, **mudancas):
+    """Instancia o MESMO `ModelForm` que o admin gera — o caminho que o
+    Django percorre de verdade ao salvar pelo admin (`_post_clean` →
+    `instance.full_clean()`). Molde de `test_dl065_portas.py`."""
+    admin = ContaAdmin(Conta, AdminSite())
+    request = RequestFactory().get("/admin/contabilidade/conta/")
+    request.user = _base._gestor(conta.empresa, f"gestor-admin-{conta.pk}")
+    classe = admin.get_form(request)
+    dados = {nome: _para_o_formulario(getattr(conta, nome, None)) for nome in classe.base_fields}
+    dados.update(mudancas)
+    return classe(instance=conta, data=dados)
+
+
+def test_b1_o_modelo_do_admin_recusa_a_mudanca_em_periodo_fechado():
+    """Critério 15 pelo caminho de verdade do admin: o `ModelForm` que ele
+    gera recusa a mudança dos campos da DFC com movimento em competência
+    fechada — não só o `full_clean()` puro."""
+    empresa, contas, gestor, caixa, receita = _cenario("admin-form")
+    classificar_conta_na_dfc(
+        conta=receita,
+        caixa_e_equivalentes=False,
+        classificacao_dfc=ATIV,
+        item_de_resultado_sem_caixa=True,
+        usuario=gestor,
+    )
+    _movimentar(empresa, contas, receita)
+    encerrar_competencia(empresa=empresa, ano=ANO, mes=MES, usuario=gestor)
+
+    form = _formulario_do_admin(receita, classificacao_dfc=INVEST.value)
+
+    assert not form.is_valid()
+    assert any(
+        "03/2026" in mensagem for mensagens in form.errors.values() for mensagem in mensagens
+    )
+
+
+def test_b1_os_tres_campos_continuam_visiveis_no_admin():
+    """Esconder o campo calaria o admin sem fechar a regra — a trava tem de
+    ser a regra, não o sumiço (mesma lição do critério 8 da DL-065)."""
+    empresa, contas, gestor, caixa, receita = _cenario("admin-visivel")
+
+    form = _formulario_do_admin(receita)
+
+    assert "caixa_e_equivalentes" in form.fields
+    assert "classificacao_dfc" in form.fields
+    assert "item_de_resultado_sem_caixa" in form.fields
+
+
+# ---------------------------------------------------------------------------
+# A4 (MÉDIO) da auditoria da etapa 2 — a trava da porta, com prova de corrida
+# ---------------------------------------------------------------------------
+
+
+def test_a4_corrida_na_classificacao_da_dfc_serializa_e_a_trilha_fica_coerente(monkeypatch):
+    """Espelho do R4 da DRE (`test_dl045_dre.py`): sem o
+    `select_for_update()` do serviço, duas classificações concorrentes da
+    MESMA conta leem o valor gravado ao mesmo tempo, e a segunda registra na
+    trilha um "antes" que já não era o valor real. A barreira força a
+    intercalação determinística: a primeira thread para em `full_clean()` já
+    com a trava adquirida; a segunda só chega ao `full_clean()` depois de
+    adquirir a MESMA trava — o que exige a primeira comitar. Sem a trava, a
+    segunda chega sem esperar e a coerência da trilha reprova.
+
+    ⚠️ Vale como prova de corrida só em PostgreSQL (a CI): em SQLite a
+    trava degrada para leitura em memória e este teste é da classe de
+    ambiente — o mesmo destino do R4 na linha de base local."""
+    primeira_travou = threading.Event()
+    pode_comitar_a_primeira = threading.Event()
+    original_full_clean = Conta.full_clean
+
+    def full_clean_com_barreira(self, *args, **kwargs):
+        resultado = original_full_clean(self, *args, **kwargs)
+        if not primeira_travou.is_set():
+            primeira_travou.set()
+            assert pode_comitar_a_primeira.wait(timeout=5), (
+                "a segunda thread não chegou a tempo — sem a trava, ela nem precisaria esperar."
+            )
+        return resultado
+
+    # O cenário é montado ANTES de instalar a barreira: o próprio cadastro das
+    # contas de teste passa por `full_clean()`, e pararia na barreira (foi
+    # assim que a primeira versão deste teste falhou — o R4 da DRE monta as
+    # contas antes pelo mesmo motivo).
+    empresa, contas, gestor, caixa, receita = _cenario("corrida")
+    monkeypatch.setattr(Conta, "full_clean", full_clean_com_barreira)
+
+    def classificar(atividade):
+        conta_local = Conta.objects.get(pk=receita.pk)
+        classificar_conta_na_dfc(
+            conta=conta_local,
+            caixa_e_equivalentes=False,
+            classificacao_dfc=atividade,
+            item_de_resultado_sem_caixa=False,
+            usuario=gestor,
+        )
+        connection.close()
+
+    t1 = threading.Thread(target=classificar, args=(ATIV,))
+    t2 = threading.Thread(target=classificar, args=(INVEST,))
+    t1.start()
+    assert primeira_travou.wait(timeout=5), "a primeira thread não chegou à barreira a tempo"
+    t2.start()
+    pode_comitar_a_primeira.set()
+    t1.join(timeout=10)
+    t2.join(timeout=10)
+    assert not t1.is_alive()
+    assert not t2.is_alive()
+
+    receita.refresh_from_db()
+    assert receita.classificacao_dfc in (ATIV, INVEST)
+    registros = _trilhas()
+    assert len(registros) == 2, "as duas classificações registraram"
+    for registro in registros:
+        antes = registro.detalhes["classificacao_dfc"]["antes"]
+        depois = registro.detalhes["classificacao_dfc"]["depois"]
+        assert antes != depois, "o 'antes' da trilha é sempre o valor real sob a trava"

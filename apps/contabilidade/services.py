@@ -6230,7 +6230,10 @@ _TITULOS_DAS_PENDENCIAS_DA_DFC = {
     ),
     "indireto_nao_fecha": (
         "a conciliação do método indireto não fecha — os ajustes do item 20 não "
-        "reproduzem o fluxo operacional apurado pelos lançamentos"
+        "reproduzem o fluxo operacional apurado pelos lançamentos (confira se uma "
+        "despesa marcada como sem caixa e sua contrapartida patrimonial "
+        "operacional estão marcadas as DUAS — só uma das duas pode ajustar o "
+        "mesmo fato)"
     ),
 }
 
@@ -6246,9 +6249,7 @@ def _apurar_operacional_indireto(*, empresa, inicio, fim, fluxo_operacional_pelo
     essa exigência é brasileira e não existe no IAS 7) — e a razão de "os
     dois métodos" não ser escopo dobrado.
 
-    As três famílias do item 20, com cada conta em exatamente UMA delas — o
-    princípio que sustenta a identidade é que cada fato contábil é ajustado
-    UMA vez:
+    As três famílias do item 20, com cada CONTA em exatamente UMA delas:
 
     - **20(a)** — conta PATRIMONIAL com `classificacao_dfc = operacional`
       (estoques, contas a receber e a pagar operacionais): o ajuste é a
@@ -6258,8 +6259,8 @@ def _apurar_operacional_indireto(*, empresa, inicio, fim, fluxo_operacional_pelo
       próprio (qualquer que seja a natureza cadastrada), o ajuste é
       `créditos − débitos`.
     - **20(b)** — conta de RESULTADO com `item_de_resultado_sem_caixa`
-      (depreciação, amortização, provisão): o efeito dela no lucro não veio
-      em caixa, e o ajuste é o inverso desse efeito (`débitos − créditos`).
+      (depreciação, amortização): o efeito dela no lucro não veio em caixa, e
+      o ajuste é o inverso desse efeito (`débitos − créditos`).
     - **20(c)** — conta de RESULTADO classificada como investimento ou
       financiamento: o efeito dela no lucro pertence a outra atividade e sai
       do operacional pelo mesmo inverso.
@@ -6267,15 +6268,23 @@ def _apurar_operacional_indireto(*, empresa, inicio, fim, fluxo_operacional_pelo
     Precedência: **20(b) antes de 20(c)** — "não afeta caixa" declara que a
     conta está fora do fluxo inteiro; a atividade dela não a move de família.
 
-    ⚠️ A identidade `lucro_liquido + Σ ajustes = fluxo operacional do direto`
-    NÃO fecha quando a classificação está em desacordo — ex.: a despesa
-    marcada "sem caixa" **e** sua contrapartida patrimonial marcada
-    "operacional" ajustam o MESMO fato duas vezes. Isso vira a pendência
-    `indireto_nao_fecha`, que veta e nomeia a diferença (E6): nenhum ajuste é
-    calibrado para fechar. A conta de resultado SEM linha da DRE é outro caso
-    — ela cai no resíduo (`residuo_por_tipo`), não entra no lucro do motor, e
-    a identidade acusa a diferença; a própria DRE já exige a classificação
-    antes de emitir.
+    ⚠️ **A2 (MÉDIO) da auditoria da etapa 2 — o limite do desenho, dito
+    direito.** A identidade `lucro_liquido + Σ ajustes = fluxo operacional do
+    direto` vale por construção quando cada FATO contábil cai em um lado só:
+    ou ele é fluxo, ou seus ajustes se cancelam. Ela **não** fecha quando um
+    MESMO lançamento mistura uma perna de família 20(b)/(c) com uma perna
+    patrimonial operacional — o caso clássico é a provisão operacional com a
+    despesa marcada "sem caixa" **e** o passivo marcado "operacional": as duas
+    pernas ajustam o mesmo fato, a identidade não fecha (nem depois de a
+    provisão ser paga) e a DFC vira inemitível. A saída não é ajustar o
+    número — é marcar **uma** das duas metades (a orientação está no
+    `help_text` de `item_de_resultado_sem_caixa` e na mensagem da pendência):
+    o passivo operacional marcado, a despesa sem a marcação. Um fato que
+    misture as famílias mesmo assim vira `indireto_nao_fecha`, que veta e
+    nomeia a diferença (E6). A conta de resultado SEM linha da DRE é outro
+    caso de veto nomeado — ela cai no resíduo (`residuo_por_tipo`), não entra
+    no lucro do motor, e a própria DRE já exige a classificação antes de
+    emitir.
 
     Insumos, todos do mesmo snapshot da apuração (DE-020): o lucro vem de
     `_apurar_coluna_dre` — o MESMO motor que publica a DRE — e o movimento

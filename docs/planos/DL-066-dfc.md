@@ -378,7 +378,7 @@ do método indireto com os ajustes do item 20.
 > na porta 5433, linha de base honesta de 8 reprovados) está em
 > [`estado.md`](../agents/estado.md) e vale para todas as etapas desta leva.
 
-### Etapa 2 — o fecho da fatia 1: portas, telas e método indireto (10/10/2026)
+### Etapa 2 — o fecho da fatia 1: portas, telas e método indireto (06/10/2026)
 
 **Ordem do Fred:** *"fechar o que falta dela"* — a fatia 1 entrou na `main`
 pelo PR #89 só com o núcleo da apuração, e esta etapa entrega o resto da
@@ -450,6 +450,20 @@ de resultado, pela mesma regra que a DRE já aplica; e a identidade
 `lucro_liquido + Σ ajustes = atividades["operacional"]` é o que a E1 promete
 — quando não valer, a nova pendência `indireto_nao_fecha` **veta e nomeia a
 diferença** (E6). Nenhum saldo se ajusta para fechar.
+
+⚠️ **A2 (MÉDIO) da auditoria da etapa 2 — o limite da derivação, decidido
+aqui.** A identidade vale por construção quando cada FATO contábil cai em um
+lado só. Ela não fecha quando um mesmo lançamento mistura perna de família
+20(b)/(c) com perna patrimonial operacional — o caso clássico é a **provisão
+operacional**: despesa marcada "sem caixa" **e** passivo marcado "operacional"
+ajustam o mesmo fato duas vezes (na constituição **e** depois de paga), e a
+DFC vira inemitível com marcações que cada uma parece correta. **Decisão:**
+não há ajuste calibrado para fechar — o caminho que fecha é UM só: marcar o
+**passivo** como operacional (a variação dele já é o ajuste 20(a)) e **não**
+marcar a despesa. A orientação vive no `help_text` de
+`item_de_resultado_sem_caixa`, na mensagem da pendência `indireto_nao_fecha`
+e no docstring do `_apurar_operacional_indireto`; quem marcar as duas mesmo
+assim recebe o veto nomeando a diferença.
 
 **Critérios de aceite desta etapa** (somam os 13 da fatia 1):
 

@@ -24,6 +24,7 @@ from apps.auditoria.models import RegistroAuditoria
 from apps.contabilidade.models import (
     ClassificacaoDre,
     ClassificacaoFluxoCaixa,
+    Conta,
     NaturezaConta,
     TipoConta,
     TipoPartida,
@@ -31,6 +32,7 @@ from apps.contabilidade.models import (
 from apps.contabilidade.services import criar_lancamento, encerrar_competencia
 from apps.contabilidade.tests import test_dl048_dlpa as _dlpa
 from apps.contabilidade.tests import test_dl061_dmpl as _base
+from apps.tenancy.models import Papel
 
 pytestmark = pytest.mark.django_db
 
@@ -42,6 +44,7 @@ DESPESA = TipoConta.DESPESA
 
 ATIV = ClassificacaoFluxoCaixa.OPERACIONAL
 INVEST = ClassificacaoFluxoCaixa.INVESTIMENTO
+FINANC = ClassificacaoFluxoCaixa.FINANCIAMENTO
 
 ANO = 2026
 MES = 3
@@ -186,22 +189,56 @@ def test_patch_classifica_os_tres_campos_e_registra_trilha(client):
 
 
 def test_patch_parcial_nao_mexe_no_que_nao_veio(client):
-    """O PATCH é parcial: a fusão acontece na view, e o que não veio no corpo
-    permanece como estava — sem isso, mandar só a atividade apagaria a marca
-    de caixa em silêncio."""
+    """⚠️ A1 (GRAVE) da auditoria da etapa 2: este teste nasceu CEGO — o
+    cenário partia com os campos ausentes já em `False`, igual ao default
+    destrutivo, e a mutação "campo ausente vira default" derrubava zero
+    testes. Agora os campos ausentes têm valores DIFERENTES do default
+    (`item_de_resultado_sem_caixa=True` numa conta, `caixa_e_equivalentes=
+    True` em outra), de modo que um PATCH que apague o que não veio morre
+    aqui. O PATCH é parcial: a fusão acontece na view, e o que não veio no
+    corpo permanece como estava — sem isso, mandar só a atividade apagaria
+    as outras marcações em silêncio (BL-196)."""
     empresa, contas, gestor, caixa, receita = _cenario("patch-parcial")
+    despesa = _base._conta(empresa, "5.2", "Depreciação", DESPESA, D)
+    despesa.item_de_resultado_sem_caixa = True
+    despesa.classificacao_dfc = FINANC
+    despesa.full_clean()
+    despesa.save()
     _dlpa._autenticar(client, empresa.escritorio, username="gestor-patch-parcial")
 
+    # (a) Só a atividade muda numa conta cuja marcação "sem caixa" é True —
+    # se o PATCH a destruir, o assert pega.
     resposta = client.patch(
-        _url_da_classificacao(empresa, receita),
-        data={"classificacao_dfc": INVEST},
+        _url_da_classificacao(empresa, despesa),
+        data={"classificacao_dfc": ATIV},
         content_type="application/json",
     )
 
     assert resposta.status_code == 200
-    receita.refresh_from_db()
-    assert receita.classificacao_dfc == INVEST
-    assert receita.item_de_resultado_sem_caixa is False, "o campo que não veio não pode mudar"
+    despesa.refresh_from_db()
+    assert despesa.classificacao_dfc == ATIV
+    assert despesa.item_de_resultado_sem_caixa is True, (
+        "o campo que não veio no PATCH não pode voltar ao default"
+    )
+    registros = list(RegistroAuditoria.objects.filter(acao="conta.classificacao_dfc_alterada"))
+    assert len(registros) == 1
+    assert registros[0].detalhes == {"classificacao_dfc": {"antes": FINANC, "depois": ATIV}}, (
+        "a trilha registra SÓ o campo que mudou"
+    )
+
+    # (b) Só a atividade (nula) numa conta de caixa marcada — se o PATCH
+    # destruir a marca de caixa, o assert pega.
+    resposta = client.patch(
+        _url_da_classificacao(empresa, caixa),
+        data={"classificacao_dfc": None},
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 200
+    caixa.refresh_from_db()
+    assert caixa.caixa_e_equivalentes is True, (
+        "o campo que não veio no PATCH não pode voltar ao default"
+    )
 
 
 def test_patch_responde_409_e_nao_grava_em_periodo_fechado(client):
@@ -298,3 +335,76 @@ def test_patch_e_isolado_por_empresa(client):
     )
 
     assert resposta.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# A3 (MÉDIO) da auditoria da etapa 2 — as permissões das portas novas, MEDIDAS
+# ---------------------------------------------------------------------------
+
+
+def test_a3_o_get_da_dfc_nao_e_de_cliente(client):
+    """A3: os docstrings afirmavam a permissão sem medição — a mutação que
+    zera `permission_classes` derrubava zero testes. CLIENTE nunca lê a
+    contabilidade (`PodeLerContabilidade`), e este teste mata essa mutação."""
+    empresa, contas, gestor, caixa, receita = _cenario("perm-get")
+    _dlpa._autenticar(client, empresa.escritorio, username="cliente-get", papel=Papel.CLIENTE)
+
+    resposta = client.get(_url_da_dfc(empresa))
+
+    assert resposta.status_code == 403
+
+
+def test_a3_o_patch_da_classificacao_nao_e_de_cliente(client):
+    """CLIENTE também não escreve (`PodeEscriturar`) — e nada pode ser
+    gravado por esta porta sem o papel de quem escritura."""
+    empresa, contas, gestor, caixa, receita = _cenario("perm-patch")
+    _dlpa._autenticar(client, empresa.escritorio, username="cliente-patch", papel=Papel.CLIENTE)
+
+    resposta = client.patch(
+        _url_da_classificacao(empresa, receita),
+        data={"classificacao_dfc": INVEST},
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 403
+    receita.refresh_from_db()
+    assert receita.classificacao_dfc == ATIV
+    assert not RegistroAuditoria.objects.filter(acao="conta.classificacao_dfc_alterada").exists()
+
+
+# ---------------------------------------------------------------------------
+# A5 (MÉDIO) da auditoria da etapa 2 — dado enviado nunca é descartado em
+# silêncio (BL-196)
+# ---------------------------------------------------------------------------
+
+
+def test_a5_os_campos_da_dfc_no_cadastro_sao_recusados_nunca_descartados(client):
+    """A5/BL-196: dado enviado nunca é descartado em silêncio. A recusa aqui
+    vem da PRIMEIRA porta — o contrato de requisição do cadastro
+    (`CONTRATO_POST_CONTA`), que recusa a chave desconhecida por NOME com 400
+    e lista os campos aceitos. A segunda porta é a recusa no próprio
+    `ContaSerializer` (que além de nomear aponta o PATCH da classificação),
+    defesa em profundidade para quando uma rota futura aceitar o corpo sem
+    contrato. O que NÃO pode acontecer é o campo chegar, ser descartado e a
+    conta gravar sem ele — por isso o assert de que nada foi criado."""
+    empresa, contas, gestor, caixa, receita = _cenario("post-dfc")
+    _dlpa._autenticar(client, empresa.escritorio, username="gestor-post-dfc")
+
+    resposta = client.post(
+        reverse("contabilidade:contas", args=[empresa.id]),
+        data={
+            "codigo": "9.9",
+            "nome": "Conta Nova do Teste",
+            "tipo": "ativo",
+            "natureza": "devedora",
+            "classificacao_dfc": "operacional",
+        },
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 400
+    corpo = str(resposta.json())
+    assert "classificacao_dfc" in corpo, "a chave recusada é nomeada"
+    assert not Conta.objects.filter(empresa=empresa, codigo="9.9").exists(), (
+        "nada pode ser gravado quando a chave é recusada"
+    )
