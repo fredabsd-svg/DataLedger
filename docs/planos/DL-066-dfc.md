@@ -42,14 +42,25 @@ versão nacional do mesmo pronunciamento.
 | **45** | ⚠️ **Divulgar os componentes de caixa e equivalentes e apresentar conciliação dos montantes com os itens do Balanço Patrimonial** | **O critério de aceite desta demanda** |
 | **52A** | As demonstrações **não** devem divulgar fluxo de caixa por ação | Restrição: nenhum campo "por ação" na DFC (o oposto do item E8 pendente da DMPL) |
 
-⚠️ **Lacuna declarada, e ela é de fonte e não de conteúdo:** a obrigatoriedade
-veio da [Lei 6.404/76, art. 176, IV](https://www.planalto.gov.br/ccivil_03/leis/l6404compilada.htm)
-(introduzido pela Lei 11.638/2007), com a **§ 6 isentando a companhia fechada
-com patrimônio líquido inferior a R$ 2.000.000,00**. O texto compilado no
-Planalto **não foi obtido** neste ambiente (a requisição falhou), e as fontes
-que responderam foram secundárias. **Conferir no Planalto antes de colocar a
-obrigatoriedade como regra de produto** — e a pergunta 2 abaixo é justamente
-sobre isso, porque a resposta muda o que o produto exige.
+**Lacuna de fonte FECHADA em 06/10/2026.** A obrigatoriedade veio da
+[Lei 6.404/76, art. 176, IV](https://www.planalto.gov.br/ccivil_03/leis/l6404compilada.htm)
+(introduzido pela Lei 11.638/2007), e o texto compilado foi **obtido em duas
+fontes oficiais** que conferem palavra por palavra: o PDF da
+[Câmara dos Deputados — norma atualizada](https://www2.camara.leg.br/legin/fed/lei/1970-1979/lei-6404-15-dezembro-1976-368447-normaatualizada-pl.pdf)
+(extraído com `pypdf`) e o próprio Planalto por download direto (`web_fetch`
+do Planalto falha com "fetch failed"; `urllib` funciona). A redação do § 6º,
+confirmada literalmente:
+
+> § 6º A companhia fechada com patrimônio líquido, na data do balanço,
+> inferior a R$ 2.000.000,00 (dois milhões de reais) não será obrigada à
+> elaboração e publicação da demonstração dos fluxos de caixa. *(redação da
+> Lei 11.638/2007 — conferida também na publicação original da Câmara)*
+
+Atualidade conferida: a última alteração do art. 176 foi o § 5º pela Lei
+11.941/2009; a Lei 15.177/2025 **não** atingiu o art. 176 (o "§ 6º de
+política de equidade" das buscas é do art. 133). A única divergência entre as
+fontes é grafia antiga ("subseqüentes" no Planalto × "subsequentes" na
+Câmara, alínea i do § 5º) — irrelevante para a regra.
 
 **Nota de contexto (NE2, do próprio pronunciamento):** o item 18 **não dá
 preferência** ao método direto nem ao indireto — a escolha é da entidade. Por
@@ -294,7 +305,7 @@ o que ela acrescenta, não sobre a base de novo.
 | Item | Classificação |
 | --- | --- |
 | Base normativa do CPC 03 (itens 6 a 52A) | **Testado** — texto integral lido nesta sessão |
-| Texto do art. 176 da Lei 6.404/76 | **Não testado** — Planalto inacessível neste ambiente; **lacuna declarada** |
+| Texto do art. 176 da Lei 6.404/76 | **Testado** — obtido em 06/10/2026 em fonte oficial (Câmara, PDF da norma atualizada) e conferido no Planalto por download direto; § 6º literal acima |
 | Manual do sistema de referência (p. 622-631 e 666-667) | **Não lido** — declarado, não conformidade; a rotina do manual não autoriza nem refuta a regra |
 
 ### Fatia 1 — núcleo da apuração: entregue, e **incompleto**
