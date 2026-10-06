@@ -1685,22 +1685,43 @@ class Conta(models.Model):
         # isso; esta guarda é a metade do modelo, e transforma dado ambíguo em
         # erro de cadastro — que é o lugar certo de pegá-lo.
         if self.caixa_e_equivalentes and self.pk:
-            tem_ancestral_marcado = (
-                Conta.objects.filter(
-                    empresa_id=self.empresa_id,
-                    conta_pai_id__in=Conta.objects.filter(
-                        empresa_id=self.empresa_id, caixa_e_equivalentes=True
-                    ).values("id"),
-                )
-                .filter(pk=self.pk)
-                .exists()
+            # ⚠️ **N2 (MÉDIA) da reconferência: esta guarda só olhava o PAI
+            # DIRETO**, enquanto a mensagem diz "uma conta **acima** dela" e a
+            # deduplicação do serviço sobe a cadeia INTEIRA — as "duas metades
+            # da mesma defesa" mediam coisas diferentes, e o estado proibido era
+            # alcançável pelo caminho validado a partir da profundidade 2
+            # (marcar a raiz, criar um filho sem marcação, marcar o neto).
+            #
+            # Agora deriva da MESMA propriedade do serviço: subir a cadeia.
+            # Uma consulta, e só quando a conta é de caixa e já está gravada —
+            # o atalho `if` acima evita a consulta nas demais gravações.
+            #
+            # `visitados` fecha o laço contra `conta_pai` cíclico alcançável
+            # por ORM direto, pelo mesmo motivo do guard de profundidade mais
+            # abaixo deste mesmo `clean()`.
+            marcados = set(
+                Conta.objects.filter(empresa_id=self.empresa_id, caixa_e_equivalentes=True)
+                .exclude(pk=self.pk)
+                .values_list("id", flat=True)
             )
-            if tem_ancestral_marcado:
-                raise ValidationError(
-                    "Uma conta de árvore não pode ser marcada como caixa e equivalentes "
-                    "quando uma conta acima dela já é: o saldo de caixa seria contado "
-                    "duas vezes. Marque a conta de cima, ou só as de baixo — nunca as duas."
+            if marcados:
+                pais = dict(
+                    Conta.objects.filter(empresa_id=self.empresa_id).values_list(
+                        "id", "conta_pai_id"
+                    )
                 )
+                visitados = {self.pk}
+                pai = self.conta_pai_id
+                while pai is not None and pai not in visitados:
+                    if pai in marcados:
+                        raise ValidationError(
+                            "Uma conta de árvore não pode ser marcada como caixa e "
+                            "equivalentes quando uma conta ACIMA dela já é: o saldo de "
+                            "caixa seria contado duas vezes. Marque a conta de cima, ou "
+                            "só as de baixo — nunca as duas."
+                        )
+                    visitados.add(pai)
+                    pai = pais.get(pai)
         # (2) "Item de resultado que não movimenta caixa" fora de resultado: a
         # distinção do item 20(b) é sobre receita e despesa, e aplicá-la a um
         # ativo faria o ajuste do método indireto somar um saldo patrimonial ao

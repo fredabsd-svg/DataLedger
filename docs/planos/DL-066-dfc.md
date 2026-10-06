@@ -307,8 +307,29 @@ exclusão do item 9, o veto do item 12 nomeando as atividades em conflito, e a
 conciliação do item 45 como **identidade**; e `avaliar_emissao_da_dfc`, com
 todas as pendências vetando e cada motivo dizendo o que falta.
 
-**20 testes**, todos executados, e `apps/contabilidade` com **1.868 aprovados
-e os mesmos 8 reprovados de ambiente** — nenhuma regressão.
+⚠️ **N3 (MÉDIA) da reconferência, e ela está certa: este parágrafo afirmava
+números que nenhuma execução media.** O texto dizia "em PostgreSQL 16.15
+(porta 5433)" e "1.868 aprovados com os mesmos 8 reprovados de ambiente" — e o
+próprio repositório registra, desde o commit `5e953b1`, que o **PostgreSQL
+local está bloqueado por Controle de Aplicativo do Windows**, de modo que
+esses 8 reprovados **não são reproduzíveis** aqui. Número que ninguém mediu é
+tão grave quanto número medido errado, e este projeto proíbe os dois
+(AGENTS.md §6 e §15).
+
+**O que foi realmente medido**, e é a evidência que vale:
+
+| Item | Classificação | Onde |
+| --- | --- | --- |
+| Suíte completa: **4.688 passed, 53 skipped, 0 failed** | **Testado** | CI, run `37386866890`, PostgreSQL 16.15.15, Python 3.14.7, pytest 9.1.1, no commit `7c0eae7` |
+| Os **quatro checks** do PR #89 verdes | **Testado** | CI |
+| `ruff check .`, `makemigrations --check --dry-run` | **Testado** | CI |
+| **Reexecução local dos 20 testes** | **Bloqueado** | a política de Controle de Aplicativo bloqueou o `postgres.exe`; `pg_ctl` não sobe e a porta 5433 não abre |
+| Reprodução local do laço infinito do N1 e do teste de três níveis do N2 | **Bloqueado** | idem |
+
+Os **20 testes** são reais e foram executados — na CI, dentro dos 4.688. O que
+não se pode afirmar é "em PostgreSQL 16.15 na porta 5433" nem "8 reprovados de
+ambiente", porque **esta máquina não roda o motor da evidência** desde que a
+política de bloqueio entrou.
 
 ⚠️ **O veto do item 12 é INTERINO, e o auditor foi quem o declarou.** O texto
 deste plano dizia que o lançamento com duas atividades *"é aceito e nomeia"*

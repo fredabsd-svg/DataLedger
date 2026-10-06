@@ -267,32 +267,55 @@ próprio. **O que fica de decisão do Fred:** essas três correções não passa
 por auditoria independente, e a forma honesta de tê-las seria um papel
 diferente do mesmo §3.1, não uma terceira rodada deste ciclo.
 
-**31 testes da demanda; `apps/contabilidade` com 1.857 aprovados e os mesmos
-8 reprovados** de antes da mudança. (O 1.839 que este arquivo trazia era o de
-antes do merge da DL-063, que entrou no meio da verificação; a **verificação
-dirigida** mediu 1.856 e a medição de hoje, já com o teste do segundo eixo do
-custo, dá 1.857. Um nono reprovado apareceu numa rodada e **não se
-reproduziu**: era o PostgreSQL local caindo, não o código.)
-
-**A verificação dirigida dos achados N1, N2 e N3 saiu
+**A verificação dirigida dos achados N1, N2 e N3 da DL-065 saiu
 [APROVADA COM RESSALVAS](../auditorias/2026-10-05-dl-065-auditoria-e-reconferencia.md).**
-As três correções fazem o que prometem, medido: sob `FOR UPDATE` concorrente
-com `lock_timeout` de 200 ms, a **API responde 409** nas duas demonstrações
-(era a porta que a reconferência deixara de fora), a tela 200 com recusa e
-valor intacto, o `ModelForm` do admin recusa sem degradar a validação de
-constraint, e a transação volta a servir depois do savepoint. O custo ficou
-**constante em 8 consultas** de 0 a 480 períodos — contra 486 medidos antes.
+Sob `FOR UPDATE` concorrente com `lock_timeout` de 200 ms, a **API responde
+409** nas duas demonstrações (era a porta que a reconferência deixara de
+fora), a tela 200 com recusa e valor intacto, o `ModelForm` do admin recusa
+sem degradar a validação de constraint, e a transação volta a servir depois
+do savepoint. O custo ficou **constante em 8 consultas** de 0 a 480 períodos,
+contra 486 medidos antes — e a ressalva de que ainda crescia no **segundo**
+eixo (meses com movimento, não períodos fechados) foi corrigida em seguida,
+com teste próprio, depois de eu escrever um teste que media **152 consultas
+com 37 meses** por buscar a FK `empresa` a cada trava.
 
-⚠️ **Mas a ressalva de custo era séria, e eu a tratei como defeito.** A
-primeira correção do N2 trocou o eixo do crescimento sem eliminá-lo: ela
-iterava os **meses com movimento** perguntando se cada um estava aberto, e a
-verificação mediu 39 consultas com 36 meses — que é justamente a empresa real,
-já que quase todo mês tem movimento. Pior: cada trava buscava a FK `empresa`
-da competência, que não vem em cache, e o teste que escrevi chegou a medir
-**152 consultas com 37 meses**. As duas causes foram corrigidas — itera-se o
-lado pequeno (as abertas da empresa, uma ou duas) e a empresa vem da conta —
-e o segundo eixo ganhou **teste próprio**, porque o teste anterior só pegava
-o primeiro.
+**Auditoria da DL-066, fatia 1 (DFC): rodada 1 APROVADA COM RESSALVAS,
+correção, e reconferência rodada 2 APROVADA COM RESSALVAS — os sete achados
+FECHADOS.** A execução que vale é a da **CI**: **4.688 aprovados, 53 pulados,
+zero reprovados**, no commit `7c0eae7`.
+
+⚠️ **Os dois achados graves da rodada 1 eram meus, e um deles tinha por base a
+própria premissa do desenho.** O **A1**: eu filtrava as contrapartes sem
+classificação **antes** de avaliar, e uma contraparte classificada sozinha
+decidia o lançamento inteiro — o auditor reproduziu **número errado com
+`pode_emitir=True` e zero pendências**, porque a identidade do item 45
+continua fechando. Ou seja: a identidade, que era a rede de segurança do
+desenho, **não** pegava o defeito. O **A2**: `atividades[chave] += fluxo` lê
+antes de escrever em Python, então atividade fora do enum subia `KeyError`
+cru — 500 sem nomear nada, contra o padrão do módulo (BL-476/BL-493) de
+nomear valor ilegível.
+
+⚠️ **A reconferência encontrou três coisas minhas novas, e uma delas é sobre
+honestidade do registro.** O **N1** (média): a caminhada de árvore que
+escrevi para a deduplicação era a **única** do módulo **sem guarda de
+ciclo**, e as outras quatro estão defendidas exatamente por isso, com
+justificativa escrita. Ciclo alcançável por ORM direto seria **travamento**
+de worker. O **N2** (média): a guarda de modelo que escrevi só olhava o pai
+**direto**, enquanto a mensagem dizia "uma conta acima dela" e o serviço sobe
+a cadeia inteira — as "duas metades da mesma defesa" mediam coisas diferentes.
+E o **N3** (média): **o plano e o PR afirmavam números que nenhuma execução
+havia medido** — "em PostgreSQL 16.15 na porta 5433" e "8 reprovados de
+ambiente", quando o cluster local está bloqueado por política de Controle de
+Aplicativo e esses 8 **não são reproduzíveis** aqui. Número que ninguém mediu
+é tão grave quanto número medido errado. Os três foram corrigidos nesta
+entrega, e o registro passa a citar a CI pelo identificador do run.
+
+⚠️ **Sobre o §3.1 e o que eu fiz:** a regra proíbe uma **terceira rodada de
+auditoria**, e não proíbe corrigir defeito conhecido. Corrigir um travamento e
+uma afirmação sem medição no registro não é comprar rodada — é terminar o
+trabalho. O que **não** houve, e não vai haver, é nova auditoria para avaliar
+estas correções: a verificação delas é da CI e dos testes de regressão, e o
+parecer do ciclo continua sendo o da rodada 2.
 
 ⚠️ **Achado de ambiente que mudou a forma de verificar nesta máquina:** o
 `DATABASE_URL` do `.env` apontava para **SQLite**, e o cluster do PostgreSQL

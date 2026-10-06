@@ -6250,10 +6250,42 @@ def apurar_dfc(*, empresa, ano, mes, data_inicio=None):
         marcados = set(ids_do_caixa)
 
         def tem_ancestral_marcado(conta_id):
+            """`True` se algum ANCESTRAL — a cadeia inteira, não só o pai
+            direto — também está marcado como caixa e equivalentes.
+
+            ⚠️ **N1 (MÉDIA) da reconferência: esta caminhada tinha laço
+            infinito.** O `while pai is not None` sem conjunto de visitados
+            é a **única** caminhada de árvore do módulo sem guarda — e o
+            próprio módulo já decidiu o contrário, quatro vezes e por
+            justamente este motivo: `_construir_hierarquia` carrega o plano
+            inteiro **com a justificativa explícita** de que um ciclo em
+            QUALQUER ramo derrubava o Razão de QUALQUER conta
+            (`services.py`, achado 14 da DL-023); a recursiva do modelo usa
+            `UNION` para o ciclo pré-existente "terminar sozinho"; o guard de
+            `conta_pai` no `clean()` tem teto de PROFUNDIDADE — *"sem ele,
+            `ancestral.conta_pai` desse laço alheio faria este laço FOR nunca
+            terminar"*; e `nivel_de` carrega `visitando`.
+
+            Ciclo entre contas **não** marcadas na cadeia de ancestrais de uma
+            conta marcada é alcançável por ORM/SQL direto (o guard de ciclo
+            do `clean()` só impede pelo caminho validado), e aqui o efeito
+            seria **travamento**: a apuração não devolve e o worker da tela
+            fica preso. A defesa agora é a mesma das outras quatro — conjunto
+            de visitados — e o ciclo **vira nome**, em vez de travar.
+            """
+            visitados = {conta_id}
             pai = arvore.get(conta_id)
             while pai is not None:
                 if pai in marcados:
                     return True
+                if pai in visitados:
+                    raise HierarquiaInconsistente(
+                        f"A conta {pai} se refere a si mesma pela cadeia de "
+                        "conta-pai: o plano de contas tem ciclo, e a apuração da DFC "
+                        "não consegue decidir o que é caixa e equivalentes sem ele. "
+                        "Conserte o ciclo (é a conferência de hierarquia que o acusa)."
+                    )
+                visitados.add(pai)
                 pai = arvore.get(pai)
             return False
 
