@@ -30,6 +30,7 @@ import pytest
 from django.core.exceptions import ValidationError
 
 from apps.contabilidade.models import (
+    ClassificacaoDre,
     ClassificacaoFluxoCaixa,
     Conta,
     NaturezaConta,
@@ -64,7 +65,7 @@ def _dec(valor):
     return Decimal(valor)
 
 
-def _conta(empresa, codigo, nome, tipo, natureza, *, dfc=None, caixa=False, pai=None):
+def _conta(empresa, codigo, nome, tipo, natureza, *, dfc=None, caixa=False, pai=None, dre=None):
     """Conta criada e validada por `full_clean()`, no mesmo padrão do resto
     do módulo: o plano de teste só contém contas que o próprio cadastro
     aceitaria."""
@@ -72,6 +73,14 @@ def _conta(empresa, codigo, nome, tipo, natureza, *, dfc=None, caixa=False, pai=
     if dfc is not None:
         conta.classificacao_dfc = dfc
     conta.caixa_e_equivalentes = caixa
+    if dre is not None:
+        # Etapa 2: a linha da DRE entra no cenário porque o método indireto
+        # tira o lucro do MESMO motor que publica a DRE (DE-020) — conta de
+        # resultado sem linha cai no resíduo, e a identidade do item 20A veta
+        # a emissão com razão (critério 8 do plano). Sem isto, os cenários
+        # deste arquivo mediam `pode_emitir` de um plano que não publica
+        # demonstração nenhuma.
+        conta.classificacao_dre = dre
     conta.full_clean()
     conta.save()
     return conta
@@ -85,12 +94,28 @@ def _cenario(nome="dl066"):
     contas = {
         "caixa": _conta(empresa, "1.1", "Caixa", ATIVO, D, caixa=True),
         "banco": _conta(empresa, "1.2", "Banco Conta Corrente", ATIVO, D, caixa=True),
-        "receita": _conta(empresa, "4.1", "Receita de Vendas", RECEITA, C, dfc=ATIV),
+        "receita": _conta(
+            empresa,
+            "4.1",
+            "Receita de Vendas",
+            RECEITA,
+            C,
+            dfc=ATIV,
+            dre=ClassificacaoDre.RECEITA_BRUTA,
+        ),
         "imobilizado": _conta(empresa, "1.3", "Veículos", ATIVO, D, dfc=INVEST),
         "emprestimo": _conta(
             empresa, "2.1", "Empréstimo de Longo Prazo", TipoConta.PASSIVO, C, dfc=FINANC
         ),
-        "despesa": _conta(empresa, "5.1", "Despesa Operacional", DESPESA, D, dfc=ATIV),
+        "despesa": _conta(
+            empresa,
+            "5.1",
+            "Despesa Operacional",
+            DESPESA,
+            D,
+            dfc=ATIV,
+            dre=ClassificacaoDre.OUTRAS_DESPESAS,
+        ),
     }
     return empresa, contas, gestor
 
@@ -279,15 +304,33 @@ def test_criterio7_conta_de_caixa_sem_movimento_nao_entra_no_saldo():
 # ---------------------------------------------------------------------------
 
 
+# BL-629 (N4 da reconferência da DL-066): esta lista é EXPLÍCITA e digitada
+# aqui, e não derivada de `_TITULOS_DAS_PENDENCIAS_DA_DFC` — o teste antigo
+# comparava a apuração com o mesmo dicionário que a construía (tautológico:
+# remover uma chave dele não fazia o teste falhar, e uma pendência nova sob
+# chave fora do dicionário estouraria `KeyError` sem ninguém perceber). Com a
+# enumeração deliberada, adicionar ou remover chave exige DECIDIR aqui.
+CHAVES_ESPERADAS_DAS_PENDENCIAS_DA_DFC = {
+    "conta_com_dois_papeis",
+    "lancamentos_sem_atividade",
+    "classificacao_fora_do_enum",
+    "lancamento_com_atividades_conflitantes",
+    "diferenca_de_caixa",
+    "indireto_nao_fecha",
+}
+
+
 def test_as_tuplas_de_pendencias_particionam_o_inventario_da_apuracao():
     """Teste derivado, como o de `apurar_dlpa` e `apurar_dmpl`: a união das
     pendências que vetam com as que só avisam tem de ser **exatamente** o
     inventário de chaves de `apurar_dfc["pendencias"]`, e nenhuma chave pode
     estar nas duas. Sem isso, uma pendência nova nasce invisível para a
-    decisão de emissão."""
+    decisão de emissão (BL-629: e a enumeração tem de ser nossa, não do
+    dicionário que o código constrói)."""
     empresa, contas, gestor = _cenario("contrato")
     dfc = apurar_dfc(empresa=empresa, ano=ANO, mes=MES)
-    assert set(dfc["pendencias"]) == set(_TITULOS_DAS_PENDENCIAS_DA_DFC)
+    assert set(dfc["pendencias"]) == CHAVES_ESPERADAS_DAS_PENDENCIAS_DA_DFC
+    assert set(_TITULOS_DAS_PENDENCIAS_DA_DFC) == CHAVES_ESPERADAS_DAS_PENDENCIAS_DA_DFC
 
 
 # ---------------------------------------------------------------------------
