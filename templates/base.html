@@ -710,6 +710,23 @@
                                                                     <a href="{% url 'contabilidade_web:dmpl' empresa_atual.id %}">DMPL</a>
                                                                 {% endif %}
                                                             </li>
+                                                            <li>
+                                                                {% comment %}
+                                                                DL-066/CTB-15: nono item do grupo —
+                                                                mesma permissão de leitura e mesma
+                                                                recusa de livro-caixa que os oito
+                                                                acima. Sem accesskey dedicado, pelo
+                                                                MESMO motivo da DRE, da DLPA e da
+                                                                DMPL (letras livres esgotadas — ver
+                                                                a nota grande sobre accesskey, mais
+                                                                acima neste arquivo).
+                                                                {% endcomment %}
+                                                                {% if pagina_atual == "dfc" %}
+                                                                    <span class="item-atual" aria-current="page">DFC</span>
+                                                                {% else %}
+                                                                    <a href="{% url 'contabilidade_web:dfc' empresa_atual.id %}">DFC</a>
+                                                                {% endif %}
+                                                            </li>
                                                         </ul>
                                                     </div>
                                                     <div class="menu-grupo">
