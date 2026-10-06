@@ -71,6 +71,11 @@ from apps.contabilidade.models import (
     # conta (`ContaCriarForm`, campo "Linha da DRE" e a humanização das
     # pendências de classificação nas listas do veto).
     ClassificacaoDre,
+    # DL-066/CTB-15: atividade do fluxo de caixa da conta (CPC 03, itens 10 e
+    # 13 a 17) — o campo do meio da classificação da DFC
+    # (`conta_classificacao_dfc`, opções do formulário) e os rótulos das
+    # três atividades na tela da própria DFC.
+    ClassificacaoFluxoCaixa,
     # DL-034: os cinco nomes abaixo (ClassificacaoPatrimonial, GrupoDaLei,
     # GRUPO_DA_LEI_DA_CLASSIFICACAO_PATRIMONIAL, TIPO_DA_CLASSIFICACAO_
     # PATRIMONIAL, TipoConta) servem só a tela do Balanço — ver
@@ -185,6 +190,11 @@ from apps.contabilidade.services import (
     # (`ContaClassificacaoDreView`), nunca uma segunda cópia da regra
     # (todas as guardas moram em `Conta.clean()`). Ver `conta_
     # classificacao_dre`, mais abaixo.
+    # DL-066/CTB-15: porta ÚNICA de gravação dos TRÊS campos da DFC de uma
+    # conta existente — mesmo desenho das irmãs abaixo (guarda em
+    # `Conta.clean()` + trilha na MESMA transação + recusa de período
+    # fechado em `ClassificacaoAlteraPeriodoFechado`).
+    classificar_conta_na_dfc,
     # DL-048/CTB-12: porta ÚNICA de gravação da classificação da DLPA —
     # mesmo desenho de `classificar_conta_na_dre` (guarda em
     # `Conta.clean()` + trilha na MESMA transação), nunca uma segunda cópia.
@@ -1399,6 +1409,130 @@ def conta_classificacao_dmpl(request, empresa_id, conta_id):
     )
 
 
+class ClassificacaoDfcForm(forms.Form):
+    """Formulário de TRÊS campos — a classificação da DFC de uma conta
+    EXISTENTE (DL-066/CTB-15, no molde de `ClassificacaoDlpaForm`). Não é um
+    `ModelForm`: a gravação passa SEMPRE por `classificar_conta_na_dfc`
+    (services.py), que chama `full_clean()` e carrega as guardas de
+    `Conta.clean()` (caixa **e** atividade não convivem na mesma conta; item
+    sem caixa só em conta de resultado; recusa de período fechado) + a
+    trilha de auditoria.
+
+    Os TRÊS campos são recebidos como ESTADO DESEJADO completo, não como
+    patch (ver o docstring do serviço): por isso o formulário sempre envia
+    os dois marcadores, mesmo desligados — desmarcar é decisão, não ausência
+    de decisão. As opções do meio vêm do MESMO enum que o modelo usa
+    (`ClassificacaoFluxoCaixa`), e o texto de ajuda vem do `help_text` do
+    modelo — FONTE ÚNICA: a regra e a citação normativa já moram lá, e uma
+    cópia aqui divergiria na primeira edição.
+    """
+
+    caixa_e_equivalentes = forms.BooleanField(
+        label="Caixa e equivalentes",
+        required=False,
+        help_text=Conta._meta.get_field("caixa_e_equivalentes").help_text,
+    )
+    classificacao_dfc = forms.ChoiceField(
+        label="Atividade do fluxo de caixa",
+        choices=[("", "Sem atividade")] + list(ClassificacaoFluxoCaixa.choices),
+        required=False,
+        help_text=Conta._meta.get_field("classificacao_dfc").help_text,
+    )
+    item_de_resultado_sem_caixa = forms.BooleanField(
+        label="Item de resultado que não movimenta caixa",
+        required=False,
+        help_text=Conta._meta.get_field("item_de_resultado_sem_caixa").help_text,
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def conta_classificacao_dfc(request, empresa_id, conta_id):
+    """Classifica (ou reclassifica) os TRÊS campos da DFC de uma conta
+    EXISTENTE — DL-066/CTB-15: a porta de TELA no molde de
+    `conta_classificacao_dlpa`. Chamada pelo veto da tela `dfc` (cada conta
+    pendente ganha link direto) e pelo Plano de contas.
+
+    Autorização: `_pode_escriturar` (MESMO papel das classificações irmãs —
+    nenhuma permissão nova); filtro `empresa=empresa` — conta de outra
+    empresa/escritório dá 404, nunca confirma existência.
+
+    A GRAVAÇÃO passa inteira por `classificar_conta_na_dfc`; esta view só
+    traduz `ClassificacaoAlteraPeriodoFechado` (DL-065/BL-550, estendida aos
+    três campos na etapa 2) e `ValidationError` para `form.add_error(None,
+    ...)` e re-renderiza com 200 (recusa de regra é a tela respondendo, nunca
+    um 500). O `refresh_from_db()` em caso de recusa restaura o valor
+    REALMENTE gravado — o serviço muta a instância antes do `full_clean()`
+    recusar (mesmo achado R6 da reconferência da DL-045).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite classificar a DFC nesta empresa."
+        )
+
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    conta = get_object_or_404(Conta, pk=conta_id, empresa=empresa)
+
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, _CONTRATO_DO_FORMULARIO_DE_CLASSIFICACAO_DFC)
+        except DadoNaoContratado as exc:
+            messages.error(request, _mensagem_de_tela_para_dado_nao_contratado(exc))
+            return render(
+                request,
+                "contabilidade/conta_classificacao_dfc.html",
+                {"empresa": empresa, "conta": conta, "form": ClassificacaoDfcForm(request.POST)},
+                status=400,
+            )
+
+        form = ClassificacaoDfcForm(request.POST)
+        if form.is_valid():
+            try:
+                classificar_conta_na_dfc(
+                    conta=conta,
+                    caixa_e_equivalentes=form.cleaned_data["caixa_e_equivalentes"],
+                    classificacao_dfc=form.cleaned_data["classificacao_dfc"] or None,
+                    item_de_resultado_sem_caixa=form.cleaned_data["item_de_resultado_sem_caixa"],
+                    usuario=request.user,
+                    request=request,
+                )
+            except ClassificacaoAlteraPeriodoFechado as exc:
+                # DL-065 (BL-550), estendida aos três campos: mesma tradução
+                # da porta da DLPA — recusa no formulário com 200 e valor
+                # gravado restaurado, nunca um 500.
+                conta.refresh_from_db()
+                form.add_error(None, str(exc))
+            except DjangoValidationError as exc:
+                conta.refresh_from_db()
+                for mensagem in mensagens_da_validacao_django(exc):
+                    form.add_error(None, mensagem)
+            else:
+                messages.success(
+                    request, f"Classificação da DFC de “{conta}” atualizada com sucesso."
+                )
+                return redirect("contabilidade_web:plano_de_contas", empresa_id=empresa.id)
+    else:
+        form = ClassificacaoDfcForm(
+            initial={
+                "caixa_e_equivalentes": conta.caixa_e_equivalentes,
+                "classificacao_dfc": conta.classificacao_dfc or "",
+                "item_de_resultado_sem_caixa": conta.item_de_resultado_sem_caixa,
+            }
+        )
+
+    return render(
+        request,
+        "contabilidade/conta_classificacao_dfc.html",
+        {"empresa": empresa, "conta": conta, "form": form},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Lançamento (critérios 10 e 11)
 # ---------------------------------------------------------------------------
@@ -2150,6 +2284,25 @@ _CONTRATO_DO_FORMULARIO_DE_CLASSIFICACAO_DMPL = ContratoDeRequisicao(
     aceita_querystring=False,
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na classificação da coluna da DMPL",
+)
+
+# DL-066/CTB-15: o mesmo contrato para a tela da DFC — TRÊS campos (os dois
+# marcadores são enviados mesmo desligados: desmarcar é decisão, e o serviço
+# recebe estado desejado completo, nunca patch). Um contrato por tela, pelo
+# mesmo motivo das irmãs acima.
+_CONTRATO_DO_FORMULARIO_DE_CLASSIFICACAO_DFC = ContratoDeRequisicao(
+    campos=frozenset(
+        {
+            "csrfmiddlewaretoken",
+            "caixa_e_equivalentes",
+            "classificacao_dfc",
+            "item_de_resultado_sem_caixa",
+        }
+    ),
+    aceita_arquivo=False,
+    aceita_querystring=False,
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na classificação da DFC",
 )
 
 # DL-061, fatia 2 (BL-605): o contrato da guia "DMPL" do lançamento. Os

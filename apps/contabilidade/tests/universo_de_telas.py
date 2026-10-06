@@ -72,6 +72,13 @@ NOMES_DE_TELA_DE_CONTABILIDADE = {
     # que recusa conta fora do patrimônio líquido, via `classificar_conta_na_
     # dmpl`). Reaproveita `cenario["caixa"]`, como as irmãs.
     "conta_classificacao_dmpl": "contabilidade_web:conta_classificacao_dmpl",
+    # DL-066/CTB-15: a irmã da DFC (classificação dos TRÊS campos da conta
+    # EXISTENTE — caixa e equivalentes, atividade do fluxo, item de resultado
+    # sem caixa) — MESMA permissão e MESMO comportamento no GET das irmãs
+    # acima: renderiza 200 para qualquer conta do cenário padrão (só o POST
+    # passa por `Conta.clean()`, via `classificar_conta_na_dfc`). Reaproveita
+    # `cenario["caixa"]`, como as irmãs.
+    "conta_classificacao_dfc": "contabilidade_web:conta_classificacao_dfc",
     "diario": "contabilidade_web:diario",
     "razao": "contabilidade_web:razao",
     "balancete": "contabilidade_web:balancete",
@@ -213,6 +220,8 @@ def _urls_de_contabilidade(cenario):
         "conta_classificacao_dlpa": ([empresa_id, cenario["caixa"].id], ""),
         # DL-061/CTB-14: mesmíssimos args das irmãs — empresa + conta.
         "conta_classificacao_dmpl": ([empresa_id, cenario["caixa"].id], ""),
+        # DL-066/CTB-15: mesmíssimos args das irmãs — empresa + conta.
+        "conta_classificacao_dfc": ([empresa_id, cenario["caixa"].id], ""),
         "diario": ([empresa_id], periodo),
         "razao": ([empresa_id, cenario["caixa"].id], periodo),
         "balancete": ([empresa_id], periodo),

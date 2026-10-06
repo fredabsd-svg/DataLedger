@@ -9,6 +9,9 @@ from apps.contabilidade.views_web import (
     conferencia,
     # DL-048/CTB-12: tela irmã de `conta_classificacao_dre` — classificar
     # (ou reclassificar, ou remover) a Linha da DLPA de uma conta existente.
+    # DL-066/CTB-15: idem para os TRÊS campos da DFC (caixa e equivalentes,
+    # atividade do fluxo, item de resultado sem caixa).
+    conta_classificacao_dfc,
     conta_classificacao_dlpa,
     # DL-061/CTB-14: idem para a Coluna da DMPL (só conta de patrimônio líquido).
     conta_classificacao_dmpl,
@@ -131,6 +134,13 @@ urlpatterns = [
         "empresas/<int:empresa_id>/plano-de-contas/<int:conta_id>/classificacao-dmpl/",
         conta_classificacao_dmpl,
         name="conta_classificacao_dmpl",
+    ),
+    # DL-066/CTB-15: classificar os TRÊS campos da DFC de uma conta existente
+    # — mesmo prefixo e mesmo padrão de caminho curto das telas irmãs.
+    path(
+        "empresas/<int:empresa_id>/plano-de-contas/<int:conta_id>/classificacao-dfc/",
+        conta_classificacao_dfc,
+        name="conta_classificacao_dfc",
     ),
     path("empresas/<int:empresa_id>/conferencia/", conferencia, name="conferencia"),
     # DL-044 (3ª iteração): hub de relatórios (Diário/Razão/Balancete/
