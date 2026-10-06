@@ -143,24 +143,49 @@ não integrada — por isso a DL-016 aponta para o Próximo passo.
 
 ## Próximo passo
 
-**AGORA, em 05/10/2026: [DL-066](../planos/DL-066-dfc.md) — a DFC, etapa
-CTB-15 da DL-048**, o último item da Onda 1 depois da DLPA (CTB-13) e da DMPL
-(CTB-14). O plano foi **integrado pelo PR #86**, e a **fatia 1 pelo PR #89**,
-depois de auditoria de rodada 1 e reconferência, as duas **APROVADAS COM
-RESSALVAS**.
+**AGORA, em 06/10/2026: a fatia 1 da [DL-066](../planos/DL-066-dfc.md) está
+FECHADA** — a etapa 2 desta data completou o que o PR #89 deixou em aberto,
+na branch `feat/dl-066-portas-e-indireto` (PR desta entrega):
 
-**O que a fatia 1 entregou, e o que falta.** Entregue e testado: os três
-campos da conta (`caixa_e_equivalentes`, `classificacao_dfc`,
-`item_de_resultado_sem_caixa`), as guardas de coerência do modelo,
-`apurar_dfc` com as três atividades apuradas **a partir dos lançamentos**, a
-exclusão do item 9, os vetos dos itens 9, 12 e 45 e a conciliação do item 45
-como **identidade**. **20 testes**, e a execução que vale é a da CI: **4.688
-aprovados, 53 pulados, zero reprovados**.
+- **Porta de classificação** `classificar_conta_na_dfc` (os três campos da
+  conta, `select_for_update`, trilha antes/depois na mesma transação) e a
+  **trava da DL-065 estendida** aos três campos em `Conta.clean()` (recusa
+  com movimento em competência encerrada/entregue, primeira marcação livre,
+  mensagem bifurcada por `entregue`);
+- **Método indireto** (`_apurar_operacional_indireto`): lucro do motor da DRE
+  + ajustes do item 20 (20(a) variação patrimonial operacional, 20(b) item
+  sem caixa, 20(c) resultado de outra atividade), zeramento excluído, e a
+  identidade com o direto virando a pendência `indireto_nao_fecha` quando não
+  fecha;
+- **API** GET `empresas/<id>/dfc/<ano>/<mes>/` e PATCH
+  `contas/<id>/classificacao-dfc/` (padrão D8, espelho das irmãs);
+- **Telas** `dfc.html` (classe Demonstração: direto resumido + indireto +
+  conciliação do item 45; veto sem documento impresso; sem "por ação") e
+  `conta_classificacao_dfc.html`, mais menu, plano de contas, universo de
+  telas e o piso do instrumento de identificação;
+- **BL-629 fechada** — o inventário de pendências da DFC deixou de ser
+  tautológico.
 
-**Falta para a fatia fechar:** o serviço de classificação da atividade com
-trilha, a tela, a API e a apresentação do método indireto — que volta `None`
-por enquanto, nomeado, porque apresentar número que ninguém auditou é pior do
-que não apresentar. **É esse o próximo passo da DL-066.**
+**Ciclo de auditoria (nível 1, §3.1) — encerrado no veredito REPROVADO da
+reconferência, com as correções finais entrando sem terceira rodada**, como
+na DL-065: a [rodada 1](../auditorias/2026-10-06-dl-066-etapa-2-auditoria.md)
+achou **1 GRAVE** (o teste do PATCH parcial era cego — a mutação destrutiva
+sobrevivia e derrubava zero testes), 4 MÉDIO e 2 BAIXO; a correção única
+(`c59f809`) refez o teste com cenário real e matou as mutações de permissão e
+de descarte mudo; a
+[reconferência](../auditorias/2026-10-06-dl-066-etapa-2-reconferencia.md)
+fechou **6 de 7** e apontou **N1** — o teste de corrida sem
+`django_db(transaction=True)` reprovaria na CI sem medir a trava; N1 e a
+observação menor da A2 (a pendência não dizia qual marcação manter) foram
+corrigidos em `e889b72`. A prova de corrida real é da **CI** (PostgreSQL):
+em SQLite ela reprova pela classe de ambiente, como o R4 da DRE.
+
+**Limites declarados nesta entrega:** a medição de impressão no navegador
+real fica para o job de CI (Chromium não roda nesta máquina); o
+`ContaSerializer` não grava os três campos no POST/PUT — a chave é **recusada
+por nome** (BL-196), e a extensão da decisão D2 da DL-063 ficou como
+**BL-631**, decisão do Fred; **BL-630** (escopo da pendência
+`conta_com_dois_papeis`) segue com o Fred.
 
 **O número da DFC sai do lançamento, não de soma de ajustes.** Caixa contra
 uma conta de fora da lista de caixa é um fluxo, classificado pela atividade
@@ -178,13 +203,15 @@ direto** (e a nota NE3 do próprio pronunciamento diz que essa exigência não
 existe no IAS 7). Ou seja, "os dois" não é escopo dobrado — é a norma
 exigindo que o direto traga a conciliação do indireto.
 
-⚠️ **Lacuna declarada, e ela é de fonte:** a obrigatoriedade vem da
-Lei 6.404/76, art. 176, IV, com a **§ 6 isentando a companhia fechada com
-patrimônio líquido abaixo de R$ 2.000.000,00** — e o texto compilado no
-Planalto **não foi obtido** neste ambiente. O plano traz quatro perguntas
-com recomendação para o Fred, das quais duas mudam o que o produto exige:
-o que conta como **equivalente de caixa** (item 7, três meses ou menos) e se
-a DFC deve ser exigida da empresa ou apenas oferecida.
+**Lacuna de fonte fechada em 06/10/2026:** a obrigatoriedade vem da Lei
+6.404/76, art. 176, IV, com o **§ 6º isentando a companhia fechada com
+patrimônio líquido abaixo de R$ 2.000.000,00** — texto obtido em duas fontes
+oficiais concordantes (Câmara dos Deputados, PDF da norma atualizada, e o
+próprio Planalto por download direto) e registrado no
+[plano](../planos/DL-066-dfc.md). As quatro perguntas do plano foram
+respondidas por pesquisa e decididas (DE-098 e DE-099): equivalente de caixa
+é campo por conta (critério do item 7 no `help_text`), e a DFC é **oferecida**
+pela empresa, não exigida nem impedida pelo produto.
 
 **Leva da DL-065 concluída e integrada.** [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md)
 — BL-550, a trava de reclassificação em competência fechada — escolhida pelo
@@ -504,17 +531,14 @@ confiáveis) e PE-07 (backup e restauração).
 
 **Fila seguinte, sujeita ao Fred:**
 
-1. **DL-048, CTB-14 (DMPL)** — nível 1. A DLPA (CTB-12 + CTB-13) está
-   integrada pelo PR #59 e a API dela (D8) pelo PR #62. Decisões do Fred de
-   29/09 já fechadas: versionar pela data de início do exercício, com adoção
-   antecipada da NBC TG 51 prevista. Lacuna declarada: o ato da CVM que
-   aprovou o CPC 26 não foi lido em fonte oficial.
-2. **Reclassificação em período encerrado** (BL-550) e a titularidade do
-   CNPJ no cadastro (resto do BL-552, depende do Fred).
-3. **DL-016 F3** (encerramento de competência) — só o plano existe.
-4. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50,
+1. **DL-066, fatia 2 — o método direto da DFC**: recebimentos/pagamentos
+   brutos por atividade (item 21), a marcação manual por lançamento
+   (`MarcacaoDfc`, itens 12 e 19(b)(ii)) que substitui o veto interino do
+   item 12, e o item 20A como bloco próprio. Nível 1.
+2. **DL-016 F3** (encerramento de competência) — só o plano existe.
+3. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50,
    PE-51 e PE-52 abertas.
-5. **Módulo fiscal — [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md).**
+4. **Módulo fiscal — [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md).**
    Plano versionado em 05/10/2026 e conciliado com a
    [paridade fiscal](../projeto/paridade/fiscal.md): ela diz o quê, ele diz
    quando e o que mudou com a reforma tributária. Nada implementado. Sete
