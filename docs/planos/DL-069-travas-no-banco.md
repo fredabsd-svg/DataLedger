@@ -21,7 +21,7 @@ num script, uma migração de dados ou um SQL de manutenção.
 | 2 | Período encerrado sem lançamento novo | `criar_lancamento` e `criar_lancamento_caixa`, com trava `FOR SHARE` | INSERT por fora do serviço em competência encerrada ou entregue, ou em mês de caixa encerrado |
 | 3 | Trilha de auditoria imutável | `QuerySet` e sinais | SQL direto reescreve ou apaga a trilha |
 
-O **limite aceito** continua o mesmo do BL-569: as travas protegem contra
+O **limite aceito** segue o princípio do BL-569 (que trata do livro contábil): as travas protegem contra
 escrita **acidental**, não contra quem tem acesso de dono ao banco (`TRUNCATE`,
 `DISABLE TRIGGER`).
 
@@ -59,14 +59,16 @@ escrita **acidental**, não contra quem tem acesso de dono ao banco (`TRUNCATE`,
 3. Encerrar, reabrir, a reabertura em cascata (DL-054), o lançamento, o
    estorno e os dependentes do carnê-leão continuam funcionando. A suíte
    existente de `apps/livro_caixa` passa.
-4. A recusa chega ao usuário pela tela e pela API como mensagem em português,
-   nunca como erro 500. Ela entra em `MENSAGENS_DE_RESTRICAO_DE_GATILHO`.
-   **Corrigido depois da auditoria (A1):** a versão anterior dizia que "a
-   varredura existente cobra o registro". Isso é falso, porque nenhuma
-   verificação cruza os nomes de gatilho com o registro. Hoje nenhuma porta do
-   produto faz UPDATE ou DELETE nestas tabelas, então a recusa não chega ao
-   usuário. A tela que um dia fizer isso precisa traduzir a recusa. A decisão
-   de não criar uma guarda nova segue o §3.1 e está registrada no BL-644.
+4. A recusa tem mensagem em português registrada em
+   `MENSAGENS_DE_RESTRICAO_DE_GATILHO`. **Hoje nenhuma porta do produto (tela,
+   API, admin ou comando) provoca essa recusa**, porque nenhuma faz UPDATE ou
+   DELETE nessas tabelas. A porta que um dia fizer isso precisa traduzir a
+   recusa com `restricao_como_400` e ter teste de tela. Nenhuma verificação
+   automática cobra isso (BL-644).
+   *Histórico:* a primeira versão dizia que a recusa chegava à tela e à API e
+   que "a varredura existente cobra o registro". As duas afirmações eram
+   falsas e foram corrigidas pelos achados A1 da rodada 1 e R1 da
+   reconferência.
 5. A migração é reversível: um teste com `transaction=True` migra para trás e
    para frente, e depois de voltar o UPDATE passa.
 6. Em SQLite as travas não existem. Isso é **declarado** no código e no teste

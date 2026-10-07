@@ -61,7 +61,7 @@
 #    mês já encerrado; reabrir recusa mês já aberto), então o produto não perde
 #    nada. Restrição: `fechamento_mes_caixa_imutavel`.
 #
-# LIMITE DECLARADO (o mesmo do BL-569). As travas protegem contra escrita
+# LIMITE DECLARADO (o princípio do BL-569, que trata do livro contábil). As travas protegem contra escrita
 # ACIDENTAL, não contra quem tem acesso de dono ao banco: `TRUNCATE` não aciona
 # gatilho de linha, e quem pode `ALTER TABLE ... DISABLE TRIGGER` as desliga.
 # Restrição de papéis do PostgreSQL é assunto de implantação, não desta migração.

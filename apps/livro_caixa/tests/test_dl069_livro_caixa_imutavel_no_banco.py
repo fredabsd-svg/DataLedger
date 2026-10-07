@@ -662,3 +662,52 @@ def test_reabertura_com_coluna_imutavel_junto_e_recusada(cenario, coluna):
     )
 
     assert _linha(FechamentoMesCaixa, encerrado.pk) == antes
+
+
+@so_postgresql
+@pytest.mark.parametrize("coluna", ["reaberto_em", "reaberto_por_id"])
+def test_reencerramento_nao_reescreve_a_reabertura_anterior(cenario, coluna):
+    """R2 da reconferência da DL-069, fatia 1: o ENCERRAMENTO de um mês
+    reaberto não pode reescrever quando nem por quem ele foi reaberto. Essa é
+    a trilha da reabertura anterior, e o reencerramento do serviço a preserva
+    (`services.py`, `save(update_fields=[estado, fechado_em, fechado_por])`)."""
+    outro = _usuario(Papel.GESTOR, cenario["escritorio_a"], f"outro-{coluna}")
+    reaberto = _mes_reaberto(cenario)
+    antes = _linha(FechamentoMesCaixa, reaberto.pk)
+    novo = {
+        "reaberto_em": timezone.now() - timedelta(days=30),
+        "reaberto_por_id": outro.pk,
+    }[coluna]
+
+    _recusado(
+        RESTRICAO_FECHAMENTO,
+        lambda: FechamentoMesCaixa.objects.filter(pk=reaberto.pk).update(
+            estado=EstadoMesCaixa.ENCERRADO,
+            fechado_em=timezone.now(),
+            fechado_por_id=cenario["gestor"].pk,
+            **{coluna: novo},
+        ),
+    )
+
+    assert _linha(FechamentoMesCaixa, reaberto.pk) == antes
+
+
+@so_postgresql
+def test_reabertura_nao_reescreve_quando_o_mes_foi_fechado(cenario):
+    """O par simétrico: a REABERTURA não reescreve `fechado_em`, que é o
+    registro de quando o mês foi encerrado."""
+    encerrado = _mes_encerrado(cenario)
+    antes = _linha(FechamentoMesCaixa, encerrado.pk)
+
+    _recusado(
+        RESTRICAO_FECHAMENTO,
+        lambda: FechamentoMesCaixa.objects.filter(pk=encerrado.pk).update(
+            estado=EstadoMesCaixa.ABERTO,
+            reaberto_em=timezone.now(),
+            reaberto_por_id=cenario["gestor"].pk,
+            motivo_reabertura="Reabertura que reescreve o fechamento",
+            fechado_em=timezone.now() - timedelta(days=30),
+        ),
+    )
+
+    assert _linha(FechamentoMesCaixa, encerrado.pk) == antes
