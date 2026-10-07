@@ -225,6 +225,19 @@ MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
     "item_lancamento_em_lancamento_efetivado": (
         "Lançamento efetivado não recebe partida nova: registre um estorno."
     ),
+    # DL-069 (fatia 1), migração 0011 de `apps.livro_caixa` — gatilhos só em
+    # PostgreSQL que espelham no BANCO `LancamentoCaixa.save()/delete()` e o
+    # fechamento de mês (reabrir não apaga a linha). NENHUMA porta de escrita do
+    # produto as alcança (nenhum caminho legítimo faz UPDATE/DELETE no
+    # lançamento; o fechamento só muda por encerrar e reabrir); as mensagens
+    # existem para que, se uma alcançar, o erro seja legível e não um 500 cru.
+    "lancamento_caixa_imutavel": (
+        "Lançamento do livro-caixa não pode ser alterado nem excluído; registre um estorno."
+    ),
+    "fechamento_mes_caixa_imutavel": (
+        "O fechamento de mês do livro-caixa não pode ser excluído e só muda por encerramento "
+        "ou reabertura do mês, com o motivo registrado."
+    ),
 }
 
 
