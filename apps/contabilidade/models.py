@@ -2271,8 +2271,10 @@ class LancamentoContabil(models.Model):
     recusa no COMMIT lançamento cujos débitos diferem dos créditos ou que
     não tenha um débito e um crédito (`CONSTRAINT TRIGGER` adiado). Única
     exceção: `competencia_id` de NULL para um valor, sem mudar mais nada —
-    o backfill da DL-016 F5. Em SQLite (só desenvolvimento local) vale a
-    guarda de Python.
+    o backfill da DL-016 F5. Desde a DL-069, fatia 2 (migração 0023), o
+    banco também recusa o INSERT com data em competência que não está
+    `aberta` (achada pela DATA, nunca pela FK). Em SQLite (só
+    desenvolvimento local) vale a guarda de Python.
     """
 
     empresa = models.ForeignKey(Empresa, on_delete=models.PROTECT, related_name="lancamentos")

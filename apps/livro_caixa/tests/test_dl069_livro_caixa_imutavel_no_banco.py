@@ -532,7 +532,17 @@ def test_o_admin_nao_oferece_alterar_nem_apagar_lancamento_do_livro_caixa(cenari
 ANTERIOR = [("livro_caixa", "0010_dl053_fechamento_de_mes_do_livro_caixa")]
 ESTA = "0011_dl069_livro_caixa_imutavel_no_banco"
 
-GATILHOS_ESPERADOS = {"trg_lancamento_caixa_imutavel", "trg_fechamento_mes_caixa_imutavel"}
+# Os gatilhos que as DUAS tabelas têm depois de todas as migrações aplicadas.
+# DL-069 fatia 2 (migração 0012) acrescentou `trg_lancamento_caixa_so_em_mes_aberto`
+# sobre a MESMA tabela de lançamento: o conjunto exato desta tabela cresce a
+# cada migração de gatilho, e este teste (cujo propósito é a REVERSIBILIDADE
+# da 0011) precisa acompanhar — revertendo até a 0010, a 0012 vai junto, e os
+# três saem e voltam juntos.
+GATILHOS_ESPERADOS = {
+    "trg_lancamento_caixa_imutavel",
+    "trg_fechamento_mes_caixa_imutavel",
+    "trg_lancamento_caixa_so_em_mes_aberto",
+}
 FUNCOES_ESPERADAS = (
     "livro_caixa_recusar_alteracao_do_lancamento",
     "livro_caixa_recusar_alteracao_do_fechamento",
@@ -562,8 +572,11 @@ def _funcoes_do_livro_caixa():
 def test_migracao_e_reversivel_e_depois_de_voltar_o_update_passa(cenario):
     from django.db.migrations.executor import MigrationExecutor
 
-    alvo_atual = MigrationExecutor(connection).loader.graph.leaf_nodes("livro_caixa")
-    assert ("livro_caixa", ESTA) in alvo_atual, "a 0011 deve ser a folha do app"
+    executor = MigrationExecutor(connection)
+    alvo_atual = executor.loader.graph.leaf_nodes("livro_caixa")
+    # DL-069 fatia 2: a folha do app passou a ser a migração 0012; o que este
+    # teste precisa é de a 0011 estar APLICADA para medir a reversão dela.
+    assert ("livro_caixa", ESTA) in executor.loader.applied_migrations
     assert _gatilhos_do_livro_caixa() == GATILHOS_ESPERADOS
     assert _funcoes_do_livro_caixa() == set(FUNCOES_ESPERADAS)
 

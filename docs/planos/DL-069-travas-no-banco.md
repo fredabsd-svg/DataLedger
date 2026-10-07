@@ -119,7 +119,107 @@ O que continua permitido:
 - o estorno em mês aberto (RC-103);
 - a reabertura de competência não entregue.
 
-Critérios detalhados serão escritos ao fim da fatia 1, com a medição do custo.
+**Critérios de aceite (escritos em 07/10/2026, ao fim da fatia 1 — PR #92
+mesclado em 07/10/2026, merge `a610c70`):**
+
+1. INSERT de `LancamentoContabil` com **data** em competência que não está
+   `aberta` é recusado NO BANCO com `IntegrityError` nomeando a restrição
+   `dl069_lancamento_contabil_so_em_competencia_aberta`, e nada é gravado:
+   - por ORM (`objects.create()`, `Model.save()`, `bulk_create()`);
+   - por SQL direto (`INSERT` por `cursor`);
+   - a competência é achada **pela data** (empresa + ano/mês de `data`),
+     nunca pela FK: lançamento com `competencia_id` NULL ou apontando para
+     outro mês segue recusado quando a DATA cai em período não aberto;
+   - toda condição que não `aberta` recusa, inclusive `em_encerramento` (a
+     comparação é `!= aberta`, como em `criar_lancamento`,
+     `apps/contabilidade/services.py:1026`).
+2. INSERT de `LancamentoCaixa` é recusado com `IntegrityError` nomeando
+   `dl069_lancamento_caixa_so_em_mes_aberto`, por ORM e por SQL direto, com o
+   dado intacto, quando:
+   - o mês do lançamento está encerrado; ou
+   - existe mês **posterior do mesmo ano-calendário** encerrado (o
+     encadeamento da DL-054 — a regra exata é a de
+     `_recusar_se_mes_caixa_encerrado`, `apps/livro_caixa/services.py:569-639`,
+     reproduzida item a item);
+   - o estorno entra pela mesma regra: a data do estorno é a do original
+     (DE-091 item 4), então estorno em mês encerrado é recusado como o
+     lançamento.
+3. `Competencia.entregue_em` não volta a NULL: UPDATE (ORM ou SQL) que tente
+   zerar é recusado com `IntegrityError` nomeando
+   `dl069_competencia_entregue_nao_volta_a_null`, e o valor não muda.
+4. Competência entregue não volta a `aberta` (RC-101): UPDATE que faça a
+   transição para `aberta` numa linha com `entregue_em` preenchido é recusado
+   com `IntegrityError` nomeando `dl069_competencia_entregue_nao_reabre`.
+5. Continua **permitido**, com teste provando que passa com os gatilhos
+   ligados:
+   - o backfill NULL→valor (`backfill_lancamento_competencia --apply` e o
+     `QuerySet.update(competencia=...)` dele), inclusive quando a
+     competência de destino já está encerrada — o backfill preenche dado
+     legado e não grava lançamento novo;
+   - o estorno em mês aberto (RC-103);
+   - a reabertura de competência **não** entregue (contabilidade) e a do mês
+     do livro-caixa;
+   - o ciclo completo dos serviços: lançar, estornar, encerrar, entregar,
+     reabrir e a reabertura em cascata da DL-054.
+6. A recusa é traduzível: as quatro restrições ficam em
+   `MENSAGENS_DE_RESTRICAO_DE_GATILHO`, com mensagem em português, e
+   `restricao_como_400` converte a recusa real do banco na mensagem
+   registrada. **Nenhuma porta do produto (tela, API, admin ou comando)
+   alcança essas recusas hoje** — os serviços recusam antes, com a mensagem
+   da competência/mês —; a porta que um dia alcançar precisa traduzir com
+   `restricao_como_400` e ter teste de porta (mesma ressalva da fatia 1,
+   BL-644).
+7. A trava reproduz a leitura protegida contra corrida que o serviço faz,
+   antes de julgar o estado:
+   - contabilidade: `SELECT ... FOR SHARE` sobre a linha da competência
+     achada pela data (BL-456;
+     `_travar_competencia_em_modo_compartilhado`,
+     `apps/contabilidade/services.py:526-667`);
+   - livro-caixa: o lock consultivo COMPARTILHADO do mês e dos meses
+     posteriores do ano, em ordem crescente, antes de ler o estado
+     (`_adquirir_locks_dos_meses_do_ano` e
+     `_recusar_se_mes_caixa_encerrado`, `apps/livro_caixa/services.py:547-639`);
+   - a ordem de lock do gatilho é a mesma do serviço e não cria ciclo (o
+     raciocínio está no comentário de cada migração).
+8. Cenários negativos: INSERT direto em competência encerrada, entregue ou
+   `em_encerramento`; INSERT com a FK `competencia` mentindo (outro mês);
+   INSERT de estorno em mês encerrado; INSERT em janeiro com fevereiro
+   encerrado (encadeamento); UPDATE zerando `entregue_em`; UPDATE reabrindo
+   competência entregue, inclusive a reabertura completa por SQL; e mutação —
+   sem o gatilho, os testes de recusa caem (a escrita passa).
+9. **Limite declarado** (a família do BL-569): o gatilho não protege contra
+   `TRUNCATE`, `DISABLE TRIGGER` nem contra quem escreve SQL de propósito. E
+   há UMA corrida que ele não ordena: INSERT **por fora do serviço** em mês
+   que ainda não tem linha de `Competencia`, cruzado com o PRIMEIRO
+   fechamento daquele mês. O caminho do serviço está protegido —
+   `obter_ou_criar_competencia` cria a linha antes do INSERT e o fechamento
+   passa pelo mesmo `get_or_create` + `FOR UPDATE` — e o INSERT direto com
+   linha existente também está (`FOR SHARE` do gatilho contra `FOR UPDATE` do
+   fechamento). Criar a linha a partir do gatilho fecharia o canto, mas
+   emprestaria ao INSERT um efeito colateral (nascer `Competencia` em
+   qualquer INSERT direto, inclusive os de dado legado/torto dos testes e do
+   backfill) — decisão registrada no comentário da migração.
+10. Em SQLite as travas não existem: as migrações são no-op (declarado no
+    código e no teste, sem fingir cobertura), os testes de recusa são pulados
+    fora do PostgreSQL com o motivo escrito, e `manage.py migrate` completo
+    (ida e volta) funciona em SQLite num banco temporário.
+11. A migração é reversível: teste com `transaction=True` migra para trás e
+    para frente; com a migração revertida a escrita passa (é o que prova que
+    era o gatilho quem recusava — teste de mutação), e religada a recusa
+    volta.
+12. Nenhum teste existente é adaptado sem necessidade; toda adaptação (se
+    houver) vai no relatório com o motivo de cada uma. **Proibido** mudar
+    expectativa de teste para deixar a suíte verde.
+13. A suíte completa não regride. Linha de base medida em 07/10/2026 nesta
+    máquina (Windows, SQLite, Python 3.14.7, sem PostgreSQL local):
+    **4.687 aprovados, 165 reprovados, 149 pulados em 454,68s** (segunda
+    rodada: 4.683/169/149 em 495,25s — a flutuação de 4 testes é de
+    concorrência em SQLite). Os reprovados são pré-existentes e de ambiente
+    (`diag` do psycopg, threads, Chromium, poppler, permissões POSIX/umask,
+    `ruff` fora do PATH). A comparação honesta é antes × depois no
+    **conjunto** dos reprovados, não só na contagem. A prova dos gatilhos é
+    da CI (`postgres:16-alpine`), que é onde os testes pulados localmente
+    rodam de verdade.
 
 ### Fatia 3 — trilha imutável no banco (**depende do Fred**)
 
