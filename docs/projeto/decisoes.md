@@ -5251,3 +5251,32 @@ a descoberto são incluídos como componente de caixa e equivalentes de caixa."*
    ajuste de regularização.
 
 **Reversão:** os três pontos são locais ao campo e ao seu comentário.
+
+## DE-100 — "Fora de desenvolvimento" é declarado por `DJANGO_AMBIENTE`, e a imagem é produção por padrão
+
+**Data:** 07/10/2026. **Etapa:** [DL-068](../planos/DL-068-prontidao-para-implantacao.md).
+**Fecha:** BL-82.
+
+**Problema.** Nada impedia `DEBUG=True` em produção, e um comentário de
+`config/settings.py` já raciocinava como se a guarda existisse. O BL-82 pedia
+que o sinal fosse uma variável explícita, não uma inferência.
+
+**Decisão.**
+
+1. `DJANGO_AMBIENTE` aceita `desenvolvimento`, `homologacao` e `producao`.
+   Valor fora da lista recusa subir. Isso segue o AGENTS.md §11:
+   *"identificar claramente simulação, homologação e produção"*.
+2. Em `homologacao` ou `producao`, `DEBUG=True` recusa subir.
+3. Sem a variável, vale `desenvolvimento` (HI-52). Exigi-la em toda execução
+   quebraria a suíte e a CI sem proteger nada a mais.
+4. **A imagem Docker declara `producao`.** É ela que faz a guarda valer onde
+   importa: quem sobe a imagem com o `.env.example` copiado sem ler precisa
+   declarar `desenvolvimento` de propósito.
+
+**Alternativas descartadas.**
+- Inferir produção por `ALLOWED_HOSTS` ou `DATABASE_URL`: o BL-82 proíbe
+  inferência, e as duas variáveis têm valores legítimos dos dois lados.
+- Exigir a variável sempre: muda a CI e a máquina do desenvolvedor para não
+  proteger nada além do que a imagem já protege.
+
+**Reversão:** local ao `settings.py`, ao `Dockerfile` e ao `.env.example`.

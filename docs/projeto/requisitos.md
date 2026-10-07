@@ -72,6 +72,14 @@ Plano: [DL-061](../planos/DL-061-dmpl.md). Rotina de referência lida no manual 
 sistema de referência em 01/10/2026 (p. 122, 192–194, 616–622, 773–774), entregue pelo
 Fred nesta sessão, fora do repositório.
 
+## Prontidão para implantação — DL-068
+
+| ID | Categoria | Requisito e origem |
+| --- | --- | --- |
+| RC-157 | Confirmado | Fred, 07/10/2026: *"Autorizado fazer as 5 alterações"*, sobre a análise do repositório da mesma data. As cinco alterações: (1) Django 6.1.2, que corrige 4 CVEs; (2) limite de tentativas também em `/admin/login/`; (3) `.dockerignore`, para o `.env` e o `.git` não entrarem na imagem; (4) recusar `DEBUG=True` fora de desenvolvimento (BL-82); (5) recusar `/0` em `DJANGO_PROXIES_CONFIAVEIS` (BL-577). Plano: [DL-068](../planos/DL-068-prontidao-para-implantacao.md). |
+| HI-51 | Hipótese técnica | Rede de proxy confiável é **larga** quando contém endereço público e tem prefixo menor que `/24` (IPv4) ou `/64` (IPv6). Gera aviso do `check` e não recusa, porque implantação atrás de CDN usa faixas públicas largas legítimas. Validar quando o provedor de hospedagem for escolhido (PE-25). |
+| HI-52 | Hipótese técnica | Sem `DJANGO_AMBIENTE` declarado, o ambiente é `desenvolvimento`. Isso preserva a suíte, a CI e a máquina do desenvolvedor. A proteção em produção vem da **imagem Docker**, que declara `producao`. Quem implantar fora da imagem precisa declarar a variável; o procedimento de implantação (BL-53) deve dizer isso. |
+
 ## Legenda
 
 | Estado | Significado |
