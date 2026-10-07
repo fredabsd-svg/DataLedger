@@ -165,7 +165,9 @@ arquiteto: é a etapa que a análise do dia recomendou depois da DL-068.
    saiu **APROVADA COM RESSALVAS**, com 4.944 aprovados e nenhum defeito
    introduzido. O ciclo do §3.1 está encerrado. As ressalvas R1 (texto do
    critério 4) e R2 (3 testes das colunas da transição oposta, com as três
-   mutações mortas) foram corrigidas sem terceira rodada. Falta o PR.
+   mutações mortas) foram corrigidas sem terceira rodada. **PR
+   [#92](https://github.com/fredabsd-svg/DataLedger/pull/92)** aberto em
+   07/10/2026. Falta: os quatro checks verdes e o merge, que é do Fred.
 2. **Período encerrado recusa INSERT no banco.** A competência é achada pela
    data. O ponto de risco é refazer no gatilho a leitura protegida contra
    corrida que o serviço faz (BL-456). Ainda não iniciada.
