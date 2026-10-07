@@ -142,6 +142,16 @@ def test_interpretador_diretorio_excluido_leva_o_conteudo():
         "a/b/chave.key",
         "cert.pem",
         "x.p12",
+        # Qualquer caixa (R2 da reconferência): certificado exportado no
+        # Windows costuma vir em maiúscula, e o Docker compara com caixa.
+        "certs/EMPRESA.PFX",
+        "a/b/c/cert.KEY",
+        "cert.PEM",
+        "x.P12",
+        "certs/misto.Pfx",
+        "PROD.ENV",
+        "config/.ENV",
+        ".Env.local",
         # Histórico.
         ".git/HEAD",
         ".git/objects/ab/cdef0123",

@@ -1,7 +1,8 @@
 """DL-068 (BL-577): verificações de configuração da trilha de auditoria.
 
 `config/settings.py` já RECUSA subir com uma rede `/0` em
-`DJANGO_PROXIES_CONFIAVEIS`. Este módulo cobre o que fica abaixo disso: uma rede
+`DJANGO_PROXIES_CONFIAVEIS`, ou com redes cuja soma cobre exatamente uma família
+inteira. Este módulo cobre o que fica abaixo disso: uma rede
 larga que contém endereços públicos. Ela não impede a subida, porque há
 implantação legítima atrás de CDN com faixas públicas largas, mas quem confia
 em uma faixa pública larga está confiando em milhares de máquinas que não são

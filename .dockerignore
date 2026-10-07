@@ -8,15 +8,18 @@
 # em tempo de execução. Só o modelo `.env.example` pode entrar.
 # Sem `**/`, o padrão do Docker vale só na raiz do contexto: `config/.env` e
 # `prod.env` entrariam (auditoria da DL-068, N5). `*.env` cobre `prod.env`.
-**/.env
-**/.env.*
-**/*.env
+# As classes `[eE]` cobrem qualquer caixa (R2 da reconferência): o Docker
+# compara com caixa no Linux, e certificado exportado no Windows costuma vir
+# como `.PFX`.
+**/.[eE][nN][vV]
+**/.[eE][nN][vV].*
+**/*.[eE][nN][vV]
 # Certificado e chave privada: o módulo fiscal vai tratar certificado digital.
 # Eles vêm de mecanismo de segredos em tempo de execução, nunca da imagem.
-**/*.pem
-**/*.pfx
-**/*.p12
-**/*.key
+**/*.[pP][eE][mM]
+**/*.[pP][fF][xX]
+**/*.[pP]12
+**/*.[kK][eE][yY]
 # A exceção vem DEPOIS das regras que cobririam o modelo: a última que casa
 # vence. Fica na raiz de propósito: só esse arquivo é o modelo.
 !.env.example

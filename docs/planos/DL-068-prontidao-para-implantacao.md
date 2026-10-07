@@ -99,7 +99,9 @@ mesmo com o produto correto.
     `desenvolvimento`.
 12. `DJANGO_PROXIES_CONFIAVEIS` contendo `0.0.0.0/0`, `::/0` ou
     `0.0.0.0/0` em meio a outros valores recusa subir. O mesmo vale para
-    redes cuja soma, na mesma família, cobre o espaço inteiro (N2).
+    redes cuja soma, na mesma família, cobre **exatamente** o espaço
+    inteiro (N2). Limite declarado: lista que cobre "tudo menos" uma faixa
+    só avisa (R1, BL-642).
 13. Rede pública larga gera aviso no `check`. Rede privada larga, um IP
     único público e as redes `/24` e `/64` não geram aviso.
 14. A suíte completa não regride em relação à linha de base de 07/10/2026:

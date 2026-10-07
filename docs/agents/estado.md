@@ -130,7 +130,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md) | Sinal da conta-RAIZ retificadora no Balanço Patrimonial (BL-604) | Integrada (PR #81, squash `46d80a1`) — auditoria aprovada com ressalvas, reconferência aprovada; ciclo do §3.1 encerrado |
 | [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) | Fecha a leva da DL-061: coluna da DMPL nas duas portas, teste do snapshot e dica condicionada (BL-606, BL-607, BL-625) | **Integrada (PR #84, squash `c32cfe6`)** — o conteúdo **não tinha chegado à `main`** (o PR #82 foi mesclado na branch intermediária `fix/dl-062-…`); recuperado com a `base` reapontada para o destino real |
 | [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md) | Reclassificar conta com movimento em competência encerrada ou entregue não pode reescrever DLPA nem DMPL já apuradas (BL-550) | **Integrada (PR #85, squash `012a759`)** — ciclo de auditoria encerrado no veredito **REPROVADO** da reconferência; N1, N2 e N3 corrigidos depois, sem terceira rodada |
-| [DL-066](../planos/DL-066-dfc.md) | DFC — Demonstração dos Fluxos de Caixa, direto e indireto (CTB-15 da DL-048) | Situação em **[Próximo passo](#próximo-passo)** — **fatia 1 integrada pelo PR #89** (núcleo da apuração; auditoria e reconferência aprovadas com ressalvas, N1 e N2 corrigidos); falta a porta de classificação, a tela, a API e o método indireto |
+| [DL-066](../planos/DL-066-dfc.md) | DFC — Demonstração dos Fluxos de Caixa, direto e indireto (CTB-15 da DL-048) | Situação em **[Próximo passo](#próximo-passo)** — **fatia 1 integrada pelo PR #89** (núcleo da apuração; auditoria e reconferência aprovadas com ressalvas, N1 e N2 corrigidos) e **fechada pelo PR #90** (porta de classificação, telas, API e método indireto); a fatia 2, método direto, está na fila |
 | [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md) | Plano do módulo fiscal de out/2026 a 2028, com a reforma tributária, conciliado com a paridade fiscal | Planejada |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 tratada na DL-068 |
 | [DL-068](../planos/DL-068-prontidao-para-implantacao.md) | Prontidão para implantação: Django 6.1.2, limite no login do admin, `.dockerignore`, `DJANGO_AMBIENTE` (BL-82) e proxies `/0` (BL-577) | Situação em **[Próximo passo](#próximo-passo)** |
@@ -170,8 +170,26 @@ reprovado por ser Python 3.13 e 53 pulados. Os achados tiveram três destinos:
 - N3, N4 e N6 ficam registrados no BL-53, no BL-580 e no BL-632;
 - N8 é ambiente: a prova em 3.14 é a CI.
 
+**Reconferência:** [APROVADA COM RESSALVAS](../auditorias/2026-10-07-dl-068-reconferencia.md).
+N1, N5 e N7 fechados; N2 fechado para a cobertura exata. A suíte deu
+4.887 aprovados, sem regressão. Das ressalvas:
+- R2 (extensão em maiúscula) e R3 (texto) foram corrigidos sem terceira
+  rodada, com teste e mutação;
+- R1 (lista que cobre "tudo menos" uma faixa) ficou como limite declarado
+  e decisão do Fred (BL-642).
+
+**Verificação final do arquiteto, na versão do PR (07/10/2026, contêiner
+Linux, Python 3.13, PostgreSQL 16):**
+- `ruff check` e `ruff format --check` limpos, `check` e
+  `makemigrations --check` sem mudança, gerador de papéis OK.
+- `pytest` completo: **4.895 aprovados, 1 reprovado, 53 pulados**. A
+  reprovação é a de Python 3.13 (`test_versao_minima_python`); a prova em
+  3.14 é a CI.
+- `validate-docs.ps1` **não executado** (sem `pwsh`); substituído por
+  checagem equivalente de título, espaço, nova linha e links, sem
+  problemas.
+
 **Falta:**
-- reconferência;
 - PR com os quatro checks verdes;
 - merge, que depende de ordem do Fred.
 

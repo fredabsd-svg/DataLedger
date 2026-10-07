@@ -80,13 +80,21 @@ CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 # impede a subida em vez de ser ignorada em silêncio. Não altera
 # SECURE_PROXY_SSL_HEADER, que continua como está mais abaixo.
 #
-# DL-068 (BL-577): rede com prefixo /0 (`0.0.0.0/0`, `::/0`), ou um conjunto de
-# redes cuja SOMA cobre uma família inteira (`0.0.0.0/1,128.0.0.0/1`), é
-# RECUSADO aqui: ele confia em todo endereço da internet, e então qualquer cliente que escreva
-# `X-Forwarded-For` escolhe o IP que fica na trilha de auditoria. Redes largas
-# que não chegam a /0 não são recusadas (há implantação legítima atrás de CDN
-# com faixas públicas largas): geram o aviso `auditoria.W001` em
-# `manage.py check` (apps/auditoria/checks.py).
+# DL-068 (BL-577): rede com prefixo /0 (`0.0.0.0/0`, `::/0`), ou um conjunto
+# de redes cuja SOMA cobre EXATAMENTE uma família inteira
+# (`0.0.0.0/1,128.0.0.0/1`), é RECUSADO aqui: confia em todo endereço da
+# internet, e qualquer cliente que escreva `X-Forwarded-For` escolhe o IP que
+# fica na trilha de auditoria. Redes largas que não chegam a cobrir tudo não
+# são recusadas (há implantação legítima atrás de CDN com faixas públicas
+# largas): geram o aviso `auditoria.W001` em `manage.py check`
+# (apps/auditoria/checks.py).
+#
+# LIMITE DECLARADO (R1 da reconferência da DL-068): a recusa vale para a
+# cobertura EXATA. Uma lista que cobre "tudo menos" uma faixa que nenhum
+# cliente ocupa (por exemplo, tudo menos `0.0.0.0/8`) sobe e só avisa. Fechar
+# isso exige um piso de prefixo, que é a HI-51, decisão do Fred (BL-642). A
+# guarda protege contra ERRO de configuração; quem monta essa lista de
+# propósito já controla o servidor.
 PROXIES_CONFIAVEIS = [
     _proxy.strip() for _proxy in env.list("DJANGO_PROXIES_CONFIAVEIS", default=[]) if _proxy.strip()
 ]

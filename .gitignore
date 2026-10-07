@@ -25,15 +25,20 @@ staticfiles/
 .env
 .env.*
 *.env
+# Qualquer caixa (DL-068, R2): `.ENV`, `PROD.ENV`.
+.[eE][nN][vV]
+.[eE][nN][vV].*
+*.[eE][nN][vV]
 !.env.example
 
 # Certificado e chave privada. O modulo fiscal vai tratar certificado digital
 # e este repositorio e PUBLICO: um .pfx ou .key commitado por descuido vaza
 # a identidade fiscal de um cliente (DL-068, N5).
-*.pem
-*.pfx
-*.p12
-*.key
+# Classes de caracteres: qualquer caixa (DL-068, R2), como `.PFX` do Windows.
+*.[pP][eE][mM]
+*.[pP][fF][xX]
+*.[pP]12
+*.[kK][eE][yY]
 
 # Testes e cobertura
 .coverage
