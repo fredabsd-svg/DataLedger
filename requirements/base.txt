@@ -2,7 +2,7 @@
 # pyproject.toml (achado R3-4, auditoria DL-017 rodada 3) — declarada UMA
 # vez só, verificada por apps/core/tests/test_versao_minima_python.py.
 # Não repita o número aqui: um comentário desatualizado é pior que nenhum.
-Django==6.1.1
+Django==6.1.2
 djangorestframework==3.18.1
 psycopg[binary]==3.3.5
 django-environ==0.14.0
