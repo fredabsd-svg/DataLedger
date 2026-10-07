@@ -171,9 +171,10 @@ arquiteto: é a etapa que a análise do dia recomendou depois da DL-068.
 2. **Período encerrado recusa INSERT no banco.** A competência é achada pela
    data. O ponto de risco é refazer no gatilho a leitura protegida contra
    corrida que o serviço faz (BL-456). Ainda não iniciada.
-3. **Trilha imutável no banco.** Bloqueada pelas pendências PE-76 (LGPD: a
-   trilha some com o escritório?) e PE-77 (prazo de retenção), ambas com o
-   Fred.
+3. **Trilha imutável no banco.** A PE-76 foi respondida pelo Fred em
+   07/10/2026 (RC-159): a trilha é **preservada** mesmo quando o escritório é
+   excluído, inclusive por pedido de LGPD. A fatia continua bloqueada pela
+   PE-77 (prazo de retenção), com o Fred.
 
 **Linha de base para a não regressão:** 4.895 aprovados, 1 reprovado de
 ambiente (Python 3.13) e 53 pulados, medida em 07/10/2026 sobre a versão da

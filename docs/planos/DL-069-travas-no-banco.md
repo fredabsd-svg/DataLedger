@@ -127,8 +127,10 @@ Hoje apagar um escritório **sem empresas** mantém a trilha com
 `escritorio_id=NULL`. Esse é o único UPDATE legítimo na tabela, e é do
 `SET_NULL`. Uma trava completa precisa saber, antes:
 
-- **PE-76:** a trilha de um escritório pode ser apagada junto com ele, por
-  exemplo num pedido de exclusão pela LGPD? Ou ela precisa sobreviver?
+- ~~**PE-76:** a trilha de um escritório pode ser apagada junto com ele, por
+  exemplo num pedido de exclusão pela LGPD? Ou ela precisa sobreviver?~~
+  **Respondida (RC-159):** a trilha é **preservada**, e nenhum DELETE na
+  trilha é legítimo.
 - **PE-77:** existe prazo de retenção da trilha?
 
 O BL-637 (500 ao apagar escritório no admin) é tratado junto, porque mexe no

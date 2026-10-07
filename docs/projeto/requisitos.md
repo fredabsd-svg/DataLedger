@@ -85,7 +85,8 @@ Fred nesta sessão, fora do repositório.
 | ID | Categoria | Requisito e origem |
 | --- | --- | --- |
 | RC-158 | Confirmado | Fred, 07/10/2026: *"Próxima etapa"*, dito depois de a DL-068 ficar verde, e ele mesmo fez o merge do PR #91. O arquiteto **interpretou** a frase como a etapa que a análise do mesmo dia recomendou em seguida: levar ao banco as travas do livro-caixa, do período encerrado e da trilha. Plano: [DL-069](../planos/DL-069-travas-no-banco.md). Se o Fred quisesse outra etapa da fila (DFC fatia 2, DL-016 F3, DL-027, fiscal), a ordem dele prevalece. |
-| PE-76 | Pendência — **bloqueia a fatia 3 da DL-069** | A trilha de auditoria de um escritório pode ser apagada junto com ele (por exemplo, num pedido de exclusão pela LGPD), ou precisa sobreviver? Hoje ela sobrevive com `escritorio_id=NULL`. Decisão do Fred. |
+| PE-76 | ~~Pendência~~ **Respondida pelo Fred em 07/10/2026 — ver RC-159** | A trilha de auditoria de um escritório pode ser apagada junto com ele (por exemplo, num pedido de exclusão pela LGPD), ou precisa sobreviver? |
+| RC-159 | Confirmado | Fred, 07/10/2026, respondendo à PE-76: *"a trilha deve ser preservada"*. A exclusão de um escritório, inclusive por pedido de exclusão pela LGPD, **não apaga** a trilha de auditoria dele. A fatia 3 da [DL-069](../planos/DL-069-travas-no-banco.md) pode recusar no banco todo DELETE na trilha, sem exceção. Fica para o desenho da fatia 3 como a trilha continua **identificável** depois que o escritório some: hoje o vínculo vira `escritorio_id=NULL`. |
 | PE-77 | Pendência — **bloqueia a fatia 3 da DL-069** | Existe prazo de retenção da trilha de auditoria? Nada no repositório fixa prazo. Decisão do Fred, com base normativa se houver. |
 
 ## Legenda
