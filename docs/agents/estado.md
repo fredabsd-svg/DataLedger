@@ -144,7 +144,43 @@ que não existe mais no remoto (medido em 07/10/2026), e não foi integrada — 
 
 ## Próximo passo
 
-**AGORA, em 06/10/2026: a fatia 1 da [DL-066](../planos/DL-066-dfc.md) está
+**AGORA, em 07/10/2026: [DL-068](../planos/DL-068-prontidao-para-implantacao.md)
+— prontidão para implantação, em validação** na branch `ccr-9e799dfb-48okf5`.
+
+**Origem:** o Fred pediu uma análise do repositório. O parecer de segurança
+está [registrado](../auditorias/2026-10-07-analise-seguranca-e-isolamento.md).
+Depois ele autorizou cinco alterações (RC-157).
+
+**As cinco alterações:**
+1. Django 6.1.2, que corrige 4 CVEs (BL-634).
+2. Limite de tentativas também em `/admin/login/`, com a contagem
+   compartilhada com `/login/` (BL-632).
+3. `.dockerignore`, para o `.env` real e o `.git` não entrarem na imagem
+   (BL-633).
+4. `DJANGO_AMBIENTE`: em `homologacao` ou `producao`, `DEBUG=True` recusa
+   subir, e a imagem declara `producao` (BL-82, DE-100).
+5. Proxy confiável cuja soma cobre a internet inteira recusa subir, e rede
+   pública larga gera aviso `auditoria.W001` no `check` (BL-577, HI-51).
+
+**Auditoria independente:** a
+[rodada 1](../auditorias/2026-10-07-dl-068-rodada-1.md) saiu **APROVADA COM
+RESSALVAS**. Os 14 critérios foram atendidos. A suíte deu 4.858 aprovados, 1
+reprovado por ser Python 3.13 e 53 pulados. Os achados tiveram três destinos:
+- N1, N2, N5 e N7 entram na rodada única de correção;
+- N3, N4 e N6 ficam registrados no BL-53, no BL-580 e no BL-632;
+- N8 é ambiente: a prova em 3.14 é a CI.
+
+**Falta:**
+- reconferência;
+- PR com os quatro checks verdes;
+- merge, que depende de ordem do Fred.
+
+**Fora da DL-068, com o Fred:**
+- backup e restauração (PE-07);
+- residência do dado (PE-25);
+- os achados baixos BL-635 a BL-641.
+
+**Em 06/10/2026: a fatia 1 da [DL-066](../planos/DL-066-dfc.md) está
 FECHADA** — a etapa 2 desta data completou o que o PR #89 deixou em aberto,
 na branch `feat/dl-066-portas-e-indireto`, pelo
 [PR #90](https://github.com/fredabsd-svg/DataLedger/pull/90):

@@ -60,7 +60,10 @@ mesmo com o produto correto.
     `.env.example` passa a trazer isso.
 - **Item 5 (BL-577):**
   - Uma rede com prefixo `/0` (IPv4 ou IPv6) faz a aplicação **recusar
-    subir**.
+    subir**. Desde a correção do N2 da
+    [rodada 1](../auditorias/2026-10-07-dl-068-rodada-1.md), também recusa
+    quando a **soma** das redes de uma família cobre o espaço inteiro, por
+    exemplo `0.0.0.0/1` mais `128.0.0.0/1`.
   - Rede larga que contém endereço público gera **aviso do `manage.py
     check`**: prefixo menor que `/24` em IPv4 ou menor que `/64` em IPv6. O
     aviso não impede a subida, porque há implantação legítima atrás de CDN
@@ -95,7 +98,8 @@ mesmo com o produto correto.
 11. A imagem declara `DJANGO_AMBIENTE=producao`, e o `.env.example` declara
     `desenvolvimento`.
 12. `DJANGO_PROXIES_CONFIAVEIS` contendo `0.0.0.0/0`, `::/0` ou
-    `0.0.0.0/0` em meio a outros valores recusa subir.
+    `0.0.0.0/0` em meio a outros valores recusa subir. O mesmo vale para
+    redes cuja soma, na mesma família, cobre o espaço inteiro (N2).
 13. Rede pública larga gera aviso no `check`. Rede privada larga, um IP
     único público e as redes `/24` e `/64` não geram aviso.
 14. A suíte completa não regride em relação à linha de base de 07/10/2026:
