@@ -27,6 +27,42 @@ if env_file.exists():
 SECRET_KEY = env("DJANGO_SECRET_KEY")
 DEBUG = env("DEBUG")
 
+# DL-068 (BL-82): em que ambiente esta instância roda. É declarado de forma
+# EXPLÍCITA, por variável própria, e não inferido de outro valor: deduzir
+# "produção" de DEBUG=False, do banco ou do nome do host erraria justamente nos
+# casos que importam (um servidor de homologação com DEBUG=True herdado de um
+# `.env` copiado do `.env.example`).
+#
+# - Sem a variável, o valor é `desenvolvimento`: o comportamento de sempre
+#   (máquina do desenvolvedor, suíte e integração contínua não declaram nada).
+# - A imagem Docker declara `producao`: quem roda a imagem é produção até dizer
+#   o contrário (para o compose de desenvolvimento, `.env` declara
+#   `desenvolvimento`).
+# - Valor fora da lista recusa subir, em vez de cair em silêncio no padrão. Isso
+#   inclui a variável declarada vazia: na imagem de produção, um `DJANGO_AMBIENTE=`
+#   esquecido no `.env` não pode desligar a guarda abaixo por voltar ao padrão.
+# - `homologacao` e `producao` com DEBUG=True recusam subir: DEBUG=True mostra
+#   a página de erro com variáveis locais e configurações, e deixa o Django sem
+#   as proteções de HTTPS que este arquivo só liga com DEBUG=False.
+#
+# A guarda vale quando a variável é declarada. Um servidor fora da imagem que
+# esqueça de declará-la cai em `desenvolvimento` e continua dependendo de
+# disciplina de operação.
+AMBIENTES_ACEITOS = ("desenvolvimento", "homologacao", "producao")
+AMBIENTE = env.str("DJANGO_AMBIENTE", default="desenvolvimento").strip().lower()
+if AMBIENTE not in AMBIENTES_ACEITOS:
+    raise ImproperlyConfigured(
+        f"DJANGO_AMBIENTE tem um valor inválido: {AMBIENTE!r}. Valores aceitos: "
+        f"{', '.join(AMBIENTES_ACEITOS)}. Sem a variável, o padrão é 'desenvolvimento'."
+    )
+if AMBIENTE != "desenvolvimento" and DEBUG:
+    raise ImproperlyConfigured(
+        f"DJANGO_AMBIENTE={AMBIENTE} não aceita DEBUG=True: o modo de depuração "
+        "expõe variáveis e configurações nas páginas de erro. Configure DEBUG=False "
+        "(ou remova a variável DEBUG) para este ambiente. Se esta instância é de "
+        "desenvolvimento local, declare DJANGO_AMBIENTE=desenvolvimento."
+    )
+
 # DE-014: implantação em nuvem, acessada pela internet. ALLOWED_HOSTS e
 # CSRF_TRUSTED_ORIGINS vêm do ambiente (nenhum host de produção hardcoded
 # aqui) e o padrão é o mais restritivo possível: lista vazia recusa toda
@@ -43,16 +79,30 @@ CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 # aplicação —, nunca uma rede ampla que inclua a internet. Entrada inválida
 # impede a subida em vez de ser ignorada em silêncio. Não altera
 # SECURE_PROXY_SSL_HEADER, que continua como está mais abaixo.
+#
+# DL-068 (BL-577): rede com prefixo /0 (`0.0.0.0/0`, `::/0`) é RECUSADA aqui:
+# ela confia em todo endereço da internet, e então qualquer cliente que escreva
+# `X-Forwarded-For` escolhe o IP que fica na trilha de auditoria. Redes largas
+# que não chegam a /0 não são recusadas (há implantação legítima atrás de CDN
+# com faixas públicas largas): geram o aviso `auditoria.W001` em
+# `manage.py check` (apps/auditoria/checks.py).
 PROXIES_CONFIAVEIS = [
     _proxy.strip() for _proxy in env.list("DJANGO_PROXIES_CONFIAVEIS", default=[]) if _proxy.strip()
 ]
 for _proxy in PROXIES_CONFIAVEIS:
     try:
-        ipaddress.ip_network(_proxy, strict=False)
+        _rede_do_proxy = ipaddress.ip_network(_proxy, strict=False)
     except ValueError as erro:
         raise ImproperlyConfigured(
             f"DJANGO_PROXIES_CONFIAVEIS contém um valor que não é IP nem rede CIDR: {_proxy!r}."
         ) from erro
+    if _rede_do_proxy.prefixlen == 0:
+        raise ImproperlyConfigured(
+            f"DJANGO_PROXIES_CONFIAVEIS contém a rede {_proxy!r} (prefixo /0), que "
+            "confia em qualquer endereço da internet: qualquer cliente poderia forjar "
+            "o IP gravado na trilha de auditoria pelo cabeçalho X-Forwarded-For. "
+            "Informe só o endereço (ou a rede) do proxy que fala com o Django."
+        )
 
 
 # Aplicação
@@ -281,16 +331,24 @@ AUTH_PASSWORD_VALIDATORS = [
 #    sem `DATABASE_URL` nenhuma) — ela não examina `DEBUG` de forma alguma
 #    quando `DATABASE_URL` aponta para PostgreSQL. Um servidor com
 #    `DEBUG=True` e `DATABASE_URL` PostgreSQL sobe normalmente, sem aviso
-#    nenhum. Ou seja: nada no projeto hoje IMPEDE `DEBUG=True` em produção —
-#    é disciplina de operação (variável de ambiente configurada certo), não
-#    um invariante que o código garanta. Avaliar uma guarda que recuse subir
-#    com `DEBUG=True` fora de desenvolvimento é o BL-82, ainda não feito.
+#    nenhum. Ou seja: até 2026-10-07 nada no projeto IMPEDIA `DEBUG=True` em
+#    produção — era disciplina de operação.
+#
+#    Atualização de 2026-10-07 (DL-068, BL-82): agora existe a guarda, junto
+#    de `DEBUG` no início deste arquivo. Com `DJANGO_AMBIENTE=homologacao` ou
+#    `producao` declarado, `DEBUG=True` recusa subir. Ela vale SOMENTE quando a
+#    variável é declarada: sem `DJANGO_AMBIENTE` o padrão é `desenvolvimento`,
+#    que aceita `DEBUG=True`. A imagem Docker declara `producao`; um servidor
+#    que não use a imagem e esqueça a variável continua dependendo de
+#    disciplina de operação (variável de ambiente configurada certo).
 #
 # A dupla condição É a proteção, não uma conveniência: se `PYTEST_VERSION`
 # fosse definida por engano num ambiente real (variável de ambiente vazada,
 # script copiado sem cuidado), a checagem de `DEBUG` ainda bloqueia a troca
-# ENQUANTO quem configurou o ambiente real tiver posto `DEBUG=False` — o que
-# é disciplina de operação, não garantia de código (ver item 2 acima). E se
+# ENQUANTO o ambiente real tiver `DEBUG=False`: quando `DJANGO_AMBIENTE` é
+# `producao` ou `homologacao`, a guarda do BL-82 impede até que `DEBUG=True`
+# exista; sem essa variável declarada, é disciplina de operação, não garantia
+# de código (ver o fim do item 2 acima). E se
 # `DEBUG=True` escapasse para produção por outro motivo qualquer,
 # `PYTEST_VERSION` não estaria definida ali (a menos que o processo esteja
 # de fato rodando sob pytest). As duas juntas cobrem os dois lados do erro

@@ -1,0 +1,42 @@
+# DL-068 (item 3): o Dockerfile faz `COPY . .`, então tudo o que não estiver
+# aqui entra na imagem. A sintaxe é a do Docker: padrões relativos à raiz do
+# contexto, a última regra que casa vence, e `**/` casa em qualquer
+# profundidade. Quem confere estas regras é
+# apps/core/tests/test_dl068_dockerignore.py.
+
+# Segredos. `.env` real nunca entra na imagem: a configuração vem do ambiente
+# em tempo de execução. Só o modelo `.env.example` pode entrar.
+.env
+.env.*
+!.env.example
+
+# Histórico e metadados do Git.
+.git
+.github
+
+# Ambiente local do desenvolvedor.
+.venv
+venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+.coverage
+.coverage.*
+htmlcov
+
+# Bancos SQLite locais: são um banco de dados inteiro, podem ter dado de
+# cliente (mesma razão do .gitignore). Produção usa PostgreSQL.
+**/*.sqlite3
+**/*.sqlite3-journal
+**/*.sqlite3-wal
+**/*.sqlite3-shm
+
+# Gerado pelo `collectstatic` dentro da imagem (Dockerfile); a cópia local
+# esconderia o resultado do build.
+staticfiles
+
+# Pastas de ferramenta de IA: configuração de agentes, não código do produto.
+.claude
+.codex
+.agents
