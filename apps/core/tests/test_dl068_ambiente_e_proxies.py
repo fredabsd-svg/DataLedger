@@ -252,6 +252,65 @@ def test_rede_larga_publica_sem_ser_zero_sobe_mas_avisa_no_check():
     assert "0.0.0.0/1" in saida
 
 
+@pytest.mark.parametrize(
+    "valor",
+    [
+        # Duas metades: a soma é a internet IPv4 inteira (auditoria N2).
+        "0.0.0.0/1,128.0.0.0/1",
+        "::/1,8000::/1",
+        # Quatro /2 IPv4 que cobrem tudo.
+        "0.0.0.0/2,64.0.0.0/2,128.0.0.0/2,192.0.0.0/2",
+        # Redes de tamanhos diferentes: /1 + /2 + /2.
+        "0.0.0.0/1,128.0.0.0/2,192.0.0.0/2",
+        # A soma conta mesmo com outras redes no meio, em qualquer ordem.
+        "10.0.0.0/8, 128.0.0.0/1 ,2001:db8::/32,0.0.0.0/1",
+    ],
+)
+def test_redes_cuja_soma_cobre_a_familia_inteira_recusam_subir(valor):
+    """N2 (auditoria da DL-068): `0.0.0.0/1,128.0.0.0/1` equivale a `/0` e
+    deixaria todo cliente escolher o IP da trilha. A regra é a propriedade
+    (a união cobre a família?), não a lista de casos."""
+    resultado = _rodar_manage_check(
+        {
+            "DEBUG": "False",
+            "DATABASE_URL": BANCO_POSTGRES,
+            "DJANGO_PROXIES_CONFIAVEIS": valor,
+        }
+    )
+
+    assert resultado.returncode != 0, resultado.stdout + resultado.stderr
+    assert "ImproperlyConfigured" in resultado.stderr
+    assert "DJANGO_PROXIES_CONFIAVEIS" in resultado.stderr
+    assert "soma" in resultado.stderr
+    assert "trilha" in resultado.stderr
+
+
+@pytest.mark.parametrize(
+    "valor",
+    [
+        # Metade só: não cobre a família (só avisa, como qualquer rede larga).
+        "0.0.0.0/1",
+        # Famílias diferentes: nenhuma está completa.
+        "0.0.0.0/1,::/1",
+        "10.0.0.0/8,192.168.0.0/16",
+        # Falta um quarto do espaço.
+        "0.0.0.0/2,64.0.0.0/2,128.0.0.0/2",
+    ],
+)
+def test_redes_cuja_soma_nao_cobre_a_familia_inteira_sobem(valor):
+    """Limite da regra da soma: só recusa quando a união chega a /0 em uma
+    das famílias; metade da internet continua sendo aviso, não recusa."""
+    resultado = _rodar_manage_check(
+        {
+            "DEBUG": "False",
+            "DATABASE_URL": BANCO_POSTGRES,
+            "DJANGO_PROXIES_CONFIAVEIS": valor,
+        }
+    )
+
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
 # --- Critério 13: aviso do system check --------------------------------------
 
 

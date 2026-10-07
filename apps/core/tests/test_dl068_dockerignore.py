@@ -128,6 +128,20 @@ def test_interpretador_diretorio_excluido_leva_o_conteudo():
         ".env",
         ".env.producao",
         ".env.local",
+        # Segredo em QUALQUER profundidade e com qualquer nome terminado em
+        # `.env` (auditoria da DL-068, N5): o padrão do Docker sem `**/` vale
+        # só na raiz do contexto.
+        "config/.env",
+        "apps/x/.env",
+        "prod.env",
+        "config/.env.local",
+        "ENV.env",
+        # Certificado e chave privada (o módulo fiscal tratará certificado
+        # digital; o repositório é público).
+        "certs/empresa.pfx",
+        "a/b/chave.key",
+        "cert.pem",
+        "x.p12",
         # Histórico.
         ".git/HEAD",
         ".git/objects/ab/cdef0123",
@@ -183,6 +197,19 @@ def test_dockerignore_nao_exclui_o_que_a_aplicacao_precisa(regras, caminho):
     folhas de estilo que `collectstatic` empacota. `static/` em particular não
     pode ser pego por uma regra de `staticfiles`."""
     assert not _fica_fora(regras, caminho), f"{caminho} NÃO entraria na imagem"
+
+
+def test_dockerignore_nao_usa_padrao_em_que_o_interpretador_diverge_do_docker():
+    """O interpretador do teste foi comparado com o `moby/patternmatcher` (o
+    código do Docker) e só diverge em formas que este arquivo não usa:
+    `dir/**` sobre o próprio `dir`, `**` colado a outro texto no segmento
+    (`foo**bar`) e caminhos com `./` ou `..`. Se uma delas entrar, o teste do
+    `.dockerignore` deixaria de ser fiel ao Docker; melhor reprovar aqui."""
+    for _negacao, segmentos in _ler_regras(DOCKERIGNORE.read_text(encoding="utf-8")):
+        padrao = "/".join(segmentos)
+        assert segmentos[-1] != "**", f"{padrao}: `**` no fim diverge do Docker"
+        assert all("**" not in s or s == "**" for s in segmentos), f"{padrao}: `**` colado"
+        assert all(s not in (".", "..") for s in segmentos), f"{padrao}: `.` ou `..`"
 
 
 def test_todo_arquivo_copiado_pelo_dockerfile_existe_no_contexto(regras):

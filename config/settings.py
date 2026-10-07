@@ -80,8 +80,9 @@ CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 # impede a subida em vez de ser ignorada em silêncio. Não altera
 # SECURE_PROXY_SSL_HEADER, que continua como está mais abaixo.
 #
-# DL-068 (BL-577): rede com prefixo /0 (`0.0.0.0/0`, `::/0`) é RECUSADA aqui:
-# ela confia em todo endereço da internet, e então qualquer cliente que escreva
+# DL-068 (BL-577): rede com prefixo /0 (`0.0.0.0/0`, `::/0`), ou um conjunto de
+# redes cuja SOMA cobre uma família inteira (`0.0.0.0/1,128.0.0.0/1`), é
+# RECUSADO aqui: ele confia em todo endereço da internet, e então qualquer cliente que escreva
 # `X-Forwarded-For` escolhe o IP que fica na trilha de auditoria. Redes largas
 # que não chegam a /0 não são recusadas (há implantação legítima atrás de CDN
 # com faixas públicas largas): geram o aviso `auditoria.W001` em
@@ -89,6 +90,7 @@ CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
 PROXIES_CONFIAVEIS = [
     _proxy.strip() for _proxy in env.list("DJANGO_PROXIES_CONFIAVEIS", default=[]) if _proxy.strip()
 ]
+_redes_dos_proxies = []
 for _proxy in PROXIES_CONFIAVEIS:
     try:
         _rede_do_proxy = ipaddress.ip_network(_proxy, strict=False)
@@ -96,11 +98,33 @@ for _proxy in PROXIES_CONFIAVEIS:
         raise ImproperlyConfigured(
             f"DJANGO_PROXIES_CONFIAVEIS contém um valor que não é IP nem rede CIDR: {_proxy!r}."
         ) from erro
+    # Recusa por entrada: dá a mensagem mais precisa quando o operador digitou
+    # `/0`. A checagem da UNIÃO, logo abaixo, também pegaria este caso; as duas
+    # ficam porque a mensagem por entrada aponta o valor exato a corrigir.
     if _rede_do_proxy.prefixlen == 0:
         raise ImproperlyConfigured(
             f"DJANGO_PROXIES_CONFIAVEIS contém a rede {_proxy!r} (prefixo /0), que "
             "confia em qualquer endereço da internet: qualquer cliente poderia forjar "
             "o IP gravado na trilha de auditoria pelo cabeçalho X-Forwarded-For. "
+            "Informe só o endereço (ou a rede) do proxy que fala com o Django."
+        )
+    _redes_dos_proxies.append(_rede_do_proxy)
+
+# Auditoria da DL-068, N2: a regra é a PROPRIEDADE (a lista confia em todo
+# endereço de uma família?), não o caso `/0` (AGENTS.md §8: guarda derivada de
+# uma propriedade aguenta, derivada de uma lista não). `0.0.0.0/1,128.0.0.0/1`
+# equivale a `0.0.0.0/0` e deixaria qualquer cliente escolher o IP da trilha.
+# `collapse_addresses` funde redes adjacentes e contidas; se o resultado de uma
+# família for uma rede de prefixo 0, a SOMA cobre o espaço inteiro. Agrupa por
+# versão porque `collapse_addresses` não aceita misturar IPv4 e IPv6, e porque
+# `0.0.0.0/1` mais `::/1` não cobrem família nenhuma por inteiro.
+for _versao in (4, 6):
+    _redes_da_versao = [_rede for _rede in _redes_dos_proxies if _rede.version == _versao]
+    if any(_rede.prefixlen == 0 for _rede in ipaddress.collapse_addresses(_redes_da_versao)):
+        raise ImproperlyConfigured(
+            f"DJANGO_PROXIES_CONFIAVEIS: a soma das redes IPv{_versao} informadas cobre a "
+            "internet inteira (equivale a /0), e qualquer cliente poderia forjar o IP "
+            "gravado na trilha de auditoria pelo cabeçalho X-Forwarded-For. "
             "Informe só o endereço (ou a rede) do proxy que fala com o Django."
         )
 

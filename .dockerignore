@@ -6,8 +6,19 @@
 
 # Segredos. `.env` real nunca entra na imagem: a configuração vem do ambiente
 # em tempo de execução. Só o modelo `.env.example` pode entrar.
-.env
-.env.*
+# Sem `**/`, o padrão do Docker vale só na raiz do contexto: `config/.env` e
+# `prod.env` entrariam (auditoria da DL-068, N5). `*.env` cobre `prod.env`.
+**/.env
+**/.env.*
+**/*.env
+# Certificado e chave privada: o módulo fiscal vai tratar certificado digital.
+# Eles vêm de mecanismo de segredos em tempo de execução, nunca da imagem.
+**/*.pem
+**/*.pfx
+**/*.p12
+**/*.key
+# A exceção vem DEPOIS das regras que cobririam o modelo: a última que casa
+# vence. Fica na raiz de propósito: só esse arquivo é o modelo.
 !.env.example
 
 # Histórico e metadados do Git.
