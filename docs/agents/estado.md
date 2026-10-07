@@ -133,7 +133,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-066](../planos/DL-066-dfc.md) | DFC — Demonstração dos Fluxos de Caixa, direto e indireto (CTB-15 da DL-048) | Situação em **[Próximo passo](#próximo-passo)** — **fatia 1 integrada pelo PR #89** (núcleo da apuração; auditoria e reconferência aprovadas com ressalvas, N1 e N2 corrigidos) e **fechada pelo PR #90** (porta de classificação, telas, API e método indireto); a fatia 2, método direto, está na fila |
 | [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md) | Plano do módulo fiscal de out/2026 a 2028, com a reforma tributária, conciliado com a paridade fiscal | Planejada |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 tratada na DL-068 |
-| [DL-068](../planos/DL-068-prontidao-para-implantacao.md) | Prontidão para implantação: Django 6.1.2, limite no login do admin, `.dockerignore`, `DJANGO_AMBIENTE` (BL-82) e proxies `/0` (BL-577) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-068](../planos/DL-068-prontidao-para-implantacao.md) | Prontidão para implantação: Django 6.1.2, limite no login do admin, `.dockerignore`, `DJANGO_AMBIENTE` (BL-82) e proxies `/0` (BL-577) | **Integrada (PR #91, squash `7c23894`, merge feito pelo Fred em 07/10/2026)** — auditoria e reconferência aprovadas com ressalvas; R1 com o Fred (BL-642) |
+| [DL-069](../planos/DL-069-travas-no-banco.md) | Travas no banco: livro-caixa imutável, período encerrado recusa INSERT, trilha imutável | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -144,59 +145,40 @@ que não existe mais no remoto (medido em 07/10/2026), e não foi integrada — 
 
 ## Próximo passo
 
-**AGORA, em 07/10/2026: [DL-068](../planos/DL-068-prontidao-para-implantacao.md)
-— prontidão para implantação, em validação** na branch `ccr-9e799dfb-48okf5`.
+**AGORA, em 07/10/2026: [DL-069](../planos/DL-069-travas-no-banco.md) — travas
+no banco, fatia 1 em desenvolvimento** na branch `ccr-9e799dfb-48okf5`.
 
-**Origem:** o Fred pediu uma análise do repositório. O parecer de segurança
-está [registrado](../auditorias/2026-10-07-analise-seguranca-e-isolamento.md).
-Depois ele autorizou cinco alterações (RC-157).
+**Origem:** ordem do Fred, *"Próxima etapa"* (RC-158). A interpretação é do
+arquiteto: é a etapa que a análise do dia recomendou depois da DL-068.
 
-**As cinco alterações:**
-1. Django 6.1.2, que corrige 4 CVEs (BL-634).
-2. Limite de tentativas também em `/admin/login/`, com a contagem
-   compartilhada com `/login/` (BL-632).
-3. `.dockerignore`, para o `.env` real e o `.git` não entrarem na imagem
-   (BL-633).
-4. `DJANGO_AMBIENTE`: em `homologacao` ou `producao`, `DEBUG=True` recusa
-   subir, e a imagem declara `producao` (BL-82, DE-100).
-5. Proxy confiável cuja soma cobre a internet inteira recusa subir, e rede
-   pública larga gera aviso `auditoria.W001` no `check` (BL-577, HI-51).
+**Fatias:**
+1. **Livro-caixa imutável no PostgreSQL**, no padrão da `0013` da
+   contabilidade. Em desenvolvimento.
+2. **Período encerrado recusa INSERT no banco.** A competência é achada pela
+   data. O ponto de risco é refazer no gatilho a leitura protegida contra
+   corrida que o serviço faz (BL-456). Ainda não iniciada.
+3. **Trilha imutável no banco.** Bloqueada pelas pendências PE-76 (LGPD: a
+   trilha some com o escritório?) e PE-77 (prazo de retenção), ambas com o
+   Fred.
 
-**Auditoria independente:** a
-[rodada 1](../auditorias/2026-10-07-dl-068-rodada-1.md) saiu **APROVADA COM
-RESSALVAS**. Os 14 critérios foram atendidos. A suíte deu 4.858 aprovados, 1
-reprovado por ser Python 3.13 e 53 pulados. Os achados tiveram três destinos:
-- N1, N2, N5 e N7 entram na rodada única de correção;
-- N3, N4 e N6 ficam registrados no BL-53, no BL-580 e no BL-632;
-- N8 é ambiente: a prova em 3.14 é a CI.
+**Linha de base para a não regressão:** 4.895 aprovados, 1 reprovado de
+ambiente (Python 3.13) e 53 pulados, medida em 07/10/2026 sobre a versão da
+DL-068.
 
-**Reconferência:** [APROVADA COM RESSALVAS](../auditorias/2026-10-07-dl-068-reconferencia.md).
-N1, N5 e N7 fechados; N2 fechado para a cobertura exata. A suíte deu
-4.887 aprovados, sem regressão. Das ressalvas:
-- R2 (extensão em maiúscula) e R3 (texto) foram corrigidos sem terceira
-  rodada, com teste e mutação;
-- R1 (lista que cobre "tudo menos" uma faixa) ficou como limite declarado
-  e decisão do Fred (BL-642).
+**DL-068 — prontidão para implantação: integrada** pelo
+[PR #91](https://github.com/fredabsd-svg/DataLedger/pull/91), squash
+`7c23894`. O Fred fez o merge em 07/10/2026, com os quatro checks verdes.
+Entregou:
+- Django 6.1.2;
+- limite de tentativas no login do admin;
+- `.dockerignore` (e `.gitignore`) com segredos em qualquer pasta e caixa;
+- `DJANGO_AMBIENTE` (BL-82, DE-100);
+- recusa de proxies que cobrem a internet inteira (BL-577).
 
-**Verificação final do arquiteto, na versão do PR (07/10/2026, contêiner
-Linux, Python 3.13, PostgreSQL 16):**
-- `ruff check` e `ruff format --check` limpos, `check` e
-  `makemigrations --check` sem mudança, gerador de papéis OK.
-- `pytest` completo: **4.895 aprovados, 1 reprovado, 53 pulados**. A
-  reprovação é a de Python 3.13 (`test_versao_minima_python`); a prova em
-  3.14 é a CI.
-- `validate-docs.ps1` **não executado** (sem `pwsh`); substituído por
-  checagem equivalente de título, espaço, nova linha e links, sem
-  problemas.
-
-**PR:** [#91](https://github.com/fredabsd-svg/DataLedger/pull/91), aberto em
-07/10/2026.
-
-**Falta:**
-- os quatro checks verdes no PR #91;
-- merge, que depende de ordem do Fred.
-
-**Fora da DL-068, com o Fred:**
+[Rodada 1](../auditorias/2026-10-07-dl-068-rodada-1.md) e
+[reconferência](../auditorias/2026-10-07-dl-068-reconferencia.md) saíram
+aprovadas com ressalvas. Ficaram com o Fred:
+- BL-642 (piso de rede, HI-51);
 - backup e restauração (PE-07);
 - residência do dado (PE-25);
 - os achados baixos BL-635 a BL-641.

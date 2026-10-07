@@ -80,6 +80,14 @@ Fred nesta sessão, fora do repositório.
 | HI-51 | Hipótese técnica | Rede de proxy confiável é **larga** quando contém endereço público e tem prefixo menor que `/24` (IPv4) ou `/64` (IPv6). Gera aviso do `check` e não recusa, porque implantação atrás de CDN usa faixas públicas largas legítimas. Validar quando o provedor de hospedagem for escolhido (PE-25). |
 | HI-52 | Hipótese técnica | Sem `DJANGO_AMBIENTE` declarado, o ambiente é `desenvolvimento`. Isso preserva a suíte, a CI e a máquina do desenvolvedor. A proteção em produção vem da **imagem Docker**, que declara `producao`. Quem implantar fora da imagem precisa declarar a variável; o procedimento de implantação (BL-53) deve dizer isso. |
 
+## Travas no banco — DL-069
+
+| ID | Categoria | Requisito e origem |
+| --- | --- | --- |
+| RC-158 | Confirmado | Fred, 07/10/2026: *"Próxima etapa"*, dito depois de a DL-068 ficar verde, e ele mesmo fez o merge do PR #91. O arquiteto **interpretou** a frase como a etapa que a análise do mesmo dia recomendou em seguida: levar ao banco as travas do livro-caixa, do período encerrado e da trilha. Plano: [DL-069](../planos/DL-069-travas-no-banco.md). Se o Fred quisesse outra etapa da fila (DFC fatia 2, DL-016 F3, DL-027, fiscal), a ordem dele prevalece. |
+| PE-76 | Pendência — **bloqueia a fatia 3 da DL-069** | A trilha de auditoria de um escritório pode ser apagada junto com ele (por exemplo, num pedido de exclusão pela LGPD), ou precisa sobreviver? Hoje ela sobrevive com `escritorio_id=NULL`. Decisão do Fred. |
+| PE-77 | Pendência — **bloqueia a fatia 3 da DL-069** | Existe prazo de retenção da trilha de auditoria? Nada no repositório fixa prazo. Decisão do Fred, com base normativa se houver. |
+
 ## Legenda
 
 | Estado | Significado |
