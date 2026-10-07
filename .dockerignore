@@ -1,0 +1,56 @@
+# DL-068 (item 3): o Dockerfile faz `COPY . .`, então tudo o que não estiver
+# aqui entra na imagem. A sintaxe é a do Docker: padrões relativos à raiz do
+# contexto, a última regra que casa vence, e `**/` casa em qualquer
+# profundidade. Quem confere estas regras é
+# apps/core/tests/test_dl068_dockerignore.py.
+
+# Segredos. `.env` real nunca entra na imagem: a configuração vem do ambiente
+# em tempo de execução. Só o modelo `.env.example` pode entrar.
+# Sem `**/`, o padrão do Docker vale só na raiz do contexto: `config/.env` e
+# `prod.env` entrariam (auditoria da DL-068, N5). `*.env` cobre `prod.env`.
+# As classes `[eE]` cobrem qualquer caixa (R2 da reconferência): o Docker
+# compara com caixa no Linux, e certificado exportado no Windows costuma vir
+# como `.PFX`.
+**/.[eE][nN][vV]
+**/.[eE][nN][vV].*
+**/*.[eE][nN][vV]
+# Certificado e chave privada: o módulo fiscal vai tratar certificado digital.
+# Eles vêm de mecanismo de segredos em tempo de execução, nunca da imagem.
+**/*.[pP][eE][mM]
+**/*.[pP][fF][xX]
+**/*.[pP]12
+**/*.[kK][eE][yY]
+# A exceção vem DEPOIS das regras que cobririam o modelo: a última que casa
+# vence. Fica na raiz de propósito: só esse arquivo é o modelo.
+!.env.example
+
+# Histórico e metadados do Git.
+.git
+.github
+
+# Ambiente local do desenvolvedor.
+.venv
+venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+.coverage
+.coverage.*
+htmlcov
+
+# Bancos SQLite locais: são um banco de dados inteiro, podem ter dado de
+# cliente (mesma razão do .gitignore). Produção usa PostgreSQL.
+**/*.sqlite3
+**/*.sqlite3-journal
+**/*.sqlite3-wal
+**/*.sqlite3-shm
+
+# Gerado pelo `collectstatic` dentro da imagem (Dockerfile); a cópia local
+# esconderia o resultado do build.
+staticfiles
+
+# Pastas de ferramenta de IA: configuração de agentes, não código do produto.
+.claude
+.codex
+.agents

@@ -12,4 +12,8 @@ class AuditoriaConfig(AppConfig):
         # em massa. Importar dentro de `ready()` é a forma Django de
         # evitar ciclos e de garantir que o decorator `@receiver` receba
         # o sender depois que o app está carregado.
-        from apps.auditoria import signals  # noqa: F401
+        #
+        # DL-068 (BL-577): `checks` entra no mesmo import porque importar o
+        # módulo é o que REGISTRA a verificação `auditoria.W001` (decorator
+        # `@register`), pelo mesmo motivo acima.
+        from apps.auditoria import checks, signals  # noqa: F401

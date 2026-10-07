@@ -130,20 +130,78 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-062](../planos/DL-062-sinal-da-raiz-retificadora.md) | Sinal da conta-RAIZ retificadora no Balanço Patrimonial (BL-604) | Integrada (PR #81, squash `46d80a1`) — auditoria aprovada com ressalvas, reconferência aprovada; ciclo do §3.1 encerrado |
 | [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) | Fecha a leva da DL-061: coluna da DMPL nas duas portas, teste do snapshot e dica condicionada (BL-606, BL-607, BL-625) | **Integrada (PR #84, squash `c32cfe6`)** — o conteúdo **não tinha chegado à `main`** (o PR #82 foi mesclado na branch intermediária `fix/dl-062-…`); recuperado com a `base` reapontada para o destino real |
 | [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md) | Reclassificar conta com movimento em competência encerrada ou entregue não pode reescrever DLPA nem DMPL já apuradas (BL-550) | **Integrada (PR #85, squash `012a759`)** — ciclo de auditoria encerrado no veredito **REPROVADO** da reconferência; N1, N2 e N3 corrigidos depois, sem terceira rodada |
-| [DL-066](../planos/DL-066-dfc.md) | DFC — Demonstração dos Fluxos de Caixa, direto e indireto (CTB-15 da DL-048) | Situação em **[Próximo passo](#próximo-passo)** — **fatia 1 integrada pelo PR #89** (núcleo da apuração; auditoria e reconferência aprovadas com ressalvas, N1 e N2 corrigidos); falta a porta de classificação, a tela, a API e o método indireto |
+| [DL-066](../planos/DL-066-dfc.md) | DFC — Demonstração dos Fluxos de Caixa, direto e indireto (CTB-15 da DL-048) | Situação em **[Próximo passo](#próximo-passo)** — **fatia 1 integrada pelo PR #89** (núcleo da apuração; auditoria e reconferência aprovadas com ressalvas, N1 e N2 corrigidos) e **fechada pelo PR #90** (porta de classificação, telas, API e método indireto); a fatia 2, método direto, está na fila |
 | [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md) | Plano do módulo fiscal de out/2026 a 2028, com a reforma tributária, conciliado com a paridade fiscal | Planejada |
-| [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 obrigatória antes da implantação |
+| [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 tratada na DL-068 |
+| [DL-068](../planos/DL-068-prontidao-para-implantacao.md) | Prontidão para implantação: Django 6.1.2, limite no login do admin, `.dockerignore`, `DJANGO_AMBIENTE` (BL-82) e proxies `/0` (BL-577) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
 fechamento como DL-031. Rastreabilidade: DL-028 a DL-034 entraram juntas pelo
 merge do PR #38, sem commit individual por etapa. A F3 (encerramento de
-competência) tem só o plano, na branch `claude/dl-016-f3-encerramento-competencia`,
-não integrada — por isso a DL-016 aponta para o Próximo passo.
+competência) tinha só o plano, na branch `claude/dl-016-f3-encerramento-competencia`,
+que não existe mais no remoto (medido em 07/10/2026), e não foi integrada — por isso a DL-016 aponta para o Próximo passo.
 
 ## Próximo passo
 
-**AGORA, em 06/10/2026: a fatia 1 da [DL-066](../planos/DL-066-dfc.md) está
+**AGORA, em 07/10/2026: [DL-068](../planos/DL-068-prontidao-para-implantacao.md)
+— prontidão para implantação, em validação** na branch `ccr-9e799dfb-48okf5`.
+
+**Origem:** o Fred pediu uma análise do repositório. O parecer de segurança
+está [registrado](../auditorias/2026-10-07-analise-seguranca-e-isolamento.md).
+Depois ele autorizou cinco alterações (RC-157).
+
+**As cinco alterações:**
+1. Django 6.1.2, que corrige 4 CVEs (BL-634).
+2. Limite de tentativas também em `/admin/login/`, com a contagem
+   compartilhada com `/login/` (BL-632).
+3. `.dockerignore`, para o `.env` real e o `.git` não entrarem na imagem
+   (BL-633).
+4. `DJANGO_AMBIENTE`: em `homologacao` ou `producao`, `DEBUG=True` recusa
+   subir, e a imagem declara `producao` (BL-82, DE-100).
+5. Proxy confiável cuja soma cobre a internet inteira recusa subir, e rede
+   pública larga gera aviso `auditoria.W001` no `check` (BL-577, HI-51).
+
+**Auditoria independente:** a
+[rodada 1](../auditorias/2026-10-07-dl-068-rodada-1.md) saiu **APROVADA COM
+RESSALVAS**. Os 14 critérios foram atendidos. A suíte deu 4.858 aprovados, 1
+reprovado por ser Python 3.13 e 53 pulados. Os achados tiveram três destinos:
+- N1, N2, N5 e N7 entram na rodada única de correção;
+- N3, N4 e N6 ficam registrados no BL-53, no BL-580 e no BL-632;
+- N8 é ambiente: a prova em 3.14 é a CI.
+
+**Reconferência:** [APROVADA COM RESSALVAS](../auditorias/2026-10-07-dl-068-reconferencia.md).
+N1, N5 e N7 fechados; N2 fechado para a cobertura exata. A suíte deu
+4.887 aprovados, sem regressão. Das ressalvas:
+- R2 (extensão em maiúscula) e R3 (texto) foram corrigidos sem terceira
+  rodada, com teste e mutação;
+- R1 (lista que cobre "tudo menos" uma faixa) ficou como limite declarado
+  e decisão do Fred (BL-642).
+
+**Verificação final do arquiteto, na versão do PR (07/10/2026, contêiner
+Linux, Python 3.13, PostgreSQL 16):**
+- `ruff check` e `ruff format --check` limpos, `check` e
+  `makemigrations --check` sem mudança, gerador de papéis OK.
+- `pytest` completo: **4.895 aprovados, 1 reprovado, 53 pulados**. A
+  reprovação é a de Python 3.13 (`test_versao_minima_python`); a prova em
+  3.14 é a CI.
+- `validate-docs.ps1` **não executado** (sem `pwsh`); substituído por
+  checagem equivalente de título, espaço, nova linha e links, sem
+  problemas.
+
+**PR:** [#91](https://github.com/fredabsd-svg/DataLedger/pull/91), aberto em
+07/10/2026.
+
+**Falta:**
+- os quatro checks verdes no PR #91;
+- merge, que depende de ordem do Fred.
+
+**Fora da DL-068, com o Fred:**
+- backup e restauração (PE-07);
+- residência do dado (PE-25);
+- os achados baixos BL-635 a BL-641.
+
+**Em 06/10/2026: a fatia 1 da [DL-066](../planos/DL-066-dfc.md) está
 FECHADA** — a etapa 2 desta data completou o que o PR #89 deixou em aberto,
 na branch `feat/dl-066-portas-e-indireto`, pelo
 [PR #90](https://github.com/fredabsd-svg/DataLedger/pull/90):
@@ -419,7 +477,7 @@ feito pelo Fred em 04/10/2026). Pontos abertos: BL-606, BL-607, BL-622, BL-625, 
 a validação contábil **BL-626**. HI-50 confirmada pelo Fred (RC-152): alíneas
 "c" e "d" revogadas. **BL-604 fechado pela DL-062** (abaixo).
 
-**Em andamento: DL-062 — o sinal da conta-RAIZ retificadora no Balanço**
+**Concluída e integrada (PR #81, squash `46d80a1`): DL-062 — o sinal da conta-RAIZ retificadora no Balanço**
 (BL-604), escolhida por ser o ponto aberto **de nível 1** da leva: é o único
 em que o produto entrega documento errado ao cliente. Diagnóstico medido em
 04/10/2026, antes da correção: a retificadora de PL cadastrada na raiz do
@@ -443,13 +501,13 @@ independente](../auditorias/2026-10-04-dl-062-auditoria.md) **APROVADA COM
 RESSALVAS** (os 9 critérios de aceite SEDE, zero regressão, 8 achados de tela
 e documento), **correção única** e [reconferência](../auditorias/2026-10-04-dl-062-reconferencia.md)
 **APROVADA** com os oito achados fechados e sem terceira rodada. **PR #81
-aberto com os quatro checks verdes** em PostgreSQL 16. A CI foi o que achou o
+integrado com os quatro checks verdes** em PostgreSQL 16. A CI foi o que achou o
 que o SQLite local não via: o teste do BL-516 exigia o Balanço **vetado** por
 um resíduo de 200,00 que **era o próprio defeito** — a "(-) PDD" cadastrada
 como raiz inflava o Ativo, e o resíduo aritmético era a única rede que pegava
 a conta.
 
-**Em andamento: DL-063 — fecha a leva da DL-061** (BL-606, BL-607 e BL-625),
+**Concluída e integrada (PR #84, squash `c32cfe6`): DL-063 — fecha a leva da DL-061** (BL-606, BL-607 e BL-625),
 combinada pelo Fred em 04/10/2026 e com a decisão de que a coluna da DMPL
 passasse a ser aceita **pela API como já era pela DRE e pela DLPA** — a
 assimetria de ficar gravável só pela web não era desejada. O campo existia no
@@ -536,7 +594,8 @@ confiáveis) e PE-07 (backup e restauração).
    brutos por atividade (item 21), a marcação manual por lançamento
    (`MarcacaoDfc`, itens 12 e 19(b)(ii)) que substitui o veto interino do
    item 12, e o item 20A como bloco próprio. Nível 1.
-2. **DL-016 F3** (encerramento de competência) — só o plano existe.
+2. **DL-016 F3** (encerramento de competência) — o plano ficou numa branch que
+   não existe mais; ver *Estado do repositório*.
 3. **DL-027 fatias C e D** — logotipo e pré-visualização; PE-48, PE-50,
    PE-51 e PE-52 abertas.
 4. **Módulo fiscal — [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md).**
@@ -576,14 +635,13 @@ fontes normativas estão em [requisitos.md](../projeto/requisitos.md).
   `git rev-parse origin/main`.
 - **Proteção da `main`: ausente** na última medição registrada (auditorias 9 a
   12, até 2026-09-20). Não remedida nesta atualização.
-- Branches remotas antigas, conferidas em 25/09/2026: cinco estão **superadas**
-  (o conteúdo já está na `main` por outro caminho) —
-  `claude/dl-016-competencia-e-fechamento`,
-  `claude/multi-model-ia-structure-k1um7i`,
-  `docs/dl-atualizar-estado-continuidade`, `docs/fix-gate-regex` e
-  `fix/bl-261-keyerror-conta-pai-id`. Uma tem conteúdo **não integrado**:
-  `claude/dl-016-f3-encerramento-competencia` (só o plano da F3). Apagar
-  branches é ação que depende de ordem do Fred.
+- Branches remotas, medidas em 07/10/2026 com `git branch -r`: só a `main` e
+  a branch de sessão `ccr-9e799dfb-48okf5`. As seis branches antigas listadas
+  aqui até 06/10 (cinco superadas e `claude/dl-016-f3-encerramento-competencia`)
+  **não existem mais no remoto**. Consequência medida: o plano da DL-016 F3,
+  que só existia nesta última, **não está na `main` nem em branch remota
+  nenhuma**. Se não houver cópia na máquina do Fred, será refeito quando a F3
+  for priorizada.
 - Equipe de agentes: papéis, permissões e limitações em
   [equipe.md](equipe.md). Nesta plataforma os papéis rodam como **subagentes**,
   não como integrantes de equipe com lista compartilhada de tarefas.
