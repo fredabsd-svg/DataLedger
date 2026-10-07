@@ -31,10 +31,14 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 
+from apps.contabilidade.tests.gatilhos_do_livro import gatilho_desligado
 from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
 from apps.livro_caixa.carne_leao_arquivos import gerar_arquivos_carne_leao
 from apps.livro_caixa.models import ContaLivroCaixa, LancamentoCaixa, NaturezaCaixa
 from apps.livro_caixa.services import criar_lancamento_caixa
+from apps.livro_caixa.tests.test_dl069_livro_caixa_imutavel_no_banco import (
+    IMUTAVEL_LANCAMENTO_CAIXA,
+)
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
 pytestmark = pytest.mark.django_db
@@ -330,8 +334,11 @@ def test_pendencias_listam_todas_e_os_downloads_somem(client, cenario):
     )
     # A competência obrigatória é validada no SERVIÇO; para a tela de
     # pendência precisar deste caso, a linha é corrompida por ORM direto
-    # (mesmo padrão da suíte do serviço).
-    LancamentoCaixa.objects.filter(pk=previdencia.pk).update(competencia_previdencia=None)
+    # (mesmo padrão da suíte do serviço). Desde a DL-069 o banco recusa UPDATE em
+    # lançamento de caixa; o propósito do teste é a tela de PENDÊNCIAS, não a
+    # imutabilidade — só a MONTAGEM do dado desliga o gatilho (a asserção não muda).
+    with gatilho_desligado(IMUTAVEL_LANCAMENTO_CAIXA):
+        LancamentoCaixa.objects.filter(pk=previdencia.pk).update(competencia_previdencia=None)
     fora_da_tabela = _lancar_receita_aluguel(
         empresa,
         cenario["conta_fora_da_tabela"],

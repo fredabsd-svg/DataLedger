@@ -31,6 +31,7 @@ from django.core.exceptions import ValidationError
 from django.test import Client
 from django.urls import reverse
 
+from apps.contabilidade.tests.gatilhos_do_livro import gatilho_desligado
 from apps.empresas.models import Empresa, ModoEscrituracao, TipoInscricao
 from apps.empresas.validators import validar_codigo_ocupacao
 from apps.livro_caixa.carne_leao_arquivos import (
@@ -46,6 +47,9 @@ from apps.livro_caixa.services import (
     LancamentoCaixaInvalido,
     criar_lancamento_caixa,
     estornar_lancamento_caixa,
+)
+from apps.livro_caixa.tests.test_dl069_livro_caixa_imutavel_no_banco import (
+    IMUTAVEL_LANCAMENTO_CAIXA,
 )
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
@@ -1027,10 +1031,14 @@ def test_pendencia_competencia_previdencia_ausente(cenario):
         competencia_previdencia=date(2026, 9, 1),
     )
     # Bypassa o modelo/serviço (dado legado) — igual ao padrão N12 do
-    # resto da suíte deste módulo.
+    # resto da suíte deste módulo. Desde a DL-069 o banco recusa UPDATE em
+    # lançamento de caixa; o propósito do teste é a PENDÊNCIA da geração do
+    # arquivo diante de dado legado sem competência, não a imutabilidade — então
+    # só a MONTAGEM do dado desliga o gatilho (a asserção não muda).
     from apps.livro_caixa.models import LancamentoCaixa as _LC
 
-    _LC.objects.filter(pk=lancamento.pk).update(competencia_previdencia=None)
+    with gatilho_desligado(IMUTAVEL_LANCAMENTO_CAIXA):
+        _LC.objects.filter(pk=lancamento.pk).update(competencia_previdencia=None)
 
     with pytest.raises(GeracaoArquivoCarneLeaoBloqueada) as excinfo:
         gerar_arquivos_carne_leao(empresa=empresa, inicio=dia, fim=dia, usuario=None)
