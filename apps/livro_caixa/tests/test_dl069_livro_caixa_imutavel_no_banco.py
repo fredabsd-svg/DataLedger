@@ -614,3 +614,51 @@ def test_a_migracao_e_no_op_fora_do_postgresql():
     editor = _EditorQueNaoDeveExecutar()
     migracao._criar_gatilhos(None, editor)
     migracao._remover_gatilhos(None, editor)
+
+
+@so_postgresql
+@pytest.mark.parametrize("coluna", sorted(_ALTERACOES_DAS_COLUNAS_IMUTAVEIS))
+def test_reencerramento_com_coluna_imutavel_junto_e_recusado(cenario, coluna):
+    """A2 da auditoria da DL-069, fatia 1: a transição de ENCERRAMENTO
+    (`aberto→encerrado`, num mês reaberto) também não pode levar de carona
+    `empresa_id`, `ano`, `mes` nem `criado_em`. Sem este teste, a mutação que
+    acrescentava `criado_em` às colunas permitidas do encerramento sobrevivia
+    aos 41 testes da fatia."""
+    reaberto = _mes_reaberto(cenario)
+    antes = _linha(FechamentoMesCaixa, reaberto.pk)
+    alteracao = _ALTERACOES_DAS_COLUNAS_IMUTAVEIS[coluna](cenario)
+
+    _recusado(
+        RESTRICAO_FECHAMENTO,
+        lambda: FechamentoMesCaixa.objects.filter(pk=reaberto.pk).update(
+            estado=EstadoMesCaixa.ENCERRADO,
+            fechado_em=timezone.now(),
+            fechado_por_id=cenario["gestor"].pk,
+            **alteracao,
+        ),
+    )
+
+    assert _linha(FechamentoMesCaixa, reaberto.pk) == antes
+
+
+@so_postgresql
+@pytest.mark.parametrize("coluna", sorted(_ALTERACOES_DAS_COLUNAS_IMUTAVEIS))
+def test_reabertura_com_coluna_imutavel_junto_e_recusada(cenario, coluna):
+    """O par simétrico do anterior: a transição de REABERTURA
+    (`encerrado→aberto`) também não leva coluna imutável de carona."""
+    encerrado = _mes_encerrado(cenario)
+    antes = _linha(FechamentoMesCaixa, encerrado.pk)
+    alteracao = _ALTERACOES_DAS_COLUNAS_IMUTAVEIS[coluna](cenario)
+
+    _recusado(
+        RESTRICAO_FECHAMENTO,
+        lambda: FechamentoMesCaixa.objects.filter(pk=encerrado.pk).update(
+            estado=EstadoMesCaixa.ABERTO,
+            reaberto_em=timezone.now(),
+            reaberto_por_id=cenario["gestor"].pk,
+            motivo_reabertura="Reabertura com coluna imutável de carona",
+            **alteracao,
+        ),
+    )
+
+    assert _linha(FechamentoMesCaixa, encerrado.pk) == antes

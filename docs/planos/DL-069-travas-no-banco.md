@@ -60,8 +60,13 @@ escrita **acidental**, não contra quem tem acesso de dono ao banco (`TRUNCATE`,
    estorno e os dependentes do carnê-leão continuam funcionando. A suíte
    existente de `apps/livro_caixa` passa.
 4. A recusa chega ao usuário pela tela e pela API como mensagem em português,
-   nunca como erro 500. Ela entra em `MENSAGENS_DE_RESTRICAO_DE_GATILHO`, e a
-   varredura existente cobra o registro.
+   nunca como erro 500. Ela entra em `MENSAGENS_DE_RESTRICAO_DE_GATILHO`.
+   **Corrigido depois da auditoria (A1):** a versão anterior dizia que "a
+   varredura existente cobra o registro". Isso é falso, porque nenhuma
+   verificação cruza os nomes de gatilho com o registro. Hoje nenhuma porta do
+   produto faz UPDATE ou DELETE nestas tabelas, então a recusa não chega ao
+   usuário. A tela que um dia fizer isso precisa traduzir a recusa. A decisão
+   de não criar uma guarda nova segue o §3.1 e está registrada no BL-644.
 5. A migração é reversível: um teste com `transaction=True` migra para trás e
    para frente, e depois de voltar o UPDATE passa.
 6. Em SQLite as travas não existem. Isso é **declarado** no código e no teste
@@ -71,6 +76,21 @@ escrita **acidental**, não contra quem tem acesso de dono ao banco (`TRUNCATE`,
    motivo de cada um. **Proibido** mudar expectativa para ficar verde.
 8. A suíte completa não regride. Linha de base de 07/10/2026, Python 3.13 no
    contêiner: 4.895 aprovados, 1 reprovado de ambiente e 53 pulados.
+
+**Decisão tomada na implementação e confirmada pela auditoria:** o UPDATE do
+fechamento é amarrado à **transição**.
+- `aberto→encerrado` só muda `estado`, `fechado_em` e `fechado_por_id`.
+- `encerrado→aberto` só muda `estado`, `reaberto_em`, `reaberto_por_id` e
+  `motivo_reabertura`.
+- Sem mudança de estado, nada muda.
+
+Só a lista de colunas permitidas não recusaria "trocar `fechado_por` por fora
+do serviço". O custo é que um UPDATE futuro sem transição, como retificar o
+motivo, exigirá migração nova.
+
+**Limite declarado (A3):** o gatilho olha colunas, não a trilha. Uma
+reabertura completa feita por SQL passa sem registro na trilha. É o limite do
+BL-569.
 
 **Cenários negativos:**
 - trocar `valor`, `data`, `empresa_id` ou `estorno_de_id` de um lançamento;

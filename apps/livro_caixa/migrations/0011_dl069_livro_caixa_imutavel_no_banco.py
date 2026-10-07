@@ -66,6 +66,20 @@
 # gatilho de linha, e quem pode `ALTER TABLE ... DISABLE TRIGGER` as desliga.
 # Restrição de papéis do PostgreSQL é assunto de implantação, não desta migração.
 #
+# O GATILHO VÊ COLUNAS, NÃO A TRILHA (A3 da auditoria da fatia 1). Um UPDATE por
+# SQL que faça uma reabertura COMPLETA (`encerrado→aberto` com `reaberto_em`,
+# `reaberto_por_id` e motivo preenchidos) passa: é indistinguível, para o
+# banco, da reabertura do serviço, mas não grava trilha. Contra escrita
+# acidental isto basta (uma reabertura parcial é recusada aqui ou pelo CHECK
+# `fechamento_mes_caixa_reabertura_completa`); contra quem reabre por SQL de
+# propósito, é o limite acima.
+#
+# NENHUMA PORTA DO PRODUTO FAZ UPDATE/DELETE NESTAS TABELAS por fora das duas
+# transições, por isso a recusa nunca chega ao usuário hoje. As mensagens estão
+# registradas em `MENSAGENS_DE_RESTRICAO_DE_GATILHO`, mas NENHUMA verificação
+# automática exige esse registro (A1). Quem criar uma tela que altere estas
+# tabelas precisa traduzir a recusa com `restricao_como_400`, ou ela vira 500.
+#
 # EFEITO EM RESTAURAÇÃO DE BACKUP. `pg_restore --data-only` de um backup só de
 # dados regrava linhas por INSERT, que o gatilho não alcança; mas uma carga que
 # faça UPDATE/DELETE nestas tabelas (por exemplo, sobrescrever um banco já
