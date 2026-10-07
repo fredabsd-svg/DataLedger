@@ -243,11 +243,15 @@ MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
     # regras de período dos serviços: lançamento novo só em competência/mês
     # ABERTO (a competência achada pela DATA, nunca pela FK — a FK é anulável
     # em dado legado), e a entrega da competência ao cliente como fato datado
-    # que não se desfaz (RC-19/RC-101). As mensagens são as MESMAS frases dos
-    # serviços (`criar_lancamento`, `_recusar_se_mes_caixa_encerrado`,
-    # `reabrir_competencia`), para API/admin nunca contarem duas histórias
-    # diferentes do mesmo motivo (DE-026) — mesmo quando é o BANCO, não o
-    # Python, quem recusou. NENHUMA porta de escrita do produto alcança essas
+    # que não se desfaz (RC-19/RC-101). As mensagens REGISTRADAS abaixo contam
+    # a mesma história dos serviços (`criar_lancamento`,
+    # `_recusar_se_mes_caixa_encerrado`, `reabrir_competencia`) em forma
+    # genérica — o registro é estático e não carrega mês, ano nem nome da
+    # empresa. O texto exato de cada recusa está no `RAISE` da migração
+    # correspondente, igual ao do serviço menos o nome da empresa (que o
+    # gatilho não tem). O que importa para API/admin é não contarem duas
+    # histórias diferentes do mesmo motivo (DE-026) — mesmo quando é o BANCO,
+    # não o Python, quem recusou. NENHUMA porta de escrita do produto alcança essas
     # recusas hoje (os serviços recusam antes, com a mensagem da
     # competência/mês); as mensagens existem para que, se uma alcançar, o erro
     # seja legível e traduzível por `restricao_como_400`, e não um 500 cru.

@@ -589,7 +589,15 @@ def test_sem_o_gatilho_a_entrega_se_desfaz(cenario):
 ANTERIOR = [("contabilidade", "0022_alter_conta_item_de_resultado_sem_caixa")]
 ESTA = "0023_dl069_periodo_encerrado_recusa_insert"
 
-GATILHOS_ESPERADOS = {"trg_lancamento_contabil_so_em_competencia_aberta"}
+# Os DOIS gatilhos que esta migração cria (o de INSERT do lançamento e o de
+# UPDATE da competência): a reversão precisa levar os dois embora, e as
+# asserções de ida/volta abaixo cobrem o conjunto inteiro — o mesmo cuidado do
+# `GATILHOS_ESPERADOS` da fatia 1 (auditoria R1: sem o segundo nome, uma
+# reversão que deixasse o gatilho de UPDATE para trás continuaria verde).
+GATILHOS_ESPERADOS = {
+    "trg_lancamento_contabil_so_em_competencia_aberta",
+    "trg_competencia_entregue_protegida",
+}
 FUNCOES_ESPERADAS = {
     "contabilidade_recusar_lancamento_fora_de_competencia_aberta",
     "contabilidade_proteger_entrega_da_competencia",

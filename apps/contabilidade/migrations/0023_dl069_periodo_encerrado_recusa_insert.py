@@ -143,9 +143,14 @@ DECLARE
     v_entregue_em timestamptz;
     v_mes integer;
     v_ano integer;
+    v_competencia text;
 BEGIN
     v_ano := EXTRACT(YEAR FROM NEW.data)::integer;
     v_mes := EXTRACT(MONTH FROM NEW.data)::integer;
+    -- Mesmo formato das frases do serviço (`{mes:02d}/{ano}`): "03/2026",
+    -- nunca "3/2026" — o mês zero-padded é o que o contador lê em todo o
+    -- produto (auditoria R2).
+    v_competencia := lpad(v_mes::text, 2, '0') || '/' || v_ano;
 
     -- FOR SHARE ANTES de julgar: espelho de
     -- `_travar_competencia_em_modo_compartilhado`
@@ -169,21 +174,24 @@ BEGIN
 
     IF v_estado IS DISTINCT FROM 'aberta' THEN
         IF v_entregue_em IS NOT NULL THEN
-            -- Mesma frase do serviço, para API/admin não contarem duas
-            -- histórias do mesmo motivo (DE-026): services.py:1040-1047.
+            -- Frase do serviço (services.py:1042-1049), para API/admin não
+            -- contarem duas histórias diferentes do mesmo motivo (DE-026),
+            -- menos o nome da empresa: o gatilho não o tem. O texto que o
+            -- usuário vê é o registrado em
+            -- `MENSAGENS_DE_RESTRICAO_DE_GATILHO`.
             RAISE EXCEPTION
-                'A competência %/% já foi entregue ao cliente; não é possível gravar '
+                'A competência % já foi entregue ao cliente; não é possível gravar '
                 'lançamento nela e ela não pode ser reaberta (RC-101). Lance o ajuste em '
-                'uma competência aberta, com histórico apontando para a competência de '
-                'origem (%/%).', v_mes, v_ano, v_mes, v_ano
+                'uma competência ABERTA, com histórico apontando para a competência de '
+                'origem (%).', v_competencia, v_competencia
                 USING ERRCODE = '23514',
                       CONSTRAINT = 'dl069_lancamento_contabil_so_em_competencia_aberta';
         END IF;
-        -- Mesma frase do serviço (services.py:1048-1052).
+        -- Frase do serviço (services.py:1050-1054), menos o nome da empresa.
         RAISE EXCEPTION
-            'A competência %/% está ''%'': não é possível gravar lançamento nela. '
+            'A competência % está ''%'': não é possível gravar lançamento nela. '
             'Reabra a competência ou lance em uma competência aberta.',
-            v_mes, v_ano, v_estado
+            v_competencia, v_estado
             USING ERRCODE = '23514',
                   CONSTRAINT = 'dl069_lancamento_contabil_so_em_competencia_aberta';
     END IF;
@@ -201,12 +209,16 @@ CREATE TRIGGER trg_lancamento_contabil_so_em_competencia_aberta
 -- se desfaz (RC-19/RC-101).
 CREATE OR REPLACE FUNCTION contabilidade_proteger_entrega_da_competencia()
 RETURNS trigger AS $$
+DECLARE
+    v_competencia text;
 BEGIN
     -- Regravar os mesmos valores não altera fato nenhum (mesmo critério da
     -- migração 0011 de `livro_caixa`, da fatia 1).
     IF to_jsonb(NEW) = to_jsonb(OLD) THEN
         RETURN NEW;
     END IF;
+    -- Mesmo formato `{mes:02d}/{ano}` das frases do serviço.
+    v_competencia := lpad(OLD.mes::text, 2, '0') || '/' || OLD.ano;
 
     -- Item 3: `entregue_em` preenchido não volta a NULL. Atualizar para uma
     -- data NOVA continua permitido — é o que `marcar_competencia_como_entregue`
@@ -214,8 +226,8 @@ BEGIN
     -- services.py:1459-1498).
     IF OLD.entregue_em IS NOT NULL AND NEW.entregue_em IS NULL THEN
         RAISE EXCEPTION
-            'A competência %/% já foi entregue ao cliente em %: a data da entrega não '
-            'volta a ficar em branco.', OLD.mes, OLD.ano, OLD.entregue_em
+            'A competência % já foi entregue ao cliente em %: a data da entrega não '
+            'volta a ficar em branco.', v_competencia, OLD.entregue_em
             USING ERRCODE = '23514',
                   CONSTRAINT = 'dl069_competencia_entregue_nao_volta_a_null';
     END IF;
@@ -228,9 +240,9 @@ BEGIN
        AND OLD.estado IS DISTINCT FROM 'aberta'
     THEN
         RAISE EXCEPTION
-            'A competência %/% já foi entregue ao cliente e não volta a aberta (RC-101): '
+            'A competência % já foi entregue ao cliente e não volta a aberta (RC-101): '
             'lance o ajuste em uma competência aberta, com histórico apontando para a '
-            'competência de origem.', OLD.mes, OLD.ano
+            'competência de origem.', v_competencia
             USING ERRCODE = '23514',
                   CONSTRAINT = 'dl069_competencia_entregue_nao_reabre';
     END IF;

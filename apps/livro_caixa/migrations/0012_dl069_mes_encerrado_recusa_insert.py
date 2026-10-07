@@ -112,9 +112,14 @@ DECLARE
     v_mes_do_lancamento integer;
     v_mes_corrido integer;
     v_primeiro_encerrado integer;
+    v_mes_fmt text;
+    v_encerrado_fmt text;
 BEGIN
     v_ano := EXTRACT(YEAR FROM NEW.data)::integer;
     v_mes_do_lancamento := EXTRACT(MONTH FROM NEW.data)::integer;
+    -- Mesmo formato das frases do serviço (`f"{mes:02d}/{ano}"`): "03/2026",
+    -- nunca "3/2026" (auditoria R2).
+    v_mes_fmt := lpad(v_mes_do_lancamento::text, 2, '0') || '/' || v_ano;
 
     -- Lock consultivo COMPARTILHADO do mês e dos posteriores do mesmo ano,
     -- em ordem crescente — espelho de `_adquirir_locks_dos_meses_do_ano`
@@ -144,44 +149,45 @@ BEGIN
     IF v_primeiro_encerrado IS NULL THEN
         RETURN NEW;
     END IF;
+    v_encerrado_fmt := lpad(v_primeiro_encerrado::text, 2, '0') || '/' || v_ano;
 
     -- As frases abaixo reproduzem as do serviço (services.py:617-639),
-    -- inclusive a separação entre estorno e lançamento comum (DE-026).
+    -- inclusive a separação entre estorno e lançamento comum (DE-026), menos
+    -- o nome da empresa (o gatilho não o tem; o texto que o usuário vê é o
+    -- registrado em `MENSAGENS_DE_RESTRICAO_DE_GATILHO`).
     IF v_primeiro_encerrado = v_mes_do_lancamento THEN
         IF NEW.estorno_de_id IS NOT NULL THEN
             RAISE EXCEPTION
-                'O mês %/% do livro-caixa está encerrado; não é possível estornar lançamento '
+                'O mês % do livro-caixa está encerrado; não é possível estornar lançamento '
                 'dele. Reabra o mês (informando o motivo) para corrigir o lançamento no mês '
-                'original.', v_mes_do_lancamento, v_ano
+                'original.', v_mes_fmt
                 USING ERRCODE = '23514',
                       CONSTRAINT = 'dl069_lancamento_caixa_so_em_mes_aberto';
         END IF;
         RAISE EXCEPTION
-            'O mês %/% do livro-caixa está encerrado; não é possível gravar lançamento nele. '
+            'O mês % do livro-caixa está encerrado; não é possível gravar lançamento nele. '
             'Reabra o mês (informando o motivo) ou lance em um mês aberto.',
-            v_mes_do_lancamento, v_ano
+            v_mes_fmt
             USING ERRCODE = '23514',
                   CONSTRAINT = 'dl069_lancamento_caixa_so_em_mes_aberto';
     END IF;
 
     IF NEW.estorno_de_id IS NOT NULL THEN
         RAISE EXCEPTION
-            'O mês %/% do livro-caixa está encerrado e o carnê-leão dele depende de %/% (o '
+            'O mês % do livro-caixa está encerrado e o carnê-leão dele depende de % (o '
             'excesso de livro-caixa e o saldo passam de um mês para o seguinte no ano); não é '
-            'possível estornar lançamento de %/% sem alterar um resultado encerrado. Reabra % '
+            'possível estornar lançamento de % sem alterar um resultado encerrado. Reabra % '
             'e os meses encerrados seguintes do ano (informando o motivo) antes de corrigir.',
-            v_primeiro_encerrado, v_ano, v_mes_do_lancamento, v_ano,
-            v_mes_do_lancamento, v_ano, v_primeiro_encerrado
+            v_encerrado_fmt, v_mes_fmt, v_mes_fmt, v_encerrado_fmt
             USING ERRCODE = '23514',
                   CONSTRAINT = 'dl069_lancamento_caixa_so_em_mes_aberto';
     END IF;
     RAISE EXCEPTION
-        'O mês %/% do livro-caixa está encerrado e o carnê-leão dele depende de %/% (o excesso '
+        'O mês % do livro-caixa está encerrado e o carnê-leão dele depende de % (o excesso '
         'de livro-caixa e o saldo passam de um mês para o seguinte no ano); não é possível '
-        'gravar lançamento em %/% sem alterar um resultado encerrado. Reabra % e os meses '
+        'gravar lançamento em % sem alterar um resultado encerrado. Reabra % e os meses '
         'encerrados seguintes do ano (informando o motivo) antes de corrigir.',
-        v_primeiro_encerrado, v_ano, v_mes_do_lancamento, v_ano,
-        v_mes_do_lancamento, v_ano, v_primeiro_encerrado
+        v_encerrado_fmt, v_mes_fmt, v_mes_fmt, v_encerrado_fmt
         USING ERRCODE = '23514',
               CONSTRAINT = 'dl069_lancamento_caixa_so_em_mes_aberto';
 END;
