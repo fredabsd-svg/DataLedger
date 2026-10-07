@@ -189,8 +189,11 @@ Linux, Python 3.13, PostgreSQL 16):**
   checagem equivalente de título, espaço, nova linha e links, sem
   problemas.
 
+**PR:** [#91](https://github.com/fredabsd-svg/DataLedger/pull/91), aberto em
+07/10/2026.
+
 **Falta:**
-- PR com os quatro checks verdes;
+- os quatro checks verdes no PR #91;
 - merge, que depende de ordem do Fred.
 
 **Fora da DL-068, com o Fred:**
