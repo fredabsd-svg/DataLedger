@@ -1,6 +1,7 @@
 """Cadastro público restrito à criação de um novo ambiente isolado."""
 
 from django import forms
+from django.contrib.admin.forms import AdminAuthenticationForm
 from django.contrib.auth import get_user_model, password_validation
 from django.contrib.auth.forms import AuthenticationForm
 from django.core.exceptions import ValidationError
@@ -127,3 +128,28 @@ class LoginForm(AuthenticationForm):
         if reserva is not None:
             limite_tentativas.confirmar_sucesso_de_login(reserva)
         return resultado
+
+
+class AdminLoginForm(LoginForm, AdminAuthenticationForm):
+    """Login do `/admin/` com o mesmo limite de tentativas do `/login/` (DL-068).
+
+    Por que o admin precisa disso: é a superfície MAIS privilegiada do produto
+    (o superusuário vê e altera dados de todos os escritórios, sem o isolamento
+    por escritório que protege o resto — BL-262), e a DL-056 limitava só o
+    `/login/`. Sem isto, quem é barrado em uma porta tenta a senha na outra.
+
+    Como a herança se resolve (conferido por teste): na ordem de resolução de
+    métodos `LoginForm` vem ANTES de `AdminAuthenticationForm`.
+
+    - `clean()` é o do `LoginForm`: reserva a tentativa ANTES de verificar a
+      senha, recusa acima do limite com a mensagem do login inválido e grava
+      `login.bloqueado` só com o resumo do usuário. Ele termina chamando o
+      `AuthenticationForm.clean`, que autentica e chama `confirm_login_allowed`.
+    - `confirm_login_allowed()` e `error_messages` são os do admin: a exigência
+      de `is_staff` continua valendo, e a recusa por limite e a recusa por senha
+      errada têm a MESMA mensagem do admin (sem dizer que há bloqueio).
+
+    A contagem é COMPARTILHADA com `/login/`: o `LoginForm` usa as mesmas chaves
+    (usuário normalizado e IP), porque são as mesmas credenciais e trocar de
+    porta não pode zerar o limite. Nenhum escopo novo é criado.
+    """
