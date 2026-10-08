@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.db.models import Prefetch
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 
@@ -44,6 +45,7 @@ from apps.empresas.models import (
 )
 from apps.empresas.permissoes import PodeLerCarteira, papel_pode_ler_carteira
 from apps.empresas.serializers import (
+    ATRIBUTO_REGIMES_VIGENTES,
     EmpresaSerializer,
     EstabelecimentoSerializer,
     HistoricoRegimeTributarioSerializer,
@@ -229,6 +231,22 @@ class EmpresaQuerySetMixin:
 
 class EmpresaListCreateView(EmpresaQuerySetMixin, generics.ListCreateAPIView):
     serializer_class = EmpresaSerializer
+
+    def get_queryset(self):
+        # BL-648 (DL-070): `get_regime_atual` precisa do período vigente de cada
+        # empresa. Sem este prefetch a LISTA fazia uma consulta por empresa. A
+        # queryset do Prefetch herda o `Meta.ordering` do modelo, o mesmo do
+        # `.first()` do serializer, então o registro escolhido não muda. Fica só
+        # na lista: o detalhe usa o mixin, sem prefetch.
+        empresas = super().get_queryset()
+        vigentes = HistoricoRegimeTributario.objects.filter(vigencia_fim__isnull=True)
+        return empresas.prefetch_related(
+            Prefetch(
+                "historico_regime_tributario",
+                queryset=vigentes,
+                to_attr=ATRIBUTO_REGIMES_VIGENTES,
+            )
+        )
 
     def get_permissions(self):
         permissions = super().get_permissions()

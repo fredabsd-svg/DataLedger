@@ -20,6 +20,11 @@ from apps.empresas.services import (
 from apps.empresas.services import mensagem_cnpj_duplicado as _mensagem_cnpj_duplicado
 from apps.empresas.validators import validar_caepf
 
+# BL-648 (DL-070): nome do atributo em que `EmpresaListCreateView.get_queryset`
+# guarda o período vigente de cada empresa (Prefetch com `to_attr`). Fica aqui,
+# ao lado do serializer que o lê, para a view e o serializer não divergirem.
+ATRIBUTO_REGIMES_VIGENTES = "regimes_vigentes"
+
 # CNPJSerializerField é declarado explicitamente nos dois serializers abaixo
 # (não é o CharField automático do ModelSerializer), então precisa repor à
 # mão o validador de unicidade que o ModelSerializer geraria sozinho para um
@@ -190,7 +195,15 @@ class EmpresaSerializer(serializers.ModelSerializer):
         ]
 
     def get_regime_atual(self, empresa):
-        vigente = empresa.historico_regime_tributario.filter(vigencia_fim__isnull=True).first()
+        # Caminho da LISTA: o prefetch já trouxe, em uma consulta só, os períodos
+        # vigentes de todas as empresas, na mesma ordenação (`Meta.ordering`) que o
+        # `.first()` usa; o índice 0 é o mesmo registro. Sem o atributo (detalhe,
+        # criação), mantém a consulta original.
+        prefetchados = getattr(empresa, ATRIBUTO_REGIMES_VIGENTES, None)
+        if prefetchados is not None:
+            vigente = prefetchados[0] if prefetchados else None
+        else:
+            vigente = empresa.historico_regime_tributario.filter(vigencia_fim__isnull=True).first()
         return vigente.regime if vigente else None
 
     def validate(self, attrs):
