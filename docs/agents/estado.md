@@ -135,7 +135,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 tratada na DL-068 |
 | [DL-068](../planos/DL-068-prontidao-para-implantacao.md) | Prontidão para implantação: Django 6.1.2, limite no login do admin, `.dockerignore`, `DJANGO_AMBIENTE` (BL-82) e proxies `/0` (BL-577) | **Integrada (PR #91, squash `7c23894`, merge feito pelo Fred em 07/10/2026)** — auditoria e reconferência aprovadas com ressalvas; R1 com o Fred (BL-642) |
 | [DL-069](../planos/DL-069-travas-no-banco.md) | Travas no banco: livro-caixa imutável, período encerrado recusa INSERT, trilha imutável | Situação em **[Próximo passo](#próximo-passo)** — fatias 1 e 2 integradas (PR #92 e #93); fatia 3 bloqueada na PE-77 |
-| [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md) | Melhorias do repositório com equipe multiagente (RC-160): entradas do acesso, consultas por linha, testes que faltavam | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md) | Melhorias do repositório com equipe multiagente (RC-160): entradas do acesso, consultas por linha, testes que faltavam | Integrada (PR #94, squash `76cb92a`) — auditoria e reconferência aprovadas com ressalvas; BL-652 a BL-654 abertos |
+| [DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) | A marcação manual da DMPL respeita o período fechado (BL-655) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -146,15 +147,24 @@ que não existe mais no remoto (medido em 07/10/2026), e não foi integrada — 
 
 ## Próximo passo
 
-**AGORA, em 08/10/2026: [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md)
-— melhorias do repositório com equipe multiagente, em revisão** pelo
-[PR #94](https://github.com/fredabsd-svg/DataLedger/pull/94), branch
-`ccr-bf4b4a55-hpqgbp` → `main`, aberto em 08/10/2026 depois de o Fred dizer
-*"Próxima etapa"* à pergunta sobre o PR (RC-161). **Merge autorizado pelo
-Fred (RC-162)** para quando os quatro checks estiverem verdes no último commit;
-o registro do merge entra na etapa seguinte, porque a `main` não recebe push
-direto. Ordem do Fred (RC-160):
-orquestrador em Opus, desenvolvedores em Haiku em paralelo, auditor em Sonnet.
+**AGORA, em 08/10/2026: [DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md)
+— a marcação manual da DMPL respeita o período fechado, em desenvolvimento**
+na branch `ccr-bf4b4a55-hpqgbp` (recomeçada da `main` em `76cb92a`). Nível 1.
+Origem: *"Próxima etapa"* (RC-163). O diagnóstico da DFC fatia 2 reproduziu
+o **BL-655**: com a competência encerrada ou entregue, a marcação da DMPL
+ainda era trocada, removida ou criada, pelo serviço e pela API, e a DMPL já
+apurada mudava (inclusive `pode_emitir`). A etapa estende a regra da DL-065
+à marcação. A DFC fatia 2 volta à fila depois dela, com perguntas para o
+Fred sobre as classes do método direto, levantadas no texto oficial do
+CPC 03 (R2), Rev. 24.
+
+**[DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md) — melhorias
+do repositório com equipe multiagente: INTEGRADA** pelo
+[PR #94](https://github.com/fredabsd-svg/DataLedger/pull/94), squash
+`76cb92a`, em 08/10/2026, com os quatro checks verdes nas duas execuções do
+último commit e merge feito pelo arquiteto por autorização do Fred (RC-162).
+Ordem do Fred (RC-160): orquestrador em Opus, desenvolvedores em Haiku em
+paralelo, auditor em Sonnet.
 
 O que entrou:
 - entradas do `/bootstrap/` e do convite que davam 500 ou gravavam lixo
@@ -186,8 +196,8 @@ PostgreSQL 16 local, sobre `25fe182`, medida pelo auditor):** `ruff check` e
 `makemigrations --check` sem mudança; `pytest` completo **5.021 aprovados, 1
 reprovado, 53 pulados**. A reprovação é a conhecida de ambiente
 (`test_versao_minima_python.py`, que exige Python 3.14). Antes da DL-070,
-sobre `79ff2e5`: 4.987/1/53. A CI (Python 3.14) roda no
-PR #94.
+sobre `79ff2e5`: 4.987/1/53. A CI (Python 3.14) do PR #94 ficou verde nos
+quatro checks.
 
 **Achado de processo desta etapa:** as cópias isoladas criadas pela
 ferramenta de agentes (`isolation: worktree`) partiram de `d5cc6bf`, quatro
