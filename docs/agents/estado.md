@@ -190,20 +190,23 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    aprovadas com ressalvas; R1, R2, R4 e R5 corrigidos depois. Abertos:
    BL-660 a BL-666.
 3. **[DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) — receita
-   mensal, confirmação e RBT12 do Simples por mercado: em revisão** na branch
-   `ccr-bf4b4a55-hpqgbp`, recomeçada da `main` em `8f36cd4`. Frentes A
-   (domínio, API) e B (telas) integradas; efetivar em mês confirmado reabre
-   com trilha (HI-75). HI-73 a HI-75. Auditoria independente em seguida.
-4. **Próxima etapa fiscal: pré-DAS do Simples.** Tabelas oficiais dos
+   mensal, confirmação e RBT12 do Simples por mercado: em correção.**
+   [Auditoria rodada 1](../auditorias/2026-10-08-dl-074-rodada-1.md):
+   **REPROVADA** — A1 (bloqueador: RBT12 de empresa nova errado na virada do
+   ano, para menos) e A2 (alta: `PATCH` da data de abertura dava 500), mais
+   A3 a A9. Correção única em andamento; HI-76 e HI-77. É o controle
+   funcionando: o erro seria silencioso no DAS.
+4. **DL-075 — pré-DAS do Simples:
+   em desenvolvimento** em cópia isolada (`/home/user/wt-dl075`). Tabelas oficiais dos
    Anexos I a V vigentes em 2026 pesquisadas no Planalto e no Manual do
    PGDAS-D, com quatro exemplos numéricos oficiais para casos de referência:
    [consultas/](../projeto/consultas/2026-10-08-tabelas-simples-2026.md).
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
-PostgreSQL 16 local, sobre `5035bb8`):** `pytest` completo **5.459
-aprovados, 1 reprovado, 53 pulados**; a reprovação é a
+PostgreSQL 16 local, sobre `33972fc`, medida pelo auditor da DL-074):**
+`pytest` completo **5.638 aprovados, 1 reprovado, 53 pulados**; a reprovação é a
 conhecida de ambiente (`test_versao_minima_python.py`, exige Python 3.14).
-`ruff`, `check` e `makemigrations --check` limpos (395 arquivos).
+`ruff`, `check` e `makemigrations --check` limpos (408 arquivos).
 
 **Também achado em 08/10/2026:** o diagnóstico da DFC fatia 2 levantou, no
 texto oficial do CPC 03 (R2), Rev. 24, que a norma **não define "classe"** de

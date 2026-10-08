@@ -43,11 +43,13 @@ por lei do ente; fora da lista da LC 116. Cada natureza diz o **mercado**
    **reabre** a confirmação daquele mês e o marca "a retificar" (Res. 140 art.
    18: cancelamento deduz no período de origem) — nunca abate o mês corrente.
 5. **RBT12 por mercado** (Res. 140 art. 22): § 1º regra geral (12 meses
-   anteriores ao período de apuração); § 2º primeiro mês de atividade
-   (receita do próprio mês × 12); § 3º meses seguintes do ano de início
-   (média dos meses anteriores × 12, mês sem receita = zero); § 4º abertura no
-   ano anterior ao da opção; § 5º RBT12 acima do limite com ano dentro.
-   Fração de mês conta como mês inteiro. Só com todos os meses da janela
+   anteriores ao período de apuração); nos **12 primeiros meses de atividade,
+   mesmo atravessando a virada do ano** (HI-76, achado A1 da auditoria): § 2º
+   no primeiro mês (receita do próprio mês × 12) e, do 2º ao 12º mês, média
+   dos meses anteriores × 12 — § 3º quando abertura e opção são do mesmo ano,
+   § 4º quando a abertura é do ano anterior ao da opção; § 5º RBT12 acima do
+   limite cheio com o ano dentro (HI-77). Fração de mês conta como mês
+   inteiro; mês sem receita = zero. Só com todos os meses da janela
    **confirmados**; senão a resposta é "não apurável" com a lista dos meses.
 6. **Limites como dado com vigência e fonte** (HI-70): limite, sublimite,
    proporcionais do ano de início, por mercado. Avisos: receita acumulada no
