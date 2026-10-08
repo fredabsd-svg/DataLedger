@@ -36,8 +36,9 @@ confirmação e RBT12 por mercado.
 2. **Atividades da empresa** (HI-68): cadastro, com vigência, das atividades
    que a empresa presta e do **enquadramento** de cada uma — Anexo III; Anexo
    III ou V pelo fator r (§§ 5º-I, 5º-J, 5º-M); Anexo IV (§ 5º-C, CPP fora do
-   DAS). A escrituração ganha a atividade da receita (por nota ou padrão da
-   empresa). Sem atividade enquadrada, o pré-DAS **recusa** e nomeia.
+   DAS). As notas usam a atividade **padrão** da empresa (atividade por nota
+   ficou para o BL-670); a receita informada pode dizer a atividade. Sem
+   atividade enquadrada, o pré-DAS **recusa** e nomeia.
 3. **Folha para o fator r** (HI-69): lançamento mensal informado, por
    componente (remuneração base INSS, pró-labore e autônomos, 13º, CPP
    recolhida, FGTS recolhido), confirmado como a receita; FS12 dos 12 meses
@@ -86,6 +87,17 @@ e da [consulta sobre HI-76 e HI-77](../projeto/consultas/2026-10-08-contador-sen
 - **ISS a outro município**: valor certo, mas sem o detalhamento por
   município do extrato do PGDAS-D (BL-668).
 - **Alíquota da 6ª faixa no § 5º** fica fora: PE-78.
+- **Correção da auditoria** ([rodada 1](../auditorias/2026-10-08-dl-075-rodada-1.md),
+  [reconferência](../auditorias/2026-10-08-dl-075-reconferencia.md)): com mais
+  de uma atividade vigente no mês e nota escriturada, o pré-DAS **bloqueia**
+  (não escolhe o anexo; BL-670); atividade que cobre mês com receita
+  confirmada não muda de enquadramento, de cobertura nem é excluída — encerra
+  e cadastra nova vigência a partir do mês aberto; competência sem limites
+  cadastrados é recusada, o que hoje **recusa todo PA de 2018 a 2025** (só
+  2026 tem limites com fonte, HI-70); início de atividade antes de 2018 é
+  recusado; valores monetários na API são texto, nunca número JSON nem
+  notação científica; a memória de cálculo da API mostra dinheiro no
+  formato brasileiro.
 
 ## Critérios de aceite
 

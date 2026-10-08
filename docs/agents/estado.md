@@ -225,7 +225,11 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    novos e os mutantes M10 a M13, M38 e M45 mortos; suíte completa numa
    única invocação com só a reprovação de ambiente. Decisão do arquiteto no
    A5: com mais de uma atividade vigente e nota no mês, o pré-DAS **bloqueia**
-   (atividade por nota é o BL-670). **Reconferência em andamento.**
+   (atividade por nota é o BL-670).
+   [Reconferência](../auditorias/2026-10-08-dl-075-reconferencia.md):
+   **APROVADA COM RESSALVAS** — A1 a A9 e A11 fechados por execução, 47 dos
+   50 mutantes da rodada 1 mortos (3 equivalentes); ciclo do §3.1
+   encerrado. Ressalvas R1 a R5 em correção antes do merge.
 5. **[DL-076](../planos/DL-076-iss-por-municipio-palmas.md) — ISS por
    município, começando por Palmas: planejada, em desenvolvimento.**
    [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-iss-palmas.md):
@@ -236,10 +240,12 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    2026 — não bloqueia o código.
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
-PostgreSQL 16 local, sobre `71f371d`, medida na reconferência da DL-074):**
-`pytest` completo **5.691 aprovados, 1 reprovado, 53 pulados**; a reprovação é a
-conhecida de ambiente (`test_versao_minima_python.py`, exige Python 3.14).
-`ruff`, `check` e `makemigrations --check` limpos (409 arquivos).
+PostgreSQL 16 local, sobre `4f42117`, medida na reconferência da DL-075):**
+`pytest` completo **5.973 aprovados, 1 reprovado, 53 pulados**, numa única
+invocação; a reprovação é a conhecida de ambiente
+(`test_versao_minima_python.py`, exige Python 3.14). `ruff`, `check` e
+`makemigrations --check` limpos (427 arquivos). Lição da DL-075: a suíte
+**em fatias** esconde interação entre migrações — só vale a invocação única.
 
 **Também achado em 08/10/2026:** o diagnóstico da DFC fatia 2 levantou, no
 texto oficial do CPC 03 (R2), Rev. 24, que a norma **não define "classe"** de
