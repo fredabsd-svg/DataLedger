@@ -119,10 +119,10 @@ def test_linha_com_mais_de_50_celulas_e_recusada_no_primeiro_excesso_em_menos_de
 
 def test_ataque_de_1001_linhas_de_16_mil_celulas_nao_passa_do_limite_de_50_colunas():
     """A forma do ataque da auditoria (1.001 linhas de 16 mil `<c/>`) é barrada pelo teto
-    de colunas por linha. Usa 900 linhas para a parte caber no teto de 64 MB: a regra que
-    dispara é a de colunas, e não a de tamanho."""
+    de colunas por linha. Usa 200 linhas para a parte caber no teto de 16 MB (R3c): a regra
+    que dispara é a de colunas, e não a de tamanho."""
     linha = "<row>" + "<c/>" * 16384 + "</row>"
-    corpo = "".join(linha for _ in range(900))
+    corpo = "".join(linha for _ in range(200))
     conteudo = _com_partes(_base(), {"xl/worksheets/sheet1.xml": _folha(corpo)})
 
     inicio = time.perf_counter()
@@ -134,12 +134,12 @@ def test_ataque_de_1001_linhas_de_16_mil_celulas_nao_passa_do_limite_de_50_colun
 
 
 def test_orcamento_de_celulas_lidas_recusa_com_nome_do_limite_em_menos_de_2s():
-    """12 mil linhas de 50 células (600 mil no total) estouram o orçamento de 500 mil. Cada
+    """12 mil linhas de 50 células (600 mil no total) estouram o orçamento de 60 mil. Cada
     linha respeita o teto de colunas: o que recusa é o TOTAL de células lidas."""
     linha = "<row>" + "<c/>" * 50 + "</row>"
     corpo = "".join(linha for _ in range(12_000))
     conteudo = _com_partes(_base(), {"xl/worksheets/sheet1.xml": _folha(corpo)})
-    assert excel.MAXIMO_DE_CELULAS_LIDAS == 500_000
+    assert excel.MAXIMO_DE_CELULAS_LIDAS == 60_000
 
     inicio = time.perf_counter()
     with pytest.raises(ArquivoGrandeDemais, match="células"):
@@ -169,12 +169,13 @@ def test_sharedstrings_acima_de_16_mb_e_recusada_antes_de_ser_lida_em_menos_de_2
     assert decorrido < LIMITE_DE_TEMPO_S
 
 
-def test_limite_de_planilha_por_parte_e_64_mb(monkeypatch):
-    """A aba não pode passar de 64 MB descompactados (limite por PARTE, não só o total)."""
-    assert excel.TAMANHO_MAXIMO_PLANILHA_BYTES == 64 * 1024 * 1024
-    assert excel.TAMANHO_MAXIMO_PARTE_DE_APOIO_BYTES == 16 * 1024 * 1024
-    assert excel._limite_da_parte("xl/worksheets/sheet1.xml") == 64 * 1024 * 1024
-    assert excel._limite_da_parte("xl/sharedStrings.xml") == 16 * 1024 * 1024
+def test_limite_de_planilha_por_parte_e_16_mb_e_de_apoio_4_mb(monkeypatch):
+    """A aba não pode passar de 16 MB descompactados, e as partes de apoio de 4 MB (R3c).
+    O limite é por PARTE, não só o total."""
+    assert excel.TAMANHO_MAXIMO_PLANILHA_BYTES == 16 * 1024 * 1024
+    assert excel.TAMANHO_MAXIMO_PARTE_DE_APOIO_BYTES == 4 * 1024 * 1024
+    assert excel._limite_da_parte("xl/worksheets/sheet1.xml") == 16 * 1024 * 1024
+    assert excel._limite_da_parte("xl/sharedStrings.xml") == 4 * 1024 * 1024
 
 
 # -----------------------------------------------------------------------------

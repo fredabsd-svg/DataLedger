@@ -743,43 +743,55 @@ def escrever(contas, *, data_alteracao=None):
 
     niveis = {}
 
-    def nivel_de(codigo, cadeia):
-        """Nível pela cadeia de conta superior (p. 119). None se há erro."""
-        if codigo in niveis:
-            return niveis[codigo]
-        conta = por_codigo[codigo]
-        if conta.codigo_pai is None:
-            niveis[codigo] = 1
-            return 1
-        if conta.codigo_pai in cadeia:
-            ocorrencias.append(
-                Ocorrencia(
-                    conta.linha,
-                    "COD_CTA_SUP",
-                    NIVEL_ERRO,
-                    f"a hierarquia da conta {codigo} volta sobre si mesma (ciclo).",
+    def nivel_de(codigo):
+        """Nível pela cadeia de conta superior (p. 119). None se há erro.
+
+        ITERATIVO de propósito (R1 da reconferência): a cadeia do cadastro pode ter mais níveis
+        do que o limite de recursão do Python, e a exportação não pode cair com RecursionError.
+        Sobe pela cadeia até achar um nível já calculado, a raiz, ou um erro; depois desce
+        preenchendo `niveis`. Em erro, nada do caminho é guardado, como na versão recursiva.
+        """
+        caminho = []
+        no_caminho = set()
+        atual = codigo
+        while atual not in niveis:
+            conta = por_codigo[atual]
+            caminho.append(atual)
+            no_caminho.add(atual)
+            if conta.codigo_pai is None:
+                base = 0
+                break
+            if conta.codigo_pai in no_caminho:
+                ocorrencias.append(
+                    Ocorrencia(
+                        conta.linha,
+                        "COD_CTA_SUP",
+                        NIVEL_ERRO,
+                        f"a hierarquia da conta {atual} volta sobre si mesma (ciclo).",
+                    )
                 )
-            )
-            return None
-        if conta.codigo_pai not in por_codigo:
-            ocorrencias.append(
-                Ocorrencia(
-                    conta.linha,
-                    "COD_CTA_SUP",
-                    NIVEL_ERRO,
-                    f"a conta superior '{conta.codigo_pai}' não está no plano exportado.",
+                return None
+            if conta.codigo_pai not in por_codigo:
+                ocorrencias.append(
+                    Ocorrencia(
+                        conta.linha,
+                        "COD_CTA_SUP",
+                        NIVEL_ERRO,
+                        f"a conta superior '{conta.codigo_pai}' não está no plano exportado.",
+                    )
                 )
-            )
-            return None
-        nivel_pai = nivel_de(conta.codigo_pai, cadeia | {codigo})
-        if nivel_pai is None:
-            return None
-        niveis[codigo] = nivel_pai + 1
+                return None
+            atual = conta.codigo_pai
+        else:
+            base = niveis[atual]
+        for no in reversed(caminho):
+            base += 1
+            niveis[no] = base
         return niveis[codigo]
 
     for conta in contas:
         if conta.codigo not in niveis:
-            nivel_de(conta.codigo, frozenset({conta.codigo}))
+            nivel_de(conta.codigo)
 
     linhas = []
     for conta in contas:

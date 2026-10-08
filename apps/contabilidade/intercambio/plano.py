@@ -101,14 +101,17 @@ FILTROS_DE_EXPORTACAO = ("todas", "analiticas", "com_movimento")
 TAMANHO_MAXIMO_CODIGO = 20  # Conta.codigo
 TAMANHO_MAXIMO_NOME = 200  # Conta.nome
 
-# Teto de contas por importação (A6 da auditoria da DL-077). Acima disso a conferência e
-# a aplicação levariam minutos e segurariam o lock da empresa; a recusa é nomeada. Um
-# plano real cabe folgado: o limite é de operação, não de regra contábil.
-MAXIMO_DE_CONTAS_POR_IMPORTACAO = 5_000
+# Teto de contas por importação (A6 da auditoria da DL-077; R4 da reconferência). A aplicação
+# de 5.000 contas foi medida em ~28 s, com o lock da empresa retido, e o gunicorn padrão mata o
+# worker em 30 s. Com 2.500 a aplicação fica com folga; o teste de T-R4 mede o tempo real.
+# Um plano real cabe folgado: o limite é de operação, não de regra contábil.
+MAXIMO_DE_CONTAS_POR_IMPORTACAO = 2_500
 
-# Profundidade máxima da cadeia de superiores DENTRO do arquivo (A8). Acima disso o
-# núcleo recusa a conta com erro nomeado, em vez de estourar a recursão do Python. A
-# exportação em árvore também recursa, e este limite a mantém segura para o que se importa.
+# Profundidade máxima da cadeia de superiores, contando as contas do ARQUIVO e as do CADASTRO
+# (A8 e R1 da reconferência). Acima disso a conta é recusada com erro nomeado. A conferência
+# não recursa além do limite, e a exportação em árvore e o cálculo de nível são iterativos:
+# uma cadeia que já está no cadastro não derruba a exportação. O limite é de operação do
+# produto, não uma regra do leiaute.
 MAXIMO_DE_NIVEIS_DE_SUPERIOR = 50
 
 # Tipo de conta de resultado (COD_NAT 04 da ECD): a mensagem nomeia o código do leiaute.
@@ -333,23 +336,41 @@ class _Conferencia:
             )
         return replace(conta, codigo_pai=escolhida)
 
-    def _altura_da_cadeia(self, codigo):
-        """Quantas superiores DO ARQUIVO a conta tem, até o topo ou até o limite (A8).
+    def _superior_efetiva(self, codigo):
+        """Conta superior de `codigo` como a conferência a vê. None se é a raiz.
 
-        Sem recursão e sem memo: a altura não depende da ordem em que as contas são
-        resolvidas. Para no limite, então custa no máximo MAXIMO_DE_NIVEIS_DE_SUPERIOR + 1 passos.
+        Se a conta está no arquivo, vale a superior do arquivo (já escolhida por prefixo).
+        Senão, vale a do cadastro. Uma conta que não está em nenhum dos dois não tem superior
+        para a conferência, e quem a cita é recusado em outro ponto.
+        """
+        if codigo in self.arquivo:
+            return self.arquivo[codigo].codigo_pai
+        if codigo in self.banco:
+            cadastrada = self.banco[codigo]
+            return cadastrada.conta_pai.codigo if cadastrada.conta_pai_id is not None else None
+        return None
+
+    def _altura_da_cadeia(self, codigo):
+        """Quantas superiores a conta tem, somando o ARQUIVO e o CADASTRO (A8 e R1).
+
+        A profundidade total é a que importa: uma importação que pendura uma conta sob uma cadeia
+        de 60 níveis já cadastrados passa do limite, mesmo que o arquivo tenha uma só linha.
+        Sem recursão e sem memo: a altura não depende da ordem em que as contas são resolvidas.
+        Para ao achar ciclo, ao chegar em conta que não existe, ou ao passar do limite. Custa no
+        máximo MAXIMO_DE_NIVEIS_DE_SUPERIOR + 2 passos, mesmo com ciclo no arquivo ou no cadastro.
         """
         altura = 0
         visitados = {codigo}
-        atual = self.arquivo[codigo].codigo_pai
+        atual = self._superior_efetiva(codigo)
         while (
-            atual in self.arquivo
+            atual is not None
             and atual not in visitados
+            and (atual in self.arquivo or atual in self.banco)
             and altura <= MAXIMO_DE_NIVEIS_DE_SUPERIOR
         ):
             visitados.add(atual)
             altura += 1
-            atual = self.arquivo[atual].codigo_pai
+            atual = self._superior_efetiva(atual)
         return altura
 
     def resolver(self, codigo, em_curso=frozenset()):
@@ -389,12 +410,13 @@ class _Conferencia:
         if conta.codigo_pai is not None and self._altura_da_cadeia(codigo) > (
             MAXIMO_DE_NIVEIS_DE_SUPERIOR
         ):
-            # A8: cadeia acima do limite. Não recursa: a conta é recusada aqui, e as
-            # filhas dela herdam o erro pela regra "superior tem erro" abaixo.
+            # A8 e R1: cadeia acima do limite, contando arquivo e cadastro. Não recursa: a conta
+            # é recusada aqui, e as filhas dela herdam o erro pela regra "superior tem erro".
             erro(
                 "codigo_pai",
                 f"a cadeia de superiores de {codigo} passa de {MAXIMO_DE_NIVEIS_DE_SUPERIOR} "
-                "níveis dentro do arquivo. Hierarquia tão funda não é aceita; reorganize o plano.",
+                "níveis, contando as contas do arquivo e as já cadastradas. Hierarquia tão funda "
+                "não é aceita; reorganize o plano.",
             )
         elif conta.codigo_pai is not None:
             if conta.codigo_pai == codigo or conta.codigo_pai in em_curso:
@@ -889,19 +911,20 @@ def _ordenar_em_arvore(contas):
         else:
             filhas[conta.codigo_pai].append(conta)
 
+    # Percurso em profundidade com pilha explícita, não recursão (R1 da reconferência): a cadeia
+    # que já está no cadastro pode passar de mil níveis, e a exportação não pode cair com
+    # RecursionError. Empilhar as filhas ao contrário faz a menor irmã sair primeiro, como a
+    # recursão fazia: é a mesma ordem de saída, a pré-ordem.
     saida = []
     visitadas = set()
-
-    def visitar(conta):
+    pilha = list(reversed(sorted(raizes, key=lambda c: c.codigo)))
+    while pilha:
+        conta = pilha.pop()
         if conta.codigo in visitadas:
-            return
+            continue
         visitadas.add(conta.codigo)
         saida.append(conta)
-        for filha in sorted(filhas[conta.codigo], key=lambda c: c.codigo):
-            visitar(filha)
-
-    for raiz in sorted(raizes, key=lambda c: c.codigo):
-        visitar(raiz)
+        pilha.extend(reversed(sorted(filhas[conta.codigo], key=lambda c: c.codigo)))
     saida.extend(conta for conta in contas if conta.codigo not in visitadas)
     return saida
 
