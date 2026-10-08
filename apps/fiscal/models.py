@@ -23,10 +23,30 @@ Nenhum destes modelos é registrado em `apps/fiscal/admin.py` — não existe
 esse arquivo de propósito.
 """
 
+from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q
 
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio
+
+
+class EscrituracaoImutavel(Exception):
+    """Escrituração efetivada ou estornada não se altera nem se apaga por
+    `save()`/`delete()` fora dos serviços. A correção é estorno com motivo
+    (`apps.fiscal.escrituracao.estornar_escrituracao`). Mesma ideia de
+    `LancamentoImutavelError` da contabilidade (DL-052); o banco também
+    recusa (gatilho da migração `0002_dl072_escrituracao_fiscal`)."""
+
+    mensagem_padrao = (
+        "Escrituração efetivada não pode ser alterada nem excluída; "
+        "estorne com motivo para corrigir."
+    )
+
+    def __init__(self, mensagem=None):
+        super().__init__(mensagem or self.mensagem_padrao)
+        self.mensagem = mensagem or self.mensagem_padrao
 
 
 class TipoDocumentoFiscal(models.TextChoices):
@@ -315,3 +335,239 @@ class ResultadoDoArquivo(models.Model):
 
     def __str__(self):
         return f"{self.caminho_no_zip or '(arquivo solto)'} — {self.get_resultado_display()}"
+
+
+# ---------------------------------------------------------------------------
+# DL-072 (frente A): escrituração das NFS-e prestadas.
+#
+# O catálogo de natureza é FECHADO e vive em código (HI-56): é o contador
+# quem escolhe, entre estas quatro, a natureza de cada nota prestada. Nenhuma
+# delas carrega alíquota nesta etapa — alíquota, imposto e guia ficam para as
+# etapas seguintes, cada uma com fonte oficial e vigência.
+# ---------------------------------------------------------------------------
+
+
+class NaturezaOperacao(models.TextChoices):
+    PRESTADO_ISS_DEVIDO_PRESTADOR = (
+        "prestado_iss_devido_prestador",
+        "Serviço prestado — ISS devido pelo prestador",
+    )
+    PRESTADO_ISS_RETIDO = (
+        "prestado_iss_retido",
+        "Serviço prestado — ISS retido pelo tomador ou pelo intermediário",
+    )
+    PRESTADO_ISS_OUTRO_MUNICIPIO = (
+        "prestado_iss_outro_municipio",
+        "Serviço prestado — ISS devido a outro município",
+    )
+    # Exportação, imunidade ou não incidência: é o CONTADOR quem escolhe.
+    PRESTADO_SEM_INCIDENCIA_ISS = (
+        "prestado_sem_incidencia_iss",
+        "Serviço prestado — sem incidência de ISS",
+    )
+
+
+class EstadoEscrituracao(models.TextChoices):
+    """Rascunho e efetivada são estados DIFERENTES e distinguíveis (regra
+    do CLAUDE.md): só a efetivada conta na apuração. A estornada fica no
+    histórico, nunca é reaproveitada."""
+
+    RASCUNHO = "rascunho", "Rascunho"
+    EFETIVADA = "efetivada", "Efetivada"
+    ESTORNADA = "estornada", "Estornada"
+
+
+class EscrituracaoFiscal(models.Model):
+    """Escrituração de UMA NFS-e prestada por UMA empresa cliente (DL-072).
+
+    Uma linha por vínculo e por tentativa de escrituração: uma efetivada
+    estornada não é reaberta — um novo ato cria OUTRA linha, e a trilha
+    guarda as duas. Por isso a unicidade é PARCIAL: no banco, no máximo uma
+    linha NÃO estornada (rascunho ou efetivada) por vínculo.
+
+    Valores (`data_emissao`, `data_competencia`, `valor_servico`,
+    `valor_liquido`, `iss_retido`) são COPIADOS do `DocumentoFiscal` no ato
+    de efetivar: a escrituração não recalcula imposto e não depende de o
+    documento continuar sendo lido igual (o XML original fica no documento).
+    `data_competencia` é `dCompet` — define o mês da escrituração (HI-57);
+    `data_emissao` é `dhEmi` no fuso de Brasília, só para o aviso de
+    competência diferente da emissão.
+
+    Imutabilidade, em três camadas (DE-008):
+    1. `save()` recusa alterar linha que já está efetivada ou estornada
+       (`EscrituracaoImutavel`). `delete()` recusa linha que não seja rascunho.
+    2. Os serviços mudam estado com `QuerySet.update()` condicionado ao
+       estado anterior, e o BANCO (gatilho da migração 0002) só aceita as
+       transições rascunho→efetivada e efetivada→estornada, e só alterando
+       as colunas do ato.
+    3. A coerência entre estado e colunas preenchidas é `CheckConstraint`.
+
+    Limite declarado: `TRUNCATE` não aciona gatilho de linha (mesmo limite da
+    DL-052); quem tem privilégio de dono da tabela está fora do que o banco
+    impede sozinho.
+    """
+
+    vinculo = models.ForeignKey(
+        VinculoDocumentoEmpresa,
+        on_delete=models.PROTECT,
+        related_name="escrituracoes_fiscais",
+        verbose_name="vínculo documento-empresa",
+    )
+    # Redundante com `vinculo.empresa`, de propósito: a consulta "as
+    # escriturações desta empresa" e o isolamento por empresa não precisam
+    # atravessar o vínculo. A igualdade é garantida em `save()` e pelo
+    # gatilho do banco (`escrituracao_vinculo_prestador_da_empresa`).
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="escrituracoes_fiscais",
+        verbose_name="empresa",
+    )
+    natureza = models.CharField(
+        "natureza da operação", max_length=40, choices=NaturezaOperacao.choices
+    )
+    estado = models.CharField(
+        "estado",
+        max_length=12,
+        choices=EstadoEscrituracao.choices,
+        default=EstadoEscrituracao.RASCUNHO,
+    )
+    data_emissao = models.DateField("data de emissão (dhEmi, em Brasília)", null=True, blank=True)
+    data_competencia = models.DateField("data de competência (dCompet)", null=True, blank=True)
+    # DE-010: Decimal com a MESMA escala do documento (max_digits=17, 2 casas).
+    valor_servico = models.DecimalField(
+        "valor do serviço", max_digits=17, decimal_places=2, null=True, blank=True
+    )
+    valor_liquido = models.DecimalField(
+        "valor líquido", max_digits=17, decimal_places=2, null=True, blank=True
+    )
+    # True quando tpRetISSQN é 2 (tomador) ou 3 (intermediário). Copiado do
+    # documento; a natureza escolhida pelo contador pode divergir disso e
+    # isso fica registrado na trilha, não é bloqueado.
+    iss_retido = models.BooleanField("ISS retido (tpRetISSQN 2 ou 3)", null=True, blank=True)
+    efetivada_em = models.DateTimeField("efetivada em", null=True, blank=True)
+    efetivada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="efetivada por",
+    )
+    estornada_em = models.DateTimeField("estornada em", null=True, blank=True)
+    estornada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="estornada por",
+    )
+    motivo_estorno = models.CharField("motivo do estorno", max_length=500, blank=True, default="")
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="criada por",
+    )
+
+    class Meta:
+        verbose_name = "escrituração fiscal"
+        verbose_name_plural = "escriturações fiscais"
+        ordering = ["id"]
+        constraints = [
+            # HI/DL-072 critério 6: no máximo UMA escrituração não estornada
+            # por vínculo, no banco. Uma efetivação concorrente que passe pela
+            # trava de `select_for_update` ainda assim não cria duplicata.
+            models.UniqueConstraint(
+                fields=["vinculo"],
+                condition=Q(estado__in=["rascunho", "efetivada"]),
+                name="escrituracao_ativa_unica_por_vinculo",
+            ),
+            models.CheckConstraint(
+                condition=Q(estado__in=["rascunho", "efetivada", "estornada"]),
+                name="escrituracao_estado_valido",
+            ),
+            # Coerência entre estado e colunas do ato. Cada ramo é um estado:
+            # - rascunho: nada de efetivação nem de estorno;
+            # - efetivada: efetivação completa (quem, quando, valores copiados)
+            #   e nenhum estorno;
+            # - estornada: tudo da efetivação mais quem/quando/por que estornou.
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        estado="rascunho",
+                        efetivada_em__isnull=True,
+                        efetivada_por__isnull=True,
+                        estornada_em__isnull=True,
+                        estornada_por__isnull=True,
+                        motivo_estorno="",
+                    )
+                    | Q(
+                        estado="efetivada",
+                        efetivada_em__isnull=False,
+                        efetivada_por__isnull=False,
+                        data_emissao__isnull=False,
+                        data_competencia__isnull=False,
+                        valor_servico__isnull=False,
+                        valor_liquido__isnull=False,
+                        iss_retido__isnull=False,
+                        estornada_em__isnull=True,
+                        estornada_por__isnull=True,
+                        motivo_estorno="",
+                    )
+                    | Q(
+                        ~Q(motivo_estorno=""),
+                        estado="estornada",
+                        efetivada_em__isnull=False,
+                        efetivada_por__isnull=False,
+                        data_emissao__isnull=False,
+                        data_competencia__isnull=False,
+                        valor_servico__isnull=False,
+                        valor_liquido__isnull=False,
+                        iss_retido__isnull=False,
+                        estornada_em__isnull=False,
+                        estornada_por__isnull=False,
+                    )
+                ),
+                name="escrituracao_campos_coerentes_com_o_estado",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Escrituração {self.pk} — vínculo {self.vinculo_id} ({self.get_estado_display()})"
+
+    def _estado_gravado(self):
+        # Lê o estado GRAVADO, não o do objeto em memória: o objeto pode ter
+        # sido alterado em Python (ou estar desatualizado) antes do save/delete.
+        return (
+            EscrituracaoFiscal.objects.filter(pk=self.pk).values_list("estado", flat=True).first()
+        )
+
+    def save(self, *args, **kwargs):
+        # Regra de papel e de empresa, também no modelo: só o vínculo de
+        # PRESTADOR da MESMA empresa pode ser escriturado (DL-072, plano). O
+        # serviço já recusa antes; isto impede que um `objects.create()` ou
+        # um `save()` direto contorne a regra.
+        if self.vinculo.papel != PapelDocumento.PRESTADOR:
+            raise ValidationError("Só a nota em que a empresa é prestadora pode ser escriturada.")
+        if self.empresa_id != self.vinculo.empresa_id:
+            raise ValidationError("A escrituração deve ser da mesma empresa do vínculo.")
+        if self.pk is not None and self._estado_gravado() in (
+            EstadoEscrituracao.EFETIVADA,
+            EstadoEscrituracao.ESTORNADA,
+        ):
+            raise EscrituracaoImutavel()
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.pk is not None and self._estado_gravado() in (
+            EstadoEscrituracao.EFETIVADA,
+            EstadoEscrituracao.ESTORNADA,
+        ):
+            raise EscrituracaoImutavel(
+                "Escrituração efetivada ou estornada não pode ser excluída; "
+                "o histórico é preservado pelo estorno."
+            )
+        return super().delete(*args, **kwargs)

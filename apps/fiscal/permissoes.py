@@ -58,3 +58,31 @@ def papel_pode_receber_documentos(papel):
 def papel_pode_consultar_documentos(papel):
     """Este papel pode CONSULTAR (ler) documentos fiscais já recebidos?"""
     return papel in PAPEIS_QUE_CONSULTAM_DOCUMENTOS
+
+
+# DL-072 (frente A): quem ESCRITURA e ESTORNA NFS-e prestadas. A composição é
+# a MESMA de `apps.contabilidade.views.PodeEscriturar` (medida em 2026-10-08):
+# ADMINISTRADOR, GESTOR, ANALISTA e FINANCEIRO. O plano da DL-072 listava só
+# os três primeiros entre parênteses; a medição mostrou que a contabilidade
+# inclui FINANCEIRO, e a regra "mesmos papéis que escrituram na contabilidade"
+# foi mantida. Divergência registrada no relatório da frente A, para o Fred
+# confirmar. PARALEGAL e CLIENTE nunca escrituram.
+#
+# `tests/test_dl072_permissoes.py` compara esta tupla, papel por papel, com a
+# permissão DRF da contabilidade — se uma mudar sem a outra, a suíte reprova.
+PAPEIS_QUE_ESCRITURAM_FISCAL = (
+    Papel.ADMINISTRADOR,
+    Papel.GESTOR,
+    Papel.ANALISTA,
+    Papel.FINANCEIRO,
+)
+
+
+def papel_pode_escriturar_fiscal(papel):
+    """Este papel pode efetivar ou estornar escrituração de NFS-e prestada?
+
+    `None` (sem escritório ativo) nunca é permissão. A checagem é feita no
+    servidor, pela API (`apps.fiscal.api`), e vale também para qualquer outra
+    porta que venha a escriturar.
+    """
+    return papel in PAPEIS_QUE_ESCRITURAM_FISCAL

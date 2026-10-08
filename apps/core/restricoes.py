@@ -277,6 +277,18 @@ MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
         "ajuste em uma competência aberta, com histórico apontando para a competência de "
         "origem."
     ),
+    # DL-072 (frente A), gatilhos de PostgreSQL da escrituração fiscal
+    # (apps.fiscal, migração 0002). Só alcançáveis por SQL direto ou por
+    # `QuerySet.update()` fora dos serviços — os serviços validam antes.
+    "escrituracao_vinculo_prestador_da_empresa": (
+        "A escrituração fiscal só pode apontar para um vínculo de PRESTADOR "
+        "da MESMA empresa: nota tomada não se escritura, e a empresa da "
+        "escrituração tem de ser a do vínculo."
+    ),
+    "escrituracao_imutavel_depois_de_efetivada": (
+        "Escrituração fiscal efetivada não se altera nem se exclui. A única "
+        "correção é o estorno, com motivo, que fica na trilha."
+    ),
 }
 
 
@@ -374,6 +386,11 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     # `ResultadoDoArquivo`), dentro do savepoint por arquivo de
     # `_processar_um_arquivo` — nunca sobe como exceção HTTP.
     "documento_fiscal_unico_por_escritorio": "apps.fiscal.services._processar_um_arquivo",
+    # DL-072 (frente A): no máximo uma escrituração NÃO estornada por vínculo.
+    # A corrida que escapa da trava de `select_for_update` chega aqui como
+    # violação e vira 409 com mensagem, no savepoint de `_inserir_escrituracao`
+    # (apps.fiscal.escrituracao). Não é 400: é conflito de estado, não entrada.
+    "escrituracao_ativa_unica_por_vinculo": "apps.fiscal.escrituracao._inserir_escrituracao",
     "evento_fiscal_unico_por_escritorio": "apps.fiscal.services._processar_um_arquivo",
     # DL-043 (BL-474): a restrição que garante UMA vigência de parâmetro
     # contábil ABERTA por empresa — mesmo molde de
@@ -849,6 +866,19 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "marcação de valor zero não descreve evento nenhum. "
         "`salvar_marcacoes_da_dmpl` recusa antes do INSERT (via "
         "`MarcacaoDmpl.clean()`); só ORM/SQL direto alcançaria a constraint."
+    ),
+    # DL-072 (frente A): a forma da linha. Os serviços (apps.fiscal.escrituracao)
+    # sempre gravam estado e colunas do ato coerentes; nenhuma rota de API
+    # recebe esses campos do cliente, só natureza e motivo.
+    "escrituracao_estado_valido": (
+        "Estado de escrituração fiscal fora de rascunho, efetivada e estornada. "
+        "Só os serviços de apps.fiscal.escrituracao gravam o estado, sempre "
+        "com um dos três valores; a API recebe apenas natureza e motivo."
+    ),
+    "escrituracao_campos_coerentes_com_o_estado": (
+        "Colunas do ato (efetivação e estorno) fora de sincronia com o estado. "
+        "Os serviços preenchem as colunas no mesmo UPDATE/INSERT que muda o "
+        "estado; nenhuma rota recebe esses campos do cliente."
     ),
 }
 

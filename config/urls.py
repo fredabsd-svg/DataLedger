@@ -43,11 +43,14 @@ urlpatterns = [
     # acima): rotas com o mesmo caminho literal ("contas/", "lancamentos/")
     # sob o mesmo `empresa_id`.
     path("livro-caixa/painel/", include("apps.livro_caixa.urls_web")),
+    # API da escrituração das NFS-e prestadas (DL-072, frente A). "fiscal/api/"
+    # vem ANTES de "fiscal/" para que o prefixo das telas nunca a engula.
+    path("fiscal/api/", include("apps.fiscal.urls_api")),
     # Telas da recepção de documentos fiscais (DL-010, fatia 1, etapa 2).
-    # Prefixo "fiscal/" — este módulo não tem API REST nesta fatia
-    # (declarado fora do escopo no plano DL-010-F1), então não existe o
-    # mesmo risco de colisão de caminho que levou "contabilidade/painel/" a
-    # ser diferente de "contabilidade/" (ver o comentário acima).
+    # Prefixo "fiscal/". A API da escrituração (DL-072) fica em "fiscal/api/",
+    # acima, e não colide com estas telas porque é montada antes.
+    # Esta fatia da recepção não tinha API REST (DL-010-F1); a API atual é
+    # a da DL-072.
     path("fiscal/", include("apps.fiscal.urls_web")),
     path("", include("apps.tenancy.urls")),
 ]

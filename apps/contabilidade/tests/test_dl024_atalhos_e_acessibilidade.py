@@ -947,6 +947,9 @@ SUBARVORES_EXCLUIDAS_DE_TELA = {
         "generics/APIView) — respostas JSON; a TELA equivalente já está "
         "coberta sob o namespace contabilidade_web (NOMES_DE_TELA_DE_CONTABILIDADE)"
     ),
+    "fiscal_api": (
+        "API REST da escrituração das NFS-e prestadas (apps.fiscal.api, DRF) — JSON; DL-072"
+    ),
 }
 
 # Rotas FOLHA excluídas individualmente, com o motivo — mesmo padrão de
