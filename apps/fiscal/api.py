@@ -34,10 +34,15 @@ from apps.core.requisicao import (
 )
 from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.fiscal import escrituracao as servico
+from apps.fiscal import folha_fator_r as folha_servico
+from apps.fiscal import pre_das as pre_das_servico
 from apps.fiscal import rbt12 as apuracao
 from apps.fiscal import receita as receita_servico
 from apps.fiscal.models import (
+    AtividadeEmpresa,
+    EnquadramentoAtividade,
     EscrituracaoFiscal,
+    FolhaFatorR,
     MercadoReceita,
     NaturezaOperacao,
     OrigemReceitaInformada,
@@ -323,7 +328,16 @@ class ConferenciaView(EmpresaEscopadaMixin, APIView):
 # ---------------------------------------------------------------------------
 
 CONTRATO_POST_RECEITA_INFORMADA = ContratoDeRequisicao(
-    campos={"ano", "mes", "mercado", "valor", "origem", "motivo", "documento_suporte"},
+    campos={
+        "ano",
+        "mes",
+        "mercado",
+        "valor",
+        "origem",
+        "motivo",
+        "documento_suporte",
+        "atividade",
+    },
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="no lançamento da receita informada",
 )
@@ -369,6 +383,7 @@ class ReceitaInformadaSerializer(serializers.ModelSerializer):
             "origem",
             "motivo",
             "documento_suporte",
+            "atividade",
             "estado",
             "confirmada_em",
             "estornada_em",
@@ -390,6 +405,9 @@ class ReceitaInformadaEntradaSerializer(serializers.Serializer):
     documento_suporte = serializers.CharField(
         max_length=receita_servico.DOCUMENTO_SUPORTE_MAXIMO, trim_whitespace=True
     )
+    # DL-075: atividade opcional (sem ela, vale a padrão do mês). Id de atividade da
+    # MESMA empresa; outra empresa responde 404 na view, nunca vaza o registro.
+    atividade = serializers.IntegerField(required=False, allow_null=True, min_value=1)
 
 
 class MesEntradaSerializer(serializers.Serializer):
@@ -562,6 +580,9 @@ class ReceitasInformadasView(EmpresaEscopadaMixin, APIView):
         entrada = ReceitaInformadaEntradaSerializer(data=request.data)
         entrada.is_valid(raise_exception=True)
         dados = entrada.validated_data
+        atividade = None
+        if dados.get("atividade") is not None:
+            atividade = get_object_or_404(AtividadeEmpresa, pk=dados["atividade"], empresa=empresa)
         try:
             receita = receita_servico.lancar_receita_informada(
                 empresa,
@@ -574,6 +595,7 @@ class ReceitasInformadasView(EmpresaEscopadaMixin, APIView):
                 dados["documento_suporte"],
                 usuario=request.user,
                 request=request,
+                atividade=atividade,
             )
         except receita_servico.EntradaInvalidaReceita as exc:
             raise DRFValidationError(exc.mensagem) from exc
@@ -666,3 +688,371 @@ class RegimeCaixaView(EmpresaEscopadaMixin, APIView):
             {"empresa_id": empresa.pk, "ano_calendario": opcao.ano_calendario},
             status=status.HTTP_201_CREATED,
         )
+
+
+# ---------------------------------------------------------------------------
+# DL-075 (frente A): pré-DAS, atividades e folha para o fator r.
+#
+# Autorização como nas demais rotas: ler (pré-DAS, listas) exige
+# `papel_pode_consultar_documentos`; cadastrar, alterar, lançar, confirmar e estornar
+# exigem `papel_pode_escriturar_fiscal`. Isolamento: `EmpresaEscopadaMixin` + busca
+# DENTRO da empresa (404 para registro de outra empresa, mesmo do mesmo escritório).
+# Recusa do pré-DAS é 409 com a LISTA de bloqueios (critério 7). Sem persistência do
+# pré-DAS: é cálculo sob demanda (a memória vai na resposta).
+# ---------------------------------------------------------------------------
+
+_CAMPOS_ATIVIDADE = {"descricao", "codigo_subitem", "enquadramento", "inicio", "fim", "padrao"}
+CONTRATO_ATIVIDADE = ContratoDeRequisicao(
+    campos=_CAMPOS_ATIVIDADE,
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no cadastro da atividade",
+)
+CONTRATO_FOLHA = ContratoDeRequisicao(
+    campos={"ano", "mes", "documento_suporte", *FolhaFatorR.COMPONENTES},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no lançamento da folha",
+)
+CONTRATO_POST_ESTORNAR_FOLHA = ContratoDeRequisicao(
+    campos={"motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no estorno da folha",
+)
+
+
+def _ano_e_mes_da_consulta_so_ano(request):
+    """Ano da querystring (filtro da lista de folhas). Inválido → 400, nunca lista vazia muda."""
+    try:
+        ano = int(request.query_params["ano"])
+    except (KeyError, ValueError) as exc:
+        raise DRFValidationError("Informe 'ano' como número inteiro.") from exc
+    if not (_ANO_MINIMO <= ano <= _ANO_MAXIMO):
+        raise DRFValidationError(
+            f"'ano' inválido: {ano} — deve estar entre {_ANO_MINIMO} e {_ANO_MAXIMO}."
+        )
+    return ano, None
+
+
+class AtividadeSerializer(serializers.ModelSerializer):
+    enquadramento_descricao = serializers.CharField(
+        source="get_enquadramento_display", read_only=True
+    )
+
+    class Meta:
+        model = AtividadeEmpresa
+        fields = [
+            "id",
+            "descricao",
+            "codigo_subitem",
+            "enquadramento",
+            "enquadramento_descricao",
+            "inicio",
+            "fim",
+            "padrao",
+        ]
+        read_only_fields = fields
+
+
+class AtividadeEntradaSerializer(serializers.Serializer):
+    descricao = serializers.CharField(max_length=200, trim_whitespace=True)
+    codigo_subitem = serializers.CharField(
+        max_length=20, required=False, allow_blank=True, trim_whitespace=True
+    )
+    enquadramento = serializers.ChoiceField(choices=EnquadramentoAtividade.choices)
+    inicio = serializers.DateField()
+    fim = serializers.DateField(required=False, allow_null=True)
+    padrao = serializers.BooleanField(required=False, default=False)
+
+
+class FolhaSerializer(serializers.ModelSerializer):
+    """Saída. O total vem calculado; sem ids de usuário (a trilha guarda o ator)."""
+
+    total = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FolhaFatorR
+        fields = [
+            "id",
+            "ano",
+            "mes",
+            "estado",
+            *FolhaFatorR.COMPONENTES,
+            "total",
+            "documento_suporte",
+            "confirmada_em",
+            "estornada_em",
+            "motivo_estorno",
+            "criado_em",
+        ]
+        read_only_fields = fields
+
+    def get_total(self, obj):
+        return str(obj.total)
+
+
+class FolhaEntradaSerializer(serializers.Serializer):
+    ano = serializers.IntegerField(
+        min_value=receita_servico.ANO_MINIMO, max_value=receita_servico.ANO_MAXIMO
+    )
+    mes = serializers.IntegerField(min_value=1, max_value=12)
+    remuneracao_empregados_avulsos = serializers.DecimalField(
+        max_digits=17, decimal_places=2, min_value=Decimal("0")
+    )
+    pro_labore_autonomos = serializers.DecimalField(
+        max_digits=17, decimal_places=2, min_value=Decimal("0")
+    )
+    decimo_terceiro = serializers.DecimalField(
+        max_digits=17, decimal_places=2, min_value=Decimal("0")
+    )
+    cpp_recolhida = serializers.DecimalField(
+        max_digits=17, decimal_places=2, min_value=Decimal("0")
+    )
+    fgts_recolhido = serializers.DecimalField(
+        max_digits=17, decimal_places=2, min_value=Decimal("0")
+    )
+    documento_suporte = serializers.CharField(
+        max_length=folha_servico.DOCUMENTO_SUPORTE_MAXIMO, trim_whitespace=True
+    )
+
+
+def _bloqueio_payload(bloqueio) -> dict:
+    return {
+        "codigo": bloqueio.codigo,
+        "mensagem": bloqueio.mensagem,
+        "dispositivo": bloqueio.dispositivo,
+    }
+
+
+def _pre_das_payload(resultado: pre_das_servico.PreDas) -> dict:
+    """Pré-DAS em texto. Os números são strings exatas (sem float); a alíquota efetiva
+    sai com a precisão total do cálculo, e a memória traz cada passo com o dispositivo."""
+
+    def dec(valor):
+        return str(valor) if valor is not None else None
+
+    fator = resultado.fator_r
+    return {
+        "ano": resultado.ano,
+        "mes": resultado.mes,
+        "total": str(resultado.total),
+        "total_por_tributo": {nome: str(valor) for nome, valor in resultado.total_por_tributo},
+        "rbt12": {mercado: dec(valor) for mercado, valor in resultado.rbt12.items()},
+        "fator_r": (
+            {
+                "fs12": dec(fator.fs12),
+                "rbt12_conjunto": dec(fator.rbt12_conjunto),
+                "valor": dec(fator.valor),
+                "regra_de_zero": fator.regra_zero,
+            }
+            if fator is not None
+            else None
+        ),
+        "anexos": [
+            {
+                "mercado": anexo.mercado,
+                "anexo": anexo.anexo,
+                "rbt12": dec(anexo.rbt12),
+                "faixa": anexo.faixa,
+                "limite_superior": dec(anexo.limite_superior),
+                "aliquota_nominal": dec(anexo.aliquota_nominal),
+                "parcela_a_deduzir": dec(anexo.parcela_a_deduzir),
+                "aliquota_efetiva": dec(anexo.aliquota_efetiva),
+                "teto_iss_aplicado": anexo.teto_iss_aplicado,
+                "diferenca_centesimal": dec(anexo.diferenca),
+                "tributo_da_diferenca": anexo.tributo_da_diferenca,
+                "total": str(anexo.total),
+                "segmentos": [
+                    {
+                        "segmento": seg.segmento,
+                        "receita": str(seg.receita),
+                        "total": str(seg.total),
+                        "tributos": [
+                            {
+                                "tributo": linha.tributo,
+                                "percentual": dec(linha.percentual),
+                                "valor": str(linha.valor),
+                                "desconsiderado": linha.desconsiderado,
+                            }
+                            for linha in seg.linhas
+                        ],
+                    }
+                    for seg in anexo.segmentos
+                ],
+            }
+            for anexo in resultado.anexos
+        ],
+        "memoria": [
+            {
+                "ordem": passo.ordem,
+                "descricao": passo.descricao,
+                "valor": passo.valor,
+                "dispositivo": passo.dispositivo,
+            }
+            for passo in resultado.memoria
+        ],
+    }
+
+
+class PreDasView(EmpresaEscopadaMixin, APIView):
+    """GET — pré-DAS do mês (ano/mes). 409 com a lista de bloqueios quando não calcula."""
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        ano, mes = _ano_e_mes_da_consulta(request)
+        try:
+            resultado = pre_das_servico.pre_das(empresa, ano, mes)
+        except pre_das_servico.PreDasRecusado as exc:
+            return Response(
+                {
+                    "detail": str(exc),
+                    "bloqueios": [_bloqueio_payload(b) for b in exc.bloqueios],
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(_pre_das_payload(resultado))
+
+
+class AtividadesView(EmpresaEscopadaMixin, APIView):
+    """GET — atividades da empresa, com vigência e enquadramento."""
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        atividades = AtividadeEmpresa.objects.filter(empresa=empresa).order_by("inicio", "id")
+        return Response(AtividadeSerializer(atividades, many=True).data)
+
+
+class CadastrarAtividadeView(EmpresaEscopadaMixin, APIView):
+    """POST — cadastra atividade com enquadramento e vigência."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def post(self, request, empresa_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_ATIVIDADE)
+        empresa = self.get_empresa()
+        entrada = AtividadeEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        try:
+            atividade = pre_das_servico.cadastrar_atividade(
+                empresa, dict(entrada.validated_data), usuario=request.user, request=request
+            )
+        except pre_das_servico.EntradaInvalidaAtividade as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except pre_das_servico.AtividadeConflito as exc:
+            return _resposta_de_conflito(exc)
+        return Response(AtividadeSerializer(atividade).data, status=status.HTTP_201_CREATED)
+
+
+class AtividadeDetalheView(EmpresaEscopadaMixin, APIView):
+    """PATCH — altera atividade (vigência, padrão, enquadramento). DELETE — exclui se não usada."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def patch(self, request, empresa_id, atividade_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_ATIVIDADE)
+        empresa = self.get_empresa()
+        atividade = get_object_or_404(AtividadeEmpresa, pk=atividade_id, empresa=empresa)
+        entrada = AtividadeEntradaSerializer(data=request.data, partial=True)
+        entrada.is_valid(raise_exception=True)
+        try:
+            alterada = pre_das_servico.alterar_atividade(
+                atividade, dict(entrada.validated_data), usuario=request.user, request=request
+            )
+        except pre_das_servico.EntradaInvalidaAtividade as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except pre_das_servico.AtividadeConflito as exc:
+            return _resposta_de_conflito(exc)
+        return Response(AtividadeSerializer(alterada).data, status=status.HTTP_200_OK)
+
+    def delete(self, request, empresa_id, atividade_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_SEM_CORPO)
+        empresa = self.get_empresa()
+        atividade = get_object_or_404(AtividadeEmpresa, pk=atividade_id, empresa=empresa)
+        try:
+            pre_das_servico.excluir_atividade(atividade, usuario=request.user, request=request)
+        except pre_das_servico.AtividadeConflito as exc:
+            return _resposta_de_conflito(exc)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class FolhasFatorRView(EmpresaEscopadaMixin, APIView):
+    """GET — folhas da empresa (opcional `ano`). Leitura: papel que consulta documentos."""
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        folhas = FolhaFatorR.objects.filter(empresa=empresa).order_by("ano", "mes", "id")
+        if "ano" in request.query_params:
+            ano, _mes = _ano_e_mes_da_consulta_so_ano(request)
+            folhas = folhas.filter(ano=ano)
+        return Response(FolhaSerializer(folhas, many=True).data)
+
+
+class LancarFolhaView(EmpresaEscopadaMixin, APIView):
+    """POST — lança a folha do mês em RASCUNHO. É escrita: exige papel que escritura."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def post(self, request, empresa_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_FOLHA)
+        empresa = self.get_empresa()
+        entrada = FolhaEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        dados = entrada.validated_data
+        componentes = {nome: dados[nome] for nome in FolhaFatorR.COMPONENTES}
+        try:
+            folha = folha_servico.lancar_folha(
+                empresa,
+                dados["ano"],
+                dados["mes"],
+                componentes,
+                dados["documento_suporte"],
+                usuario=request.user,
+                request=request,
+            )
+        except folha_servico.EntradaInvalidaFolha as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except folha_servico.FolhaErro as exc:
+            return _resposta_de_conflito(exc)
+        return Response(FolhaSerializer(folha).data, status=status.HTTP_201_CREATED)
+
+
+class ConfirmarFolhaView(EmpresaEscopadaMixin, APIView):
+    """POST — rascunho → confirmada. A folha confirmada entra no FS12 e não muda mais."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def post(self, request, empresa_id, folha_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_SEM_CORPO)
+        empresa = self.get_empresa()
+        folha = get_object_or_404(FolhaFatorR, pk=folha_id, empresa=empresa)
+        try:
+            confirmada = folha_servico.confirmar_folha(folha, usuario=request.user, request=request)
+        except folha_servico.FolhaErro as exc:
+            return _resposta_de_conflito(exc)
+        return Response(FolhaSerializer(confirmada).data, status=status.HTTP_200_OK)
+
+
+class EstornarFolhaView(EmpresaEscopadaMixin, APIView):
+    """POST — confirmada → estornada, com motivo. Lança-se outro lançamento para o mês."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def post(self, request, empresa_id, folha_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_ESTORNAR_FOLHA)
+        empresa = self.get_empresa()
+        folha = get_object_or_404(FolhaFatorR, pk=folha_id, empresa=empresa)
+        entrada = MotivoEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        try:
+            estornada = folha_servico.estornar_folha(
+                folha, entrada.validated_data["motivo"], usuario=request.user, request=request
+            )
+        except folha_servico.EntradaInvalidaFolha as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except folha_servico.FolhaErro as exc:
+            return _resposta_de_conflito(exc)
+        return Response(FolhaSerializer(estornada).data, status=status.HTTP_200_OK)

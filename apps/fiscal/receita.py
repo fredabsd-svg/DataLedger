@@ -158,6 +158,26 @@ def _proximo_mes(ano: int, mes: int) -> date:
     return date(ano + (mes == 12), 1 if mes == 12 else mes + 1, 1)
 
 
+def _escrituracoes_efetivadas_do_mes(empresa: Empresa, ano: int, mes: int):
+    """Escriturações EFETIVADAS da empresa cuja competência (dCompet) cai no mês.
+
+    Fonte única do filtro de documento: a composição e o pré-DAS (DL-075) leem daqui.
+    """
+    return EscrituracaoFiscal.objects.filter(
+        empresa=empresa,
+        estado=EstadoEscrituracao.EFETIVADA,
+        data_competencia__gte=date(ano, mes, 1),
+        data_competencia__lt=_proximo_mes(ano, mes),
+    )
+
+
+def _informadas_confirmadas_do_mes(empresa: Empresa, ano: int, mes: int):
+    """Receitas informadas CONFIRMADAS do mês. Fonte única do filtro informado."""
+    return ReceitaInformada.objects.filter(
+        empresa=empresa, ano=ano, mes=mes, estado=EstadoReceitaInformada.CONFIRMADA
+    )
+
+
 def composicao_do_mes(empresa: Empresa, ano: int, mes: int) -> Composicao:
     """Receita do mês por mercado: escriturações efetivadas + informadas confirmadas.
 
@@ -165,14 +185,8 @@ def composicao_do_mes(empresa: Empresa, ano: int, mes: int) -> Composicao:
     escrituração vem de `mercado_da_natureza` (HI-67), e não é repetido aqui.
     """
     documento = {MercadoReceita.INTERNO: ZERO, MercadoReceita.EXTERNO: ZERO}
-    inicio = date(ano, mes, 1)
     linhas = (
-        EscrituracaoFiscal.objects.filter(
-            empresa=empresa,
-            estado=EstadoEscrituracao.EFETIVADA,
-            data_competencia__gte=inicio,
-            data_competencia__lt=_proximo_mes(ano, mes),
-        )
+        _escrituracoes_efetivadas_do_mes(empresa, ano, mes)
         .values("natureza")
         .annotate(total=Sum("valor_servico"))
         .order_by()
@@ -183,9 +197,7 @@ def composicao_do_mes(empresa: Empresa, ano: int, mes: int) -> Composicao:
 
     informado = {MercadoReceita.INTERNO: ZERO, MercadoReceita.EXTERNO: ZERO}
     linhas_informadas = (
-        ReceitaInformada.objects.filter(
-            empresa=empresa, ano=ano, mes=mes, estado=EstadoReceitaInformada.CONFIRMADA
-        )
+        _informadas_confirmadas_do_mes(empresa, ano, mes)
         .values("mercado")
         .annotate(total=Sum("valor"))
         .order_by()
@@ -205,6 +217,49 @@ def composicao_do_mes(empresa: Empresa, ano: int, mes: int) -> Composicao:
             informado[MercadoReceita.EXTERNO],
         ),
     )
+
+
+@dataclass(frozen=True)
+class LancamentoInformado:
+    """Uma soma de receita informada confirmada, por mercado e atividade (None = padrão)."""
+
+    mercado: str
+    atividade_id: int | None
+    valor: Decimal
+
+
+@dataclass(frozen=True)
+class LancamentosDoMes:
+    """Os mesmos lançamentos de `composicao_do_mes`, abertos para o pré-DAS (DL-075).
+
+    `documento_por_natureza`: total de cada natureza efetivada (o pré-DAS segrega
+    ISS retido, outro município e exportação por natureza). `informados`: cada
+    mercado e atividade. Somados por mercado, os dois batem com `composicao_do_mes`.
+    """
+
+    documento_por_natureza: dict[str, Decimal]
+    informados: tuple[LancamentoInformado, ...]
+
+
+def lancamentos_do_mes(empresa: Empresa, ano: int, mes: int) -> LancamentosDoMes:
+    """Lançamentos do mês abertos por natureza e por atividade (consumidor: pré-DAS)."""
+    por_natureza: dict[str, Decimal] = {}
+    for linha in (
+        _escrituracoes_efetivadas_do_mes(empresa, ano, mes)
+        .values("natureza")
+        .annotate(total=Sum("valor_servico"))
+        .order_by()
+    ):
+        por_natureza[linha["natureza"]] = linha["total"] or ZERO
+
+    informados = tuple(
+        LancamentoInformado(linha["mercado"], linha["atividade"], linha["total"] or ZERO)
+        for linha in _informadas_confirmadas_do_mes(empresa, ano, mes)
+        .values("mercado", "atividade")
+        .annotate(total=Sum("valor"))
+        .order_by("mercado", "atividade")
+    )
+    return LancamentosDoMes(documento_por_natureza=por_natureza, informados=informados)
 
 
 def confirmacao_do_mes(empresa: Empresa, ano: int, mes: int, *, travar: bool = False):
@@ -642,11 +697,16 @@ def lancar_receita_informada(
     documento_suporte: str,
     usuario,
     request=None,
+    atividade=None,
 ) -> ReceitaInformada:
     """Cria a receita informada em RASCUNHO. Rascunho não entra em nenhum total.
 
     Origem "histórico" só é aceita em competência anterior ao início de uso do
     sistema (critério 7). A recusa é feita aqui, e não só na tela.
+
+    `atividade` (DL-075, HI-68) é opcional: sem ela, o pré-DAS usa a atividade
+    padrão vigente no mês. Se informada, tem de ser desta empresa e cobrir o mês
+    inteiro. Não altera o total do mês nem o RBT12: só o anexo do pré-DAS.
     """
     validar_competencia(ano, mes)
     if mercado not in MercadoReceita.values:
@@ -658,6 +718,13 @@ def lancar_receita_informada(
     suporte = _texto_obrigatorio(
         documento_suporte, "o documento de suporte", DOCUMENTO_SUPORTE_MAXIMO
     )
+    if atividade is not None:
+        if atividade.empresa_id != empresa.pk:
+            raise EntradaInvalidaReceita("A atividade informada não pertence a esta empresa.")
+        if not atividade.cobre_o_mes(ano, mes):
+            raise EntradaInvalidaReceita(
+                f"A atividade informada não está vigente em {_mm_aaaa(ano, mes)} por inteiro."
+            )
     if origem == OrigemReceitaInformada.HISTORICO_PRE_SISTEMA and not _antes_do_inicio_de_uso(
         empresa, ano, mes
     ):
@@ -706,6 +773,7 @@ def lancar_receita_informada(
         documento_suporte=suporte,
         estado=EstadoReceitaInformada.RASCUNHO,
         criado_por=usuario,
+        atividade=atividade,
     )
     receita.save()
     registrar(
@@ -714,7 +782,11 @@ def lancar_receita_informada(
         escritorio=empresa.escritorio,
         objeto=receita,
         request=request,
-        detalhes={"empresa_id": empresa.pk, "depois": _snapshot_receita(receita)},
+        detalhes={
+            "empresa_id": empresa.pk,
+            "depois": _snapshot_receita(receita),
+            "atividade_id": receita.atividade_id,
+        },
     )
     return receita
 

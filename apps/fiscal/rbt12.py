@@ -438,14 +438,13 @@ def _avisos_de_receita_antes_da_abertura(
     return avisos
 
 
-def rbt12(empresa: Empresa, ano: int, mes: int) -> Rbt12:
-    """RBT12 do PA `ano/mes` por mercado, com a regra usada, a janela e os avisos.
+def _contexto_da_apuracao(empresa: Empresa, ano: int, mes: int):
+    """(data de abertura, período do Simples) do PA, ou recusa nomeada.
 
-    Recusa com `ApuracaoRecusada` (mensagem nomeada) quando não há como apurar:
-    ano 2027 ou depois, sem data de abertura, PA anterior à abertura, sem período do
-    Simples no PA, ou período do Simples que começa antes da abertura (dado
-    inconsistente, R4). Mês da janela sem confirmação NÃO é recusa: o resultado
-    fica "não apurável" e lista os meses.
+    Recusa com `ApuracaoRecusada`: ano 2027 ou depois, sem data de abertura, PA
+    anterior à abertura, sem período do Simples no PA, ou período do Simples que
+    começa antes da abertura (R4). Compartilhado por `rbt12()` e
+    `janela_da_apuracao()` (DL-075: o FS12 do fator r usa a mesma janela).
     """
     recibo.validar_competencia(ano, mes)
     if ano >= ANO_RECUSADO:
@@ -487,6 +486,50 @@ def rbt12(empresa: Empresa, ano: int, mes: int) -> Rbt12:
             "no CNPJ (Res. CGSN 140/2018, art. 6º, §§ 1º e 5º, V, e art. 2º, V). Corrija a data "
             "de abertura ou o início do regime no cadastro da empresa antes de apurar o RBT12."
         )
+    return abertura, periodo
+
+
+@dataclass(frozen=True)
+class JanelaDaApuracao:
+    """Regra do art. 22 e meses que ela soma, para o PA. Mesma regra do RBT12.
+
+    `meses` vem em ordem e pode trazer meses ANTES da abertura: são zero e não
+    exigem confirmação (o mesmo tratamento de `rbt12()`).
+    """
+
+    regra: str
+    meses: tuple[tuple[int, int], ...]
+    abertura: date
+    ano_opcao: int
+
+
+def janela_da_apuracao(empresa: Empresa, ano: int, mes: int) -> JanelaDaApuracao:
+    """Regra e janela de meses do PA, exposta para o FS12 do fator r (DL-075).
+
+    Não lê receita nem confirmação: só calendário e período do Simples. Recusa
+    como `rbt12()` (`ApuracaoRecusada`).
+    """
+    abertura, periodo = _contexto_da_apuracao(empresa, ano, mes)
+    ano_opcao = periodo.vigencia_inicio.year
+    regra, indices = _regra_e_janela(ano, mes, abertura, ano_opcao)
+    return JanelaDaApuracao(
+        regra=regra,
+        meses=tuple(_do_indice(indice) for indice in indices),
+        abertura=abertura,
+        ano_opcao=ano_opcao,
+    )
+
+
+def rbt12(empresa: Empresa, ano: int, mes: int) -> Rbt12:
+    """RBT12 do PA `ano/mes` por mercado, com a regra usada, a janela e os avisos.
+
+    Recusa com `ApuracaoRecusada` (mensagem nomeada) quando não há como apurar:
+    ano 2027 ou depois, sem data de abertura, PA anterior à abertura, sem período do
+    Simples no PA, ou período do Simples que começa antes da abertura (dado
+    inconsistente, R4). Mês da janela sem confirmação NÃO é recusa: o resultado
+    fica "não apurável" e lista os meses.
+    """
+    abertura, periodo = _contexto_da_apuracao(empresa, ano, mes)
 
     ano_opcao = periodo.vigencia_inicio.year
     regra, indices_janela = _regra_e_janela(ano, mes, abertura, ano_opcao)
