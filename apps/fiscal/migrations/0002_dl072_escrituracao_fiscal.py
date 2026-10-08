@@ -12,6 +12,13 @@ from django.db import migrations, models
 # 1. `escrituracao_vinculo_prestador_da_empresa`: a linha só pode apontar
 #    para um vínculo de PRESTADOR da MESMA empresa (a coluna `empresa_id` é
 #    redundante com `vinculo.empresa`, e o banco confere a igualdade).
+#    A mesma função confere, para a linha EFETIVADA, que `valor_servico`,
+#    `valor_liquido` e `data_competencia` são os do documento do vínculo (`vServ`,
+#    `vLiq`, `dCompet`). Restrição `escrituracao_efetivada_bate_com_o_documento`
+#    (auditoria A4): sem ela, um INSERT direto gravaria um ato fiscal com valor
+#    que o documento não tem, e a trava de imutabilidade o congelaria. Coluna
+#    NULA não é conferida aqui: passa para a coerência de campos (CHECK), que a
+#    recusa. Estorno (`estornada`) não é conferido, para nunca bloquear o estorno.
 #
 # 2. `escrituracao_imutavel_depois_de_efetivada`: transições permitidas, e
 #    só estas — rascunho -> rascunho/efetivada; efetivada -> estornada, e
@@ -29,14 +36,29 @@ RETURNS trigger AS $$
 DECLARE
     v_empresa_id fiscal_escrituracaofiscal.empresa_id%TYPE;
     v_papel fiscal_vinculodocumentoempresa.papel%TYPE;
+    v_serv fiscal_documentofiscal.v_serv%TYPE;
+    v_liq fiscal_documentofiscal.v_liq%TYPE;
+    v_competencia fiscal_documentofiscal.d_competencia%TYPE;
 BEGIN
-    SELECT v.empresa_id, v.papel INTO v_empresa_id, v_papel
+    SELECT v.empresa_id, v.papel, d.v_serv, d.v_liq, d.d_competencia
+      INTO v_empresa_id, v_papel, v_serv, v_liq, v_competencia
       FROM fiscal_vinculodocumentoempresa AS v
+      JOIN fiscal_documentofiscal AS d ON d.id = v.documento_id
      WHERE v.id = NEW.vinculo_id;
     IF NOT FOUND OR v_empresa_id <> NEW.empresa_id OR v_papel <> 'prestador' THEN
         RAISE EXCEPTION 'escrituração exige vínculo de prestador da mesma empresa'
             USING ERRCODE = '23514',
                   CONSTRAINT = 'escrituracao_vinculo_prestador_da_empresa';
+    END IF;
+    -- A4: a efetivada carrega os valores do documento. NULL fica para o CHECK.
+    IF NEW.estado = 'efetivada' AND (
+           (NEW.valor_servico IS NOT NULL AND NEW.valor_servico <> v_serv)
+        OR (NEW.valor_liquido IS NOT NULL AND NEW.valor_liquido <> v_liq)
+        OR (NEW.data_competencia IS NOT NULL AND NEW.data_competencia <> v_competencia)
+    ) THEN
+        RAISE EXCEPTION 'escrituração efetivada precisa ter os valores do documento'
+            USING ERRCODE = '23514',
+                  CONSTRAINT = 'escrituracao_efetivada_bate_com_o_documento';
     END IF;
     RETURN NEW;
 END;
@@ -208,7 +230,7 @@ class Migration(migrations.Migration):
                     models.DateField(
                         blank=True,
                         null=True,
-                        verbose_name="data de emissão (dhEmi, em Brasília)",
+                        verbose_name="data de emissão (dia do dhEmi)",
                     ),
                 ),
                 (

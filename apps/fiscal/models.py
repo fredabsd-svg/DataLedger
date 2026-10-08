@@ -428,8 +428,8 @@ class EscrituracaoFiscal(models.Model):
     de efetivar: a escrituração não recalcula imposto e não depende de o
     documento continuar sendo lido igual (o XML original fica no documento).
     `data_competencia` é `dCompet` — define o mês da escrituração (HI-57);
-    `data_emissao` é `dhEmi` no fuso de Brasília, só para o aviso de
-    competência diferente da emissão.
+    `data_emissao` é o DIA ESCRITO no `dhEmi`, no fuso do emitente (HI-72), só
+    para o aviso de competência diferente da emissão e para a exibição.
 
     Imutabilidade, em três camadas (DE-008):
     1. `save()` recusa alterar linha que já está efetivada ou estornada
@@ -470,7 +470,7 @@ class EscrituracaoFiscal(models.Model):
         choices=EstadoEscrituracao.choices,
         default=EstadoEscrituracao.RASCUNHO,
     )
-    data_emissao = models.DateField("data de emissão (dhEmi, em Brasília)", null=True, blank=True)
+    data_emissao = models.DateField("data de emissão (dia do dhEmi)", null=True, blank=True)
     data_competencia = models.DateField("data de competência (dCompet)", null=True, blank=True)
     # DE-010: Decimal com a MESMA escala do documento (max_digits=17, 2 casas).
     valor_servico = models.DecimalField(

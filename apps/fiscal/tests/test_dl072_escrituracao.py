@@ -98,11 +98,12 @@ def test_nota_entra_no_mes_de_dcompet_e_nao_no_de_dhemi(escritorio_a, empresa_a,
     assert fevereiro[0].competencia_difere_da_emissao is True
 
 
-def test_data_de_emissao_usa_o_dia_de_brasilia_e_nao_o_utc(
+def test_data_de_emissao_e_o_dia_escrito_no_documento_nao_o_utc_nem_o_de_brasilia(
     escritorio_a, empresa_a, usuario_gestor_a
 ):
-    # 22h de 31/01 em Brasília é 01/02 em UTC. Se a data de emissão saísse do
-    # instante UTC, o aviso e a data guardada estariam errados em um dia.
+    # HI-72 (auditoria A2): a data de emissão é o dia ESCRITO no dhEmi, no fuso do
+    # emitente. Aqui o dia é 31/01 nos dois fusos, então o teste fixa o dia do
+    # documento; o caso que separa os fusos está no teste parametrizado abaixo.
     _nota(
         escritorio_a,
         usuario_gestor_a,
@@ -114,6 +115,38 @@ def test_data_de_emissao_usa_o_dia_de_brasilia_e_nao_o_utc(
 
     assert nota.data_emissao == date(2024, 1, 31)
     assert nota.competencia_difere_da_emissao is False
+
+
+@pytest.mark.parametrize(
+    "dh_emi",
+    [
+        # Auditoria A2: Brasília daria 01/02 (00h30 e 23h30). O documento diz 31/01.
+        "2024-01-31T23:30:00-04:00",
+        "2024-01-31T22:30:00-05:00",
+    ],
+)
+def test_relatorio_usa_o_dia_do_documento_e_nao_avisa_em_fuso_a_oeste(
+    escritorio_a, empresa_a, usuario_gestor_a, dh_emi
+):
+    # O aviso "competência ≠ emissão" é do relatório: nota de 31/01 com dCompet
+    # 31/01 não pode aparecer como divergente só porque Brasília marca 01/02.
+    nota_recebida = _nota(
+        escritorio_a,
+        usuario_gestor_a,
+        dh_emi=dh_emi,
+        d_compet="2024-01-31",
+    )
+
+    (nota,) = servico.notas_a_escriturar(empresa_a, 2024, 1)
+    conferencia = servico.conferencia(empresa_a, 2024, 1)
+    escrituracao = servico.efetivar_escrituracao(
+        _vinculo(nota_recebida, empresa_a), NATUREZA_DEVIDO, usuario_gestor_a
+    )
+
+    assert nota.data_emissao == date(2024, 1, 31)
+    assert nota.competencia_difere_da_emissao is False
+    assert conferencia.avisos == []
+    assert escrituracao.data_emissao == date(2024, 1, 31)
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +225,60 @@ def test_falha_na_trilha_desfaz_a_efetivacao(
         servico.efetivar_escrituracao(_vinculo(nota, empresa_a), NATUREZA_DEVIDO, usuario_gestor_a)
 
     assert EscrituracaoFiscal.objects.count() == 0
+
+
+# Auditoria A1: os testes acima rodam dentro da transação de teste, então não
+# provam que a trilha e a escrituração são UMA transação de verdade. Estes rodam
+# com commit real (`transaction=True`): a atomicidade é a do próprio serviço.
+
+
+@pytest.mark.django_db(transaction=True)
+def test_falha_na_trilha_desfaz_efetivar_rascunho_e_estornar(
+    escritorio_a, empresa_a, usuario_gestor_a, monkeypatch
+):
+    vinculo = _vinculo(_nota(escritorio_a, usuario_gestor_a), empresa_a)
+
+    def trilha_quebrada(**kwargs):
+        raise RuntimeError("falha na trilha")
+
+    monkeypatch.setattr(servico, "registrar", trilha_quebrada)
+    with pytest.raises(RuntimeError):
+        servico.salvar_rascunho(vinculo, NATUREZA_DEVIDO, usuario_gestor_a)
+    with pytest.raises(RuntimeError):
+        servico.efetivar_escrituracao(vinculo, NATUREZA_DEVIDO, usuario_gestor_a)
+    assert EscrituracaoFiscal.objects.count() == 0
+
+    monkeypatch.undo()
+    escrituracao = servico.efetivar_escrituracao(vinculo, NATUREZA_DEVIDO, usuario_gestor_a)
+    monkeypatch.setattr(servico, "registrar", trilha_quebrada)
+    with pytest.raises(RuntimeError):
+        servico.estornar_escrituracao(escrituracao, "motivo", usuario_gestor_a)
+    gravada = EscrituracaoFiscal.objects.get(pk=escrituracao.pk)
+    assert gravada.estado == EstadoEscrituracao.EFETIVADA
+    assert gravada.motivo_estorno == ""
+    assert not RegistroAuditoria.objects.filter(acao="escrituracao_fiscal.estornada").exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_falha_na_trilha_desfaz_o_estorno_com_commit_real(
+    escritorio_a, empresa_a, usuario_gestor_a, monkeypatch
+):
+    # Caso isolado do estorno: a escrituração efetivada NÃO pode virar estornada
+    # sem a entrada de trilha. Este é o caso que o mutante "estornar sem atomic"
+    # deixaria passar se a trilha fosse a única coisa a falhar.
+    vinculo = _vinculo(_nota(escritorio_a, usuario_gestor_a), empresa_a)
+    escrituracao = servico.efetivar_escrituracao(vinculo, NATUREZA_DEVIDO, usuario_gestor_a)
+
+    def trilha_quebrada(**kwargs):
+        raise RuntimeError("falha na trilha do estorno")
+
+    monkeypatch.setattr(servico, "registrar", trilha_quebrada)
+    with pytest.raises(RuntimeError, match="falha na trilha do estorno"):
+        servico.estornar_escrituracao(escrituracao, "motivo", usuario_gestor_a)
+
+    gravada = EscrituracaoFiscal.objects.get(pk=escrituracao.pk)
+    assert gravada.estado == EstadoEscrituracao.EFETIVADA
+    assert gravada.estornada_em is None
 
 
 # ---------------------------------------------------------------------------

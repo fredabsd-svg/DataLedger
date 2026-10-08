@@ -71,6 +71,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods, require_safe
 
+from apps.auditoria.models import RegistroAuditoria
 from apps.core.identificadores import IdentificadorInvalido, para_id
 from apps.core.requisicao import (
     ContratoDeRequisicao,
@@ -755,10 +756,12 @@ def _vinculo_da_empresa(request, empresa, vinculo_id):
 
 
 def _escrituracao_da_empresa(request, empresa, escrituracao_id):
+    # Detalhe e estorno não leem o XML: o `defer` evita trazer o blob de cada nota
+    # (auditoria A10). A tela de escriturar, que usa a sugestão, não passa por aqui.
     return get_object_or_404(
         EscrituracaoFiscal.objects.select_related(
             "vinculo__documento", "efetivada_por", "estornada_por"
-        ),
+        ).defer("vinculo__documento__xml_original"),
         pk=escrituracao_id,
         empresa=empresa,
         empresa__escritorio=request.escritorio,
@@ -776,10 +779,30 @@ def _competencia_de_escrituracao(request):
     return (hoje.year, hoje.month), None
 
 
+def _empresa_da_escrituracao(request):
+    """`(empresa, erro)` do filtro `empresa` das telas de escrituração.
+
+    Ausente: `(None, None)`, estado próprio da tela. Malformado (não numérico):
+    erro de formulário, 400 com a mensagem na tela. Empresa inexistente ou de
+    OUTRO escritório: 404, pelo mesmo caminho de `_empresa_escopada` que as telas
+    de uma nota usam (plano DL-072, critério 9). A auditoria A9 pediu essa
+    distinção: a lista respondia 400 para os dois casos.
+    """
+    bruto = request.GET.get("empresa", "").strip()
+    if not bruto:
+        return None, None
+    try:
+        empresa_id = para_id(bruto)
+    except IdentificadorInvalido:
+        return None, "'Empresa' inválida."
+    return _empresa_escopada(request, empresa_id), None
+
+
 def _filtros_de_escrituracao(request):
     """`(empresa, (ano, mes), erro)`. `empresa` é `None` quando não foi
-    escolhida — estado próprio da tela, não erro."""
-    empresa, erro_empresa = _empresa_do_filtro(request)
+    escolhida — estado próprio da tela, não erro. Empresa de outro escritório
+    levanta 404 (ver `_empresa_da_escrituracao`)."""
+    empresa, erro_empresa = _empresa_da_escrituracao(request)
     competencia, erro_competencia = _competencia_de_escrituracao(request)
     return empresa, competencia, erro_empresa or erro_competencia
 
@@ -835,12 +858,34 @@ def _rotulo_da_sugestao(natureza):
     return NaturezaOperacao(natureza).label
 
 
+def _natureza_de_exibicao(nota):
+    """`(rotulo, origem)` da coluna "Natureza" (auditoria A6).
+
+    Com escrituração (rascunho ou efetivada), mostra a natureza GRAVADA, e a origem
+    diz se ela está efetivada ou só em rascunho. Sem escrituração, mostra a
+    SUGERIDA pelo XML, com a origem dizendo que nada foi escriturado. Assim quem lê
+    a lista não toma uma sugestão por uma escrituração feita.
+    """
+    if nota.escrituracao is not None:
+        origem = (
+            "Escriturada"
+            if nota.escrituracao.estado == EstadoEscrituracao.EFETIVADA
+            else "Rascunho, não efetivada"
+        )
+        return nota.escrituracao.get_natureza_display(), origem
+    if nota.natureza_sugerida is None:
+        return ROTULO_SEM_SUGESTAO, "Sem sugestão do XML"
+    return NaturezaOperacao(nota.natureza_sugerida).label, "Sugerida pelo XML, não escriturada"
+
+
 def _linha_da_nota(nota, empresa, pode_escriturar):
     documento = nota.documento
+    natureza, origem_natureza = _natureza_de_exibicao(nota)
     return {
         "nota": nota,
         "situacao": _ROTULO_DE_SITUACAO.get(nota.situacao, nota.situacao),
-        "natureza_sugerida": _rotulo_da_sugestao(nota.natureza_sugerida),
+        "natureza": natureza,
+        "origem_natureza": origem_natureza,
         "retencao": DESCRICAO_TP_RET_ISSQN.get(documento.tp_ret_issqn, documento.tp_ret_issqn),
         "v_serv_ptbr": _valor_ptbr(documento.v_serv),
         "acao": _acao_da_nota(nota, empresa, pode_escriturar),
@@ -904,21 +949,20 @@ def notas_a_escriturar(request):
 
 
 def _nota_do_vinculo(empresa, vinculo):
-    """A linha da nota na consulta da competência DELA, pela mesma fonte da
-    lista (`notas_a_escriturar`). `None` para nota tomada, que não entra nesta
-    escrituração."""
-    if vinculo.papel != PapelDocumento.PRESTADOR:
-        return None
-    competencia = vinculo.documento.d_competencia
-    notas = servico_escrituracao.notas_a_escriturar(empresa, competencia.year, competencia.month)
-    return next((nota for nota in notas if nota.vinculo.pk == vinculo.pk), None)
+    """A linha da nota, pela mesma regra da lista, SEM reprocessar o mês inteiro
+    (auditoria A10). `None` para nota tomada, que não entra nesta escrituração."""
+    return servico_escrituracao.nota_do_vinculo(empresa, vinculo)
 
 
 def _tela_de_escriturar(request, empresa, vinculo, *, natureza=None, status=200):
     documento = vinculo.documento
     nota = _nota_do_vinculo(empresa, vinculo)
     escrituracao = nota.escrituracao if nota is not None else None
-    sugerida = servico_escrituracao.sugerir_natureza(documento)
+    sugerida = (
+        nota.natureza_sugerida
+        if nota is not None
+        else servico_escrituracao.sugerir_natureza(documento)
+    )
     if natureza is None:
         # Sem escolha digitada: a natureza já confirmada (rascunho ou efetivada)
         # ou, na primeira vez, a SUGERIDA — pré-selecionada, nunca gravada.
@@ -1056,7 +1100,55 @@ def escrituracao_detalhe(request, empresa_id, escrituracao_id):
             documento.d_competencia.month,
         ),
     }
+    contexto.update(_historico_da_escrituracao(request, empresa, escrituracao))
     return render(request, "fiscal/escrituracao_detalhe.html", contexto)
+
+
+_ROTULO_DA_ACAO_DE_ESCRITURACAO = {
+    "escrituracao_fiscal.rascunho_salvo": "Rascunho salvo",
+    "escrituracao_fiscal.efetivada": "Efetivada",
+    "escrituracao_fiscal.estornada": "Estornada",
+}
+
+
+def _historico_da_escrituracao(request, empresa, escrituracao):
+    """Histórico do detalhe (auditoria A11, plano DL-072 item 7).
+
+    `outras`: as outras escriturações da MESMA nota (estornadas antes, ou a que
+    veio depois), cada uma com link para o próprio detalhe. `trilha`: as entradas
+    de `RegistroAuditoria` desta escrituração, filtradas pelo escritório ativo. O
+    `objeto_id` sozinho não basta: a filtragem por escritório impede que uma linha
+    de outro escritório, com o mesmo id, apareça aqui.
+    """
+    outras = [
+        {
+            "escrituracao": outra,
+            "url": reverse("fiscal_web:escrituracao_detalhe", args=[empresa.pk, outra.pk]),
+        }
+        for outra in EscrituracaoFiscal.objects.filter(
+            vinculo_id=escrituracao.vinculo_id, empresa=empresa
+        )
+        .exclude(pk=escrituracao.pk)
+        .order_by("id")
+    ]
+    registros = (
+        RegistroAuditoria.objects.filter(
+            escritorio=request.escritorio,
+            objeto_tipo="EscrituracaoFiscal",
+            objeto_id=str(escrituracao.pk),
+        )
+        .select_related("usuario")
+        .order_by("criado_em", "id")
+    )
+    trilha = [
+        {
+            "quando": registro.criado_em,
+            "acao": _ROTULO_DA_ACAO_DE_ESCRITURACAO.get(registro.acao, registro.acao),
+            "usuario": registro.usuario.get_username() if registro.usuario else "—",
+        }
+        for registro in registros
+    ]
+    return {"outras_escrituracoes": outras, "trilha": trilha}
 
 
 # ---------------------------------------------------------------------------
@@ -1173,6 +1265,19 @@ def conferencia_escrituracao(request):
             "fecha": fecha,
             "bloqueios": [_linha_da_nota(n, empresa, pode_escriturar) for n in resultado.bloqueios],
             "avisos": [_linha_da_nota(n, empresa, pode_escriturar) for n in resultado.avisos],
+            "divergencias": [
+                _linha_da_nota(n, empresa, pode_escriturar) for n in resultado.divergencias
+            ],
+            # Valores em R$ (auditoria A8), sempre pelo `_valor_ptbr` de Decimal.
+            "total_recebidas_ptbr": _valor_ptbr(resultado.total_recebidas),
+            "total_escrituradas_ptbr": _valor_ptbr(resultado.total_escrituradas),
+            "total_pendentes_ptbr": _valor_ptbr(resultado.total_pendentes),
+            "fecha_em_valor": resultado.total_recebidas
+            == resultado.total_escrituradas + resultado.total_pendentes,
+            "soma_gravada_ptbr": _valor_ptbr(resultado.soma_gravada_escrituradas),
+            "soma_documentos_ptbr": _valor_ptbr(resultado.soma_documentos_escrituradas),
+            "diferenca_ptbr": _valor_ptbr(resultado.diferenca_escrituradas),
+            "diferenca_nula": resultado.diferenca_escrituradas == 0,
         }
     )
     return render(request, "fiscal/conferencia_escrituracao.html", contexto)

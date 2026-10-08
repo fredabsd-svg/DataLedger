@@ -53,7 +53,7 @@ estado e quem efetivou e estornou, com o motivo do estorno quando houver.
             <dd>{{ estado_rotulo }}</dd>
         </div>
         <div>
-            <dt>Data de emissão (dhEmi, Brasília)</dt>
+            <dt>Data de emissão (dia do dhEmi)</dt>
             <dd>{{ escrituracao.data_emissao|date:"d/m/Y" }}</dd>
         </div>
         <div>
@@ -100,5 +100,55 @@ estado e quem efetivou e estornou, com o motivo do estorno quando houver.
         <p>
             <a class="botao botao--perigoso" href="{% url 'fiscal_web:escrituracao_estornar' empresa.id escrituracao.id %}">Estornar escrituração nº {{ escrituracao.id }}</a>
         </p>
+    {% endif %}
+
+    <h2>Outras escriturações desta nota</h2>
+    {% if outras_escrituracoes %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Outras escriturações do mesmo vínculo, com link para cada uma</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Escrituração</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col">Natureza</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for outra in outras_escrituracoes %}
+                    <tr>
+                        <td><a href="{{ outra.url }}">Escrituração nº {{ outra.escrituracao.id }}</a></td>
+                        <td>{{ outra.escrituracao.get_estado_display }}</td>
+                        <td>{{ outra.escrituracao.get_natureza_display }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Esta nota não tem outra escrituração.</p>
+    {% endif %}
+
+    <h2>Trilha de auditoria desta escrituração</h2>
+    {% if trilha %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Atos registrados na trilha para esta escrituração, em ordem de data</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Quando</th>
+                    <th scope="col">Ato</th>
+                    <th scope="col">Quem</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for registro in trilha %}
+                    <tr>
+                        <td>{{ registro.quando|date:"d/m/Y H:i" }}</td>
+                        <td>{{ registro.acao }}</td>
+                        <td>{{ registro.usuario }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Nenhum ato registrado na trilha para esta escrituração.</p>
     {% endif %}
 {% endblock %}

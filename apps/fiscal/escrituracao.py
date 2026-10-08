@@ -5,8 +5,11 @@ Contrato: docs/planos/DL-072-escrituracao-das-nfse-prestadas.md (critérios
 
 - A escrituração é por VÍNCULO de PRESTADOR (`VinculoDocumentoEmpresa.papel`).
   Nota em que a empresa é tomadora não entra aqui (plano, "fica fora").
-- O mês da escrituração é o de `dCompet` (HI-57). `dhEmi` só aparece no
-  AVISO de competência diferente da emissão.
+- O mês da escrituração é o de `dCompet` (HI-57). A DATA de emissão é o dia
+  ESCRITO no documento: os 10 primeiros caracteres do `dhEmi` lido do XML
+  guardado, no fuso do emitente (HI-72). Não é a conversão para Brasília, que
+  mudaria o dia de uma nota emitida à noite em outro fuso. Essa data só serve
+  ao AVISO de competência diferente da emissão e à coluna "data de emissão".
 - A natureza é SUGERIDA a partir do XML e CONFIRMADA pelo contador. A sugestão
   nunca vira efetivação sozinha. Ela distingue retido, exportação e ISS
   imune/isento/reduzido; não-incidência não gera sugestão (None); e nunca
@@ -73,6 +76,8 @@ _TRIB_ISSQN_POR_VERSAO = {
 }
 _NS = {"n": NS_NFSE}
 _CAMINHO_TRIB_ISSQN = "n:infNFSe/n:DPS/n:infDPS/n:valores/n:trib/n:tribMun/n:tribISSQN"
+# Mesmo caminho que o leitor usa para `dhEmi` (apps/fiscal/leitor.py, _ler_nfse).
+_CAMINHO_DH_EMI = "n:infNFSe/n:DPS/n:infDPS/n:dhEmi"
 
 # Situações devolvidas por `notas_a_escriturar` e pela conferência.
 SITUACAO_A_ESCRITURAR = "a_escriturar"
@@ -110,34 +115,82 @@ def _iss_retido(documento: DocumentoFiscal) -> bool:
     return documento.tp_ret_issqn in TP_RET_ISSQN_RETIDO
 
 
-def _data_de_emissao(documento: DocumentoFiscal) -> date:
-    # `dh_emissao` é guardado em UTC pelo Django. O dia de emissão é o de
-    # Brasília (fuso do sistema), que é o que o contador lê no documento.
-    return timezone.localtime(documento.dh_emissao).date()
+@dataclass(frozen=True)
+class _LeituraDoXml:
+    """O que se lê do XML guardado, em UMA passada: dia de emissão e `tribISSQN`.
 
-
-def _trib_issqn(documento: DocumentoFiscal) -> str | None:
-    """`tribISSQN` lido do XML guardado, ou None se não for possível lê-lo.
-
-    Não levanta exceção. XML ilegível, versão sem tabela, raiz fora do
-    namespace da NFS-e e campo ausente viram None, e a sugestão cai na regra
-    seguinte. A leitura usa `_raiz_segura` (defusedxml, sem DTD), o mesmo
-    caminho seguro do recebimento: a sugestão não abre brecha que a recepção
-    fecha. O texto do elemento é aparado de espaços e comparado, depois, com os
-    códigos exatos da tabela da versão.
+    Os dois campos são `None` quando o XML não permite lê-los. Nenhum dos dois
+    cai num valor inventado (ver `_ler_xml`).
     """
-    if documento.versao not in _TRIB_ISSQN_POR_VERSAO:
-        return None
+
+    dia_emissao: date | None
+    trib_issqn: str | None
+
+
+_SEM_LEITURA = _LeituraDoXml(dia_emissao=None, trib_issqn=None)
+
+
+def _ler_xml(documento: DocumentoFiscal) -> _LeituraDoXml:
+    """Lê do XML guardado o dia de emissão (HI-72) e o `tribISSQN`.
+
+    Não levanta exceção: XML ilegível, raiz fora do namespace da NFS-e e campo
+    ausente viram `None`. A leitura usa `_raiz_segura` (defusedxml, sem DTD),
+    o mesmo caminho seguro do recebimento: a sugestão e a data não abrem brecha
+    que a recepção fecha. Lê-se UMA vez por nota, porque a lista de notas usa
+    as duas coisas e o XML de cada nota pesa (medido na auditoria, A10).
+    """
     try:
         raiz = _raiz_segura(bytes(documento.xml_original or b""))
     except ArquivoRecusado:
-        return None
+        return _SEM_LEITURA
     if raiz.tag != f"{{{NS_NFSE}}}NFSe":
+        return _SEM_LEITURA
+    return _LeituraDoXml(
+        dia_emissao=_dia_do_dh_emi(raiz),
+        trib_issqn=_trib_issqn_da_raiz(raiz, documento.versao),
+    )
+
+
+def _dia_do_dh_emi(raiz) -> date | None:
+    # HI-72: o DIA ESCRITO no documento são os 10 primeiros caracteres do dhEmi,
+    # no fuso do próprio emitente. Não se converte o instante para Brasília, que
+    # trocaria o dia de uma nota emitida à noite em um fuso mais a oeste.
+    elemento = raiz.find(_CAMINHO_DH_EMI, _NS)
+    if elemento is None or elemento.text is None:
+        return None
+    try:
+        return date.fromisoformat(elemento.text.strip()[:10])
+    except ValueError:
+        return None
+
+
+def _trib_issqn_da_raiz(raiz, versao: str) -> str | None:
+    if versao not in _TRIB_ISSQN_POR_VERSAO:
         return None
     elemento = raiz.find(_CAMINHO_TRIB_ISSQN, _NS)
     if elemento is None or elemento.text is None:
         return None
+    # O texto é aparado e comparado, depois, com os códigos exatos da tabela.
     return elemento.text.strip()
+
+
+def _data_de_emissao(documento: DocumentoFiscal) -> date | None:
+    """Dia escrito no documento (HI-72), ou None se o XML guardado não o informa."""
+    return _ler_xml(documento).dia_emissao
+
+
+def _sugestao(documento: DocumentoFiscal, trib_issqn: str | None) -> NaturezaOperacao | None:
+    if _iss_retido(documento):
+        return NaturezaOperacao.PRESTADO_ISS_RETIDO
+    if trib_issqn is not None:
+        codigos = _TRIB_ISSQN_POR_VERSAO[documento.versao]
+        if trib_issqn == codigos["exportacao"]:
+            return NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO
+        if trib_issqn == codigos["imunidade"]:
+            return NaturezaOperacao.PRESTADO_ISS_IMUNE_ISENTO_REDUZIDO
+        if trib_issqn == codigos["nao_incidencia"]:
+            return None
+    return NaturezaOperacao.PRESTADO_ISS_DEVIDO_PRESTADOR
 
 
 def sugerir_natureza(documento: DocumentoFiscal) -> NaturezaOperacao | None:
@@ -156,18 +209,7 @@ def sugerir_natureza(documento: DocumentoFiscal) -> NaturezaOperacao | None:
     NUNCA sugere "ISS devido a outro município" nem "fora da lista da LC 116".
     Os códigos de `tribISSQN` estão conferidos nos XSD: ver `_TRIB_ISSQN_POR_VERSAO`.
     """
-    if _iss_retido(documento):
-        return NaturezaOperacao.PRESTADO_ISS_RETIDO
-    trib = _trib_issqn(documento)
-    if trib is not None:
-        codigos = _TRIB_ISSQN_POR_VERSAO[documento.versao]
-        if trib == codigos["exportacao"]:
-            return NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO
-        if trib == codigos["imunidade"]:
-            return NaturezaOperacao.PRESTADO_ISS_IMUNE_ISENTO_REDUZIDO
-        if trib == codigos["nao_incidencia"]:
-            return None
-    return NaturezaOperacao.PRESTADO_ISS_DEVIDO_PRESTADOR
+    return _sugestao(documento, _ler_xml(documento).trib_issqn)
 
 
 @dataclass(frozen=True)
@@ -178,17 +220,25 @@ class NotaPrestada:
     escrituracao: EscrituracaoFiscal | None
     # None quando a sugestão é "não incidência": nada vem pré-selecionado.
     natureza_sugerida: NaturezaOperacao | None
-
-    @property
-    def data_emissao(self) -> date:
-        return _data_de_emissao(self.documento)
+    # Dia escrito no documento (HI-72). None só se o XML guardado não o informa.
+    data_emissao: date | None = None
+    # Contradições entre a natureza GRAVADA e o XML (A7). Vazio sem escrituração.
+    divergencias_de_natureza: tuple[str, ...] = ()
 
     @property
     def competencia_difere_da_emissao(self) -> bool:
-        """Aviso (HI-57): mês de `dCompet` diferente do mês de `dhEmi`."""
-        emissao = _data_de_emissao(self.documento)
+        """Aviso (HI-57): mês de `dCompet` diferente do mês de emissão (HI-72).
+
+        Sem data legível no XML não há com o que comparar, e o aviso não dispara.
+        Isso não acontece com XML recebido pelo leitor, que exige `dhEmi` com fuso.
+        """
+        if self.data_emissao is None:
+            return False
         competencia = self.documento.d_competencia
-        return (emissao.year, emissao.month) != (competencia.year, competencia.month)
+        return (self.data_emissao.year, self.data_emissao.month) != (
+            competencia.year,
+            competencia.month,
+        )
 
 
 @dataclass(frozen=True)
@@ -209,6 +259,20 @@ class Conferencia:
     pendentes: int
     bloqueios: list[NotaPrestada]
     avisos: list[NotaPrestada]
+    # Natureza gravada que contradiz o XML (A7). Só relata; não bloqueia.
+    divergencias: list[NotaPrestada]
+    # Valores em R$ (A8): soma exata de `valor_servico` do documento, em Decimal.
+    total_recebidas: Decimal
+    total_escrituradas: Decimal
+    total_pendentes: Decimal
+    # Conciliação com a escrituração: o que foi GRAVADO nas efetivadas contra o
+    # que está nos documentos correspondentes. Diferença ≠ 0 é destacada na tela.
+    soma_gravada_escrituradas: Decimal
+    soma_documentos_escrituradas: Decimal
+
+    @property
+    def diferenca_escrituradas(self) -> Decimal:
+        return self.soma_gravada_escrituradas - self.soma_documentos_escrituradas
 
 
 def notas_a_escriturar(empresa, ano: int, mes: int) -> list[NotaPrestada]:
@@ -238,36 +302,119 @@ def notas_a_escriturar(empresa, ano: int, mes: int) -> list[NotaPrestada]:
         )
     }
 
-    notas = []
-    for vinculo in vinculos:
-        documento = documentos[vinculo.documento_id]
-        escrituracao = ativas.get(vinculo.pk)
-        # `situacao_do_documento` lê a anotação `.cancelada` de
-        # `documentos_do_escritorio` — sem consulta extra por nota.
-        cancelada = situacao_do_documento(documento) == "cancelada"
-        efetivada = escrituracao is not None and (
-            escrituracao.estado == EstadoEscrituracao.EFETIVADA
+    return [
+        _montar_nota(vinculo, documentos[vinculo.documento_id], ativas.get(vinculo.pk))
+        for vinculo in vinculos
+    ]
+
+
+def nota_do_vinculo(empresa, vinculo: VinculoDocumentoEmpresa) -> NotaPrestada | None:
+    """A mesma linha que `notas_a_escriturar` daria para ESTE vínculo, sem reprocessar
+    o mês inteiro (auditoria A10). `None` para nota tomada, que não entra nesta lista.
+
+    Quem chama confere antes que o vínculo é de `empresa` e de um documento do
+    escritório ativo. Aqui isso é um erro de programação, então levanta.
+    """
+    if vinculo.empresa_id != empresa.pk:
+        raise ValueError("O vínculo não pertence à empresa informada.")
+    if vinculo.papel != PapelDocumento.PRESTADOR:
+        return None
+    escrituracao = EscrituracaoFiscal.objects.filter(
+        vinculo=vinculo,
+        estado__in=[EstadoEscrituracao.RASCUNHO, EstadoEscrituracao.EFETIVADA],
+    ).first()
+    return _montar_nota(vinculo, vinculo.documento, escrituracao)
+
+
+def _cancelada(documento: DocumentoFiscal) -> bool:
+    # Lê a anotação `.cancelada` de `documentos_do_escritorio` quando ela existe
+    # (sem consulta extra por nota). Sem a anotação, cai na fonte única.
+    anotada = getattr(documento, "cancelada", None)
+    if anotada is not None:
+        return bool(anotada)
+    return situacao_do_documento(documento) == "cancelada"
+
+
+def _situacao(documento: DocumentoFiscal, escrituracao: EscrituracaoFiscal | None) -> str:
+    cancelada = _cancelada(documento)
+    efetivada = escrituracao is not None and escrituracao.estado == EstadoEscrituracao.EFETIVADA
+    if cancelada and efetivada:
+        return SITUACAO_CANCELADA_DEPOIS_DE_ESCRITURADA
+    if cancelada:
+        return SITUACAO_CANCELADA
+    if escrituracao is None:
+        return SITUACAO_A_ESCRITURAR
+    if efetivada:
+        return SITUACAO_EFETIVADA
+    return SITUACAO_RASCUNHO
+
+
+def _montar_nota(
+    vinculo: VinculoDocumentoEmpresa,
+    documento: DocumentoFiscal,
+    escrituracao: EscrituracaoFiscal | None,
+) -> NotaPrestada:
+    # Uma leitura do XML por nota: a data (HI-72), o tribISSQN (sugestão e A7).
+    leitura = _ler_xml(documento)
+    divergencias = ()
+    if escrituracao is not None:
+        divergencias = tuple(
+            _divergencias_da_natureza(escrituracao.natureza, documento, leitura.trib_issqn)
         )
-        if cancelada and efetivada:
-            situacao = SITUACAO_CANCELADA_DEPOIS_DE_ESCRITURADA
-        elif cancelada:
-            situacao = SITUACAO_CANCELADA
-        elif escrituracao is None:
-            situacao = SITUACAO_A_ESCRITURAR
-        elif efetivada:
-            situacao = SITUACAO_EFETIVADA
-        else:
-            situacao = SITUACAO_RASCUNHO
-        notas.append(
-            NotaPrestada(
-                vinculo=vinculo,
-                documento=documento,
-                situacao=situacao,
-                escrituracao=escrituracao,
-                natureza_sugerida=sugerir_natureza(documento),
-            )
+    return NotaPrestada(
+        vinculo=vinculo,
+        documento=documento,
+        situacao=_situacao(documento, escrituracao),
+        escrituracao=escrituracao,
+        natureza_sugerida=_sugestao(documento, leitura.trib_issqn),
+        data_emissao=leitura.dia_emissao,
+        divergencias_de_natureza=divergencias,
+    )
+
+
+# Naturezas que afirmam "sem retenção" (a retenção do XML, tpRetISSQN 2 ou 3, as contradiz).
+_NATUREZAS_QUE_CONTRADIZEM_RETENCAO = frozenset(
+    {
+        NaturezaOperacao.PRESTADO_ISS_DEVIDO_PRESTADOR,
+        NaturezaOperacao.PRESTADO_ISS_OUTRO_MUNICIPIO,
+        NaturezaOperacao.PRESTADO_ISS_IMUNE_ISENTO_REDUZIDO,
+        NaturezaOperacao.PRESTADO_FORA_LISTA_LC116,
+    }
+)
+
+
+def _divergencias_da_natureza(
+    natureza: str, documento: DocumentoFiscal, trib_issqn: str | None
+) -> list[str]:
+    """Contradições entre a natureza GRAVADA e o XML (auditoria A7, HI-59 "avisa").
+
+    Só relata: o contador decide, e a divergência não bloqueia a efetivação. As três
+    regras são as da tabela de conferência, e nenhuma presume código novo.
+    """
+    avisos = []
+    if _iss_retido(documento) and natureza in _NATUREZAS_QUE_CONTRADIZEM_RETENCAO:
+        avisos.append(
+            f"O XML indica retenção do ISS (tpRetISSQN {documento.tp_ret_issqn}), "
+            f"mas a natureza gravada é '{NaturezaOperacao(natureza).label}'."
         )
-    return notas
+    codigo_exportacao = _TRIB_ISSQN_POR_VERSAO.get(documento.versao, {}).get("exportacao")
+    xml_diz_exportacao = codigo_exportacao is not None and trib_issqn == codigo_exportacao
+    if natureza == NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO and not xml_diz_exportacao:
+        avisos.append(
+            "A natureza gravada é exportação de serviço, mas o XML não traz "
+            "tribISSQN de exportação."
+        )
+    if natureza != NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO and xml_diz_exportacao:
+        avisos.append(
+            "O XML traz tribISSQN de exportação, mas a natureza gravada é "
+            f"'{NaturezaOperacao(natureza).label}'."
+        )
+    return avisos
+
+
+def _soma(valores) -> Decimal:
+    # Soma exata em Decimal, na escala do documento (duas casas). Nunca float.
+    return sum(valores, Decimal("0.00"))
 
 
 def conferencia(empresa, ano: int, mes: int) -> Conferencia:
@@ -285,6 +432,7 @@ def conferencia(empresa, ano: int, mes: int) -> Conferencia:
         in (SITUACAO_A_ESCRITURAR, SITUACAO_RASCUNHO, SITUACAO_CANCELADA_DEPOIS_DE_ESCRITURADA)
     ]
     avisos = [n for n in notas if n.competencia_difere_da_emissao]
+    divergencias = [n for n in notas if n.divergencias_de_natureza]
     return Conferencia(
         ano=ano,
         mes=mes,
@@ -293,6 +441,12 @@ def conferencia(empresa, ano: int, mes: int) -> Conferencia:
         pendentes=len(pendentes),
         bloqueios=bloqueios,
         avisos=avisos,
+        divergencias=divergencias,
+        total_recebidas=_soma(n.documento.v_serv for n in notas),
+        total_escrituradas=_soma(n.documento.v_serv for n in escrituradas),
+        total_pendentes=_soma(n.documento.v_serv for n in pendentes),
+        soma_gravada_escrituradas=_soma(n.escrituracao.valor_servico for n in escrituradas),
+        soma_documentos_escrituradas=_soma(n.documento.v_serv for n in escrituradas),
     )
 
 
@@ -331,8 +485,15 @@ def _snapshot(escrituracao: EscrituracaoFiscal | None) -> dict | None:
 
 def _valores_copiados_do_documento(documento: DocumentoFiscal) -> dict:
     # Copiados NA EFETIVAÇÃO (plano, item 4), com a escala do documento.
+    data_emissao = _data_de_emissao(documento)
+    if data_emissao is None:
+        # Sem o dia escrito no XML não há data a copiar. Nada é gravado inventado.
+        raise EscrituracaoErro(
+            "O XML guardado desta nota não informa a data de emissão. "
+            "A nota não pode ser escriturada."
+        )
     return {
-        "data_emissao": _data_de_emissao(documento),
+        "data_emissao": data_emissao,
         "data_competencia": documento.d_competencia,
         "valor_servico": documento.v_serv,
         "valor_liquido": documento.v_liq,
@@ -400,9 +561,19 @@ def _inserir_escrituracao(escrituracao: EscrituracaoFiscal) -> None:
         raise
 
 
+MENSAGEM_NATUREZA_VAZIA = "Escolha a natureza da operação."
+# Não ecoa o valor enviado: ele vem do cliente e não precisa voltar na mensagem.
+MENSAGEM_NATUREZA_FORA_DO_CATALOGO = (
+    "Natureza de operação desconhecida: o valor enviado não é uma das naturezas "
+    "do catálogo fiscal. Escolha uma das opções da lista."
+)
+
+
 def _validar_natureza(natureza: str) -> None:
+    if not natureza:
+        raise EntradaInvalidaEscrituracao(MENSAGEM_NATUREZA_VAZIA)
     if natureza not in NaturezaOperacao.values:
-        raise EntradaInvalidaEscrituracao(f"Natureza de operação desconhecida: {natureza!r}.")
+        raise EntradaInvalidaEscrituracao(MENSAGEM_NATUREZA_FORA_DO_CATALOGO)
 
 
 @transaction.atomic

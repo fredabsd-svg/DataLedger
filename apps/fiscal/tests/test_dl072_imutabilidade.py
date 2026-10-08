@@ -14,12 +14,14 @@ As recusas do banco são verificadas pelo NOME da restrição violada
 qualquer não provaria que a regra certa disparou.
 """
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
+from django.utils import timezone
 
 from apps.fiscal import escrituracao as servico
 from apps.fiscal import services
@@ -411,3 +413,86 @@ def test_autor_da_escrituracao_nao_pode_ser_apagado(escritorio_a, empresa_a, usu
     with pytest.raises(ProtectedError):
         usuario_gestor_a.delete()
     assert EscrituracaoFiscal.objects.count() == 1
+
+
+# ---------------------------------------------------------------------------
+# Auditoria A4 — a linha EFETIVADA carrega os valores do documento; o banco confere
+# ---------------------------------------------------------------------------
+
+_RESTRICAO_DOS_VALORES = "escrituracao_efetivada_bate_com_o_documento"
+
+# Trocas que o banco precisa recusar: cada uma diverge de um campo do documento
+# de `_nota` (vServ 100,00; vLiq 95,00; dCompet 15/01/2024).
+_VALOR_ALHEIO = [
+    {"valor_servico": Decimal("999999.99")},
+    {"valor_liquido": Decimal("0.01")},
+    {"data_competencia": date(2024, 2, 1)},
+]
+
+
+def _valores_do_ato(usuario, **trocados):
+    """Colunas de uma efetivada com os valores CORRETOS do documento, exceto as trocadas."""
+    valores = {
+        "natureza": NATUREZA,
+        "estado": EstadoEscrituracao.EFETIVADA,
+        "data_emissao": date(2024, 1, 15),
+        "data_competencia": date(2024, 1, 15),
+        "valor_servico": Decimal("100.00"),
+        "valor_liquido": Decimal("95.00"),
+        "iss_retido": False,
+        "efetivada_em": timezone.now(),
+        "efetivada_por": usuario,
+    }
+    valores.update(trocados)
+    return valores
+
+
+@pytest.mark.parametrize("trocado", _VALOR_ALHEIO)
+def test_insert_de_efetivada_com_valor_alheio_ao_documento_e_recusado_pelo_banco(
+    escritorio_a, empresa_a, usuario_gestor_a, trocado
+):
+    # Sonda da auditoria A4: create direto, sem passar pelo serviço.
+    nota = _nota(escritorio_a, usuario_gestor_a)
+
+    _recusa_do_banco(
+        _RESTRICAO_DOS_VALORES,
+        lambda: EscrituracaoFiscal.objects.create(
+            vinculo=_vinculo(nota, empresa_a),
+            empresa=empresa_a,
+            criado_por=usuario_gestor_a,
+            **_valores_do_ato(usuario_gestor_a, **trocado),
+        ),
+    )
+    assert EscrituracaoFiscal.objects.count() == 0
+
+
+@pytest.mark.parametrize("trocado", _VALOR_ALHEIO)
+def test_update_de_rascunho_para_efetivada_com_valor_alheio_e_recusado_pelo_banco(
+    escritorio_a, empresa_a, usuario_gestor_a, trocado
+):
+    nota = _nota(escritorio_a, usuario_gestor_a)
+    rascunho = servico.salvar_rascunho(_vinculo(nota, empresa_a), NATUREZA, usuario_gestor_a)
+
+    _recusa_do_banco(
+        _RESTRICAO_DOS_VALORES,
+        lambda: EscrituracaoFiscal.objects.filter(pk=rascunho.pk).update(
+            **_valores_do_ato(usuario_gestor_a, **trocado)
+        ),
+    )
+    assert EscrituracaoFiscal.objects.get(pk=rascunho.pk).estado == EstadoEscrituracao.RASCUNHO
+
+
+def test_efetivada_com_os_valores_do_documento_e_aceita_pelo_banco(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
+    # O mesmo INSERT da sonda, com os valores certos, passa: a restrição não
+    # bloqueia o ato legítimo.
+    nota = _nota(escritorio_a, usuario_gestor_a)
+
+    EscrituracaoFiscal.objects.create(
+        vinculo=_vinculo(nota, empresa_a),
+        empresa=empresa_a,
+        criado_por=usuario_gestor_a,
+        **_valores_do_ato(usuario_gestor_a),
+    )
+    assert EscrituracaoFiscal.objects.filter(estado=EstadoEscrituracao.EFETIVADA).count() == 1

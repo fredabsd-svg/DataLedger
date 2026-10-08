@@ -143,7 +143,21 @@ class NotaPrestadaSerializer(serializers.Serializer):
 
 
 class EfetivarEntradaSerializer(serializers.Serializer):
-    natureza = serializers.ChoiceField(choices=NaturezaOperacao.choices)
+    # Mesmas mensagens da tela (auditoria A5). `allow_blank` deixa "" chegar até
+    # `validate_natureza`: sem isso o DRF responderia "valor inválido" para o vazio.
+    natureza = serializers.ChoiceField(
+        choices=NaturezaOperacao.choices,
+        allow_blank=True,
+        error_messages={
+            "required": servico.MENSAGEM_NATUREZA_VAZIA,
+            "invalid_choice": servico.MENSAGEM_NATUREZA_FORA_DO_CATALOGO,
+        },
+    )
+
+    def validate_natureza(self, valor):
+        if not valor:
+            raise serializers.ValidationError(servico.MENSAGEM_NATUREZA_VAZIA)
+        return valor
 
 
 class EstornarEntradaSerializer(serializers.Serializer):

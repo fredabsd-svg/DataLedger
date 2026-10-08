@@ -69,7 +69,7 @@ competência (dCompet). Nota tomada não aparece aqui (plano, critério 7).
                         <th scope="col">Tomador</th>
                         <th scope="col">Valor do serviço</th>
                         <th scope="col">Retenção do ISS</th>
-                        <th scope="col">Natureza sugerida</th>
+                        <th scope="col">Natureza</th>
                         <th scope="col">Situação</th>
                     </tr>
                 </thead>
@@ -81,7 +81,7 @@ competência (dCompet). Nota tomada não aparece aqui (plano, critério 7).
                                     {{ linha.nota.documento.numero|default:linha.nota.documento.identificador }}
                                 </a>
                             </td>
-                            <td>{{ linha.nota.documento.dh_emissao|date:"d/m/Y H:i" }}</td>
+                            <td>{{ linha.nota.data_emissao|date:"d/m/Y"|default:"—" }}</td>
                             <td>
                                 {{ linha.nota.documento.d_competencia|date:"m/Y" }}
                                 {% if linha.nota.competencia_difere_da_emissao %}
@@ -93,7 +93,10 @@ competência (dCompet). Nota tomada não aparece aqui (plano, critério 7).
                             </td>
                             <td class="valor-monetario">{{ linha.v_serv_ptbr }}</td>
                             <td>{{ linha.retencao }}</td>
-                            <td>{{ linha.natureza_sugerida }}</td>
+                            <td>
+                                {{ linha.natureza }}
+                                <br><span class="texto-apoio">{{ linha.origem_natureza }}</span>
+                            </td>
                             <td>
                                 {{ linha.situacao }}
                                 {% if linha.acao %}

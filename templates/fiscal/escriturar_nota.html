@@ -34,8 +34,8 @@ efetivação registra, e o que ainda dá para desfazer (estorno, com motivo).
             <dd>{{ documento.identificador }}</dd>
         </div>
         <div>
-            <dt>Emissão (dhEmi)</dt>
-            <dd>{{ documento.dh_emissao|date:"d/m/Y H:i" }}</dd>
+            <dt>Emissão (dia do dhEmi)</dt>
+            <dd>{{ nota.data_emissao|date:"d/m/Y"|default:"—" }}</dd>
         </div>
         <div>
             <dt>Competência (dCompet)</dt>

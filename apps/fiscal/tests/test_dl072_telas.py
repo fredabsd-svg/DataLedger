@@ -351,8 +351,9 @@ def test_sem_sugestao_efetivar_sem_escolher_e_recusado_pela_tela(
         {"natureza": "", "acao": "efetivar"},
     )
 
+    # Auditoria A5: o vazio tem mensagem própria, e não a de natureza desconhecida.
     assert resposta.status_code == 200
-    assert "Natureza de operação desconhecida" in resposta.content.decode()
+    assert "Escolha a natureza da operação." in resposta.content.decode()
     assert EscrituracaoFiscal.objects.count() == 0
 
 
@@ -714,9 +715,10 @@ def test_conferencia_de_empresa_de_outro_escritorio_nao_vaza(
 
     resposta = client.get(_url_conferencia(), _competencia(empresa_b, 2024, 1))
 
-    # O Django escapa a aspa da mensagem ("&#x27;"): confere-se só o trecho sem aspa.
-    assert resposta.status_code == 400
-    assert "inválida." in resposta.content.decode()
+    # Auditoria A9: empresa de OUTRO escritório é 404 (critério 9 do plano), e não
+    # mais 400. A mudança é a decisão do arquiteto: 400 ficou só para entrada
+    # malformada. O nome da empresa não pode aparecer na resposta.
+    assert resposta.status_code == 404
     assert "Empresa B Ltda" not in resposta.content.decode()
 
 
@@ -932,9 +934,9 @@ def test_outro_escritorio_nao_lista_notas_pelo_filtro_de_empresa(
 
     resposta = client.get(_url_lista(), _competencia(empresa_a, 2024, 1))
 
-    # O Django escapa a aspa da mensagem ("&#x27;"): confere-se só o trecho sem aspa.
-    assert resposta.status_code == 400
-    assert "inválida." in resposta.content.decode()
+    # Auditoria A9: empresa de OUTRO escritório é 404 (critério 9), e não mais 400.
+    # A mudança é decisão do arquiteto. O nome da empresa não pode aparecer.
+    assert resposta.status_code == 404
     assert "Prestadora A Ltda" not in resposta.content.decode()
 
 
@@ -1022,7 +1024,8 @@ def test_detalhe_mostra_as_tres_datas_e_os_valores(
 
     conteudo = client.get(_url_detalhe(empresa_a, escrituracao)).content.decode()
 
-    assert "Data de emissão (dhEmi, Brasília)" in conteudo
+    # HI-72 (auditoria A2): o rótulo diz o que é gravado, o dia do dhEmi.
+    assert "Data de emissão (dia do dhEmi)" in conteudo
     assert "Data de competência (dCompet)" in conteudo
     assert "Data da escrituração" in conteudo
     assert "15/01/2024" in conteudo
@@ -1075,3 +1078,245 @@ def test_nota_estornada_nao_pode_ser_estornada_de_novo_pela_tela(
     assert resposta.status_code == 200
     assert "pode ser estornada" in resposta.content.decode()
     assert ALVO_DO_FORMULARIO not in resposta.content.decode()
+
+
+# ---------------------------------------------------------------------------
+# Correção única da auditoria (rodada 1): A2, A5, A6, A7, A8, A9, A10, A11 nas telas
+# ---------------------------------------------------------------------------
+
+EXPORTACAO = NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO
+
+
+@pytest.mark.parametrize("dh_emi", ["2024-01-31T23:30:00-04:00", "2024-01-31T22:30:00-05:00"])
+def test_relatorio_nao_avisa_nota_de_31_01_em_fuso_a_oeste(
+    client, escritorio_a, empresa_a, usuario_gestor_a, dh_emi
+):
+    # A2 (HI-72): o aviso usa o dia escrito no documento. Brasília daria 01/02 e um
+    # aviso falso de "Emitida em 02/2024".
+    _nota(escritorio_a, usuario_gestor_a, dh_emi=dh_emi, d_compet="2024-01-31")
+    _logar(client, usuario_gestor_a)
+
+    conteudo = client.get(_url_conferencia(), _competencia(empresa_a, 2024, 1)).content.decode()
+
+    assert "Nenhuma nota com competência diferente do mês de emissão." in conteudo
+    assert "Emitida em" not in conteudo
+
+
+# A5 — natureza vazia e natureza fora do catálogo, pela tela.
+
+
+@pytest.mark.parametrize("acao", ["efetivar", "rascunho"])
+def test_natureza_vazia_pela_tela_tem_mensagem_de_escolha(
+    client, escritorio_a, empresa_a, usuario_gestor_a, acao
+):
+    nota = _nota(escritorio_a, usuario_gestor_a)
+    _logar(client, usuario_gestor_a)
+
+    resposta = client.post(
+        _url_escriturar(empresa_a, _vinculo(nota, empresa_a)), {"natureza": "", "acao": acao}
+    )
+
+    assert resposta.status_code == 200
+    assert "Escolha a natureza da operação." in resposta.content.decode()
+    assert EscrituracaoFiscal.objects.count() == 0
+
+
+@pytest.mark.parametrize("acao", ["efetivar", "rascunho"])
+def test_natureza_fora_do_catalogo_pela_tela_nomeia_o_catalogo(
+    client, escritorio_a, empresa_a, usuario_gestor_a, acao
+):
+    nota = _nota(escritorio_a, usuario_gestor_a)
+    _logar(client, usuario_gestor_a)
+
+    resposta = client.post(
+        _url_escriturar(empresa_a, _vinculo(nota, empresa_a)),
+        {"natureza": "natureza_inventada", "acao": acao},
+    )
+
+    assert resposta.status_code == 200
+    assert "não é uma das naturezas do catálogo fiscal" in resposta.content.decode()
+    assert EscrituracaoFiscal.objects.count() == 0
+
+
+# A6 — a lista mostra a natureza GRAVADA quando há escrituração, e a sugerida só sem ela.
+
+
+def test_lista_mostra_a_natureza_gravada_e_diz_a_origem(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    efetivada = _nota(escritorio_a, usuario_gestor_a, sufixo=1)  # XML sugere devido
+    servico.efetivar_escrituracao(_vinculo(efetivada, empresa_a), EXPORTACAO, usuario_gestor_a)
+    rascunho = _nota(escritorio_a, usuario_gestor_a, sufixo=2)
+    servico.salvar_rascunho(_vinculo(rascunho, empresa_a), NATUREZA_DEVIDA, usuario_gestor_a)
+    sem_escrituracao = _nota(escritorio_a, usuario_gestor_a, sufixo=3, tp_ret_issqn="2")
+    _logar(client, usuario_gestor_a)
+
+    resposta = client.get(_url_lista(), _competencia(empresa_a))
+
+    linhas = {linha["nota"].documento.pk: linha for linha in resposta.context["linhas"]}
+    assert linhas[efetivada.pk]["natureza"] == EXPORTACAO.label
+    assert linhas[efetivada.pk]["origem_natureza"] == "Escriturada"
+    assert linhas[rascunho.pk]["natureza"] == NATUREZA_DEVIDA.label
+    assert linhas[rascunho.pk]["origem_natureza"] == "Rascunho, não efetivada"
+    assert linhas[sem_escrituracao.pk]["natureza"] == NATUREZA_RETIDA.label
+    assert linhas[sem_escrituracao.pk]["origem_natureza"] == "Sugerida pelo XML, não escriturada"
+    conteudo = resposta.content.decode()
+    assert '<th scope="col">Natureza</th>' in conteudo
+    assert '<th scope="col">Natureza sugerida</th>' not in conteudo
+
+
+# A7 — natureza gravada contra o XML aparece na conferência.
+
+
+def test_conferencia_mostra_o_aviso_de_natureza_que_contradiz_o_xml(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    nota = _nota(escritorio_a, usuario_gestor_a, tp_ret_issqn="2")
+    servico.efetivar_escrituracao(_vinculo(nota, empresa_a), NATUREZA_DEVIDA, usuario_gestor_a)
+    _logar(client, usuario_gestor_a)
+
+    resposta = client.get(_url_conferencia(), _competencia(empresa_a, 2024, 1))
+
+    conteudo = resposta.content.decode()
+    assert len(resposta.context["divergencias"]) == 1
+    assert "Natureza gravada diferente do XML" in conteudo
+    assert "retenção do ISS (tpRetISSQN 2)" in conteudo
+
+
+def test_conferencia_sem_contradicao_diz_que_nao_ha(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    _nota(escritorio_a, usuario_gestor_a)
+    _logar(client, usuario_gestor_a)
+
+    conteudo = client.get(_url_conferencia(), _competencia(empresa_a, 2024, 1)).content.decode()
+
+    assert "Nenhuma natureza gravada contradiz o XML nesta competência." in conteudo
+
+
+# A8 — totais em reais e conciliação, com valores escritos à mão.
+
+
+def test_conferencia_mostra_valores_em_reais_e_a_conciliacao(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    efetivada = _nota(escritorio_a, usuario_gestor_a, sufixo=1, v_serv="1000.00", v_liq="950.00")
+    servico.efetivar_escrituracao(_vinculo(efetivada, empresa_a), NATUREZA_DEVIDA, usuario_gestor_a)
+    _nota(escritorio_a, usuario_gestor_a, sufixo=2, v_serv="250.50", v_liq="240.00")
+    rascunho = _nota(escritorio_a, usuario_gestor_a, sufixo=3, v_serv="0.01", v_liq="0.01")
+    servico.salvar_rascunho(_vinculo(rascunho, empresa_a), NATUREZA_DEVIDA, usuario_gestor_a)
+    _logar(client, usuario_gestor_a)
+
+    resposta = client.get(_url_conferencia(), _competencia(empresa_a, 2024, 1))
+
+    conteudo = resposta.content.decode()
+    assert resposta.context["diferenca_nula"] is True
+    for valor in ("1.250,51", "1.000,00", "250,51", "(sem diferença)"):
+        assert valor in conteudo
+    assert "Diferente de zero: verificar" not in conteudo
+
+
+def test_conferencia_destaca_diferenca_quando_o_documento_mudou_depois(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    documento = _nota(escritorio_a, usuario_gestor_a, v_serv="1000.00", v_liq="950.00")
+    servico.efetivar_escrituracao(_vinculo(documento, empresa_a), NATUREZA_DEVIDA, usuario_gestor_a)
+    DocumentoFiscal.objects.filter(pk=documento.pk).update(v_serv=Decimal("1000.01"))
+    _logar(client, usuario_gestor_a)
+
+    resposta = client.get(_url_conferencia(), _competencia(empresa_a, 2024, 1))
+
+    conteudo = resposta.content.decode()
+    assert resposta.context["diferenca_nula"] is False
+    assert "-0,01" in conteudo
+    assert "Diferente de zero: verificar" in conteudo
+
+
+# A9 — empresa de outro escritório ou inexistente: 404; entrada malformada: 400.
+
+
+def test_empresa_malformada_na_lista_continua_400(client, escritorio_a, usuario_gestor_a):
+    _logar(client, usuario_gestor_a)
+
+    resposta = client.get(_url_lista(), {"empresa": "abc", "ano": 2024, "mes": 1})
+
+    assert resposta.status_code == 400
+    assert "inválida." in resposta.content.decode()
+
+
+def test_empresa_inexistente_na_conferencia_e_404(client, escritorio_a, usuario_gestor_a):
+    _logar(client, usuario_gestor_a)
+
+    resposta = client.get(_url_conferencia(), {"empresa": 999999, "ano": 2024, "mes": 1})
+
+    assert resposta.status_code == 404
+
+
+# A10 — a tela de uma nota não reprocessa o mês inteiro.
+
+
+def test_tela_de_uma_nota_nao_reprocessa_o_mes(
+    client, escritorio_a, empresa_a, usuario_gestor_a, monkeypatch
+):
+    nota = _nota(escritorio_a, usuario_gestor_a)
+    _logar(client, usuario_gestor_a)
+
+    def lista_do_mes_proibida(*_args, **_kwargs):
+        raise AssertionError("a tela de uma nota não deve listar o mês inteiro")
+
+    monkeypatch.setattr(servico, "notas_a_escriturar", lista_do_mes_proibida)
+
+    resposta = client.get(_url_escriturar(empresa_a, _vinculo(nota, empresa_a)))
+
+    assert resposta.status_code == 200
+    assert resposta.context["nota"] is not None
+
+
+# A11 — o detalhe mostra o histórico do vínculo e a trilha, sem outro escritório.
+
+
+def test_detalhe_mostra_as_outras_escrituracoes_e_a_trilha(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    nota = _nota(escritorio_a, usuario_gestor_a)
+    vinculo = _vinculo(nota, empresa_a)
+    primeira = servico.efetivar_escrituracao(vinculo, NATUREZA_DEVIDA, usuario_gestor_a)
+    servico.estornar_escrituracao(primeira, "natureza errada", usuario_gestor_a)
+    segunda = servico.efetivar_escrituracao(vinculo, NATUREZA_RETIDA, usuario_gestor_a)
+    _logar(client, usuario_gestor_a)
+
+    detalhe_da_segunda = client.get(_url_detalhe(empresa_a, segunda))
+    detalhe_da_primeira = client.get(_url_detalhe(empresa_a, primeira))
+
+    # A anterior (estornada) aparece no detalhe da atual, com link para ela.
+    assert _url_detalhe(empresa_a, primeira) in detalhe_da_segunda.content.decode()
+    assert _url_detalhe(empresa_a, segunda) in detalhe_da_primeira.content.decode()
+    assert [linha["acao"] for linha in detalhe_da_segunda.context["trilha"]] == ["Efetivada"]
+    assert [linha["acao"] for linha in detalhe_da_primeira.context["trilha"]] == [
+        "Efetivada",
+        "Estornada",
+    ]
+
+
+def test_trilha_do_detalhe_nao_mostra_registro_de_outro_escritorio(
+    client, escritorio_a, escritorio_b, empresa_a, usuario_gestor_a, gestor_b
+):
+    nota = _nota(escritorio_a, usuario_gestor_a)
+    escrituracao = servico.efetivar_escrituracao(
+        _vinculo(nota, empresa_a), NATUREZA_DEVIDA, usuario_gestor_a
+    )
+    # Registro de OUTRO escritório com o mesmo `objeto_id`: não pode aparecer aqui.
+    RegistroAuditoria.objects.create(
+        usuario=gestor_b,
+        escritorio=escritorio_b,
+        acao="escrituracao_fiscal.efetivada",
+        objeto_tipo="EscrituracaoFiscal",
+        objeto_id=str(escrituracao.pk),
+        detalhes={},
+    )
+    _logar(client, usuario_gestor_a)
+
+    resposta = client.get(_url_detalhe(empresa_a, escrituracao))
+
+    assert [linha["acao"] for linha in resposta.context["trilha"]] == ["Efetivada"]
+    assert "gestor-b-telas-escrituracao" not in resposta.content.decode()

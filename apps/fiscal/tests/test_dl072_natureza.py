@@ -236,6 +236,28 @@ def test_versao_sem_tabela_de_tribissqn_cai_em_devido(escritorio_a, empresa_a, u
     assert servico.sugerir_natureza(nota) == DEVIDO
 
 
+def test_dtd_com_entidade_nao_forja_a_sugestao_de_natureza(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
+    # Auditoria B1 (parte DL-072): `tribISSQN` é lido por `_raiz_segura`, sem DTD.
+    # Com um parser comum, a entidade `&t;` expandiria para "3" (exportação no 1.01)
+    # e a sugestão seria exportação. Com o parser seguro, o XML é recusado e a
+    # sugestão cai em "devido", a regra padrão.
+    nota = _nota(escritorio_a, usuario_gestor_a, trib_issqn="@@")
+    forjado = xml_nfse(identificador=identificador_nfse(1), trib_issqn="@@").replace(b"@@", b"&t;")
+    forjado = forjado.replace(
+        b'<?xml version="1.0" encoding="UTF-8"?>\n',
+        b'<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE NFSe [<!ENTITY t "3">]>',
+    )
+    # Guarda: se a declaração do XML sintético mudar, a substituição não casa e o
+    # teste viraria vazio. Isso o reprova.
+    assert b"<!DOCTYPE" in forjado and b"&t;" in forjado
+    DocumentoFiscal.objects.filter(pk=nota.pk).update(xml_original=forjado)
+    nota.refresh_from_db()
+
+    assert servico.sugerir_natureza(nota) == DEVIDO
+
+
 def test_sugestao_nunca_presume_outro_municipio_nem_fora_da_lista_em_nenhum_codigo(
     escritorio_a, empresa_a, usuario_gestor_a
 ):
@@ -276,7 +298,9 @@ def test_efetivar_sem_natureza_e_recusado_e_nada_e_gravado(
 ):
     nota = _nota(escritorio_a, usuario_gestor_a, trib_issqn="4")
 
-    with pytest.raises(servico.EntradaInvalidaEscrituracao, match="desconhecida"):
+    # Auditoria A5: o vazio tem mensagem própria ("Escolha a natureza"), e não a de
+    # natureza desconhecida. A recusa e o "nada gravado" continuam os mesmos.
+    with pytest.raises(servico.EntradaInvalidaEscrituracao, match="Escolha a natureza da operação"):
         servico.efetivar_escrituracao(_vinculo(nota, empresa_a), "", usuario_gestor_a)
 
     assert EscrituracaoFiscal.objects.count() == 0

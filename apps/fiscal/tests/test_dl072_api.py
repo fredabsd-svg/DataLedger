@@ -591,3 +591,38 @@ def test_efetivar_exportacao_pela_api_grava_mercado_externo(
     assert (
         corpo["natureza_descricao"] == "Serviço prestado — exportação de serviço (mercado externo)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Auditoria A5 — natureza vazia e fora do catálogo, com a mesma mensagem da tela
+# ---------------------------------------------------------------------------
+
+
+def test_efetivar_pela_api_com_natureza_vazia_tem_mensagem_de_escolha(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    nota = _nota(escritorio_a, usuario_gestor_a)
+    _logar(client, usuario_gestor_a)
+
+    resposta = _post(client, _url_efetivar(empresa_a, _vinculo(nota, empresa_a)), {"natureza": ""})
+
+    assert resposta.status_code == 400
+    assert resposta.json() == {"natureza": ["Escolha a natureza da operação."]}
+    assert EscrituracaoFiscal.objects.count() == 0
+
+
+def test_efetivar_pela_api_com_natureza_fora_do_catalogo_nomeia_o_catalogo(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    nota = _nota(escritorio_a, usuario_gestor_a)
+    _logar(client, usuario_gestor_a)
+
+    resposta = _post(
+        client, _url_efetivar(empresa_a, _vinculo(nota, empresa_a)), {"natureza": "inventada"}
+    )
+
+    assert resposta.status_code == 400
+    mensagem = resposta.json()["natureza"][0]
+    assert "não é uma das naturezas do catálogo fiscal" in mensagem
+    assert "inventada" not in mensagem
+    assert EscrituracaoFiscal.objects.count() == 0
