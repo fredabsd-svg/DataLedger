@@ -2007,7 +2007,7 @@ Integrada com as ressalvas abaixo (RC-150); H1 e H2 viram a DL-060.
 | BL-588 | **H1 (baixa)** — a confirmação da reabertura em cascata não fixa os meses mostrados: mês encerrado entre a tela e o clique é reaberto junto, sem constar da confirmação | `desenvolvedor-pleno` + `especialista-frontend` | — | concluída (DL-060) | A tela envia os meses confirmados; o serviço recusa (409, lista atual) se o conjunto sob lock divergir; nenhum mês alterado |
 | BL-589 | **H2 (baixa)** — faltam testes de corrida "reabrir sem cascata × encerrar mês posterior" e a asserção de estado final no teste de duas cascatas | `desenvolvedor-pleno` | — | concluída (DL-060) | Casos propostos na auditoria; a mutação sem o lock dos posteriores reprova |
 | BL-590 | **H3 (baixa)** — a tela filtra `estado=encerrado` e o serviço `!= aberto`; divergiriam com um terceiro estado | `especialista-frontend` | — | aberta | Mesmo critério nos dois, com teste |
-| BL-591 | **H4 (baixa)** — comentário da margem do `lock_timeout` (`config/settings.py`) supõe um lock por requisição; o lançamento agora toma até 12 | `desenvolvedor-pleno` | — | aberta | Comentário atualizado com a nova conta, ou medição |
+| BL-591 | **H4 (baixa)** — comentário da margem do `lock_timeout` (`config/settings.py`) supõe um lock por requisição; o lançamento agora toma até 12 | `desenvolvedor-pleno` | — | **fechado** — DL-070 (comentário com a conta de 12 locks, declarada como aritmética; auditoria rodada 1 conferiu) | Comentário atualizado com a nova conta, ou medição |
 
 ## Auditoria da DL-058 — rodada 1, APROVADA COM RESSALVAS (2026-10-01)
 
@@ -2033,7 +2033,7 @@ K3 (documentação da etapa) cumprido na integração.
 | BL-597 | **K1 (baixa)** — falha da própria trilha ao gravar a recusa do convite vira HTTP 500; decisão *fail-closed* registrada no plano da DL-059, sem teste que a documente | `desenvolvedor-pleno` | — | aberta | Teste com `registrar` forçado a falhar: 500, sem vínculo, convite não consumido |
 | BL-598 | **K2 (baixa, pré-existente)** — dois convites ao mesmo e-mail aceitos em paralelo dão `IntegrityError` (500) sem evento de recusa | `desenvolvedor-pleno` | — | aberta | Segundo aceite vira recusa `ja_vinculado` com evento, ou segundo convite pendente é impedido; teste de concorrência |
 | BL-599 | **K4 (baixa)** — cada POST recusado de convite grava um evento, sem limite de taxa | `arquiteto-senior` | — | aberta | Decidir: aceitar como está ou limitar por usuário e convite |
-| BL-600 | **K5 (baixa)** — texto do GET de token inexistente ainda diz "já foi consumido", caso que agora tem tela própria | `especialista-frontend` | — | aberta | Texto "inexistente ou inválido", com teste |
+| BL-600 | **K5 (baixa)** — texto do GET de token inexistente ainda diz "já foi consumido", caso que agora tem tela própria | `especialista-frontend` | — | **fechado** — DL-070 (texto "inexistente ou inválido" com teste; auditoria rodada 1 conferiu) | Texto "inexistente ou inválido", com teste |
 | BL-601 | **K6 (baixa)** — faltam testes de aceite em paralelo e de `X-Forwarded-For` forjado em cada evento novo pela view | `desenvolvedor-pleno` | — | aberta | Casos da seção 7 da auditoria no repositório |
 
 ## Auditoria da DL-060 — rodada 1 e reconferência, APROVADA COM RESSALVAS (2026-10-01)
@@ -2045,7 +2045,7 @@ Integrada com a ressalva abaixo (RC-150). BL-588 e BL-589 concluídos; L5
 
 | ID | Item | Responsável | Depende de | Estado | Critério de aceite |
 | --- | --- | --- | --- | --- | --- |
-| BL-602 | **M1 (baixa)** — o caso "só o próprio mês" do teste de lista forjada não derruba o mutante que ignora o próprio mês na lista confirmada | `desenvolvedor-pleno` | — | aberta | Caso `(1, _meses(1, 2, 3))` na parametrização; reprova sob o mutante da reconferência e passa sem ele |
+| BL-602 | **M1 (baixa)** — o caso "só o próprio mês" do teste de lista forjada não derruba o mutante que ignora o próprio mês na lista confirmada | `desenvolvedor-pleno` | — | **fechado** — DL-070 (caso `lista_certa_mais_proprio_mes`; o mutante morre, conferido pela auditoria rodada 1) | Caso `(1, _meses(1, 2, 3))` na parametrização; reprova sob o mutante da reconferência e passa sem ele |
 
 ## DL-061 — DMPL, fatia 1: pontos abertos na implementação (2026-10-01)
 
@@ -2077,7 +2077,7 @@ Rodada única de correção em andamento; depois, reconferência final (AGENTS.m
 | BL-616 | **N9 (baixa)** — lacunas de teste (mutantes N02 e N10, propriedade P4) | `desenvolvedor-pleno`, `especialista-frontend` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Casos 8 e 9 |
 | BL-617 | **N10 (baixa)** — tela de parâmetros rola na horizontal a 390 px | `especialista-frontend` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Caso 10 |
 | BL-618 | **N11 (baixa)** — mensagem de diferença de fechamento não cita a causa conhecida (BL-604) | `especialista-frontend` | — | corrigido em `40e47f5` e **reconferido** (fechado) | Dica na mensagem |
-| BL-619 | Admin edita a coluna da DMPL sem trilha (pré-existente, mesmo padrão da DRE e da DLPA) | `desenvolvedor-pleno` | — | aberta | Trilha também pelo admin, ou campo só leitura no admin |
+| BL-619 | Admin edita a coluna da DMPL sem trilha (pré-existente, mesmo padrão da DRE e da DLPA) | `desenvolvedor-pleno` | — | **fechado** — DL-070: o defeito **já não existia** (a trilha genérica do admin da DL-030 cobre o campo); fica o teste de regressão `test_dl070_admin_da_conta_na_trilha.py`, que a auditoria matou com duas mutações | Trilha também pelo admin, ou campo só leitura no admin |
 | BL-620 | Reclassificar a conta reescreve DMPL de período já entregue; sem documento emitido congelado (pré-existente, DE-086) | `arquiteto-senior` | Fred | **parcialmente fechada pela DL-065** — a reclassificação da linha da DLPA e da coluna da DMPL passou a ser recusada em competência **encerrada ou entregue** (com a decisão do Fred de 05/10/2026: trava na DLPA e na DMPL, DRE segue livre por DE-086). **Continua de Fred:** se o escritório precisa de documento emitido congelado — a trava impede a reclassificação, não congela o que já foi impresso | Decidir se o escritório precisa de documento emitido congelado |
 | BL-621 | Em folha de paisagem, o Chromium não repete o bloco de identificação do emitente (`<thead>`) numa segunda folha; hoje a DMPL cabe numa folha, mas comparativo ou mais linhas exigiriam encolher o bloco (achado na correção da DL-061) | `especialista-frontend` | — | aberta | Identificação repetida em DMPL de duas folhas de paisagem, medida no navegador |
 
@@ -2204,3 +2204,5 @@ PostgreSQL 16. Plano: [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente
 | BL-649 | **BAIXA** — `GET /api/auditoria/` faz uma consulta por registro para o usuário (2: 9; 20: 27). A falta de paginação continua no BL-35 | `desenvolvedor-pleno` | — | **em desenvolvimento — DL-070** | Critério 6 da DL-070 |
 | BL-650 | **BAIXA** — histórico do livro-caixa que começa com `=`, `+`, `-` ou `@` sai assim no CSV do carnê-leão e pode virar fórmula ao abrir na planilha. Escapar altera o dado dentro de leiaute oficial | `arquiteto-senior` | Fred | aberta | Decisão do Fred: recusar o caractere na entrada, escapar na saída, ou aceitar o risco |
 | BL-651 | **BAIXA** — `POST /convites/emitir/` responde diferente para id de escritório inexistente e para id de escritório alheio: oráculo de existência. A autorização em si está correta no serviço | `desenvolvedor-pleno` | — | **em desenvolvimento — DL-070** | Critério 4 da DL-070 |
+| BL-652 | **A4 da auditoria da DL-070 (baixa)** — `/bootstrap/` confirma "CNPJ já cadastrado" sem limite de tentativas a quem tem conta sem vínculo ativo (ex-funcionário desligado): enumeração de CNPJ de clientes. O cadastro público dá a mesma mensagem com o limite da DL-056; antes da DL-070 o caso dava 500, que também o distinguia | `desenvolvedor-pleno` | — | aberta — risco **aceito por ora** pelo arquiteto (08/10/2026), reversível | Aplicar à rota o limite do cadastro (`limite_tentativas`), com teste de N tentativas |
+| BL-653 | **Observação 3 da auditoria da DL-070 (baixa, preexistente, só inspecionado)** — duas requisições simultâneas do **mesmo** usuário com CNPJs diferentes podem criar dois escritórios: a checagem "já tem vínculo" do serviço de primeiro acesso não é travada | `desenvolvedor-pleno` | — | aberta | Teste de corrida com duas threads e um escritório só no fim |

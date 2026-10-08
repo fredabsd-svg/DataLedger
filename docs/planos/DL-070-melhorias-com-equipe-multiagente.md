@@ -17,6 +17,13 @@ testes. Código de nível 1 de produção (lançamento, saldo, competência,
 demonstração, gatilho) fica **fora** desta etapa. Toda a entrega passa pelo
 auditor em Sonnet antes de ser dada como pronta.
 
+⚠️ **Correção da classificação (achado A7 da auditoria, 08/10/2026):** a
+frase "nível 1 fica fora" afirmava mais do que ocorreu. Dois itens **tocam**
+nível 1 do §3.1: o BL-651 (oráculo de existência de escritório, isolamento) e
+o BL-649 (consulta da trilha de auditoria). Nenhum dos dois muda regra
+contábil, mas foram implementados por Haiku — e o controle que vale para
+eles é a **auditoria independente**, que os cobriu com mutação.
+
 Origem dos itens: análise do repositório de 08/10/2026 feita por dois
 `auxiliar-pesquisa` (triagem do backlog aberto e varredura independente de
 defeitos), com reprodução executada em PostgreSQL 16.
