@@ -1018,8 +1018,8 @@ EXCLUSOES_NOMEADAS_DE_TELA = {
     "livro_caixa:estornar": ("API REST (EstornarLancamentoCaixaView, DRF) — JSON; DL-046 fatia 1"),
     "livro_caixa:livro-caixa": "API REST (LivroCaixaView, DRF) — JSON; DL-046 fatia 1",
     # DL-053: fechamento de mês do livro-caixa — as três rotas são API REST
-    # (JSON); a tela de fechamento é do especialista-frontend, depois do
-    # contrato do servidor.
+    # (JSON). A tela de fechamento existe: `livro_caixa_web:mes_encerrar`, coberta
+    # por test_tela_livro_caixa_mes_encerrar_e_acessivel, mais abaixo neste arquivo.
     "livro_caixa:meses": "API REST (MesesCaixaView, DRF) — JSON; DL-053",
     "livro_caixa:encerrar-mes": "API REST (EncerrarMesCaixaView, DRF) — JSON; DL-053",
     "livro_caixa:reabrir-mes": "API REST (ReabrirMesCaixaView, DRF) — JSON; DL-053",

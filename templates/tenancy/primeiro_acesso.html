@@ -19,9 +19,11 @@ padrão das demais telas.
             <label for="id_nome">Nome do escritório</label>
             <input type="text" name="nome" id="id_nome" value="{{ nome|default:'' }}" required maxlength="200">
         </div>
+        {# DL-070 (A3): o servidor aceita CNPJ com máscara e CNPJ alfanumérico (DL-011), então a tela não pode barrar isso antes do envio: sem pattern, sem inputmode numérico, maxlength 18 = tamanho da máscara. #}
         <div class="campo">
-            <label for="id_cnpj">CNPJ (somente números)</label>
-            <input type="text" name="cnpj" id="id_cnpj" value="{{ cnpj|default:'' }}" required maxlength="14" pattern="[0-9]{14}" inputmode="numeric">
+            <label for="id_cnpj">CNPJ</label>
+            <input type="text" name="cnpj" id="id_cnpj" value="{{ cnpj|default:'' }}" required maxlength="18" aria-describedby="id_cnpj_ajuda">
+            <p class="texto-apoio" id="id_cnpj_ajuda">Com ou sem pontuação.</p>
         </div>
         <button type="submit">Criar escritório e entrar</button>
     </form>

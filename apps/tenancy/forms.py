@@ -12,17 +12,20 @@ from django import forms
 from django.core.exceptions import ValidationError
 
 from apps.empresas.validators import normalizar_cnpj, validar_cnpj
-from apps.tenancy.models import Escritorio
+from apps.tenancy.models import ConviteEscritorio, Escritorio
 
-# Limites das colunas de `apps.tenancy.models`. Iguais aos do modelo, porque
-# valor acima deles é exatamente o que o PostgreSQL recusava com 500.
-LIMITE_NOME_ESCRITORIO = 200
-# A máscara `XX.XXX.XXX/XXXX-XX` tem 18 caracteres. Texto acima disso não pode
-# ser um CNPJ com máscara, então é recusado com mensagem de tamanho antes de
-# chegar à normalização.
+# Limites DERIVADOS das colunas de `apps.tenancy.models` (DL-070, A5). Antes eram
+# números copiados: se o `max_length` do modelo mudasse, o formulário divergiria
+# em silêncio e o 500 voltava. Valor acima do limite da coluna é exatamente o que
+# o PostgreSQL recusava com 500.
+LIMITE_NOME_ESCRITORIO = Escritorio._meta.get_field("nome").max_length
+# Não é derivado do modelo, de propósito: 18 é o tamanho da MÁSCARA
+# `XX.XXX.XXX/XXXX-XX`, não o da coluna `Escritorio.cnpj` (14 dígitos já
+# normalizados). Texto acima disso não pode ser um CNPJ com máscara, então é
+# recusado com mensagem de tamanho antes de chegar à normalização.
 LIMITE_CNPJ_COM_MASCARA = 18
-# Mesmo limite do `EmailField` padrão da coluna `ConviteEscritorio.email`.
-LIMITE_EMAIL = 254
+# Derivado da coluna `ConviteEscritorio.email` (EmailField, 254 por padrão).
+LIMITE_EMAIL = ConviteEscritorio._meta.get_field("email").max_length
 
 # Mensagem única de CNPJ já cadastrado. O formulário a usa na checagem prévia e
 # a view a usa quando a corrida chega ao banco (IntegrityError), para o usuário

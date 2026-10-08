@@ -16,14 +16,18 @@ Regra transversal: entrada recusada não grava `Escritorio`, `ConviteEscritorio`
 nem `VinculoUsuarioEscritorio`, e não pode virar 500.
 """
 
+import re
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
+from django.db import IntegrityError
 from django.db.models import Max
 from django.test import Client
 from django.urls import reverse
 
 from apps.empresas.validators import normalizar_cnpj, validar_cnpj
+from apps.tenancy import views
 from apps.tenancy.forms import PrimeiroEscritorioForm
 from apps.tenancy.models import (
     ConviteEscritorio,
@@ -178,11 +182,50 @@ def test_bootstrap_aceita_nome_com_exatamente_200_caracteres(client):
     assert Escritorio.objects.filter(nome=nome_limite, cnpj=CNPJ_VALIDO).exists()
 
 
+# DL-070 (A3): a tela não pode barrar o que o servidor aceita. Antes, o HTML trazia
+# `pattern="[0-9]{14}"` e `maxlength="14"`, e o navegador recusava máscara e CNPJ
+# alfanumérico antes do envio (CNPJ alfanumérico é requisito confirmado, DL-011).
+
+
+def test_tela_do_bootstrap_nao_bloqueia_cnpj_com_mascara_nem_alfanumerico(client):
+    client.force_login(_usuario("bootstrap-tela-cnpj"))
+
+    resposta = client.get(reverse("tenancy:bootstrap-primeiro-acesso"))
+
+    assert resposta.status_code == 200
+    html = resposta.content.decode()
+    campo = re.search(r'<input[^>]*id="id_cnpj"[^>]*>', html)
+    assert campo, "o campo id_cnpj precisa existir na tela"
+    tag = campo.group(0)
+    assert 'maxlength="18"' in tag, "18 é o tamanho da máscara XX.XXX.XXX/XXXX-XX"
+    assert "pattern=" not in tag, "pattern recusaria CNPJ alfanumérico no navegador"
+    assert "inputmode=" not in tag, "teclado numérico impede digitar letras"
+    assert 'aria-describedby="id_cnpj_ajuda"' in tag
+    assert re.search(r'<label for="id_cnpj">CNPJ</label>', html)
+    assert re.search(
+        r'<p class="texto-apoio" id="id_cnpj_ajuda">Com ou sem pontuação\.</p>', html
+    ), "o texto de ajuda precisa estar ligado ao campo"
+
+
+def test_bootstrap_aceita_cnpj_alfanumerico_e_grava_em_maiusculas(client):
+    client.force_login(_usuario("bootstrap-alfanumerico"))
+
+    resposta = client.post(
+        reverse("tenancy:bootstrap-primeiro-acesso"),
+        {"nome": "Escritório Alfanumérico", "cnpj": "ab123cde000155"},
+    )
+
+    assert resposta.status_code == 302
+    assert Escritorio.objects.get(nome="Escritório Alfanumérico").cnpj == "AB123CDE000155"
+
+
 # ---------------------------------------------------------------------------
 # BL-647 — POST /convites/emitir/ (e-mail)
 # ---------------------------------------------------------------------------
 
-# 300 caracteres exatos, malformado (local part com 288 caracteres).
+# 300 caracteres exatos. Bem formado segundo `validate_email` (local part de 288
+# letras passa no validador); só o tamanho o recusa. Medido: a mensagem que sai
+# é a de limite, não a de "inválido".
 EMAIL_300_CARACTERES = "a" * 288 + "@dl070.local"
 # 260 caracteres, mas bem formado segundo `validate_email`: só o tamanho recusa.
 EMAIL_260_BEM_FORMADO = "a" * 64 + "@" + ("d" * 63 + ".") * 3 + "com"
@@ -205,7 +248,11 @@ def test_fixtures_de_email_tem_o_tamanho_declarado():
         pytest.param("", "E-mail do convidado é obrigatório", id="vazio"),
         pytest.param("a@", "E-mail do convidado inválido", id="incompleto"),
         pytest.param("E-mail do convidado", "E-mail do convidado inválido", id="texto_sem_arroba"),
-        pytest.param(EMAIL_300_CARACTERES, "E-mail do convidado", id="300_caracteres"),
+        pytest.param(
+            EMAIL_300_CARACTERES,
+            "E-mail do convidado pode ter no máximo 254 caracteres.",
+            id="300_caracteres",
+        ),
         pytest.param(
             EMAIL_260_BEM_FORMADO,
             "no máximo 254 caracteres",
@@ -315,6 +362,79 @@ def test_membro_nao_administrador_continua_recusado_pela_autorizacao_do_servico(
     assert not ConviteEscritorio.objects.exists()
 
 
+def _post_convite_como(usuario, escritorio_id, email):
+    # Cliente próprio por chamada: a mensagem de uma resposta fica no cookie até
+    # ser exibida, e a seguinte a leria junto (ver o teste acima).
+    cliente = Client()
+    cliente.force_login(usuario)
+    return cliente.post(
+        reverse("tenancy:emitir-convite"), {"escritorio_id": escritorio_id, "email": email}
+    )
+
+
+def test_admin_de_outro_escritorio_responde_igual_a_id_inexistente():
+    # BL-651, caso que faltava no teste: o usuário é ADMINISTRADOR, mas de OUTRO
+    # escritório. Ter papel administrativo em algum lugar não pode revelar que o
+    # escritório alheio existe.
+    _dono, alheio = _escritorio_com_admin("dono-do-alheio", CNPJ_VALIDO)
+    admin_de_outro, _outro = _escritorio_com_admin("admin-de-outro", CNPJ_VALIDO_2)
+    inexistente = Escritorio.objects.aggregate(maior=Max("pk"))["maior"] + 1000
+    email = "convidado-admin-outro@dl070.local"
+
+    resposta_alheio = _post_convite_como(admin_de_outro, alheio.pk, email)
+    resposta_inexistente = _post_convite_como(admin_de_outro, inexistente, email)
+
+    assert resposta_alheio.status_code == resposta_inexistente.status_code == 302
+    assert resposta_alheio["Location"] == resposta_inexistente["Location"]
+    assert _mensagens(resposta_alheio) == _mensagens(resposta_inexistente)
+    assert _mensagens(resposta_alheio) == ["Escritório inválido."]
+    assert not ConviteEscritorio.objects.exists()
+
+
+def test_vinculo_inativo_recebe_recusa_do_servico_e_nao_cria_convite(client):
+    # BL-651, caso que faltava no teste: o vínculo existe, mas está inativo. O
+    # filtro de existência o enxerga (é vínculo, mesmo inativo) e a autorização
+    # real, no serviço, recusa, porque exige ADMINISTRADOR ativo.
+    _admin, escritorio = _escritorio_com_admin("admin-do-inativo", CNPJ_VALIDO)
+    ex_administrador = _usuario("ex-administrador-inativo")
+    VinculoUsuarioEscritorio.objects.create(
+        usuario=ex_administrador,
+        escritorio=escritorio,
+        papel=Papel.ADMINISTRADOR,
+        ativo=False,
+    )
+    client.force_login(ex_administrador)
+
+    resposta = client.post(
+        reverse("tenancy:emitir-convite"),
+        {"escritorio_id": escritorio.pk, "email": "convidado-inativo@dl070.local"},
+    )
+
+    assert resposta.status_code == 302
+    assert resposta["Location"] == reverse("tenancy:painel")
+    assert _mensagens(resposta) == [
+        "Apenas ADMINISTRADOR ativo pode convidar. "
+        "Se você é o segundo funcionário, aguarde o convite."
+    ]
+    assert not ConviteEscritorio.objects.exists()
+
+
+def test_convite_preserva_maiusculas_e_remove_espacos_das_pontas(client):
+    # BL-647: o e-mail é aceito com maiúsculas e espaços nas pontas. Grava sem os
+    # espaços e com a caixa original. A comparação sem diferença de caixa acontece
+    # no aceite (`normalizar_email`), não na gravação.
+    admin, escritorio = _escritorio_com_admin("admin-caixa-email", CNPJ_VALIDO)
+    client.force_login(admin)
+
+    resposta = client.post(
+        reverse("tenancy:emitir-convite"),
+        {"escritorio_id": escritorio.pk, "email": "  Fulano@Exemplo.COM  "},
+    )
+
+    assert resposta.status_code == 302
+    assert ConviteEscritorio.objects.get().email == "Fulano@Exemplo.COM"
+
+
 # ---------------------------------------------------------------------------
 # Corrida de CNPJ duplicado: a checagem prévia não enxerga o CNPJ, e o banco
 # é quem recusa no INSERT (IntegrityError). Antes da correção, isso era 500.
@@ -357,3 +477,34 @@ def test_corrida_de_cnpj_duplicado_responde_com_mensagem_sem_500_e_sem_gravar(cl
     )
     assert resposta_seguinte.status_code == 302
     assert Escritorio.objects.filter(nome="Escritório Depois da Corrida").exists()
+
+
+# ---------------------------------------------------------------------------
+# DL-070 (A1): a view só converte IntegrityError em "CNPJ já cadastrado" quando o
+# CNPJ de fato existe. Qualquer outra violação de integridade precisa propagar,
+# para não ser escondida como duplicidade.
+# ---------------------------------------------------------------------------
+
+
+def test_integrityerror_sem_cnpj_duplicado_propaga_e_nao_vira_mensagem(client, monkeypatch):
+    # O CNPJ válido NÃO está cadastrado, então a view não pode tratar a exceção
+    # como duplicidade. Tem de relançá-la.
+    assert not Escritorio.objects.filter(cnpj=CNPJ_VALIDO).exists()
+
+    def violacao_de_outra_natureza(**_kwargs):
+        raise IntegrityError("violação de integridade sem CNPJ duplicado")
+
+    monkeypatch.setattr(
+        views, "criar_primeiro_escritorio_e_vinculo_admin", violacao_de_outra_natureza
+    )
+    client.force_login(_usuario("bootstrap-outra-violacao"))
+    client.raise_request_exception = True
+    antes = _contagens()
+
+    with pytest.raises(IntegrityError):
+        client.post(
+            reverse("tenancy:bootstrap-primeiro-acesso"),
+            {"nome": "Escritório Outra Violação", "cnpj": CNPJ_VALIDO},
+        )
+
+    assert _contagens() == antes, "a violação propagada não pode deixar nada gravado"
