@@ -258,8 +258,15 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
      travava a efetivação; exportar e reimportar dobrava o Diário sem aviso;
      histórico fora do Latin-1 impedia exportar o período; soma da
      efetivação parcial). Exportação e conciliação com o balancete,
-     atomicidade, imutabilidade e isolamento aprovados. Correção única em
-     andamento.
+     atomicidade, imutabilidade e isolamento aprovados. Correção única
+     (`6e164da`) e [reconferência](../auditorias/2026-10-08-dl-077-fatias-2-3-reconferencia.md):
+     os doze achados fechados, mas **REPROVADA** por R1 (alta: no TXT
+     próprio e no Excel, partida com número ilegível sumia e "só os válidos"
+     efetivava o lançamento incompleto) e R2 (média: registro ilegível no fim
+     do lote do leiaute de referência sumia em silêncio). Regra de parada do
+     §3.1: sem terceira rodada — **a efetivação parcial foi suspensa**
+     (BL-676; só "tudo ou nada", que estava protegido), R2 vira erro, e o
+     aceite é pelos testes do próprio auditor. Em andamento.
      Suíte completa: 7.091 aprovados, 1 reprovado (ambiente). Teto de 2.000
      lançamentos por arquivo (efetivar 2.000 leva ~21 s; o servidor padrão
      corta em 30 s).
