@@ -229,7 +229,11 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    [Reconferência](../auditorias/2026-10-08-dl-075-reconferencia.md):
    **APROVADA COM RESSALVAS** — A1 a A9 e A11 fechados por execução, 47 dos
    50 mutantes da rodada 1 mortos (3 equivalentes); ciclo do §3.1
-   encerrado. Ressalvas R1 a R5 em correção antes do merge.
+   encerrado. Ressalvas R1, R2, R3 e R5 **corrigidas** em `78b49f2` (Haiku),
+   com 40 testes e os mutantes apontados mortos; R4 (documentação) pelo
+   arquiteto. Suíte completa: 6.013 aprovados, 1 reprovado (ambiente), 53
+   pulados. **Próximo: PR, CI e merge (autorizado pelo Fred quando a CI
+   ficar verde).**
 5. **[DL-076](../planos/DL-076-iss-por-municipio-palmas.md) — ISS por
    município, começando por Palmas: planejada, em desenvolvimento.**
    [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-iss-palmas.md):
