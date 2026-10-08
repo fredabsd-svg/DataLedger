@@ -150,8 +150,10 @@ que não existe mais no remoto (medido em 07/10/2026), e não foi integrada — 
 — melhorias do repositório com equipe multiagente, em revisão** pelo
 [PR #94](https://github.com/fredabsd-svg/DataLedger/pull/94), branch
 `ccr-bf4b4a55-hpqgbp` → `main`, aberto em 08/10/2026 depois de o Fred dizer
-*"Próxima etapa"* à pergunta sobre o PR (RC-161). **Sem merge.** O próximo
-passo é a CI verde no último commit e o merge pelo Fred. Ordem do Fred (RC-160):
+*"Próxima etapa"* à pergunta sobre o PR (RC-161). **Merge autorizado pelo
+Fred (RC-162)** para quando os quatro checks estiverem verdes no último commit;
+o registro do merge entra na etapa seguinte, porque a `main` não recebe push
+direto. Ordem do Fred (RC-160):
 orquestrador em Opus, desenvolvedores em Haiku em paralelo, auditor em Sonnet.
 
 O que entrou:
