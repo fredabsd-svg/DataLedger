@@ -91,7 +91,7 @@ DISP_CONFERENCIA = (
 )
 DISP_FAIXA = (
     "LC 116/2003, art. 8º, II (máximo 5%); art. 8º-A (mínimo 2%) e § 1º (exceção: "
-    "subitens 7.02, 7.05 e 16.01)"
+    "subitens 07.02, 07.05 e 16.01)"
 )
 DISP_CANCELADA = "DL-072, critério 5 (nota cancelada depois de escriturada); estorno com trilha"
 DISP_RETIDO = "HI-86; LC 116/2003, art. 6º; RCTM arts. 141 a 148 (cópia legisweb)"
@@ -1156,7 +1156,7 @@ def _faixa_da_aliquota(subitem: str, percentual: Decimal) -> AvisoIss | None:
             )
         raise EntradaInvalidaIss(
             f"Alíquota de {percentual}% abaixo do mínimo de 2% (LC 116/2003, art. 8º-A). A exceção "
-            "vale só para os subitens 7.02, 7.05 e 16.01."
+            "vale só para os subitens 07.02, 07.05 e 16.01."
         )
     return None
 

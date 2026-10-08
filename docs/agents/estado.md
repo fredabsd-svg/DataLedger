@@ -231,7 +231,14 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    isolamento; 19 mutantes vivos agora mortos), A6 (consultas por nota), A7
    (vencimento nominal com dia da semana), A8 a A11; migração `fiscal 0007`
    (piso de 2% no banco). Suíte completa: 6.343 aprovados, 1 reprovado
-   (ambiente), 53 pulados. **Reconferência em andamento.**
+   (ambiente), 53 pulados.
+   [Reconferência](../auditorias/2026-10-08-dl-076-reconferencia.md):
+   **APROVADA COM RESSALVAS** — A1 a A12 fechados por execução; 92 de 107
+   mutantes mortos; a tela com 1.000 notas caiu de 1.016 consultas para 16;
+   ciclo do §3.1 encerrado. Ressalvas, todas baixas: R4 (texto "7.02") e R6
+   (plano e HI-82) corrigidas pelo arquiteto; R1 a R3 e R5 no backlog
+   (BL-671, BL-672), com os testes propostos pelo auditor. **Próximo: PR,
+   CI e merge (RC-168).**
    [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-iss-palmas.md):
    a tabela de alíquotas vigente de Palmas **não foi achada** (LC 300/2014
    inacessível); a alíquota vira dado informado pelo escritório e o produto
