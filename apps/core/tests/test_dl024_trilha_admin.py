@@ -110,6 +110,7 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         ConfirmacaoReceitaMensal,
         DocumentoFiscal,
         EscrituracaoFiscal,
+        EscrituracaoTomada,
         EventoFiscal,
         FolhaFatorR,
         LoteDeRecepcao,
@@ -181,6 +182,11 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         # na mesma transação. Inclusão feita por ser o inventário que exige
         # nominalmente cada modelo coberto; nenhuma exclusão foi adicionada.
         EscrituracaoFiscal,
+        # DL-078 (frente A, 2026-10-08): `EscrituracaoTomada`, a escrituração de NFS-e tomada,
+        # na cobertura "por padrão" (R1/DE-056), como `EscrituracaoFiscal`. Sem ModelAdmin
+        # (BL-262); a porta de escrita é `apps.fiscal.tomadas`, que grava a trilha na mesma
+        # transação. Nenhuma exclusão foi adicionada.
+        EscrituracaoTomada,
         # DL-074 (frente A, 2026-10-08): `ReceitaInformada`, `ConfirmacaoReceitaMensal` e
         # `OpcaoRegimeCaixaSimples`, modelos novos do apps.fiscal, na cobertura "por padrão"
         # (R1/DE-056). Sem ModelAdmin (BL-262); a escrita é pelos serviços de
