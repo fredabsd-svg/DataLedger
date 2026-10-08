@@ -3162,6 +3162,11 @@ def lancamento_marcacao_dmpl(request, empresa_id, lancamento_id):
     que falta e tudo o que foi digitado preservado (nunca 500 — o mesmo
     molde de `conta_classificacao_dmpl`). Na recusa, nada é gravado: a
     substituição atômica do serviço nem começa.
+
+    `ClassificacaoAlteraPeriodoFechado` (DL-071, BL-655) tem o mesmo
+    tratamento, em `salvar` e em `remover`: a DMPL de um período encerrado ou
+    entregue não muda por marcação, e a mensagem diz qual competência barra e
+    se ela pode ou não ser reaberta.
     """
     if request.escritorio is None:
         return _resposta_sem_escritorio(request)
@@ -3196,7 +3201,16 @@ def lancamento_marcacao_dmpl(request, empresa_id, lancamento_id):
 
     acao = request.POST.get("acao")
     if acao == "remover":
-        remover_marcacoes_da_dmpl(lancamento=lancamento, usuario=request.user, request=request)
+        try:
+            remover_marcacoes_da_dmpl(lancamento=lancamento, usuario=request.user, request=request)
+        except ClassificacaoAlteraPeriodoFechado as exc:
+            # DL-071 (BL-655): remover reclassifica a leitura (o veto volta a
+            # valer), então vale a mesma trava de salvar. Recusa de regra é a
+            # tela respondendo na própria guia, com 200 — nunca um 500.
+            contexto = _contexto_do_lancamento_detalhe(
+                request, empresa, lancamento, erros=[str(exc)]
+            )
+            return render(request, "contabilidade/lancamento_detalhe.html", contexto)
         messages.success(
             request,
             "Marcações da DMPL removidas: este lançamento volta para a regra automática "
@@ -3229,7 +3243,11 @@ def lancamento_marcacao_dmpl(request, empresa_id, lancamento_id):
                     usuario=request.user,
                     request=request,
                 )
-            except MarcacaoDmplInvalida as exc:
+            except (MarcacaoDmplInvalida, ClassificacaoAlteraPeriodoFechado) as exc:
+                # `ClassificacaoAlteraPeriodoFechado` (DL-071/BL-655): período
+                # encerrado ou entregue. Vira erro de formulário como a recusa
+                # de conteúdo — o que foi digitado fica na tela e nada foi
+                # gravado.
                 erros.append(str(exc))
             else:
                 messages.success(

@@ -1005,3 +1005,30 @@ Páginas abertas na pesquisa, conferidas até 05/10/2026. Os dossiês completos 
 - [Systax: cronograma do Ato Conjunto 4/2026](https://www.systax.com.br/?p=43104) · [Felsberg: cronograma dos documentos](https://www.felsberg.com.br/cronograma-documentos-fiscais-ibs-cbs-2026/) · [Machado Meyer: NT 11/2026 da EFD-Contribuições](https://www.machadomeyer.com.br/pt/inteligencia-juridica/publicacoes-ij/tributario-ij/rfb-publica-nota-tecnica-sobre-a-descontinuidade-da-efd-contribuicoes)
 - [Senior: Guia Prático 3.2.3](https://documentacao.senior.com.br/exigenciaslegais/noticias/federal/2026/2026-07-01-sped-efd-icms-ipi-publicada-a-versao-3-2-3-do-guia-pratico-da-efd-icms-ipi) · [Coad: prazo do ICMS-TO em 2026](https://www.coad.com.br/home/noticias-detalhe/135899/tocantins-fixa-novo-prazo-para-pagamento-do-icms-em-2026) · [Coad: DARE abaixo de R$ 3,00](https://www.coad.com.br/home/noticias-detalhe/138874/tocantins-proibe-emissao-de-dare-e-gnre-abaixo-de-r-300-e-regulamenta-regras-de-acumulacao-e-compensacao)
 - [Simtax: prazos do Simples para 2027](https://simtax.com.br/simples-nacional-2027-novos-prazos/) · [Focus NFe: NFS-e de Palmas](https://focusnfe.com.br/guides/nfse/municipios-integrados/palmas-to/) · [Transcrição da LC 214, art. 348](https://www.legjur.com/legislacao/art/lec_00002142025-348)
+
+## Execução autônoma (RC-164)
+
+Em 08/10/2026 o Fred mandou *"codar o fiscal por completo"* e delegou as
+dúvidas de domínio ao `contador-senior` (RC-164). Isso **resolve a
+divergência 1** (prioridade: o fiscal vem agora). As respostas da
+[consulta de 08/10/2026](../projeto/consultas/2026-10-08-contador-senior-fiscal.md)
+entram como hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md)
+e orientam a ordem abaixo — **Simples → ISS por município → Presumido**
+(HI-60). Cada etapa tem plano próprio, auditoria independente quando for
+nível 1, e PR para a `main`.
+
+| Ordem | Etapa | O que entrega | Nível | Depende de |
+| --- | --- | --- | --- | --- |
+| 1 | [DL-072](DL-072-escrituracao-das-nfse-prestadas.md) | Escrituração das NFS-e prestadas: natureza, três datas, rascunho/efetivada/estorno, conferência recebidas × escrituradas | 1 | — |
+| 2 | a numerar | Faturamento mensal e RBT12 do Simples, com limite e sublimite como dado com vigência | 1 | 1 |
+| 3 | a numerar | Tabelas dos Anexos do Simples como dado com vigência e fonte; alíquota efetiva e pré-DAS com segregação (ISS retido, outro município) | 1 | 2 e leitura oficial dos Anexos da LC 123 |
+| 4 | a numerar | Validador de conformidade IBS/CBS das NFS-e recebidas, em modo aviso (HI-61) | 2 | pode correr em paralelo a 2 e 3 |
+| 5 | a numerar | ISS por município, começando por Palmas; relatório de ISS retido sofrido | 1 | 1 |
+| 6 | a numerar | Serviços tomados (entradas) e ISS retido pelo cliente tomador | 1 | 1 |
+| 7 | a numerar | Presumido: IRPJ/CSLL trimestral, depois de ler LC 224/2025 e IN RFB 2.306/2026 no texto oficial | 1 | 1 |
+| 8 | a numerar | NF-e (DL-010 fatia 2) e o restante do roteiro de ondas acima | 1 e 2 | 1 |
+
+O que continua bloqueado, mesmo com a delegação: alíquota, prazo ou leiaute
+**sem fonte oficial com data** (HI-54) e qualquer transmissão de obrigação
+(HI-55). Nesses pontos a etapa entrega o que não depende deles e deixa a
+pendência nomeada.

@@ -250,6 +250,8 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-068** — Prontidão para implantação: Django 6.1.2, limite de tentativas também no login do admin, `.dockerignore`, `DJANGO_AMBIENTE` que recusa `DEBUG=True` fora de desenvolvimento (BL-82) e recusa de proxy confiável `/0` (BL-577). Situação em [estado.md](docs/agents/estado.md).
 - **DL-069** — Travas no banco: o lançamento do livro-caixa fica imutável no PostgreSQL, o período encerrado recusa lançamento novo no banco e a trilha de auditoria fica imutável no banco (esta última depende de decisão sobre LGPD). Situação em [estado.md](docs/agents/estado.md).
 - **DL-070** — Melhorias do repositório com equipe multiagente: entradas do primeiro acesso e do convite validadas, consultas por linha eliminadas na API e testes que faltavam. Situação em [estado.md](docs/agents/estado.md).
+- **DL-071** — A marcação manual da DMPL passa a respeitar o período encerrado ou entregue, como a reclassificação de conta já respeitava. Situação em [estado.md](docs/agents/estado.md).
+- **DL-072** — Fiscal F1: escrituração das NFS-e prestadas pelos clientes — natureza da operação, mês pela data de competência, estorno rastreável e conferência de notas recebidas × escrituradas. Situação em [estado.md](docs/agents/estado.md).
 
 Ainda não existem:
 

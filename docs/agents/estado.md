@@ -135,7 +135,9 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 tratada na DL-068 |
 | [DL-068](../planos/DL-068-prontidao-para-implantacao.md) | Prontidão para implantação: Django 6.1.2, limite no login do admin, `.dockerignore`, `DJANGO_AMBIENTE` (BL-82) e proxies `/0` (BL-577) | **Integrada (PR #91, squash `7c23894`, merge feito pelo Fred em 07/10/2026)** — auditoria e reconferência aprovadas com ressalvas; R1 com o Fred (BL-642) |
 | [DL-069](../planos/DL-069-travas-no-banco.md) | Travas no banco: livro-caixa imutável, período encerrado recusa INSERT, trilha imutável | Situação em **[Próximo passo](#próximo-passo)** — fatias 1 e 2 integradas (PR #92 e #93); fatia 3 bloqueada na PE-77 |
-| [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md) | Melhorias do repositório com equipe multiagente (RC-160): entradas do acesso, consultas por linha, testes que faltavam | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md) | Melhorias do repositório com equipe multiagente (RC-160): entradas do acesso, consultas por linha, testes que faltavam | Integrada (PR #94, squash `76cb92a`) — auditoria e reconferência aprovadas com ressalvas; BL-652 a BL-654 abertos |
+| [DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) | A marcação manual da DMPL respeita o período fechado (BL-655) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) | Fiscal F1: escrituração das NFS-e prestadas (natureza, competência, estorno, conferência) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -146,15 +148,56 @@ que não existe mais no remoto (medido em 07/10/2026), e não foi integrada — 
 
 ## Próximo passo
 
-**AGORA, em 08/10/2026: [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md)
-— melhorias do repositório com equipe multiagente, em revisão** pelo
-[PR #94](https://github.com/fredabsd-svg/DataLedger/pull/94), branch
-`ccr-bf4b4a55-hpqgbp` → `main`, aberto em 08/10/2026 depois de o Fred dizer
-*"Próxima etapa"* à pergunta sobre o PR (RC-161). **Merge autorizado pelo
-Fred (RC-162)** para quando os quatro checks estiverem verdes no último commit;
-o registro do merge entra na etapa seguinte, porque a `main` não recebe push
-direto. Ordem do Fred (RC-160):
-orquestrador em Opus, desenvolvedores em Haiku em paralelo, auditor em Sonnet.
+**Ordem permanente do Fred desde 08/10/2026 (RC-164):** depois da DL-071,
+construir o **módulo fiscal por completo**, sem parar; dúvidas de domínio vão
+ao `contador-senior` (Fable) antes do Fred; Opus coordena, Haiku programa,
+Sonnet audita. O que a IA responde é **hipótese** (HI-54) até o Fred validar;
+nada de alíquota, prazo ou leiaute sem fonte oficial; nenhuma transmissão,
+publicação ou exclusão (HI-55). Roteiro de execução no fim do
+[DL-067](../planos/DL-067-plano-do-modulo-fiscal.md); consulta registrada em
+[consultas/](../projeto/consultas/2026-10-08-contador-senior-fiscal.md);
+hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
+
+**AGORA, em 08/10/2026:**
+
+1. **[DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) — a
+   marcação manual da DMPL respeita o período fechado (BL-655): em revisão**
+   na branch `ccr-bf4b4a55-hpqgbp`, PR para a `main` a abrir. Nível 1.
+   [Rodada 1](../auditorias/2026-10-08-dl-071-rodada-1.md) **APROVADA COM
+   RESSALVAS**; correção única (`f4f2a72`, Haiku);
+   [reconferência](../auditorias/2026-10-08-dl-071-reconferencia.md)
+   **APROVADA COM RESSALVAS** — ciclo do §3.1 encerrado. O teste proposto na
+   R1 da reconferência entrou depois, com o mutante conferido pelo arquiteto.
+   Abertos: **BL-656 (alta)** — a reclassificação de conta da DL-065 tem o
+   mesmo furo (só olha os meses com movimento; DMPL e DLPA acumulam o
+   exercício e o saldo inicial), em etapa própria, com a parte do saldo de
+   exercícios anteriores para o Fred; BL-657 (limite aceito: competência sem
+   linha não é travada); BL-658 e BL-659 (baixos).
+2. **[DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) — Fiscal
+   F1, escrituração das NFS-e prestadas: em desenvolvimento.** Frente A
+   (domínio, API) em cópia isolada (`/home/user/wt-dl072a`, branch
+   `dl072-frente-a`), para entrar depois do merge da DL-071; frente B (telas)
+   em seguida.
+
+**Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
+PostgreSQL 16 local, sobre `f4f2a72`, medida pelo auditor):** `pytest`
+completo **5.065 aprovados, 1 reprovado, 53 pulados**; a reprovação é a
+conhecida de ambiente (`test_versao_minima_python.py`, exige Python 3.14).
+`ruff`, `check` e `makemigrations --check` limpos (381 arquivos).
+
+**Também achado em 08/10/2026:** o diagnóstico da DFC fatia 2 levantou, no
+texto oficial do CPC 03 (R2), Rev. 24, que a norma **não define "classe"** de
+recebimento e pagamento — só dá exemplos (item 14) — e que o item 19(b)(ii)
+não é regra de marcação por lançamento. A DFC fatia 2 volta à fila depois do
+fiscal ou quando o Fred decidir as classes.
+
+**[DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md) — melhorias
+do repositório com equipe multiagente: INTEGRADA** pelo
+[PR #94](https://github.com/fredabsd-svg/DataLedger/pull/94), squash
+`76cb92a`, em 08/10/2026, com os quatro checks verdes nas duas execuções do
+último commit e merge feito pelo arquiteto por autorização do Fred (RC-162).
+Ordem do Fred (RC-160): orquestrador em Opus, desenvolvedores em Haiku em
+paralelo, auditor em Sonnet.
 
 O que entrou:
 - entradas do `/bootstrap/` e do convite que davam 500 ou gravavam lixo
@@ -180,14 +223,14 @@ sem limite de tentativas no `/bootstrap/`, risco aceito por ora), BL-653
 (corrida do mesmo usuário criando dois escritórios, preexistente) e BL-654
 (parte local do e-mail, decisão do Fred).
 
-**Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
+**Linha de base medida na DL-070 (08/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `25fe182`, medida pelo auditor):** `ruff check` e
 `ruff format --check` limpos (380 arquivos), `manage.py check` e
 `makemigrations --check` sem mudança; `pytest` completo **5.021 aprovados, 1
 reprovado, 53 pulados**. A reprovação é a conhecida de ambiente
 (`test_versao_minima_python.py`, que exige Python 3.14). Antes da DL-070,
-sobre `79ff2e5`: 4.987/1/53. A CI (Python 3.14) roda no
-PR #94.
+sobre `79ff2e5`: 4.987/1/53. A CI (Python 3.14) do PR #94 ficou verde nos
+quatro checks.
 
 **Achado de processo desta etapa:** as cópias isoladas criadas pela
 ferramenta de agentes (`isolation: worktree`) partiram de `d5cc6bf`, quatro
