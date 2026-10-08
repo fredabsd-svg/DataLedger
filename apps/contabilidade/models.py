@@ -2879,8 +2879,8 @@ class ImportacaoLancamentos(models.Model):
     exige_aceite_do_arquivo = models.BooleanField("exige aceite do arquivo", default=False)
     aceite_do_arquivo = models.BooleanField("aviso do arquivo aceito", default=False)
     # Soma dos lançamentos EFETIVADOS (gravados no Diário). `soma_debitos`/`soma_creditos` são as
-    # LIDAS do arquivo: as duas podem divergir quando a política só-válidos deixa lançamentos de
-    # fora (DL-077 A7).
+    # LIDAS do arquivo (DL-077 A7). Com a efetivação parcial suspensa (BL-676), só "tudo ou
+    # nada" efetiva, e as duas coincidem; o campo continua para quando a parcial voltar.
     soma_debitos_efetivados = models.DecimalField(
         "soma dos débitos efetivados", max_digits=18, decimal_places=2, default=Decimal("0.00")
     )
