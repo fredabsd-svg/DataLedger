@@ -103,6 +103,17 @@ etapa estende a regra, sem criar regra contábil nova:
   backlog próprio, não escopo desta etapa.
 - DFC fatia 2: a `MarcacaoDfc` herdará esta regra quando for feita.
 
+## Limite aceito depois da auditoria
+
+**Competência sem linha (A5, BL-657).** A guarda trava as competências da
+janela que **existem** no banco. Marcar um lançamento e, no mesmo instante,
+encerrar um mês posterior do exercício que nunca teve lançamento (e portanto
+não tem linha) termina com o mês encerrado e a marcação trocada — medido pelo
+auditor. O arquiteto aceitou o limite em 08/10/2026: exige simultaneidade
+sobre um mês sem movimento, e as duas correções possíveis (criar linhas de
+competência só para travar, ou mudar o encerramento) mexem no núcleo de
+nível 1 fora do escopo desta etapa.
+
 ## Segurança, dados e reversão
 
 Sem migração prevista. Nenhum dado gravado muda; a etapa só recusa escrita.
