@@ -108,6 +108,46 @@ pelo próprio auditor** na reconferência.
   `codigo;nome;codigo_pai;analitica;tipo;natureza`, `analitica` S ou N, tipo
   e natureza vazios ou nos valores do cadastro, aspas no padrão RFC 4180.
 
+## Decisões tomadas nas fatias 2 e 3 (lançamentos)
+
+[Rodada 1](../auditorias/2026-10-08-dl-077-fatias-2-3-rodada-1.md) reprovada;
+correção única com as decisões abaixo; reconferência a seguir.
+
+- **Exportação:** registros I200/I250 (e I150/I155 com meses inteiros) no
+  leiaute da ECD, formato próprio e 6000/6100 do sistema de referência (valor
+  com vírgula e 2 casas, HI-91; lançamento com vários débitos e vários
+  créditos não cabe nesse leiaute e é recusado ou omitido com lista);
+  intervalo de até 366 dias; o zeramento sai marcado `E` na ECD; saldos
+  conferidos contra o balancete do produto. Histórico com caractere fora do
+  padrão só sai com a opção explícita de normalizar o texto, que lista cada
+  lançamento alterado — o lançamento efetivado não muda.
+- **Importação em área de conferência:** nada entra no Diário sem
+  efetivação explícita. A conferência repete as recusas de
+  `criar_lancamento` (até 200 partidas, débito igual a crédito, valor e
+  escala, competência aberta, conta analítica da empresa) e recusa conta
+  inativa. De-para de contas por empresa e formato.
+- **Erro do arquivo inteiro** (empresa não conferida ou leitura
+  interrompida) bloqueia as duas políticas; "só os válidos" deixa de fora só
+  lançamentos com erro próprio.
+- **Avisos que exigem aceite:** lançamento igual a um já existente no Diário
+  (data, histórico e partidas); arquivo que não declara a empresa (ECD sem
+  0000, formato próprio, Excel); o aceite cai se os avisos mudarem.
+- **Limites:** 2.000 lançamentos e 4.000 partidas por arquivo (efetivar
+  2.000 × 2 mediu ~17 s; o servidor padrão corta em 30 s, BL-675); 500
+  ocorrências do arquivo guardadas, com a contagem total.
+- **Idempotência:** chave `importacao:<SHA-256 do arquivo>:<número>`, prefixo
+  reservado (o lançamento manual recusa, em qualquer caixa).
+
+### Formato próprio do DataLedger — lançamentos (versão 1)
+
+UTF-8 (sem BOM na escrita), CRLF, separador `;`, aspas no padrão RFC 4180.
+Cabeçalho fixo `numero;data;historico;conta;lado;valor`. Uma linha por
+partida; as partidas de um lançamento saem em sequência com o mesmo
+`numero`. `data` em `aaaa-mm-dd`; `conta` é o código da conta no DataLedger;
+`lado` é `D` ou `C`; `valor` com ponto decimal e exatamente duas casas, sem
+milhar nem sinal. Saldos não entram neste formato. Na planilha Excel, a aba
+`lancamentos` usa as mesmas colunas.
+
 ## Critérios de aceite da fatia 1
 
 1. Os quatro leitores aceitam arquivos sintéticos montados à mão segundo o
