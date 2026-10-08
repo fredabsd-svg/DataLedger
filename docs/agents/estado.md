@@ -283,8 +283,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    tomados, ISS retido pelo cliente tomador e retenções federais:
    implementada fora da branch (cópia isolada `dl078`: frente A `2c56a36`,
    frente B `62768c0`); [rodada 1](../auditorias/2026-10-08-dl-078-rodada-1.md)
-   APROVADA COM RESSALVAS (A1 a A4 médios, A5 a A10 baixos), em correção
-   única.** HI-98, HI-99 e BL-678 registrados. Frente A: campos do XML,
+   APROVADA COM RESSALVAS (A1 a A4 médios, A5 a A10 baixos); correção única
+   `5400e69` (A1 a A7 e A9; suíte do desenvolvedor 7.527 aprovados, 1
+   reprovado de ambiente, 53 pulados), em reconferência.** HI-98, HI-99 e BL-678 registrados. Frente A: campos do XML,
    escrituração das tomadas (rascunho, efetivação, estorno, gatilhos de
    imutabilidade na migração `fiscal 0008`), ISS retido, retenções federais
    e API. Frente B: seis telas, menu "Serviços tomados" e o ISS retido
@@ -299,8 +300,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    tomados; não bloqueia).
 
 8. **[DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) — Lucro
-   Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224: planejada;
-   desenvolvimento começa quando a DL-078 entrar na branch.**
+   Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224: frente A em
+   desenvolvimento** na cópia isolada `dl079`, sobre a DL-078 corrigida
+   (`5400e69`), porque reaproveita o leitor de retenções da NFS-e.
    [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-presumido.md)
    com o texto oficial lido no Planalto e no P&R da RFB: o acréscimo
    multiplica o percentual por 1,10; IRPJ desde o 1º trimestre de 2026 e
