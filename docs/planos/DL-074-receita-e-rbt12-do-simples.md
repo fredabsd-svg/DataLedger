@@ -78,8 +78,15 @@ explicado; receitas de 2027 em diante com as regras da Res. CGSN 190/2026.
   a tela mostra duas casas e avisa quando há casas escondidas.
 - **Não modelados:** teto de ME (R$ 360 mil); art. 3º § 3º (limite
   proporcional para a opção com abertura no ano anterior); UF do sublimite
-  (a Portaria 54/2025 vale para todas em 2026); a faixa de 20% do sublimite
-  cita o art. 81 por analogia (hipótese).
+  (a Portaria 54/2025 vale para todas em 2026). A faixa de 20% cita a Res.
+  CGSN 140 art. 81 para o limite e o art. 12, §§ 1º e 4º, para o sublimite
+  (HI-70, achado A9).
+- **Entradas defendidas** (achados A3, A4 e A7 da auditoria): receita
+  informada igual a uma já lançada (mesma empresa, competência, mercado,
+  origem, valor e documento de suporte) é recusada nomeando a existente;
+  valor com ponto de milhar sem vírgula ("10.000") é recusado pedindo a
+  vírgula, em vez de virar R$ 10,00; não se confirma mês futuro nem anterior à
+  abertura no CNPJ, e receita anterior à abertura gera aviso no RBT12.
 - **Tela de edição de empresa não existe** (BL-666): a data de abertura de
   empresa já cadastrada só entra pela API.
 
