@@ -179,27 +179,28 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    exercícios anteriores para o Fred; BL-657 (limite aceito: competência sem
    linha não é travada); BL-658 e BL-659 (baixos).
 2. **[DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) — Fiscal
-   F1, escrituração das NFS-e prestadas: em desenvolvimento.** Frente A
-   (domínio, API) em cópia isolada (`/home/user/wt-dl072a`, branch
-   `dl072-frente-a`, partindo de `f4f2a72`), a integrar por cherry-pick na
-   branch recomeçada da `main` em `389aafe`; frente B (telas) em seguida.
-3. **[DL-073](../planos/DL-073-validador-ibscbs.md) — validador de
-   conformidade IBS/CBS das NFS-e recebidas: em desenvolvimento**, em
-   paralelo; **integrado na branch** (`98c1e77`, 77 testes). Leiaute oficial
-   pesquisado e registrado em
-   [consultas/](../projeto/consultas/2026-10-08-leiaute-ibscbs-nfse.md).
-   A tela ainda não está no menu.
-4. **[DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) — receita
-   mensal e RBT12 do Simples: planejada**, depois do desdobramento da natureza
-   na DL-072 (HI-67). Segunda consulta ao `contador-senior` registrada em
+   F1, escrituração das NFS-e prestadas — e
+   [DL-073](../planos/DL-073-validador-ibscbs.md) — validador de
+   conformidade IBS/CBS: em revisão** na branch `ccr-bf4b4a55-hpqgbp`. As duas
+   frentes da DL-072 (domínio/API e telas), a DL-073 e o desdobramento da
+   natureza em seis (HI-67, com tabela de `tribISSQN` por versão de leiaute)
+   estão integrados; a tela de conformidade está no menu do Fiscal.
+   [Auditoria rodada 1](../auditorias/2026-10-08-dl-072-dl-073-rodada-1.md):
+   **as duas APROVADAS COM RESSALVAS**, sem bloqueador nem achado alto;
+   correção única em andamento (DL-072: A1, A2, A4 a A11; DL-073: B1 a B5), em
+   cópias isoladas. HI-72 (data de emissão = dia escrito no documento).
+3. **[DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) — receita
+   mensal e RBT12 do Simples: em desenvolvimento** (frente A, Haiku, em cópia
+   isolada `/home/user/wt-dl074` a partir de `a88e2fc`). Segunda consulta ao
+   `contador-senior` registrada em
    [consultas/](../projeto/consultas/2026-10-08-contador-senior-rbt12.md);
    HI-64 a HI-71.
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
-PostgreSQL 16 local, sobre `f4f2a72`, medida pelo auditor):** `pytest`
-completo **5.065 aprovados, 1 reprovado, 53 pulados**; a reprovação é a
+PostgreSQL 16 local, sobre `a88e2fc`, medida pelo auditor da DL-072):**
+`pytest` completo **5.358 aprovados, 1 reprovado, 53 pulados**; a reprovação é a
 conhecida de ambiente (`test_versao_minima_python.py`, exige Python 3.14).
-`ruff`, `check` e `makemigrations --check` limpos (381 arquivos).
+`ruff`, `check` e `makemigrations --check` limpos (394 arquivos).
 
 **Também achado em 08/10/2026:** o diagnóstico da DFC fatia 2 levantou, no
 texto oficial do CPC 03 (R2), Rev. 24, que a norma **não define "classe"** de
