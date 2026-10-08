@@ -26,15 +26,27 @@ guarda a NFS-e; nada diz que ela foi conferida e escriturada.
    escrituração por vínculo, com estado **rascunho → efetivada**, e
    **estorno** rastreável da efetivada (nunca edição silenciosa).
 2. **Natureza da operação** — catálogo **fechado e pequeno**, definido em
-   código (HI-56), só para serviço prestado neste corte:
-   - serviço prestado, ISS devido pelo prestador;
-   - serviço prestado, ISS retido pelo tomador (`tpRetISSQN` 2) ou pelo
-     intermediário (3);
-   - serviço prestado, ISS devido a outro município;
-   - serviço prestado sem incidência de ISS (exportação, imunidade, não
-     incidência — o contador escolhe; o sistema não presume).
-   A natureza é **sugerida** a partir do XML (retenção → "retido") e
-   **confirmada** pelo contador. Nenhuma natureza carrega alíquota nesta etapa.
+   código (HI-56), só para serviço prestado neste corte. **Seis naturezas**
+   desde o desdobramento de 08/10/2026 (HI-67), cada uma com o seu
+   **mercado**:
+   - ISS devido pelo prestador (interno);
+   - ISS retido pelo tomador (`tpRetISSQN` 2) ou pelo intermediário (3)
+     (interno);
+   - ISS devido a outro município (interno);
+   - **exportação de serviço** (externo — LC 123 art. 3º §§ 14 e 15; Res.
+     CGSN 140 art. 25 § 4º);
+   - **ISS imune, isento ou reduzido por lei do ente** (interno);
+   - **serviço fora da lista da LC 116, sem ISS** (interno).
+   A primeira versão deste plano tinha uma natureza única "sem incidência",
+   que misturava três tratamentos diferentes no Simples (consulta RBT12, item
+   4). A natureza é **sugerida** a partir do XML e **confirmada** pelo
+   contador: retenção → "retido"; senão `tribISSQN` de exportação →
+   exportação; de imunidade → imune/isento; de não incidência → **sem
+   sugestão** (o contador escolhe); senão → ISS devido pelo prestador.
+   ⚠️ Os códigos de `tribISSQN` **mudam de significado entre os leiautes 1.00
+   e 1.01** (XSD oficial: 1.01 → 2 imunidade, 3 exportação, 4 não incidência;
+   1.00 → 2 exportação, 3 não incidência, 4 imunidade); a sugestão usa uma
+   tabela por versão. Nenhuma natureza carrega alíquota nesta etapa.
 3. **Três datas** (HI-57): emissão (`dhEmi`), **competência** (`dCompet`,
    que define o mês da escrituração) e escrituração (quando o contador
    efetivou). Nota com mês de competência diferente do de emissão recebe
