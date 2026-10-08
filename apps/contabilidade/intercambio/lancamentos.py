@@ -56,7 +56,7 @@ from apps.contabilidade.intercambio.lancamentos_canonico import (
     PeriodoDeSaldo,
     SaldoDaConta,
 )
-from apps.contabilidade.intercambio.plano import ParametroInvalido, _digitos_do_documento
+from apps.contabilidade.intercambio.plano import ParametroInvalido, _documento_da_empresa
 from apps.contabilidade.models import (
     Conta,
     ItemLancamento,
@@ -523,9 +523,11 @@ def exportar_lancamentos(
         conteudo = proprio_lancamentos.escrever(lancamentos)
     else:
         reduzidos = referencia_lancamentos.codigos_reduzidos(contas_por_codigo.keys())
+        # Forma canônica (RC-46). O escritor do leiaute de referência recusa o CNPJ alfanumérico
+        # com mensagem própria; a ECD e o formato próprio não recebem o documento.
         conteudo, omitidos = referencia_lancamentos.escrever(
             lancamentos,
-            documento=_digitos_do_documento(empresa),
+            documento=_documento_da_empresa(empresa),
             codigos_reduzidos=reduzidos,
             casas_decimais_do_valor=CASAS_DECIMAIS_DO_VALOR_6100,
             omitir_nao_representaveis=omitir_nao_representaveis,

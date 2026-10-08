@@ -11,8 +11,9 @@ e 6130 (p. 1451). O manual foi lido para construir este leitor. O texto NÃO é 
 no repositório; os testes usam arquivos montados à mão.
 
 REGISTROS E CAMPOS QUE O LEITOR USA (numeração do manual, começando em 1 = o identificador).
-- 0000: campo 2, CNPJ ou CPF da empresa, só números (p. 1225). Acrescenta-se o CNPJ
-  alfanumérico de 14 posições (RC-46), que é o que a Receita passou a emitir.
+- 0000: campo 2, CNPJ ou CPF da empresa, só números (p. 1225). CNPJ alfanumérico (RC-46) é
+  ERRO nomeado (`MENSAGEM_CNPJ_ALFANUMERICO`, a mesma do leiaute do plano): a edição de 2018
+  só define inscrição numérica, e a empresa não pode ser conferida.
 - 6000: campo 2, tipo do lote: D, C, X ou V (pp. 1449-1450). Tem 5 campos no total.
 - 6100: 10 campos no total (p. 1450): 2 data (dd/mm/aaaa); 3 conta a débito (código
   reduzido); 4 conta a crédito (código reduzido); 5 valor (Decimal, vírgula e 2 casas, ex.:
@@ -59,6 +60,13 @@ from apps.contabilidade.intercambio.canonico import (
     ResultadoLeitura,
 )
 
+# `_e_cnpj_alfanumerico` é privado do módulo do plano (fatia 1): usado só para escolher a
+# mensagem nomeada do 0000, sem mudar a regra de aceite (que é só numérica).
+from apps.contabilidade.intercambio.formatos.referencia import (
+    MENSAGEM_CNPJ_ALFANUMERICO,
+    _e_cnpj_alfanumerico,
+)
+
 FORMATO = "referencia"
 
 REG_DOCUMENTO = "0000"
@@ -73,8 +81,9 @@ CAMPOS_DO_6100 = 10  # p. 1450
 _PADRAO_DATA = re.compile(r"([0-9]{2})/([0-9]{2})/([0-9]{4})")
 _PADRAO_VALOR = re.compile(r"[0-9]+,[0-9]{2}")
 _PADRAO_CODIGO_REDUZIDO = re.compile(r"[0-9]{1,20}")
-# CPF (11), CNPJ numérico (14) e CNPJ alfanumérico (RC-46): 12 caracteres + 2 dígitos.
-_PADRAO_DOCUMENTO = re.compile(r"[0-9]{11}|[A-Z0-9]{12}[0-9]{2}")
+# CPF (11) ou CNPJ (14), só dígitos (p. 1225). O CNPJ alfanumérico (RC-46) fica FORA: é erro
+# nomeado em `_ler_0000`, porque o leiaute de 2018 não o define.
+_PADRAO_DOCUMENTO = re.compile(r"[0-9]{11}|[0-9]{14}")
 
 
 @dataclass
@@ -142,19 +151,17 @@ def _ler_0000(numero, campos, resultado, ocorrencias):
         )
         return
     documento = campos[1].strip()
-    if not _PADRAO_DOCUMENTO.fullmatch(documento):
-        ocorrencias.append(
-            Ocorrencia(
-                numero,
-                "0000.2",
-                NIVEL_ERRO,
-                "CNPJ/CPF do registro 0000 (campo 2, p. 1225) deve ter só números (11 ou 14 "
-                "dígitos) ou o CNPJ alfanumérico de 14 posições. "
-                "Não é possível conferir a empresa.",
-            )
-        )
+    if _PADRAO_DOCUMENTO.fullmatch(documento):
+        resultado.documento_declarado = documento
         return
-    resultado.documento_declarado = documento
+    # A mensagem própria do CNPJ alfanumérico é a mesma do leiaute do plano (A5/RC-46).
+    mensagem = (
+        MENSAGEM_CNPJ_ALFANUMERICO
+        if _e_cnpj_alfanumerico(documento)
+        else "CNPJ/CPF do registro 0000 (campo 2, p. 1225) deve ter só números (11 ou 14 "
+        "dígitos). Não é possível conferir a empresa."
+    )
+    ocorrencias.append(Ocorrencia(numero, "0000.2", NIVEL_ERRO, mensagem))
 
 
 def _ler_6000(numero, campos, ocorrencias):

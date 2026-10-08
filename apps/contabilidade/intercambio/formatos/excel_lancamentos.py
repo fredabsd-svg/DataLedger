@@ -5,8 +5,10 @@ valor`, cabeçalho na linha 1 da aba `lancamentos`). A regra de agrupamento e de
 formato próprio (`montar_lancamentos`); este módulo cuida da planilha.
 
 PROTEÇÕES: as de `excel.py`, reusadas e NÃO copiadas: `_verificar_pacote` (só `.xlsx`, sem
-macro, sem `.xls`, sem CSV renomeado, limite de partes e de tamanho descompactado) e `_abrir`
-(duas visões: fórmulas e valores salvos). Limite de linhas: `MAXIMO_DE_LINHAS`.
+macro, sem `.xls`, sem CSV renomeado, limite de partes e de tamanho descompactado),
+`_conferir_orcamento_das_planilhas` (A4: 500 mil células e 50 por linha, contadas no stream SAX
+ANTES do openpyxl, com limite por parte) e `_abrir` (duas visões: fórmulas e valores salvos).
+Limite de linhas: `MAXIMO_DE_LINHAS`.
 
 REGRAS DE CÉLULA (erro com a linha da planilha e a coluna):
 - célula com erro de fórmula (`#DIV/0!`) ou fórmula sem valor salvo: erro;
@@ -28,10 +30,20 @@ from decimal import Decimal
 from apps.contabilidade.intercambio.canonico import (
     NIVEL_AVISO,
     NIVEL_ERRO,
+    IntercambioRecusado,
     Ocorrencia,
     ResultadoLeitura,
 )
-from apps.contabilidade.intercambio.formatos.excel import _abrir, _texto, _verificar_pacote
+
+# Privados da fatia 1, importados e NÃO copiados: o orçamento de células (A4) e o prefixo onde
+# a varredura conta. Ver `_conferir_caminho_da_aba` e `ler`.
+from apps.contabilidade.intercambio.formatos.excel import (
+    _PREFIXO_DAS_PLANILHAS,
+    _abrir,
+    _conferir_orcamento_das_planilhas,
+    _texto,
+    _verificar_pacote,
+)
 from apps.contabilidade.intercambio.formatos.proprio_lancamentos_leitura import (
     CABECALHO_LANCAMENTOS,
     LinhaLida,
@@ -259,12 +271,35 @@ def _ler_planilha(formulas, valores, resultado):
     montar_lancamentos(linhas, resultado)
 
 
+def _conferir_caminho_da_aba(formulas):
+    """A aba `lancamentos` tem de estar em `xl/worksheets/`, onde o orçamento foi medido.
+
+    Mesma regra de `excel._caminho_da_aba`, que só vale para a aba `plano`. Uma aba apontada
+    para fora do prefixo escaparia da varredura de células, e o openpyxl a leria sem teto.
+    """
+    caminho = getattr(formulas[NOME_DA_ABA], "_worksheet_path", None)
+    if not isinstance(caminho, str) or not caminho.startswith(_PREFIXO_DAS_PLANILHAS):
+        raise IntercambioRecusado(
+            f"a aba '{NOME_DA_ABA}' não está em xl/worksheets/: estrutura de .xlsx não "
+            "reconhecida. Salve de novo no Excel como 'Pasta de Trabalho do Excel (.xlsx)'."
+        )
+
+
 def ler(conteudo: bytes) -> ResultadoLeitura:
     """Lê os lançamentos de uma planilha `.xlsx` segura. Recusa de pacote levanta exceção."""
     _verificar_pacote(conteudo)
     resultado = ResultadoLeitura(formato=FORMATO, codificacao="")
+    # Orçamento de células e colunas ANTES de o openpyxl abrir o pacote (A4, como no plano).
+    # Sem esta varredura, uma planilha de lançamentos com milhões de `<c/>` era lida até o fim.
+    _conferir_orcamento_das_planilhas(conteudo)
     formulas, valores = _abrir(conteudo)
     try:
+        if NOME_DA_ABA in formulas.sheetnames:
+            _conferir_caminho_da_aba(formulas)
+            # A dimensão declarada só serve para o openpyxl montar a aba. Sem zerá-la, o
+            # conteúdo além dela seria descartado em silêncio (a nota A4 do plano).
+            formulas[NOME_DA_ABA].reset_dimensions()
+            valores[NOME_DA_ABA].reset_dimensions()
         _ler_planilha(formulas, valores, resultado)
     finally:
         formulas.close()

@@ -462,10 +462,12 @@ def test_codigo_reduzido_do_produto_e_o_mesmo_do_0200_da_fatia_1():
         for codigo, nome, pai, analitica, _tipo, _natureza in PLANO
     ]
     conteudo_0200 = referencia.escrever(contas_lidas, documento=CNPJ_DA_EMPRESA)
+    # Leiaute da fatia 1 corrigida: `|` nas pontas (`|0200|reduzido|codigo|...|`). Índice 0 é
+    # o vazio antes da primeira barra; 1 é o REG; 2 o código reduzido; 3 o código da conta.
     reduzidos_do_0200 = {
-        linha.split("|")[2]: int(linha.split("|")[1])
+        linha.split("|")[3]: int(linha.split("|")[2])
         for linha in _linhas(conteudo_0200, "iso-8859-1")
-        if linha.startswith("0200|")
+        if linha.startswith("|0200|")
     }
 
     proprio = referencia_lancamentos.codigos_reduzidos(codigo for codigo, *_ in PLANO)

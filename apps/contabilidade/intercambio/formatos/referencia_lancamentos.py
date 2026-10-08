@@ -13,7 +13,9 @@ O QUE O MANUAL DEFINE, e o que este escritor aplica:
 - separador `|`, com `|` no início e no fim de cada registro (p. 1224, item 2); campo
   Numérico sem vírgula, campo Decimal COM vírgula decimal e as casas declaradas (p. 1224,
   item 2: "Decimal (3) 150,895");
-- registro 0000, campo 2: CNPJ ou CPF da empresa, só com dígitos (p. 1225);
+- registro 0000, campo 2: CNPJ ou CPF da empresa, só com dígitos (p. 1225). CNPJ alfanumérico
+  (RC-46) é RECUSADO com `MENSAGEM_CNPJ_ALFANUMERICO`, a mesma do leiaute do plano: a edição de
+  2018 só define inscrição numérica;
 - registro 6000, campo 2: TIPO DO LANÇAMENTO. D = um débito p/ vários créditos;
   C = um crédito p/ vários débitos; X = um débito p/ um crédito; V = vários débitos
   p/ vários créditos (pp. 1449-1450). Este escritor usa D, C e X para os lançamentos que
@@ -70,6 +72,13 @@ from apps.contabilidade.intercambio.canonico import (
     NIVEL_ERRO,
     IntercambioRecusado,
     Ocorrencia,
+)
+
+# `_e_cnpj_alfanumerico` é privado do módulo do plano (fatia 1), importado aqui para que a
+# recusa do CNPJ alfanumérico seja a mesma nos dois leiautes do sistema de referência.
+from apps.contabilidade.intercambio.formatos.referencia import (
+    MENSAGEM_CNPJ_ALFANUMERICO,
+    _e_cnpj_alfanumerico,
 )
 
 FORMATO = "referencia"
@@ -180,6 +189,10 @@ def escrever(
 
     Nada é escrito parcialmente: qualquer recusa levanta `IntercambioRecusado`.
     """
+    # RC-46: o CNPJ alfanumérico não cabe no leiaute de 2018. A checagem vem ANTES da genérica,
+    # que apagaria as letras (`\D`) e daria "exige CNPJ ou CPF", uma mensagem sem o motivo.
+    if _e_cnpj_alfanumerico(documento):
+        raise IntercambioRecusado(MENSAGEM_CNPJ_ALFANUMERICO)
     digitos = re.sub(r"\D", "", documento or "")
     if not _PADRAO_DOCUMENTO.fullmatch(digitos):
         raise IntercambioRecusado(

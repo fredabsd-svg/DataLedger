@@ -14,6 +14,8 @@ E vira aviso no arquivo e nada é gravado para ele. Os demais registros são con
 `registros_ignorados`.
 
 O QUE É RECUSADO (o lançamento inteiro, com a linha e o campo):
+- 0000 repetido (A9, mesma regra do leitor do plano): é erro, e o segundo não é lido; o
+  primeiro 0000 é o que vale;
 - número do lançamento repetido no arquivo (REGRA_REGISTRO_DUPLICADO, p. 146): recusam-se os
   dois;
 - data fora do intervalo do 0000 (REGRA_DATA_INTERVALO_DO_ARQUIVO, p. 146);
@@ -28,7 +30,9 @@ O QUE VIRA AVISO (o contador confere e aceita antes de gravar):
 - COD_HIST_PAD sem registro I075 no arquivo: só o HIST é usado;
 - COD_CCUS, NUM_ARQ e COD_PART preenchidos: o DataLedger não tem centro de custo, documento
   arquivado nem participante, então o campo é ignorado e o aviso diz isso;
-- data anterior a 01/01/1980 (REGRA_DATA_ANTIGA, p. 146).
+- data anterior a 01/01/1980 (REGRA_DATA_ANTIGA, p. 146);
+- 0000 sem CNPJ, ou arquivo sem 0000 (A9): a empresa do arquivo não é conferida, e o aviso diz
+  isso. Mesma regra de `ecd.py`.
 
 HISTÓRICO. O histórico é POR PARTIDA no leiaute (p. 149). Quando há COD_HIST_PAD com I075, o
 texto da partida é a fórmula do próprio manual: DESCR_HIST + " " + HIST (p. 149). Sem HIST,
@@ -108,23 +112,36 @@ def _valor_com_virgula(texto):
 
 
 def _ler_0000(numero, campos, ocorrencias):
-    """(período, CNPJ) do 0000. Período é (DT_INI, DT_FIN) se ambos forem datas válidas."""
+    """(período, CNPJ) do 0000. Período é (DT_INI, DT_FIN) se ambos forem datas válidas.
+
+    A9: 0000 sem CNPJ é AVISO, porque a empresa do arquivo não pode ser conferida. O CNPJ é
+    guardado na forma canônica (maiúsculas, sem máscara; RC-46), a mesma do leitor do plano,
+    para que a comparação com a empresa não dependa de como o arquivo foi digitado.
+    """
     periodo = None
     documento = None
-    if len(campos) > 5:
-        cnpj = campos[5].strip()
-        if cnpj and not _PADRAO_CNPJ.fullmatch(cnpj):
-            ocorrencias.append(
-                Ocorrencia(
-                    numero,
-                    "0000.6",
-                    NIVEL_ERRO,
-                    "CNPJ do registro 0000 (campo 6, p. 64) deve ter 14 posições: números ou o "
-                    "CNPJ alfanumérico (RC-46). Não é possível conferir a empresa.",
-                )
+    cnpj = campos[5].strip().upper() if len(campos) > 5 else ""
+    if not cnpj:
+        ocorrencias.append(
+            Ocorrencia(
+                numero,
+                "0000.6",
+                NIVEL_AVISO,
+                "registro 0000 sem CNPJ (campo 6, p. 64): a empresa do arquivo não foi conferida.",
             )
-        elif cnpj:
-            documento = cnpj
+        )
+    elif not _PADRAO_CNPJ.fullmatch(cnpj):
+        ocorrencias.append(
+            Ocorrencia(
+                numero,
+                "0000.6",
+                NIVEL_ERRO,
+                "CNPJ do registro 0000 (campo 6, p. 64) deve ter 14 posições: números ou o "
+                "CNPJ alfanumérico (RC-46). Não é possível conferir a empresa.",
+            )
+        )
+    else:
+        documento = cnpj
     if len(campos) > 3:
         ini, fim = campos[2].strip(), campos[3].strip()
         if _data_ddmmaaaa_valida(ini) and _data_ddmmaaaa_valida(fim):
@@ -354,12 +371,20 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
             atual = None  # a partida só se liga ao I200 imediatamente acima (p. 148)
 
         if reg == "0000":
+            # A9: o segundo 0000 é erro e NÃO sobrescreve o primeiro. Antes, sobrescrevia o
+            # período e o CNPJ, e a conferência podia ser feita contra a abertura de outra empresa.
             if documento_visto:
                 ocorrencias.append(
-                    Ocorrencia(numero, "0000", NIVEL_ERRO, "segundo 0000 no arquivo.")
+                    Ocorrencia(
+                        numero,
+                        "0000",
+                        NIVEL_ERRO,
+                        "segundo 0000 no arquivo: um arquivo traz a abertura de uma empresa só.",
+                    )
                 )
-            documento_visto = True
-            periodo, documento = _ler_0000(numero, campos, ocorrencias)
+            else:
+                documento_visto = True
+                periodo, documento = _ler_0000(numero, campos, ocorrencias)
             ignorados[reg] += 1  # o 0000 entra só pelo CNPJ e pelo período
             continue
         if reg == "I075":
@@ -544,6 +569,18 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
             )
         )
 
+    if not documento_visto:
+        # A9: sem 0000 não há como conferir a empresa. Aviso, e não erro: o trecho pode ser
+        # legítimo, mas o contador precisa confirmar antes de aplicar.
+        ocorrencias.append(
+            Ocorrencia(
+                0,
+                "0000",
+                NIVEL_AVISO,
+                "o arquivo não traz o registro 0000: a empresa do arquivo não foi conferida. "
+                "Confira que o trecho é mesmo desta empresa antes de aplicar.",
+            )
+        )
     resultado.lancamentos = aceitos
     resultado.documento_declarado = documento
     resultado.ocorrencias = sorted(ocorrencias, key=lambda o: (o.linha, o.campo))
