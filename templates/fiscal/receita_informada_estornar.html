@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block titulo %}Estornar receita informada nº {{ receita.id }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_mes }}">Receita do mês</a></li>
+            <li aria-current="page">Estornar receita informada</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_mes }}">‹ Voltar para a receita do mês</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-074 (frente B), arquétipo E (confirmação de ação sensível, direção de arte §2.E):
+diz o que vai acontecer e o que ainda dá para desfazer. O motivo é obrigatório e fica
+na trilha; o estorno não apaga a linha. Se o mês estava confirmado, ele é reaberto e
+marcado "a retificar" (Res. CGSN 140, art. 18: o cancelamento deduz no mês de origem).
+{% endcomment %}
+{% block titulo_pagina %}<h1>Estornar receita informada nº {{ receita.id }}</h1>{% endblock %}
+
+{% block content %}
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Competência</dt>
+            <dd>{{ mes_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Mercado</dt>
+            <dd>{{ receita.get_mercado_display }}</dd>
+        </div>
+        <div>
+            <dt>Valor</dt>
+            <dd class="valor-monetario">{{ valor_ptbr }}</dd>
+        </div>
+        <div>
+            <dt>Origem</dt>
+            <dd>{{ origem_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Estado</dt>
+            <dd>{{ estado_rotulo }}</dd>
+        </div>
+    </dl>
+
+    {% if confirmada %}
+        <div class="painel-etapa painel-etapa--risco">
+            <h2>O que vai acontecer</h2>
+            <p>
+                A receita informada nº {{ receita.id }} deixa de entrar no total de {{ mes_rotulo }}.
+                Ela passa a estornada, com o motivo registrado.
+            </p>
+            <p>
+                A linha não é apagada: o estorno, o motivo e quem estornou ficam na trilha de auditoria.
+                Se o mês estava confirmado, ele volta a "a retificar" e sai do RBT12 até ser confirmado de novo.
+            </p>
+        </div>
+
+        <form method="post" action="{% url 'fiscal_web:receita_informada_estornar' empresa.id receita.id %}" class="formulario">
+            {% csrf_token %}
+            <div class="campo">
+                <label for="id_motivo">Motivo do estorno</label>
+                <textarea id="id_motivo" name="motivo" required rows="3" maxlength="{{ motivo_maximo }}"
+                          aria-describedby="id_motivo_ajuda">{{ motivo }}</textarea>
+                <p class="texto-apoio" id="id_motivo_ajuda">
+                    Obrigatório. Fica na trilha de auditoria, com até {{ motivo_maximo }} caracteres.
+                </p>
+            </div>
+            <button type="submit" class="botao botao--perigoso">Estornar receita informada nº {{ receita.id }}</button>
+        </form>
+    {% else %}
+        <p class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> só receita confirmada pode ser estornada. Esta está "{{ estado_rotulo }}".
+        </p>
+        <p>
+            <a class="botao botao--secundario" href="{{ url_mes }}">Voltar para a receita do mês</a>
+        </p>
+    {% endif %}
+{% endblock %}

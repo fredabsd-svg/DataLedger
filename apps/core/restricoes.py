@@ -152,6 +152,41 @@ MENSAGENS_DE_RESTRICAO = {
         "Já existe uma quantidade de dependentes registrada para esta empresa a partir "
         "deste mês — use Retificar para corrigir o valor, em vez de um novo registro."
     ),
+    # DL-074 (frente A): receita mensal, confirmação e opção pelo caixa. Os serviços
+    # (apps.fiscal.receita) validam antes de gravar; a restrição é a última barreira.
+    "receita_informada_mes_valido": (
+        "Competência de receita informada fora de ano 1970-2999 ou mês fora de 1 a 12."
+    ),
+    "receita_informada_valor_positivo": (
+        "Receita informada com valor não positivo. O serviço recusa antes; "
+        "só SQL direto chega aqui."
+    ),
+    "receita_informada_catalogos_validos": (
+        "Mercado, origem ou estado de receita informada fora do catálogo fechado (DL-074)."
+    ),
+    "receita_informada_campos_obrigatorios": (
+        "Receita informada sem motivo ou sem documento de suporte. Ambos são obrigatórios."
+    ),
+    "receita_informada_campos_coerentes_com_o_estado": (
+        "Colunas do ato (confirmação e estorno) fora de sincronia com o estado da "
+        "receita informada."
+    ),
+    "confirmacao_mes_valido": (
+        "Confirmação de receita mensal com competência fora de 1970-2999 ou mês fora de 1 a 12."
+    ),
+    "confirmacao_estado_valido": (
+        "Estado da confirmação de receita mensal fora de confirmada e reaberta."
+    ),
+    "confirmacao_valores_nao_negativos": (
+        "Total confirmado de receita mensal negativo: receita não é negativa neste registro."
+    ),
+    "confirmacao_campos_coerentes_com_o_estado": (
+        "Reabertura da confirmação sem motivo/autor, ou confirmada com marcas de reabertura."
+    ),
+    "opcao_caixa_so_ate_2026": (
+        "Opção pelo regime de caixa fora de 2000-2026. A partir de 2027 a base é a "
+        "competência (HI-66)."
+    ),
 }
 
 # Achado D1 da auditoria da DL-039 rodada 1 (BL-533): os dois gatilhos de
@@ -289,6 +324,15 @@ MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
         "Escrituração fiscal efetivada não se altera nem se exclui. A única "
         "correção é o estorno, com motivo, que fica na trilha."
     ),
+    # DL-074 (frente A), gatilhos da migração fiscal 0003 (receita informada e confirmação).
+    "receita_informada_imutavel_depois_de_confirmada": (
+        "Receita informada confirmada ou estornada não se altera nem se exclui. A única "
+        "correção é o estorno, com motivo, que fica na trilha."
+    ),
+    "confirmacao_mes_imutavel_depois_de_confirmada": (
+        "Confirmação de receita mensal não se altera diretamente. Para retificar o mês, "
+        "reabra com motivo; o estorno de escrituração ou receita reabre o mês sozinho."
+    ),
 }
 
 
@@ -406,6 +450,10 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     "um_periodo_de_parametro_contabil_aberto_por_empresa": (
         "apps.contabilidade.services.registrar_parametro_contabil"
     ),
+    # DL-074 (frente A): unicidades traduzidas para 409 pelo serviço `_inserir`, em
+    # apps.fiscal.receita (savepoint por INSERT, mesmo molde de `_inserir_escrituracao`).
+    "confirmacao_mes_unica_por_empresa": "apps.fiscal.receita._inserir",
+    "opcao_caixa_unica_por_ano": "apps.fiscal.receita._inserir",
 }
 
 # Terceira categoria, e ela é declaração de LIMITE, não de cobertura:

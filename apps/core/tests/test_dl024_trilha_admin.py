@@ -102,10 +102,13 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
     )
     from apps.empresas.models import Empresa, Estabelecimento, HistoricoRegimeTributario
     from apps.fiscal.models import (
+        ConfirmacaoReceitaMensal,
         DocumentoFiscal,
         EscrituracaoFiscal,
         EventoFiscal,
         LoteDeRecepcao,
+        OpcaoRegimeCaixaSimples,
+        ReceitaInformada,
         ResultadoDoArquivo,
         VinculoDocumentoEmpresa,
     )
@@ -170,6 +173,13 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         # na mesma transação. Inclusão feita por ser o inventário que exige
         # nominalmente cada modelo coberto; nenhuma exclusão foi adicionada.
         EscrituracaoFiscal,
+        # DL-074 (frente A, 2026-10-08): `ReceitaInformada`, `ConfirmacaoReceitaMensal` e
+        # `OpcaoRegimeCaixaSimples`, modelos novos do apps.fiscal, na cobertura "por padrão"
+        # (R1/DE-056). Sem ModelAdmin (BL-262); a escrita é pelos serviços de
+        # `apps.fiscal.receita`, que gravam a trilha na mesma transação.
+        ReceitaInformada,
+        ConfirmacaoReceitaMensal,
+        OpcaoRegimeCaixaSimples,
         # DL-046 fatia 1 (2026-09-26): apps.livro_caixa é um app PRÓPRIO do
         # projeto, sem entrada em EXCLUSAO_DA_TRILHA_DO_ADMIN — mesmo
         # mecanismo "por padrão" (R1/DE-056) do bloco de apps.fiscal acima.

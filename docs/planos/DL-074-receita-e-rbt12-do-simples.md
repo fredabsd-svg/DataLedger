@@ -43,11 +43,13 @@ por lei do ente; fora da lista da LC 116. Cada natureza diz o **mercado**
    **reabre** a confirmação daquele mês e o marca "a retificar" (Res. 140 art.
    18: cancelamento deduz no período de origem) — nunca abate o mês corrente.
 5. **RBT12 por mercado** (Res. 140 art. 22): § 1º regra geral (12 meses
-   anteriores ao período de apuração); § 2º primeiro mês de atividade
-   (receita do próprio mês × 12); § 3º meses seguintes do ano de início
-   (média dos meses anteriores × 12, mês sem receita = zero); § 4º abertura no
-   ano anterior ao da opção; § 5º RBT12 acima do limite com ano dentro.
-   Fração de mês conta como mês inteiro. Só com todos os meses da janela
+   anteriores ao período de apuração); nos **12 primeiros meses de atividade,
+   mesmo atravessando a virada do ano** (HI-76, achado A1 da auditoria): § 2º
+   no primeiro mês (receita do próprio mês × 12) e, do 2º ao 12º mês, média
+   dos meses anteriores × 12 — § 3º quando abertura e opção são do mesmo ano,
+   § 4º quando a abertura é do ano anterior ao da opção; § 5º RBT12 acima do
+   limite cheio com o ano dentro (HI-77). Fração de mês conta como mês
+   inteiro; mês sem receita = zero. Só com todos os meses da janela
    **confirmados**; senão a resposta é "não apurável" com a lista dos meses.
 6. **Limites como dado com vigência e fonte** (HI-70): limite, sublimite,
    proporcionais do ano de início, por mercado. Avisos: receita acumulada no
@@ -60,6 +62,40 @@ por lei do ente; fora da lista da LC 116. Cada natureza diz o **mercado**
 **Fica fora:** alíquota, anexos, fator r, pré-DAS (etapa seguinte); importar
 o extrato do PGDAS-D (etapa própria); regime de caixa além do bloqueio
 explicado; receitas de 2027 em diante com as regras da Res. CGSN 190/2026.
+
+## Decisões tomadas na implementação
+
+- **Início de uso do sistema** = mês do cadastro da empresa (HI-73).
+- **Receita das notas** = `vServ` (HI-74).
+- **Efetivar em mês confirmado** reabre a confirmação com trilha, como o
+  estorno (HI-75); o total guardado no ato é a segunda camada.
+- **Regime de caixa** é uma tabela própria por ano (`OpcaoRegimeCaixaSimples`),
+  recusada a partir de 2027 no serviço e no banco.
+- **Limites** são dado com valor, dispositivo, fonte, início e fim de vigência
+  (`apps/fiscal/rbt12.py`), só os de 2026; apurar 2027 é recusado citando a
+  Res. CGSN 190/2026.
+- **RBT12** com média não exata guarda a precisão (sem arredondar a centavos);
+  a tela mostra duas casas e avisa quando há casas escondidas.
+- **Não modelados:** teto de ME (R$ 360 mil); art. 3º § 3º (limite
+  proporcional para a opção com abertura no ano anterior); UF do sublimite
+  (a Portaria 54/2025 vale para todas em 2026). A faixa de 20% cita a Res.
+  CGSN 140 art. 81 para o limite e o art. 12, §§ 1º e 4º, para o sublimite
+  (HI-70, achado A9).
+- **Entradas defendidas** (achados A3, A4 e A7 da auditoria): receita
+  informada igual a uma já lançada (mesma empresa, competência, mercado,
+  origem, valor e documento de suporte) é recusada nomeando a existente;
+  valor com ponto de milhar sem vírgula ("10.000") é recusado pedindo a
+  vírgula, em vez de virar R$ 10,00; não se confirma mês futuro nem anterior à
+  abertura no CNPJ, e receita anterior à abertura gera aviso no RBT12.
+- **Ressalvas da reconferência** (R1 a R5): valor com mais de duas casas
+  ("10,000", "1.000,000") é recusado no serviço, na tela e na API; período do
+  Simples que começa **antes da abertura no CNPJ** recusa a apuração como dado
+  inconsistente (Res. 140 art. 6º §§ 1º e 5º, V); o aviso do **§ 5º** usa o
+  limite cheio de R$ 4,8 mi nos dois incisos, e o teto proporcional do ano de
+  início é aviso separado (HI-77 ajustada pela
+  [consulta](../projeto/consultas/2026-10-08-contador-senior-hi76-hi77.md)).
+- **Tela de edição de empresa não existe** (BL-666): a data de abertura de
+  empresa já cadastrada só entra pela API.
 
 ## Regras de engenharia
 

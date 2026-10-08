@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+
+{% block titulo %}Lançar receita informada — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Receita do mês</a></li>
+            <li aria-current="page">Lançar receita informada</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para a receita do mês</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-074 (frente B), arquétipo B (formulário de documento, direção de arte §2.B). A
+pergunta antes de gravar: a receita entra no total do mês? Rascunho não entra em
+nenhum total; só a receita confirmada entra. Origem "histórico" só vale antes do mês
+em que a empresa começou a usar o sistema, e a tela diz qual é esse mês.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Lançar receita informada</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa">
+        <h2>O que vai acontecer</h2>
+        <p>
+            <strong>Salvar rascunho</strong> guarda a receita sem somá-la a nenhum total. Ela pode ser
+            confirmada depois, na própria receita do mês.
+        </p>
+        <p>
+            <strong>Salvar e confirmar</strong> grava a receita e a confirma na mesma operação. Se o mês
+            já estiver confirmado, nada é gravado: é preciso reabrir o mês, com motivo, antes.
+        </p>
+        <p class="texto-apoio">
+            O sistema começou a ser usado por esta empresa em {{ inicio_de_uso_rotulo }}. A origem
+            "Histórico anterior ao uso do sistema" só vale para competência anterior a esse mês.
+        </p>
+    </div>
+
+    <form method="post" action="{% url 'fiscal_web:receita_informada_nova' empresa.id %}" class="formulario">
+        {% csrf_token %}
+        <div class="campo">
+            <label for="id_ano">Ano da competência</label>
+            <input type="text" id="id_ano" name="ano" value="{{ valores.ano }}" inputmode="numeric" maxlength="4" required>
+        </div>
+        <div class="campo">
+            <label for="id_mes">Mês da competência</label>
+            <select id="id_mes" name="mes" required>
+                {% for valor, rotulo in opcoes_mes %}
+                    <option value="{{ valor }}"{% if valor == valores.mes %} selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_mercado">Mercado</label>
+            <select id="id_mercado" name="mercado" required>
+                {% for valor, rotulo in opcoes_mercado %}
+                    <option value="{{ valor }}"{% if valor == valores.mercado %} selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_valor">Valor da receita (R$)</label>
+            <input type="text" id="id_valor" name="valor" value="{{ valores.valor }}" inputmode="decimal"
+                   required aria-describedby="id_valor_ajuda">
+            <p class="texto-apoio" id="id_valor_ajuda">
+                Em reais, com até duas casas decimais. Ex.: 1.234,56 ou 1234,56. Não aceita zero nem valor negativo.
+            </p>
+        </div>
+        <div class="campo">
+            <label for="id_origem">Origem da receita</label>
+            <select id="id_origem" name="origem" required>
+                <option value=""{% if not valores.origem %} selected{% endif %}>Escolha a origem</option>
+                {% for valor, rotulo in opcoes_origem %}
+                    <option value="{{ valor }}"{% if valor == valores.origem %} selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_motivo">Motivo do lançamento</label>
+            <textarea id="id_motivo" name="motivo" required rows="3" maxlength="{{ motivo_maximo }}"
+                      aria-describedby="id_motivo_ajuda">{{ valores.motivo }}</textarea>
+            <p class="texto-apoio" id="id_motivo_ajuda">
+                Obrigatório. Fica na trilha de auditoria, com até {{ motivo_maximo }} caracteres.
+            </p>
+        </div>
+        <div class="campo">
+            <label for="id_documento_suporte">Documento de suporte</label>
+            <input type="text" id="id_documento_suporte" name="documento_suporte" value="{{ valores.documento_suporte }}"
+                   required maxlength="{{ suporte_maximo }}" aria-describedby="id_suporte_ajuda">
+            <p class="texto-apoio" id="id_suporte_ajuda">
+                Obrigatório. O documento que comprova a receita, por exemplo "extrato PGDAS-D PA 03/2026".
+            </p>
+        </div>
+        <div class="acoes-formulario">
+            <button type="submit" name="acao" value="rascunho" class="botao botao--secundario">Salvar rascunho</button>
+            <button type="submit" name="acao" value="confirmar" class="botao botao--primario">Salvar e confirmar receita</button>
+        </div>
+    </form>
+{% endblock %}

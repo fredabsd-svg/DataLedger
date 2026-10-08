@@ -128,11 +128,19 @@ class EmpresaForm(forms.ModelForm):
             "tipo_inscricao",
             "cnpj",
             "cpf",
+            "data_abertura_cnpj",
             "caepf",
             "codigo_ocupacao",
             "modo_escrituracao",
         ]
         help_texts = {
+            # DL-074 (HI-65): o início de atividade do Simples é a data de abertura do CNPJ.
+            # O validador (não futura) é o do próprio modelo, herdado pelo formulário.
+            "data_abertura_cnpj": (
+                "Data em que a empresa foi aberta no CNPJ (dd/mm/aaaa). É o início de "
+                "atividade para o Simples Nacional (Res. CGSN 140, art. 2º, V): sem ela o "
+                "RBT12 não é apurado."
+            ),
             "tipo_inscricao": (
                 "CNPJ para pessoa jurídica; CPF para pessoa física (RC-112). "
                 "Se não escolher, o sistema aplica CNPJ."

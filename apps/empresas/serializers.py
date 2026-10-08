@@ -190,6 +190,8 @@ class EmpresaSerializer(serializers.ModelSerializer):
             "caepf",
             "codigo_ocupacao",
             "modo_escrituracao",
+            # DL-074: opcional (leitura e escrita). Sem ela o RBT12 não é apurado.
+            "data_abertura_cnpj",
             "ativo",
             "regime_atual",
         ]

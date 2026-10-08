@@ -1145,6 +1145,27 @@ NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE = {
     "fiscal_web:escrituracao_detalhe": "test_tela_escrituracao_detalhe_e_acessivel",
     "fiscal_web:escrituracao_estornar": "test_tela_escrituracao_estornar_e_acessivel",
     "fiscal_web:conferencia_escrituracao": "test_tela_conferencia_escrituracao_e_acessivel",
+    # DL-074 (frente B, apps/fiscal/tests/test_dl074_telas.py): receita mensal do
+    # Simples Nacional, confirmação, receita informada, estorno e regime de caixa. Ficam
+    # AQUI pelo mesmo motivo das de DL-072: as rotas precisam de ids do cenário.
+    "fiscal_web:receita_do_mes": (
+        "test_tela_receita_do_mes_e_acessivel, test_tela_receita_do_mes_sem_empresa_e_acessivel"
+    ),
+    "fiscal_web:receita_mes_confirmar": "test_confirmar_mes_pela_tela_grava_e_recusa_sem_gravar",
+    "fiscal_web:receita_mes_reabrir": (
+        "test_tela_reabrir_mes_e_acessivel, test_reabrir_mes_pela_tela_exige_motivo"
+    ),
+    "fiscal_web:receita_informada_nova": (
+        "test_tela_lancar_receita_e_acessivel, "
+        "test_lancar_receita_pela_tela_recusa_historico_sem_gravar"
+    ),
+    "fiscal_web:receita_informada_confirmar": "test_confirmar_receita_informada_pela_tela",
+    "fiscal_web:receita_informada_estornar": (
+        "test_tela_estornar_receita_e_acessivel, test_estornar_receita_pela_tela_exige_motivo"
+    ),
+    "fiscal_web:regime_caixa": (
+        "test_tela_regime_caixa_e_acessivel, test_regime_caixa_pela_tela_recusa_2027"
+    ),
 }
 
 # DL-046, fatia 1 (especialista-frontend): as SEIS telas HTML de

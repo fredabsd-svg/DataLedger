@@ -609,3 +609,400 @@ class EscrituracaoFiscal(models.Model):
                 "o histórico é preservado pelo estorno."
             )
         return super().delete(*args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# DL-074 (frente A): receita mensal do Simples Nacional por mercado.
+#
+# A receita bruta do Simples é a receita TOTAL da empresa (Res. CGSN 140 art.
+# 2º, II e §§ 4º a 8º; HI-64): a soma das notas escrituradas não basta. O mês
+# entra no RBT12 por três peças, todas aqui:
+#
+# 1. escriturações efetivadas (DL-072), com o mercado dado pela natureza;
+# 2. receitas informadas CONFIRMADAS (`ReceitaInformada`), com origem fechada;
+# 3. a CONFIRMAÇÃO do mês (`ConfirmacaoReceitaMensal`), ato do contador que
+#    declara "receita de MM/AAAA completa". Só mês confirmado conta no RBT12.
+#
+# O mercado (interno/externo) é a segunda base do Simples: exportação e
+# mercado interno têm RBT12 e limites separados (HI-67). Por isso TODA receita
+# informada carrega mercado, e a exportação nunca soma no interno.
+#
+# Valores monetários: `DecimalField(17, 2)`, o mesmo do documento (DE-010).
+# Nenhum cálculo aqui arredonda; o RBT12 fica em `apps.fiscal.rbt12`.
+# ---------------------------------------------------------------------------
+
+
+class MercadoReceita(models.TextChoices):
+    INTERNO = "interno", "Mercado interno"
+    EXTERNO = "externo", "Mercado externo (exportação de serviço)"
+
+
+class OrigemReceitaInformada(models.TextChoices):
+    """Catálogo FECHADO de origem (plano DL-074, item 2). Só alterado por
+    decisão do Fred. "Histórico" tem regra própria: só vale antes do início de
+    uso do sistema pela empresa (ver `apps.fiscal.receita.inicio_de_uso`)."""
+
+    HISTORICO_PRE_SISTEMA = "historico_pre_sistema", "Histórico anterior ao uso do sistema"
+    MERCADORIA_NAO_ESCRITURADA = (
+        "mercadoria_nao_escriturada",
+        "Venda de mercadoria ainda não escriturada",
+    )
+    SERVICO_DOCUMENTO_NAO_INTEGRADO = (
+        "servico_documento_nao_integrado",
+        "Serviço com documento de município não integrado",
+    )
+    OUTRAS_RECEITAS_ATIVIDADE = (
+        "outras_receitas_atividade",
+        "Outras receitas da atividade (Res. CGSN 140, art. 2º, § 4º)",
+    )
+    AJUSTE = "ajuste", "Ajuste ou retificação"
+
+
+class EstadoReceitaInformada(models.TextChoices):
+    """Rascunho, confirmada e estornada são estados distintos: só a confirmada
+    conta na receita do mês (regra do CLAUDE.md: rascunho é distinguível)."""
+
+    RASCUNHO = "rascunho", "Rascunho"
+    CONFIRMADA = "confirmada", "Confirmada"
+    ESTORNADA = "estornada", "Estornada"
+
+
+class EstadoConfirmacaoMes(models.TextChoices):
+    CONFIRMADA = "confirmada", "Confirmada"
+    # Reaberta: o mês voltou a não estar completo. `a_retificar=True` quando a
+    # reabertura veio de estorno de escrituração/receita (Res. 140 art. 18).
+    REABERTA = "reaberta", "Reaberta"
+
+
+class ReceitaInformadaImutavel(Exception):
+    """Receita informada confirmada ou estornada não se altera nem se exclui por
+    `save()`/`delete()`. A correção é estorno com motivo. Mesma ideia de
+    `EscrituracaoImutavel` (DL-072); o banco também recusa (migração 0003)."""
+
+    mensagem_padrao = (
+        "Receita informada confirmada não pode ser alterada nem excluída; "
+        "estorne com motivo para corrigir."
+    )
+
+    def __init__(self, mensagem=None):
+        super().__init__(mensagem or self.mensagem_padrao)
+        self.mensagem = mensagem or self.mensagem_padrao
+
+
+class ConfirmacaoImutavel(Exception):
+    """A confirmação de um mês só muda pelos serviços de `apps.fiscal.receita`,
+    por `QuerySet.update()` condicionado ao estado. `save()` em linha existente
+    e `delete()` são recusados aqui e pelo banco (migração 0003)."""
+
+    mensagem_padrao = (
+        "A confirmação de receita mensal só muda pelos serviços de confirmação e "
+        "reabertura, com trilha; não é alterada nem excluída diretamente."
+    )
+
+    def __init__(self, mensagem=None):
+        super().__init__(mensagem or self.mensagem_padrao)
+        self.mensagem = mensagem or self.mensagem_padrao
+
+
+class ReceitaInformada(models.Model):
+    """Receita que NÃO veio de uma escrituração: histórico, mercadoria, serviço
+    sem documento integrado, outras receitas da atividade, ajuste (DL-074, item 2).
+
+    `motivo` e `documento_suporte` são obrigatórios: a receita informada é
+    declaração do contador, e o RBT12 a usa. Exemplo de suporte: "extrato
+    PGDAS-D PA 03/2026". `valor` é positivo, em reais, com 2 casas.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="receitas_informadas",
+        verbose_name="empresa",
+    )
+    ano = models.PositiveSmallIntegerField("ano da competência")
+    mes = models.PositiveSmallIntegerField("mês da competência")
+    mercado = models.CharField("mercado", max_length=10, choices=MercadoReceita.choices)
+    valor = models.DecimalField("valor da receita", max_digits=17, decimal_places=2)
+    origem = models.CharField("origem", max_length=40, choices=OrigemReceitaInformada.choices)
+    motivo = models.CharField("motivo", max_length=500)
+    documento_suporte = models.CharField("documento de suporte", max_length=300)
+    estado = models.CharField(
+        "estado",
+        max_length=12,
+        choices=EstadoReceitaInformada.choices,
+        default=EstadoReceitaInformada.RASCUNHO,
+    )
+    criado_em = models.DateTimeField("criada em", auto_now_add=True)
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="criada por",
+    )
+    confirmada_em = models.DateTimeField("confirmada em", null=True, blank=True)
+    confirmada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="confirmada por",
+    )
+    estornada_em = models.DateTimeField("estornada em", null=True, blank=True)
+    estornada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="estornada por",
+    )
+    motivo_estorno = models.CharField("motivo do estorno", max_length=500, blank=True, default="")
+
+    class Meta:
+        verbose_name = "receita informada"
+        verbose_name_plural = "receitas informadas"
+        ordering = ["id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(ano__gte=1970, ano__lte=2999, mes__gte=1, mes__lte=12),
+                name="receita_informada_mes_valido",
+            ),
+            models.CheckConstraint(
+                condition=Q(valor__gt=0), name="receita_informada_valor_positivo"
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    mercado__in=MercadoReceita.values,
+                    origem__in=OrigemReceitaInformada.values,
+                    estado__in=EstadoReceitaInformada.values,
+                ),
+                name="receita_informada_catalogos_validos",
+            ),
+            models.CheckConstraint(
+                condition=~Q(motivo="") & ~Q(documento_suporte=""),
+                name="receita_informada_campos_obrigatorios",
+            ),
+            # Coerência entre estado e colunas do ato, como em
+            # `escrituracao_campos_coerentes_com_o_estado` (DL-072).
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        estado="rascunho",
+                        confirmada_em__isnull=True,
+                        confirmada_por__isnull=True,
+                        estornada_em__isnull=True,
+                        estornada_por__isnull=True,
+                        motivo_estorno="",
+                    )
+                    | Q(
+                        estado="confirmada",
+                        confirmada_em__isnull=False,
+                        confirmada_por__isnull=False,
+                        estornada_em__isnull=True,
+                        estornada_por__isnull=True,
+                        motivo_estorno="",
+                    )
+                    | (
+                        Q(
+                            estado="estornada",
+                            confirmada_em__isnull=False,
+                            confirmada_por__isnull=False,
+                            estornada_em__isnull=False,
+                            estornada_por__isnull=False,
+                        )
+                        & ~Q(motivo_estorno="")
+                    )
+                ),
+                name="receita_informada_campos_coerentes_com_o_estado",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"Receita informada {self.pk} — {self.ano}-{self.mes:02d} "
+            f"{self.get_mercado_display()} ({self.get_estado_display()})"
+        )
+
+    def _estado_gravado(self):
+        # Lê o estado GRAVADO: o objeto em memória pode estar desatualizado.
+        return ReceitaInformada.objects.filter(pk=self.pk).values_list("estado", flat=True).first()
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None and self._estado_gravado() != EstadoReceitaInformada.RASCUNHO:
+            raise ReceitaInformadaImutavel()
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.pk is not None and self._estado_gravado() != EstadoReceitaInformada.RASCUNHO:
+            raise ReceitaInformadaImutavel(
+                "Receita informada confirmada ou estornada não pode ser excluída; "
+                "o histórico é preservado pelo estorno."
+            )
+        return super().delete(*args, **kwargs)
+
+
+class ConfirmacaoReceitaMensal(models.Model):
+    """Ato "receita de MM/AAAA completa" da empresa, para os DOIS mercados (DL-074,
+    item 4). Uma linha por empresa e mês; o histórico de atos fica na trilha.
+
+    `valor_confirmado_interno`/`_externo` são o total do mês NO INSTANTE da
+    confirmação. Comparado com o total atual, mostra se a receita mudou depois
+    por um caminho que não passou pelos ganchos de serviço (estorno e efetivação
+    em mês confirmado reabrem a confirmação com trilha — `marcar_a_retificar` em
+    `apps/fiscal/receita.py`). Mudou → o mês é "a retificar" e não entra no
+    RBT12: é a segunda camada, para o que escapar dos ganchos.
+
+    Limite declarado (A8, auditoria DL-074 rodada 1): na transição reaberta -> confirmada,
+    o gatilho da migração 0003 aceita novos totais. Um UPDATE SQL direto nessa transição
+    pode regravar `valor_confirmado_interno`/`_externo`, porque o banco não confere o total
+    com a composição do mês. Os serviços não fazem isso. É o mesmo limite do TRUNCATE.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="confirmacoes_receita_mensal",
+        verbose_name="empresa",
+    )
+    ano = models.PositiveSmallIntegerField("ano da competência")
+    mes = models.PositiveSmallIntegerField("mês da competência")
+    estado = models.CharField(
+        "estado",
+        max_length=10,
+        choices=EstadoConfirmacaoMes.choices,
+        default=EstadoConfirmacaoMes.CONFIRMADA,
+    )
+    valor_confirmado_interno = models.DecimalField(
+        "receita confirmada — interno", max_digits=17, decimal_places=2
+    )
+    valor_confirmado_externo = models.DecimalField(
+        "receita confirmada — externo", max_digits=17, decimal_places=2
+    )
+    confirmada_em = models.DateTimeField("confirmada em")
+    confirmada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="confirmada por",
+    )
+    a_retificar = models.BooleanField("a retificar", default=False)
+    reaberta_em = models.DateTimeField("reaberta em", null=True, blank=True)
+    reaberta_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="reaberta por",
+    )
+    motivo_reabertura = models.CharField(
+        "motivo da reabertura", max_length=500, blank=True, default=""
+    )
+    criado_em = models.DateTimeField("criada em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "confirmação de receita mensal"
+        verbose_name_plural = "confirmações de receita mensal"
+        ordering = ["empresa_id", "ano", "mes"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["empresa", "ano", "mes"],
+                name="confirmacao_mes_unica_por_empresa",
+            ),
+            models.CheckConstraint(
+                condition=Q(ano__gte=1970, ano__lte=2999, mes__gte=1, mes__lte=12),
+                name="confirmacao_mes_valido",
+            ),
+            models.CheckConstraint(
+                condition=Q(estado__in=EstadoConfirmacaoMes.values),
+                name="confirmacao_estado_valido",
+            ),
+            models.CheckConstraint(
+                condition=Q(valor_confirmado_interno__gte=0, valor_confirmado_externo__gte=0),
+                name="confirmacao_valores_nao_negativos",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        estado="confirmada",
+                        reaberta_em__isnull=True,
+                        reaberta_por__isnull=True,
+                        motivo_reabertura="",
+                        a_retificar=False,
+                    )
+                    | (
+                        Q(
+                            estado="reaberta",
+                            reaberta_em__isnull=False,
+                            reaberta_por__isnull=False,
+                        )
+                        & ~Q(motivo_reabertura="")
+                    )
+                ),
+                name="confirmacao_campos_coerentes_com_o_estado",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"Confirmação {self.ano}-{self.mes:02d} — empresa {self.empresa_id} "
+            f"({self.get_estado_display()})"
+        )
+
+    def save(self, *args, **kwargs):
+        # Só a criação passa por `save()`; a mudança de estado é `update()` nos serviços.
+        if self.pk is not None:
+            raise ConfirmacaoImutavel()
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ConfirmacaoImutavel(
+            "A confirmação de receita mensal não é excluída; a reabertura, com motivo, "
+            "fica na trilha."
+        )
+
+
+class OpcaoRegimeCaixaSimples(models.Model):
+    """Opção pelo regime de CAIXA no Simples Nacional, por ano-calendário (HI-66).
+
+    Escolha: uma tabela pequena, não um campo no `HistoricoRegimeTributario`.
+    Motivo: a opção é anual e irretratável no ano (Res. CGSN 140 art. 16 § 1º,
+    hipótese), e o histórico de regime é por vigência de dias. Gravar o ano no
+    histórico obrigaria a mexer no serviço e no admin do regime, que são de outro
+    módulo. Linha existente = empresa optou pelo caixa naquele ano; sem linha = competência.
+    Só até 2026: a opção acaba no PA 12/2026 (HI-66; LC 214/2025, art. 517 c/c 544, III).
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="opcoes_regime_caixa_simples",
+        verbose_name="empresa",
+    )
+    ano_calendario = models.PositiveSmallIntegerField("ano-calendário")
+    registrada_em = models.DateTimeField("registrada em", auto_now_add=True)
+    registrada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="registrada por",
+    )
+
+    class Meta:
+        verbose_name = "opção pelo regime de caixa (Simples)"
+        verbose_name_plural = "opções pelo regime de caixa (Simples)"
+        ordering = ["empresa_id", "ano_calendario"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["empresa", "ano_calendario"],
+                name="opcao_caixa_unica_por_ano",
+            ),
+            models.CheckConstraint(
+                condition=Q(ano_calendario__gte=2000, ano_calendario__lte=2026),
+                name="opcao_caixa_so_ate_2026",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Regime de caixa em {self.ano_calendario} — empresa {self.empresa_id}"

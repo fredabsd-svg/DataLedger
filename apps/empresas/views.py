@@ -1,3 +1,5 @@
+from datetime import date
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
@@ -90,6 +92,15 @@ def _campos_gravaveis(serializer):
     return frozenset(nome for nome, campo in serializer.fields.items() if not campo.read_only)
 
 
+def _valor_seguro_para_trilha(valor):
+    """Valor de campo em forma que o JSON da trilha aceita (DL-074, achado A2).
+
+    `date` (e `datetime`) vira ISO 8601: a trilha guarda texto, e um `date` cru derrubava
+    a gravação com 500. Os demais tipos de campo seguem como estão.
+    """
+    return valor.isoformat() if isinstance(valor, date) else valor
+
+
 def _diff_dos_campos_gravaveis(serializer, instance):
     """Devolve o diff entre o estado atual da `instance` e os valores
     submetidos pelo cliente, restrito aos campos graváveis do serializer.
@@ -116,8 +127,8 @@ def _diff_dos_campos_gravaveis(serializer, instance):
         novo = serializer.validated_data[campo]
         antigo = getattr(instance, campo)
         if novo != antigo:
-            valores_anteriores[campo] = antigo
-            valores_novos[campo] = novo
+            valores_anteriores[campo] = _valor_seguro_para_trilha(antigo)
+            valores_novos[campo] = _valor_seguro_para_trilha(novo)
     return valores_anteriores, valores_novos
 
 

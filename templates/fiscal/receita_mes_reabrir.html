@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block titulo %}Reabrir receita de {{ mes_rotulo }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_mes }}">Receita do mês</a></li>
+            <li aria-current="page">Reabrir receita de {{ mes_rotulo }}</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_mes }}">‹ Voltar para a receita do mês</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-074 (frente B), arquétipo E (confirmação de ação sensível, direção de arte §2.E).
+Reabrir não apaga a receita: o mês volta a "não confirmado" e sai do RBT12 até ser
+confirmado de novo. O motivo é obrigatório e fica na trilha.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Reabrir receita de {{ mes_rotulo }}</h1>{% endblock %}
+
+{% block content %}
+    {% if confirmada %}
+        <div class="painel-etapa painel-etapa--risco">
+            <h2>O que vai acontecer</h2>
+            <p>
+                A confirmação de {{ mes_rotulo }} é reaberta. O mês volta a não estar declarado completo
+                e <strong>sai do RBT12</strong> até ser confirmado de novo. As receitas do mês não são
+                apagadas nem alteradas.
+            </p>
+            <p>
+                O motivo fica registrado na trilha de auditoria, junto de quem reabriu e quando.
+            </p>
+        </div>
+
+        <form method="post" action="{% url 'fiscal_web:receita_mes_reabrir' empresa.id ano mes %}" class="formulario">
+            {% csrf_token %}
+            <div class="campo">
+                <label for="id_motivo">Motivo da reabertura</label>
+                <textarea id="id_motivo" name="motivo" required rows="3" maxlength="{{ motivo_maximo }}"
+                          aria-describedby="id_motivo_ajuda">{{ motivo }}</textarea>
+                <p class="texto-apoio" id="id_motivo_ajuda">
+                    Obrigatório. Fica na trilha de auditoria, com até {{ motivo_maximo }} caracteres.
+                </p>
+            </div>
+            <button type="submit" class="botao botao--perigoso">Reabrir receita de {{ mes_rotulo }}</button>
+        </form>
+    {% else %}
+        <p class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> só mês confirmado pode ser reaberto. {{ mes_rotulo }} não está confirmado.
+        </p>
+        <p>
+            <a class="botao botao--secundario" href="{{ url_mes }}">Voltar para a receita do mês</a>
+        </p>
+    {% endif %}
+{% endblock %}
