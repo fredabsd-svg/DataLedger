@@ -143,6 +143,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-075](../planos/DL-075-pre-das-do-simples.md) | Fiscal: pré-DAS do Simples para prestadores de serviço (Anexos I a V como dado, fator r, teto do ISS, segregação) | Integrada (PR #98, squash `05668d4`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 | [DL-076](../planos/DL-076-iss-por-municipio-palmas.md) | Fiscal: ISS por município, começando por Palmas (alíquota informada, conferência por nota, apuração fora do Simples, retido sofrido, outros municípios) | Integrada (PR #99, squash `6c2baf7`) — rodada 1 e reconferência aprovadas com ressalvas |
 | [DL-077](../planos/DL-077-importacao-e-exportacao-contabil-em-txt.md) | Contabilidade: importar e exportar plano de contas e lançamentos em TXT e Excel | Integrada (PR #100, squash `929a79a`; PR #101, squash `b60560b`) — efetivação parcial suspensa (BL-676) |
+| [DL-078](../planos/DL-078-servicos-tomados-e-retencoes.md) | Fiscal: serviços tomados, ISS retido pelo tomador e retenções federais | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -276,6 +277,15 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
      Suíte completa: 7.091 aprovados, 1 reprovado (ambiente). Teto de 2.000
      lançamentos por arquivo (efetivar 2.000 leva ~21 s; o servidor padrão
      corta em 30 s).
+
+7. **[DL-078](../planos/DL-078-servicos-tomados-e-retencoes.md) — serviços
+   tomados, ISS retido pelo cliente tomador e retenções federais:
+   planejada, em desenvolvimento.**
+   [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-servicos-tomados.md):
+   desde a NT 007/2026 PIS, COFINS e CSLL retidos vêm somados num só campo
+   da nota; INSS de 11% vence pela emissão e IRRF/CSRF pelo pagamento
+   (HI-93 a HI-96). **PE-82 com o Fred** (rotina do escritório nos
+   tomados; não bloqueia).
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `97c2ae6` — conteúdo da `main` em `b60560b` —,
