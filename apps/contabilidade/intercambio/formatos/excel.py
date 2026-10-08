@@ -192,17 +192,19 @@ def _limite_da_parte(nome):
     return TAMANHO_MAXIMO_PARTE_DE_APOIO_BYTES
 
 
-def _caminho_da_aba(formulas):
-    """Caminho da parte XML da aba `plano`. Recusa se ela não está em `xl/worksheets/`.
+def _caminho_da_aba(formulas, nome_da_aba):
+    """Caminho da parte XML da aba `nome_da_aba`. Recusa se ela não está em `xl/worksheets/`.
 
-    O limite por planilha vale pelo prefixo do caminho. Uma aba apontada para fora dele
-    escaparia do orçamento de células, então a recusa é nomeada e não a leitura.
+    Serve às duas planilhas: o plano (`plano`, passado por `ler` abaixo) e os lançamentos
+    (`lancamentos`, em `excel_lancamentos.ler`). O limite por planilha vale pelo prefixo do
+    caminho. Uma aba apontada para fora dele escaparia do orçamento de células, então a
+    recusa é nomeada e não a leitura.
     """
-    caminho = getattr(formulas[NOME_DA_ABA], "_worksheet_path", None)
+    caminho = getattr(formulas[nome_da_aba], "_worksheet_path", None)
     if not isinstance(caminho, str) or not caminho.startswith(_PREFIXO_DAS_PLANILHAS):
         raise IntercambioRecusado(
-            "a aba 'plano' não está em xl/worksheets/: estrutura de .xlsx não reconhecida. "
-            "Salve de novo no Excel como 'Pasta de Trabalho do Excel (.xlsx)'."
+            f"a aba '{nome_da_aba}' não está em xl/worksheets/: estrutura de .xlsx não "
+            "reconhecida. Salve de novo no Excel como 'Pasta de Trabalho do Excel (.xlsx)'."
         )
     return caminho
 
@@ -344,14 +346,15 @@ def _conferir_orcamento_das_planilhas(conteudo):
                     if coluna > MAXIMO_DE_COLUNAS_POR_LINHA:
                         raise IntercambioRecusado(
                             f"a célula {referencia} (linha {self.linha_atual}) está além da "
-                            f"coluna {MAXIMO_DE_COLUNAS_POR_LINHA}. O plano tem seis colunas: "
-                            "não é uma planilha de plano de contas."
+                            f"coluna {MAXIMO_DE_COLUNAS_POR_LINHA}. Não é uma planilha no modelo "
+                            "do DataLedger: baixe o modelo e use as colunas dele."
                         )
                 if self.celulas_na_linha > MAXIMO_DE_COLUNAS_POR_LINHA:
+                    # Serve ao plano e aos lançamentos: a mensagem não nomeia nenhum dos dois.
                     raise IntercambioRecusado(
                         f"a linha {self.linha_atual} da planilha tem mais de "
-                        f"{MAXIMO_DE_COLUNAS_POR_LINHA} células. O plano tem seis colunas: "
-                        "não é uma planilha de plano de contas."
+                        f"{MAXIMO_DE_COLUNAS_POR_LINHA} células. Não é uma planilha no modelo "
+                        "do DataLedger: baixe o modelo e use as colunas dele."
                     )
                 if self.celulas > MAXIMO_DE_CELULAS_LIDAS:
                     raise ArquivoGrandeDemais(
@@ -648,7 +651,7 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
         try:
             if NOME_DA_ABA in formulas.sheetnames:
                 # A aba `plano` precisa estar em xl/worksheets/, onde o orçamento foi medido.
-                _caminho_da_aba(formulas)
+                _caminho_da_aba(formulas, NOME_DA_ABA)
                 # A dimensão declarada no XML só serve para o openpyxl montar a aba. Ela
                 # descartava, em silêncio, conteúdo além dela (a nota A4). Sem ela, cada célula
                 # é lida. A coluna já foi limitada na varredura, pela referência de cada célula.

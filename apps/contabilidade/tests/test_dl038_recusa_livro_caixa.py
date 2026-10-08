@@ -180,7 +180,14 @@ def test_a_derivacao_encontrou_as_vinte_e_quatro_rotas_web_e_as_vinte_da_api():
     # "-reconferir", "-avisos", "-efetivar", "-descartar" (POST cada) e "-de-para" (GET/POST).
     # Todas passam por `get_empresa()` da mixin, então a varredura de livro-caixa as cobre.
     # 27 -> 34 do lado da API. Nenhuma rota de tela nesta frente (a tela é a frente B).
-    assert len(ROTAS_WEB) == 32, ROTAS_WEB
+    #
+    # DL-077, fatia 3 (frente B, tela): NOVE rotas novas de tela — "lancamentos_importacoes" (GET
+    # lista), "lancamentos_importar" (GET formulário, POST recebe), "lancamentos_importar_
+    # modelo_excel" (GET), "lancamentos_importacao" (GET conferência) e as cinco ações só de POST
+    # sob a importação
+    # ("-de-para", "-avisos", "-reconferir", "-efetivar", "-descartar"). Cada uma recusa livro-caixa
+    # antes de ler o corpo, como as irmãs. 32 -> 41 do lado da tela. API inalterada (34).
+    assert len(ROTAS_WEB) == 41, ROTAS_WEB
     assert len(ROTAS_API) == 34, ROTAS_API
 
 

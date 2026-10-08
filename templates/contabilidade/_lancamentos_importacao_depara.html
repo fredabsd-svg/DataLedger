@@ -1,0 +1,44 @@
+{% comment %}
+DL-077, fatia 3 (frente B): de-para dos códigos de origem que não são conta do plano. Escolher a conta
+é o único trabalho manual que a conferência pede antes de efetivar. A escolha é uma caixa de busca
+nativa (`datalist`), e não um `select`: um `select` por código repetiria a lista de contas em cada um,
+e a página ficaria pesada. A escolha é validada no servidor, contra as contas analíticas ativas. Ao
+salvar, a conferência é refeita na mesma transação.
+{% endcomment %}
+<section class="painel-etapa" aria-labelledby="id_depara_titulo">
+    <h2 id="id_depara_titulo">Contas não resolvidas: de-para</h2>
+    <p class="texto-apoio">
+        Cada código do arquivo que não é conta do plano desta empresa precisa de uma conta analítica ativa do
+        DataLedger. O de-para vale para todas as importações deste formato da empresa.
+    </p>
+
+    {% if pode_agir %}
+        <datalist id="contas-analiticas-ativas">
+            {% for codigo, nome in contas_analiticas %}
+                <option value="{{ codigo }}">{{ nome }}</option>
+            {% endfor %}
+        </datalist>
+
+        {% for item in codigos_sem_conta %}
+            <form method="post" action="{% url 'contabilidade_web:lancamentos_importacao_depara' empresa.id importacao.id %}" class="formulario">
+                {% csrf_token %}
+                <input type="hidden" name="codigo_origem" value="{{ item.codigo }}">
+                <div class="campo">
+                    <label for="id_depara_{{ forloop.counter }}">Conta para o código {{ item.codigo }} ({{ item.quantidade_de_lancamentos }} lançamento{{ item.quantidade_de_lancamentos|pluralize:"s" }})</label>
+                    <input type="text" id="id_depara_{{ forloop.counter }}" name="conta" list="contas-analiticas-ativas"
+                           autocomplete="off" required aria-describedby="id_depara_ajuda_{{ forloop.counter }}">
+                    <p class="texto-apoio" id="id_depara_ajuda_{{ forloop.counter }}">
+                        Digite o código ou o nome da conta e escolha na lista. Só contas analíticas ativas são aceitas.
+                    </p>
+                </div>
+                <button type="submit" class="botao botao--secundario">Salvar de-para</button>
+            </form>
+        {% endfor %}
+    {% else %}
+        <ul>
+            {% for item in codigos_sem_conta %}
+                <li>{{ item.codigo }}: {{ item.quantidade_de_lancamentos }} lançamento{{ item.quantidade_de_lancamentos|pluralize:"s" }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+</section>

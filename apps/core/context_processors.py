@@ -70,6 +70,17 @@ ROTULOS_DE_TELA = {
     # DL-077, fatia 2: a conferência e o download da exportação de lançamentos.
     ("contabilidade_web", "lancamentos_exportar"): "Exportar lançamentos",
     ("contabilidade_web", "lancamentos_exportar_arquivo"): "Exportar lançamentos",
+    # DL-077, fatia 3 (frente B): a importação de lançamentos com área de conferência. As ações
+    # (só POST) voltam para a conferência ou para a lista, e por isso levam o mesmo rótulo.
+    ("contabilidade_web", "lancamentos_importacoes"): "Importações de lançamentos",
+    ("contabilidade_web", "lancamentos_importar"): "Importar lançamentos",
+    ("contabilidade_web", "lancamentos_importar_modelo_excel"): "Modelo da planilha de lançamentos",
+    ("contabilidade_web", "lancamentos_importacao"): "Conferência da importação",
+    ("contabilidade_web", "lancamentos_importacao_depara"): "Conferência da importação",
+    ("contabilidade_web", "lancamentos_importacao_avisos"): "Conferência da importação",
+    ("contabilidade_web", "lancamentos_importacao_reconferir"): "Conferência da importação",
+    ("contabilidade_web", "lancamentos_importacao_efetivar"): "Conferência da importação",
+    ("contabilidade_web", "lancamentos_importacao_descartar"): "Conferência da importação",
     ("contabilidade_web", "lancamento_novo"): "Novo lançamento",
     ("contabilidade_web", "lancamento_detalhe"): "Lançamento",
     ("contabilidade_web", "diario"): "Diário",

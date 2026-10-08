@@ -43,8 +43,15 @@ em base.css), então o título continua saindo no documento.
 {% comment %}
 DL-077, fatia 2: "Exportar lançamentos" é ação do Diário, que é a lista de lançamentos.
 A tela de exportação confere o arquivo antes de gerá-lo (ver lancamentos_exportar.html).
+DL-077, fatia 3: "Importar lançamentos" e "Importações de lançamentos" pelo mesmo caminho. Importar
+só aparece para quem escritura (`pode_escriturar`, decidido no servidor); a lista de importações é
+para quem lê a contabilidade, que é quem já vê o Diário.
 {% endcomment %}
 {% block acoes_pagina %}
+    {% if pode_escriturar %}
+        <a class="botao botao--secundario" href="{% url 'contabilidade_web:lancamentos_importar' empresa.id %}">Importar lançamentos</a>
+    {% endif %}
+    <a class="botao botao--secundario" href="{% url 'contabilidade_web:lancamentos_importacoes' empresa.id %}">Importações de lançamentos</a>
     <a class="botao botao--secundario" href="{% url 'contabilidade_web:lancamentos_exportar' empresa.id %}">Exportar lançamentos</a>
 {% endblock %}
 

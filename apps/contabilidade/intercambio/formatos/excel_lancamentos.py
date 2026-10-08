@@ -24,22 +24,29 @@ REGRAS DE CÉLULA (erro com a linha da planilha e a coluna):
 Linhas totalmente vazias são ignoradas. Abas que não são `lancamentos` são ignoradas com aviso.
 """
 
+import io
 from datetime import date, datetime
 from decimal import Decimal
+
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 
 from apps.contabilidade.intercambio.canonico import (
     NIVEL_AVISO,
     NIVEL_ERRO,
-    IntercambioRecusado,
     Ocorrencia,
     ResultadoLeitura,
 )
 
-# Privados da fatia 1, importados e NÃO copiados: o orçamento de células (A4) e o prefixo onde
-# a varredura conta. Ver `_conferir_caminho_da_aba` e `ler`.
+# Privados da fatia 1, importados e NÃO copiados: o orçamento de células (A4), a checagem da aba
+# em `xl/worksheets/` (`_caminho_da_aba`, generalizada para receber o nome da aba) e o modelo
+# (constantes de layout). Ver `ler` e `gerar_modelo`.
 from apps.contabilidade.intercambio.formatos.excel import (
-    _PREFIXO_DAS_PLANILHAS,
+    ABA_DE_INSTRUCOES,
+    LINHAS_FORMATADAS_NO_MODELO,
     _abrir,
+    _caminho_da_aba,
     _conferir_orcamento_das_planilhas,
     _texto,
     _verificar_pacote,
@@ -271,20 +278,6 @@ def _ler_planilha(formulas, valores, resultado):
     montar_lancamentos(linhas, resultado)
 
 
-def _conferir_caminho_da_aba(formulas):
-    """A aba `lancamentos` tem de estar em `xl/worksheets/`, onde o orçamento foi medido.
-
-    Mesma regra de `excel._caminho_da_aba`, que só vale para a aba `plano`. Uma aba apontada
-    para fora do prefixo escaparia da varredura de células, e o openpyxl a leria sem teto.
-    """
-    caminho = getattr(formulas[NOME_DA_ABA], "_worksheet_path", None)
-    if not isinstance(caminho, str) or not caminho.startswith(_PREFIXO_DAS_PLANILHAS):
-        raise IntercambioRecusado(
-            f"a aba '{NOME_DA_ABA}' não está em xl/worksheets/: estrutura de .xlsx não "
-            "reconhecida. Salve de novo no Excel como 'Pasta de Trabalho do Excel (.xlsx)'."
-        )
-
-
 def ler(conteudo: bytes) -> ResultadoLeitura:
     """Lê os lançamentos de uma planilha `.xlsx` segura. Recusa de pacote levanta exceção."""
     _verificar_pacote(conteudo)
@@ -295,7 +288,8 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
     formulas, valores = _abrir(conteudo)
     try:
         if NOME_DA_ABA in formulas.sheetnames:
-            _conferir_caminho_da_aba(formulas)
+            # A aba tem de estar em `xl/worksheets/`, onde o orçamento foi medido (ver `excel`).
+            _caminho_da_aba(formulas, NOME_DA_ABA)
             # A dimensão declarada só serve para o openpyxl montar a aba. Sem zerá-la, o
             # conteúdo além dela seria descartado em silêncio (a nota A4 do plano).
             formulas[NOME_DA_ABA].reset_dimensions()
@@ -306,3 +300,96 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
         valores.close()
     resultado.ocorrencias.sort(key=lambda o: (o.linha, o.campo))
     return resultado
+
+
+# -----------------------------------------------------------------------------
+# Modelo para baixar (DL-077, fatia 3, frente B)
+# -----------------------------------------------------------------------------
+
+# Posição das colunas do modelo, na ordem de `CABECALHO_LANCAMENTOS` (A = 1). Servem só para
+# formatar e validar o modelo: a leitura exige o cabeçalho exato, nesta ordem.
+_COLUNA_DA_DATA = CABECALHO_LANCAMENTOS.index("data") + 1
+_COLUNA_DA_CONTA = CABECALHO_LANCAMENTOS.index("conta") + 1
+_COLUNA_DO_LADO = CABECALHO_LANCAMENTOS.index("lado") + 1
+_LARGURAS_DO_MODELO = (12, 14, 48, 22, 10, 16)
+
+_INSTRUCOES_DE_LANCAMENTOS = (
+    ("Modelo de lançamentos do DataLedger", ""),
+    ("", ""),
+    (
+        "Como usar",
+        "Preencha a aba 'lancamentos', a partir da linha 2. A linha 1 é o cabeçalho e não deve "
+        "mudar. Só a aba 'lancamentos' é lida; as outras são ignoradas com aviso.",
+    ),
+    (
+        "Uma linha por partida",
+        "Cada lançamento ocupa uma linha por partida (débito ou crédito). As linhas com o mesmo "
+        "número formam um lançamento, e a soma dos débitos precisa ser igual à dos créditos.",
+    ),
+    ("", ""),
+    ("Coluna", "Valor aceito"),
+    (
+        "numero",
+        "Inteiro positivo, de até 18 dígitos. Repete-se em cada partida do mesmo lançamento.",
+    ),
+    (
+        "data",
+        "Data do Excel, sem hora, ou texto aaaa-mm-dd válido. Repete-se em cada partida.",
+    ),
+    (
+        "historico",
+        "Texto, obrigatório. Partidas do mesmo lançamento com textos diferentes são unidas com "
+        "' | ' e geram um aviso, que você aceita antes de efetivar.",
+    ),
+    (
+        "conta",
+        "Texto, obrigatório: o código da conta de origem. Formate a coluna como Texto ANTES de "
+        "digitar: o Excel transforma 1.1 em 1,1, e o importador recusa número.",
+    ),
+    ("lado", "D = débito. C = crédito. Lista suspensa na coluna."),
+    (
+        "valor",
+        "Número positivo com no máximo 2 casas, ou texto com ponto e duas casas (1250.00). "
+        "Mais casas é erro: não há arredondamento.",
+    ),
+    ("", ""),
+    ("Linhas totalmente vazias", "São ignoradas."),
+    (
+        "Fórmulas",
+        "Só são aceitas com o valor calculado salvo no arquivo. Ao final, cole como valores.",
+    ),
+)
+
+
+def gerar_modelo() -> bytes:
+    """Modelo `.xlsx` vazio para os lançamentos: aba `lancamentos` e aba `instrucoes`.
+
+    Mesmo padrão do modelo do plano (`excel.gerar_modelo`): a coluna `conta` vem formatada como
+    Texto, para o código `1.1` não virar `1,1`, e o lado tem lista suspensa D/C. A aba sai sem
+    nenhuma conta ou lançamento de exemplo.
+    """
+    pasta = Workbook()
+    lancamentos = pasta.active
+    lancamentos.title = NOME_DA_ABA
+    lancamentos.append(list(CABECALHO_LANCAMENTOS))
+    for linha in range(2, LINHAS_FORMATADAS_NO_MODELO + 1):
+        lancamentos.cell(row=linha, column=_COLUNA_DA_CONTA).number_format = "@"
+        lancamentos.cell(row=linha, column=_COLUNA_DA_DATA).number_format = "dd/mm/yyyy"
+    for coluna, largura in zip("ABCDEF", _LARGURAS_DO_MODELO, strict=True):
+        lancamentos.column_dimensions[coluna].width = largura
+
+    validacao = DataValidation(type="list", formula1='"D,C"', allow_blank=True)
+    lancamentos.add_data_validation(validacao)
+    letra_do_lado = get_column_letter(_COLUNA_DO_LADO)
+    validacao.add(f"{letra_do_lado}2:{letra_do_lado}{LINHAS_FORMATADAS_NO_MODELO}")
+
+    instrucoes = pasta.create_sheet(ABA_DE_INSTRUCOES)
+    for linha, (texto_a, texto_b) in enumerate(_INSTRUCOES_DE_LANCAMENTOS, start=1):
+        instrucoes.cell(row=linha, column=1, value=texto_a)
+        instrucoes.cell(row=linha, column=2, value=texto_b)
+    instrucoes.column_dimensions["A"].width = 28
+    instrucoes.column_dimensions["B"].width = 100
+
+    saida = io.BytesIO()
+    pasta.save(saida)
+    return saida.getvalue()

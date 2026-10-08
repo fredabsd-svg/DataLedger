@@ -36,6 +36,17 @@ from apps.contabilidade.views_web import (
     # `formato`) e o download (GET com o SHA-256 conferido).
     lancamentos_exportar,
     lancamentos_exportar_arquivo,
+    # DL-077, fatia 3 (frente B): importação de lançamentos com área de conferência — lista,
+    # envio, modelo, conferência e as cinco ações (cada uma só POST).
+    lancamentos_importacao,
+    lancamentos_importacao_avisos,
+    lancamentos_importacao_depara,
+    lancamentos_importacao_descartar,
+    lancamentos_importacao_efetivar,
+    lancamentos_importacao_reconferir,
+    lancamentos_importacoes,
+    lancamentos_importar,
+    lancamentos_importar_modelo_excel,
     parametro_contabil_encerrar,
     parametros_contabeis,
     plano_de_contas,
@@ -101,6 +112,54 @@ urlpatterns = [
         "empresas/<int:empresa_id>/lancamentos/exportar/",
         lancamentos_exportar,
         name="lancamentos_exportar",
+    ),
+    # DL-077, fatia 3 (frente B): importação de lançamentos. A lista e o envio são de lançamentos
+    # ("importacoes/", não "importacao/", para não colidir com a API de mesmo prefixo, que o
+    # `contabilidade/painel/` já separa). Cada ação é uma rota só de POST, sob a importação.
+    path(
+        "empresas/<int:empresa_id>/lancamentos/importacoes/",
+        lancamentos_importacoes,
+        name="lancamentos_importacoes",
+    ),
+    path(
+        "empresas/<int:empresa_id>/lancamentos/importacoes/nova/",
+        lancamentos_importar,
+        name="lancamentos_importar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/lancamentos/importacoes/modelo-excel/",
+        lancamentos_importar_modelo_excel,
+        name="lancamentos_importar_modelo_excel",
+    ),
+    path(
+        "empresas/<int:empresa_id>/lancamentos/importacoes/<int:importacao_id>/",
+        lancamentos_importacao,
+        name="lancamentos_importacao",
+    ),
+    path(
+        "empresas/<int:empresa_id>/lancamentos/importacoes/<int:importacao_id>/de-para/",
+        lancamentos_importacao_depara,
+        name="lancamentos_importacao_depara",
+    ),
+    path(
+        "empresas/<int:empresa_id>/lancamentos/importacoes/<int:importacao_id>/avisos/",
+        lancamentos_importacao_avisos,
+        name="lancamentos_importacao_avisos",
+    ),
+    path(
+        "empresas/<int:empresa_id>/lancamentos/importacoes/<int:importacao_id>/reconferir/",
+        lancamentos_importacao_reconferir,
+        name="lancamentos_importacao_reconferir",
+    ),
+    path(
+        "empresas/<int:empresa_id>/lancamentos/importacoes/<int:importacao_id>/efetivar/",
+        lancamentos_importacao_efetivar,
+        name="lancamentos_importacao_efetivar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/lancamentos/importacoes/<int:importacao_id>/descartar/",
+        lancamentos_importacao_descartar,
+        name="lancamentos_importacao_descartar",
     ),
     path(
         "empresas/<int:empresa_id>/lancamentos/exportar/arquivo/",

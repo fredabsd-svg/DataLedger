@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+
+{% block titulo %}Conferência da importação {{ importacao.id }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% comment %}
+DL-077, fatia 3 (frente B): a CONFERÊNCIA de uma importação de lançamentos (arquétipo C, com a
+pergunta de verdade do contábil: débito é igual a crédito, e a efetivação pode ser feita?). A tela
+mostra o que o serviço gravou e chama o serviço para cada ação. O botão de efetivar só aparece
+habilitado quando a política escolhida é possível; a recusa de verdade é do servidor, que reconfere
+antes de gravar. Cada ação é um formulário próprio, com a confirmação explícita onde grava.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Conferência da importação</h1>{% endblock %}
+
+{% block content %}
+    <p><a class="botao botao--secundario" href="{% url 'contabilidade_web:lancamentos_importacoes' empresa.id %}">‹ Voltar para as importações</a></p>
+
+    {% if erros %}
+        <div class="mensagem mensagem-error" role="alert">
+            {% for mensagem in erros.values %}<p>{{ mensagem }}</p>{% endfor %}
+        </div>
+    {% endif %}
+
+    {% if bloqueios %}
+        <div class="cartao-tabela">
+            <div class="cartao-tabela__cabecalho">
+                <p class="texto-apoio">Ocorrências que impedem a efetivação. Nada foi gravado.</p>
+            </div>
+            <table class="tabela-dados">
+                <caption class="visualmente-oculto">Ocorrências que impedem a efetivação, com lançamento, linha e campo</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Lançamento</th>
+                        <th scope="col">Linha</th>
+                        <th scope="col">Campo</th>
+                        <th scope="col">Mensagem</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for bloqueio in bloqueios %}
+                        <tr>
+                            <td>{{ bloqueio.numero }}</td>
+                            <td class="valor-monetario">{{ bloqueio.linha }}</td>
+                            <td>{{ bloqueio.campo }}</td>
+                            <td>{{ bloqueio.mensagem }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+
+    {% if efetivada %}
+        <div class="mensagem mensagem-success" role="status">
+            <p>Esta importação está efetivada: os lançamentos estão no Diário e só podem ser estornados.</p>
+        </div>
+    {% endif %}
+    {% if descartada %}
+        <div class="mensagem mensagem-info" role="status">
+            <p>
+                Esta importação foi descartada em {{ importacao.descartada_em|date:"d/m/Y H:i" }}
+                {% if importacao.motivo_do_descarte %}: {{ importacao.motivo_do_descarte }}{% endif %}.
+                Nada foi gravado no Diário.
+            </p>
+        </div>
+    {% endif %}
+    {% if em_conferencia and not pode_agir %}
+        <p class="texto-apoio">
+            Seu papel lê esta importação, mas não confere, decide nem efetiva lançamentos. Quem escritura a
+            contabilidade desta empresa faz essas ações.
+        </p>
+    {% endif %}
+
+    <section class="painel-etapa" aria-labelledby="id_resumo_titulo">
+        <h2 id="id_resumo_titulo">
+            {% if efetivada %}Resumo da efetivação{% else %}Débito é igual a crédito?{% endif %}
+        </h2>
+        <p>
+            {% if efetivada %}
+                Efetivada: {{ importacao.quantidade_efetivados }} lançamentos gravados no Diário.
+            {% elif descartada %}
+                Descartada: nada foi gravado.
+            {% else %}
+                {% if conferem %}
+                    Sim: os débitos ({{ soma_debitos_ptbr }}) são iguais aos créditos ({{ soma_creditos_ptbr }}).
+                {% else %}
+                    Não: os débitos ({{ soma_debitos_ptbr }}) diferem dos créditos ({{ soma_creditos_ptbr }}).
+                {% endif %}
+            {% endif %}
+        </p>
+
+        <dl class="lista-de-definicao">
+            <div><dt>Arquivo</dt><dd class="valor-quebravel">{{ importacao.nome_arquivo|default:"—" }}</dd></div>
+            <div><dt>Formato</dt><dd>{{ formato_rotulo }}</dd></div>
+            <div><dt>Estado</dt><dd>{{ estado_rotulo }}</dd></div>
+            <div><dt>Recebido em</dt><dd>{{ importacao.criado_em|date:"d/m/Y H:i" }} por {{ importacao.criado_por.get_username|default:"—" }}</dd></div>
+            <div><dt>Lançamentos lidos</dt><dd class="valor-monetario">{{ contagens.total }}</dd></div>
+            <div><dt>Prontos para efetivar</dt><dd class="valor-monetario">{{ contagens.prontos }}</dd></div>
+            <div><dt>Com erro</dt><dd class="valor-monetario">{{ contagens.com_erro }}</dd></div>
+            <div><dt>Com aviso a aceitar</dt><dd class="valor-monetario">{{ contagens.com_aviso_a_aceitar }}</dd></div>
+            <div><dt>Com aviso já aceito</dt><dd class="valor-monetario">{{ contagens.com_aviso_aceito }}</dd></div>
+            <div><dt>Soma dos débitos</dt><dd class="valor-monetario">{{ soma_debitos_ptbr }}</dd></div>
+            <div><dt>Soma dos créditos</dt><dd class="valor-monetario">{{ soma_creditos_ptbr }}</dd></div>
+            <div><dt>Débitos e créditos conferem</dt><dd>{% if conferem %}Sim{% else %}Não{% endif %}</dd></div>
+            <div><dt>SHA-256 do arquivo</dt><dd class="valor-quebravel">{{ importacao.sha256 }}</dd></div>
+        </dl>
+    </section>
+
+    {% if ocorrencias_do_arquivo %}
+        <div class="painel-etapa">
+            <h2>Ocorrências do arquivo inteiro</h2>
+            <ul>
+                {% for ocorrencia in ocorrencias_do_arquivo %}
+                    <li>{{ ocorrencia.nivel }}: {{ ocorrencia.mensagem }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
+    {% if codigos_sem_conta %}
+        {% include "contabilidade/_lancamentos_importacao_depara.html" %}
+    {% endif %}
+
+    {% if pode_agir and contagens.com_aviso_a_aceitar %}
+        <form method="post" action="{% url 'contabilidade_web:lancamentos_importacao_avisos' empresa.id importacao.id %}" class="formulario">
+            {% csrf_token %}
+            <input type="hidden" name="todos" value="1">
+            <p class="texto-apoio">
+                Aceitar um aviso é dizer que você viu o que o sistema achou. Um erro não se aceita: ele precisa ser corrigido no arquivo ou no de-para.
+            </p>
+            <button type="submit" class="botao botao--secundario">Aceitar todos os avisos ({{ contagens.com_aviso_a_aceitar }})</button>
+        </form>
+    {% endif %}
+
+    <form method="get" action="{% url 'contabilidade_web:lancamentos_importacao' empresa.id importacao.id %}" class="formulario">
+        <fieldset class="campo campo-radio">
+            <legend>Mostrar</legend>
+            <div class="campo-radio__opcoes">
+                {% for valor, rotulo in filtros.items %}
+                    <label class="campo-radio__opcao">
+                        <input type="radio" name="filtro" value="{{ valor }}"{% if valor == filtro %} checked{% endif %}>
+                        {{ rotulo }}
+                    </label>
+                {% endfor %}
+            </div>
+        </fieldset>
+        <button type="submit" class="botao botao--secundario">Aplicar filtro</button>
+    </form>
+
+    {% if lancamentos %}
+        <div class="cartao-tabela">
+            <div class="cartao-tabela__cabecalho">
+                <p class="texto-apoio">
+                    Cada lançamento como foi lido. Em cada partida, a conta de origem aparece com a conta
+                    do DataLedger para onde ela vai. Erro e aviso ficam escritos na própria linha.
+                </p>
+            </div>
+            <table class="tabela-dados">
+                <caption class="visualmente-oculto">Lançamentos da importação, com partidas, ocorrências e situação</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Número de origem</th>
+                        <th scope="col">Linha</th>
+                        <th scope="col">Data</th>
+                        <th scope="col">Histórico</th>
+                        <th scope="col">Partidas</th>
+                        <th scope="col">Ocorrências</th>
+                        <th scope="col">Situação</th>
+                        {% if pode_agir or efetivada %}<th scope="col">Ação</th>{% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for lancamento in lancamentos %}
+                        <tr>
+                            <td>{{ lancamento.numero }}</td>
+                            <td class="valor-monetario">{{ lancamento.linha }}</td>
+                            <td>{{ lancamento.data|date:"d/m/Y" }}</td>
+                            <td>{{ lancamento.historico }}</td>
+                            <td>
+                                <ul>
+                                    {% for partida in lancamento.partidas %}
+                                        <li>
+                                            {{ partida.codigo_origem }} →
+                                            {% if partida.conta_codigo %}
+                                                {{ partida.conta_codigo }}{% if partida.origem_da_conta %} <span class="texto-apoio">({{ partida.origem_da_conta }})</span>{% endif %}
+                                            {% else %}
+                                                <strong>sem conta</strong>
+                                            {% endif %}
+                                            · {{ partida.lado_rotulo }} ·
+                                            <span class="valor-monetario">{{ partida.valor_ptbr }}</span>
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            </td>
+                            <td>
+                                {% for ocorrencia in lancamento.ocorrencias %}
+                                    <p>{{ ocorrencia.nivel }} em {{ ocorrencia.campo }}: {{ ocorrencia.mensagem }}</p>
+                                {% empty %}
+                                    —
+                                {% endfor %}
+                            </td>
+                            <td>{{ lancamento.situacao }}</td>
+                            {% if pode_agir or efetivada %}
+                                <td>
+                                    {% if pode_agir and lancamento.aviso_a_aceitar %}
+                                        <form method="post" action="{% url 'contabilidade_web:lancamentos_importacao_avisos' empresa.id importacao.id %}">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="numeros" value="{{ lancamento.numero }}">
+                                            <button type="submit" class="botao botao--secundario botao--pequeno">Aceitar aviso<span class="visualmente-oculto"> do lançamento {{ lancamento.numero }}</span></button>
+                                        </form>
+                                    {% elif lancamento.lancamento_id %}
+                                        <a class="botao botao--secundario botao--pequeno" href="{% url 'contabilidade_web:lancamento_detalhe' empresa.id lancamento.lancamento_id %}">Ver no Diário<span class="visualmente-oculto"> o lançamento {{ lancamento.numero }}</span></a>
+                                    {% endif %}
+                                </td>
+                            {% endif %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include "fiscal/_paginacao.html" with pagina=pagina querystring_sem_pagina=querystring_sem_pagina %}
+    {% else %}
+        <div class="estado-vazio">
+            <p class="estado-vazio__titulo"><strong>Nenhum lançamento com este filtro.</strong></p>
+            <p class="estado-vazio__descricao">Escolha “Todos os lançamentos” para ver a importação inteira.</p>
+        </div>
+    {% endif %}
+
+    {% if em_conferencia or efetivada %}
+        {% include "contabilidade/_lancamentos_importacao_efetivacao.html" %}
+    {% endif %}
+
+    {% if pode_agir %}
+        <section class="painel-etapa" aria-labelledby="id_descarte_titulo">
+            <h2 id="id_descarte_titulo">Descartar a importação</h2>
+            <p class="texto-apoio">
+                Descartar não grava nada no Diário. O arquivo pode ser recebido de novo depois, e o motivo fica na trilha.
+            </p>
+            <form method="post" action="{% url 'contabilidade_web:lancamentos_importacao_descartar' empresa.id importacao.id %}" class="formulario">
+                {% csrf_token %}
+                <div class="campo">
+                    <label for="id_motivo">Motivo do descarte (obrigatório)</label>
+                    <textarea id="id_motivo" name="motivo" maxlength="500" required></textarea>
+                </div>
+                <button type="submit" class="botao botao--perigoso">Descartar importação</button>
+            </form>
+        </section>
+    {% endif %}
+{% endblock %}

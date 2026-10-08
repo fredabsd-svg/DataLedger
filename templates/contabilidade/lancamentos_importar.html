@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block titulo %}Importar lançamentos — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% comment %}
+DL-077, fatia 3 (frente B): formulário do envio (arquétipo C). Receber o arquivo NÃO grava no Diário:
+a importação entra em conferência, e a tela seguinte mostra o que será gravado. Os avisos de cada
+formato ficam à vista antes do envio, porque o arquivo não os carrega. As regras (formato, conta,
+partidas, datas) são do serviço (`apps.contabilidade.intercambio.importacao_lancamentos`).
+{% endcomment %}
+{% block titulo_pagina %}<h1>Importar lançamentos</h1>{% endblock %}
+
+{% block content %}
+    <p><a class="botao botao--secundario" href="{% url 'contabilidade_web:lancamentos_importacoes' empresa.id %}">‹ Voltar para as importações</a></p>
+
+    {% if erros %}
+        <div class="mensagem mensagem-error" role="alert">
+            {% for mensagem in erros.values %}<p>{{ mensagem }}</p>{% endfor %}
+        </div>
+    {% endif %}
+
+    {% if existente_id %}
+        <p>
+            <a class="botao botao--secundario" href="{% url 'contabilidade_web:lancamentos_importacao' empresa.id existente_id %}">Abrir a importação que já existe</a>
+        </p>
+    {% endif %}
+
+    <p class="texto-apoio">
+        Nada entra no Diário nesta etapa. O arquivo original não fica guardado: a conferência guarda os
+        lançamentos lidos e o SHA-256 do arquivo. Você só efetiva depois de conferir.
+    </p>
+
+    <div class="painel-etapa">
+        <h2>Antes de enviar</h2>
+        <ul>
+            {% for formato in formatos %}
+                <li><strong>{{ formato.rotulo }}.</strong> {{ formato.aviso }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <p>
+        <a class="botao botao--secundario" href="{% url 'contabilidade_web:lancamentos_importar_modelo_excel' empresa.id %}">Baixar o modelo da planilha de lançamentos</a>
+    </p>
+
+    <form method="post" enctype="multipart/form-data"
+          action="{% url 'contabilidade_web:lancamentos_importar' empresa.id %}"
+          class="formulario" novalidate>
+        {% csrf_token %}
+
+        <fieldset class="campo campo-radio">
+            <legend>Formato do arquivo</legend>
+            <div class="campo-radio__opcoes">
+                {% for formato in formatos %}
+                    <label class="campo-radio__opcao">
+                        <input type="radio" name="formato" value="{{ formato.valor }}"{% if formato.valor == formato_escolhido %} checked{% endif %}>
+                        {{ formato.rotulo }}
+                    </label>
+                {% endfor %}
+            </div>
+        </fieldset>
+
+        <div class="campo">
+            <label for="id_arquivo_lancamentos">Arquivo de lançamentos</label>
+            <input type="file" name="arquivo" id="id_arquivo_lancamentos" accept=".txt,.csv,.xlsx"
+                   aria-describedby="id_arquivo_lancamentos_ajuda">
+            <p class="texto-apoio" id="id_arquivo_lancamentos_ajuda">
+                Para a planilha, envie um .xlsx (nunca .xlsm). Cada arquivo é recebido uma vez por empresa:
+                um arquivo igual ao de uma importação viva é recusado.
+            </p>
+        </div>
+
+        <button type="submit">Receber e conferir</button>
+    </form>
+{% endblock %}
