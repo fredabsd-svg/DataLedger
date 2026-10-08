@@ -39,14 +39,18 @@ from apps.fiscal import iss_municipal as iss_servico
 from apps.fiscal import pre_das as pre_das_servico
 from apps.fiscal import rbt12 as apuracao
 from apps.fiscal import receita as receita_servico
+from apps.fiscal import retencoes as retencoes_servico
+from apps.fiscal import tomadas as tomadas_servico
 from apps.fiscal.models import (
     AliquotaIssMunicipal,
     AtividadeEmpresa,
     EnquadramentoAtividade,
     EscrituracaoFiscal,
+    EscrituracaoTomada,
     FolhaFatorR,
     MercadoReceita,
     NaturezaOperacao,
+    NaturezaTomada,
     OrigemReceitaInformada,
     ReceitaInformada,
     RegimeIss,
@@ -1486,3 +1490,409 @@ class OutrosMunicipiosIssView(EmpresaEscopadaMixin, APIView):
                 "avisos": [_aviso_iss_payload(a) for a in relatorio.avisos],
             }
         )
+
+
+# ---------------------------------------------------------------------------
+# DL-078 (frente A): escrituração das NFS-e TOMADAS, ISS retido a recolher e retenções
+# federais. Mesma regra da DL-072 nesta API: consultar = `papel_pode_consultar_documentos`
+# (exclui CLIENTE; PARALEGAL lê); escriturar, estornar e informar a data de pagamento =
+# `papel_pode_escriturar_fiscal`. Autorização no servidor. Isolamento pelo escritório ativo
+# e por `EmpresaEscopadaMixin`: empresa de outro escritório responde 404.
+# A regra de negócio fica em `apps.fiscal.tomadas` e `apps.fiscal.retencoes`.
+# ---------------------------------------------------------------------------
+
+CONTRATO_POST_RASCUNHO_TOMADA = ContratoDeRequisicao(
+    campos={"natureza"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no rascunho da escrituração de tomada",
+)
+CONTRATO_POST_EFETIVAR_TOMADA = ContratoDeRequisicao(
+    campos={"natureza"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na efetivação da escrituração de tomada",
+)
+CONTRATO_POST_ESTORNAR_TOMADA = ContratoDeRequisicao(
+    campos={"motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no estorno da escrituração de tomada",
+)
+CONTRATO_POST_DATA_PAGAMENTO = ContratoDeRequisicao(
+    campos={"data_pagamento", "motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na informação da data de pagamento",
+)
+# Rota separada, e não um campo `limpar` na de informar: a operação é outra, tem corpo só com o
+# motivo e trilha própria (`escrituracao_tomada.data_pagamento_limpa`). Mesmo padrão do estorno.
+CONTRATO_POST_LIMPAR_DATA_PAGAMENTO = ContratoDeRequisicao(
+    campos={"motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na limpeza da data de pagamento",
+)
+
+
+class EscrituracaoTomadaSerializer(serializers.ModelSerializer):
+    """Saída. Sem ids de usuário: quem fez cada ato está na trilha de auditoria."""
+
+    natureza_descricao = serializers.CharField(source="get_natureza_display", read_only=True)
+
+    class Meta:
+        model = EscrituracaoTomada
+        fields = [
+            "id",
+            "vinculo",
+            "empresa",
+            "natureza",
+            "natureza_descricao",
+            "estado",
+            "data_emissao",
+            "data_competencia",
+            "tp_ret_issqn",
+            "c_loc_incid",
+            "valor_servico",
+            "valor_liquido",
+            "v_iss_qn",
+            "v_ret_cp",
+            "v_ret_irrf",
+            "v_ret_csll",
+            "data_pagamento",
+            "motivo_pagamento",
+            "efetivada_em",
+            "estornada_em",
+            "motivo_estorno",
+            "criado_em",
+        ]
+        read_only_fields = fields
+
+
+class NaturezaTomadaEntradaSerializer(serializers.Serializer):
+    natureza = serializers.ChoiceField(
+        choices=NaturezaTomada.choices,
+        allow_blank=True,
+        error_messages={
+            "required": tomadas_servico.MENSAGEM_NATUREZA_VAZIA,
+            "invalid_choice": tomadas_servico.MENSAGEM_NATUREZA_FORA_DO_CATALOGO,
+        },
+    )
+
+    def validate_natureza(self, valor):
+        if not valor:
+            raise serializers.ValidationError(tomadas_servico.MENSAGEM_NATUREZA_VAZIA)
+        return valor
+
+
+class DataPagamentoEntradaSerializer(serializers.Serializer):
+    data_pagamento = serializers.DateField(
+        error_messages={
+            "required": "Informe a data de pagamento.",
+            "invalid": "Data de pagamento inválida: use o formato AAAA-MM-DD.",
+        }
+    )
+    motivo = serializers.CharField(
+        max_length=tomadas_servico.MOTIVO_MAXIMO, trim_whitespace=True, allow_blank=True
+    )
+
+
+class LimparDataPagamentoEntradaSerializer(serializers.Serializer):
+    # allow_blank: motivo vazio chega ao serviço, que responde com a mensagem em português.
+    motivo = serializers.CharField(
+        max_length=tomadas_servico.MOTIVO_MAXIMO, trim_whitespace=True, allow_blank=True
+    )
+
+
+def _nota_tomada_payload(nota) -> dict:
+    documento = nota.documento
+    escrituracao = nota.escrituracao
+    return {
+        "vinculo_id": nota.vinculo.pk,
+        "identificador": documento.identificador,
+        "numero": documento.numero,
+        "dh_emissao": documento.dh_emissao.isoformat(),
+        "data_emissao": _data_iso(nota.data_emissao),
+        "data_competencia": _data_iso(documento.d_competencia),
+        "valor_servico": _texto_decimal(documento.v_serv),
+        "valor_liquido": _texto_decimal(documento.v_liq),
+        "tp_ret_issqn": documento.tp_ret_issqn,
+        "situacao": nota.situacao,
+        "natureza_sugerida": nota.natureza_sugerida,
+        "bloqueio": nota.bloqueio,
+        "escrituracao_id": escrituracao.pk if escrituracao is not None else None,
+        "estado_escrituracao": escrituracao.estado if escrituracao is not None else None,
+        "avisos": [_aviso_tomada_payload(a) for a in nota.avisos],
+    }
+
+
+def _aviso_tomada_payload(aviso) -> dict:
+    return {"codigo": aviso.codigo, "texto": aviso.texto, "fundamento": aviso.fundamento}
+
+
+def _nota_escriturada_payload(escrituracao) -> dict:
+    return {
+        "escrituracao_id": escrituracao.pk,
+        "identificador": escrituracao.vinculo.documento.identificador,
+        "natureza": escrituracao.natureza,
+        "data_emissao": _data_iso(escrituracao.data_emissao),
+        "data_competencia": _data_iso(escrituracao.data_competencia),
+        "data_pagamento": _data_iso(escrituracao.data_pagamento),
+    }
+
+
+def _par_avisos_payload(pares) -> list[dict]:
+    return [
+        {"escrituracao_id": escrituracao.pk, **_aviso_tomada_payload(aviso)}
+        for escrituracao, aviso in pares
+    ]
+
+
+def _iss_retido_payload(resultado: retencoes_servico.IssRetidoAReceber) -> dict:
+    return {
+        "ano": resultado.ano,
+        "mes": resultado.mes,
+        "grupos": [
+            {
+                "municipio": grupo.municipio,
+                "total": _texto_decimal(grupo.total),
+                "vencimento": _data_iso(grupo.vencimento),
+                "vencimento_texto": grupo.vencimento_texto,
+                "regra_dia_nao_util": grupo.regra_dia_nao_util,
+                "notas": [_nota_escriturada_payload_com_iss(e) for e in grupo.notas],
+                "sem_valor_destacado": [_nota_escriturada_payload(e) for e in grupo.sem_valor],
+            }
+            for grupo in resultado.grupos
+        ],
+        "fora_do_total": [_nota_escriturada_payload(e) for e in resultado.fora_do_total],
+        "canceladas": [_nota_escriturada_payload(e) for e in resultado.canceladas],
+        "avisos": _par_avisos_payload(resultado.avisos),
+    }
+
+
+def _nota_escriturada_payload_com_iss(escrituracao) -> dict:
+    payload = _nota_escriturada_payload(escrituracao)
+    payload["v_iss_qn"] = _texto_decimal(escrituracao.v_iss_qn)
+    return payload
+
+
+def _pagamentos_payload(grupos) -> list[dict]:
+    return [
+        {
+            "data_pagamento": _data_iso(grupo.data_pagamento),
+            "total": _texto_decimal(grupo.total),
+            "notas": [_nota_escriturada_payload(e) for e in grupo.notas],
+        }
+        for grupo in grupos
+    ]
+
+
+def _retencoes_federais_payload(resultado: retencoes_servico.RetencoesFederais) -> dict:
+    return {
+        "ano": resultado.ano,
+        "mes": resultado.mes,
+        "inss": {
+            "rotulo": "INSS retido (contribuição previdenciária, vRetCP), mês de emissão",
+            "total": _texto_decimal(resultado.inss_total),
+            "vencimento": _data_iso(resultado.inss_vencimento),
+            "vencimento_texto": resultado.inss_vencimento_texto,
+            "notas": [_nota_escriturada_payload_com_iss(e) for e in resultado.inss_notas],
+        },
+        "irrf": {
+            "rotulo": "IRRF retido (vRetIRRF), por data de pagamento",
+            "total": _texto_decimal(resultado.irrf_total),
+            "por_pagamento": _pagamentos_payload(resultado.irrf_por_pagamento),
+        },
+        "csrf": {
+            "rotulo": "CSRF retida (PIS + COFINS + CSLL, vRetCSLL), por data de pagamento",
+            "total": _texto_decimal(resultado.csrf_total),
+            "por_pagamento": _pagamentos_payload(resultado.csrf_por_pagamento),
+        },
+        "pendentes_de_pagamento": [
+            _nota_escriturada_payload(e) for e in resultado.pendentes_de_pagamento
+        ],
+        "canceladas": [_nota_escriturada_payload(e) for e in resultado.canceladas],
+        "avisos": _par_avisos_payload(resultado.avisos),
+    }
+
+
+class NotasTomadasView(EmpresaEscopadaMixin, APIView):
+    """GET — notas em que a empresa é TOMADORA, com competência `ano/mes` (lista a escriturar)."""
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        ano, mes = _ano_e_mes_da_consulta(request)
+        notas = tomadas_servico.notas_tomadas(empresa, ano, mes)
+        return Response(
+            {
+                "ano": ano,
+                "mes": mes,
+                "notas": [_nota_tomada_payload(n) for n in notas],
+            }
+        )
+
+
+class RascunhoTomadaView(EmpresaEscopadaMixin, APIView):
+    """POST — grava a natureza de uma nota tomada como rascunho (ainda não efetivada)."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def post(self, request, empresa_id, vinculo_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_RASCUNHO_TOMADA)
+        empresa = self.get_empresa()
+        vinculo = get_object_or_404(
+            VinculoDocumentoEmpresa,
+            pk=vinculo_id,
+            empresa=empresa,
+            documento__escritorio=request.escritorio,
+        )
+        entrada = NaturezaTomadaEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        try:
+            escrituracao = tomadas_servico.salvar_rascunho(
+                vinculo,
+                entrada.validated_data["natureza"],
+                usuario=request.user,
+                request=request,
+            )
+        except servico.EntradaInvalidaEscrituracao as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except servico.EscrituracaoErro as exc:
+            return _resposta_de_conflito(exc)
+        return Response(EscrituracaoTomadaSerializer(escrituracao).data, status=status.HTTP_200_OK)
+
+
+class EfetivarTomadaView(EmpresaEscopadaMixin, APIView):
+    """POST — efetiva a nota tomada com a natureza confirmada.
+
+    201 quando cria ou transforma um rascunho; 200 quando a mesma natureza já estava efetivada.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def post(self, request, empresa_id, vinculo_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_EFETIVAR_TOMADA)
+        empresa = self.get_empresa()
+        vinculo = get_object_or_404(
+            VinculoDocumentoEmpresa,
+            pk=vinculo_id,
+            empresa=empresa,
+            documento__escritorio=request.escritorio,
+        )
+        entrada = NaturezaTomadaEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        try:
+            escrituracao = tomadas_servico.efetivar_escrituracao_tomada(
+                vinculo,
+                entrada.validated_data["natureza"],
+                usuario=request.user,
+                request=request,
+            )
+        except servico.EntradaInvalidaEscrituracao as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except servico.EscrituracaoErro as exc:
+            return _resposta_de_conflito(exc)
+        codigo = status.HTTP_201_CREATED if escrituracao.criada_agora else status.HTTP_200_OK
+        return Response(EscrituracaoTomadaSerializer(escrituracao).data, status=codigo)
+
+
+class EstornarTomadaView(EmpresaEscopadaMixin, APIView):
+    """POST — estorna a escrituração de tomada efetivada, com motivo obrigatório."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def post(self, request, empresa_id, escrituracao_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_ESTORNAR_TOMADA)
+        empresa = self.get_empresa()
+        escrituracao = get_object_or_404(EscrituracaoTomada, pk=escrituracao_id, empresa=empresa)
+        entrada = EstornarEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        try:
+            estornada = tomadas_servico.estornar_escrituracao_tomada(
+                escrituracao,
+                entrada.validated_data["motivo"],
+                usuario=request.user,
+                request=request,
+            )
+        except servico.EntradaInvalidaEscrituracao as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except servico.EscrituracaoErro as exc:
+            return _resposta_de_conflito(exc)
+        return Response(EscrituracaoTomadaSerializer(estornada).data, status=status.HTTP_200_OK)
+
+
+class DataPagamentoTomadaView(EmpresaEscopadaMixin, APIView):
+    """POST — informa ou corrige a data de pagamento de uma escrituração de tomada efetivada."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def post(self, request, empresa_id, escrituracao_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_DATA_PAGAMENTO)
+        empresa = self.get_empresa()
+        escrituracao = get_object_or_404(EscrituracaoTomada, pk=escrituracao_id, empresa=empresa)
+        entrada = DataPagamentoEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        try:
+            informada = tomadas_servico.informar_data_pagamento(
+                escrituracao,
+                entrada.validated_data["data_pagamento"],
+                entrada.validated_data["motivo"],
+                usuario=request.user,
+                request=request,
+            )
+        except servico.EntradaInvalidaEscrituracao as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except servico.EscrituracaoErro as exc:
+            return _resposta_de_conflito(exc)
+        codigo = status.HTTP_201_CREATED if informada.criada_agora else status.HTTP_200_OK
+        return Response(EscrituracaoTomadaSerializer(informada).data, status=codigo)
+
+
+class DataPagamentoLimparTomadaView(EmpresaEscopadaMixin, APIView):
+    """POST — limpa a data de pagamento de uma escrituração de tomada efetivada, com motivo.
+
+    A retenção volta a "pendente de data de pagamento" (HI-96). 200 em todos os casos de sucesso:
+    limpar nota sem data é no-op.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def post(self, request, empresa_id, escrituracao_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_LIMPAR_DATA_PAGAMENTO)
+        empresa = self.get_empresa()
+        escrituracao = get_object_or_404(EscrituracaoTomada, pk=escrituracao_id, empresa=empresa)
+        entrada = LimparDataPagamentoEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        try:
+            limpa = tomadas_servico.limpar_data_pagamento(
+                escrituracao,
+                entrada.validated_data["motivo"],
+                usuario=request.user,
+                request=request,
+            )
+        except servico.EntradaInvalidaEscrituracao as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except servico.EscrituracaoErro as exc:
+            return _resposta_de_conflito(exc)
+        return Response(EscrituracaoTomadaSerializer(limpa).data, status=status.HTTP_200_OK)
+
+
+class IssRetidoTomadoView(EmpresaEscopadaMixin, APIView):
+    """GET — ISS retido a recolher pelo cliente tomador, por município, na competência."""
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        ano, mes = _ano_e_mes_da_consulta(request)
+        resultado = retencoes_servico.iss_retido_a_recolher(empresa, ano, mes)
+        return Response(_iss_retido_payload(resultado))
+
+
+class RetencoesFederaisTomadoView(EmpresaEscopadaMixin, APIView):
+    """GET — retenções federais destacadas nas notas tomadas, por tributo, na competência."""
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        ano, mes = _ano_e_mes_da_consulta(request)
+        resultado = retencoes_servico.retencoes_federais(empresa, ano, mes)
+        return Response(_retencoes_federais_payload(resultado))

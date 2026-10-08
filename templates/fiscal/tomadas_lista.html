@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block titulo %}Serviços tomados{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada and mes_rotulo %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Competência</span>
+            <strong>{{ mes_rotulo }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-078 (frente B), arquétipo A (tabela de consulta, direção de arte §2.A): NFS-e em que a empresa é
+TOMADORA, pela competência (dCompet). Nota prestada não aparece aqui (escrituração de prestadas).
+A natureza mostrada é a GRAVADA quando há escrituração, e a SUGERIDA pelo XML quando não há; a
+origem diz qual das duas é.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Serviços tomados</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Notas fiscais de serviço (NFS-e) em que a empresa escolhida é tomadora, na competência
+        escolhida. Escriturar confirma a natureza da operação. Esta tela não calcula imposto e não
+        gera guia.
+    </p>
+
+    {% include "fiscal/_filtro_simples.html" %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver os serviços tomados.</strong></p>
+            <p class="estado-vazio__descricao">A lista é sempre de uma empresa e de uma competência.</p>
+        </div>
+    {% else %}
+        <p class="texto-apoio">
+            {{ total_notas }} nota(s) tomada(s) em {{ mes_rotulo }}; {{ total_a_escriturar }} ainda a escriturar.
+        </p>
+
+        {% if not pode_escriturar %}
+            <p class="texto-apoio">
+                Seu papel consulta estas notas, mas não as escritura: por isso não há botão de
+                escriturar nesta tela.
+            </p>
+        {% endif %}
+
+        <p class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_iss_retido }}">ISS retido a recolher</a>
+        </p>
+
+        {% if linhas %}
+            <table class="tabela-dados">
+                <caption class="visualmente-oculto">Serviços tomados pela empresa na competência, com prestador, município, valor, natureza e situação</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Número</th>
+                        <th scope="col">Emissão</th>
+                        <th scope="col">Competência</th>
+                        <th scope="col">Prestador</th>
+                        <th scope="col">Município de incidência</th>
+                        <th scope="col">Valor do serviço (R$)</th>
+                        <th scope="col">Natureza</th>
+                        <th scope="col">Situação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in linhas %}
+                        <tr>
+                            <td>{{ linha.numero }}</td>
+                            <td>{{ linha.emissao }}</td>
+                            <td>{{ linha.competencia }}</td>
+                            <td class="valor-quebravel">{{ linha.prestador }}</td>
+                            <td>{{ linha.municipio }}</td>
+                            <td class="valor-monetario">{{ linha.v_serv_ptbr }}</td>
+                            <td>
+                                {{ linha.natureza }}
+                                <br><span class="texto-apoio">{{ linha.origem_natureza }}</span>
+                                {% if linha.bloqueio %}
+                                    <br><span class="texto-apoio">{{ linha.bloqueio }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {{ linha.situacao }}
+                                {% if linha.acao %}
+                                    <br><a class="botao botao--secundario botao--pequeno" href="{{ linha.acao.url }}">{{ linha.acao.rotulo }}</a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% include "fiscal/_paginacao.html" %}
+        {% else %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo">
+                    <strong>Nenhuma nota tomada por {{ empresa_selecionada.razao_social }} em {{ mes_rotulo }}.</strong>
+                </p>
+                <p class="estado-vazio__descricao">
+                    Escolha outra competência. Notas em que a empresa é prestadora não aparecem nesta lista.
+                </p>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}

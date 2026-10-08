@@ -1024,8 +1024,8 @@ nível 1, e PR para a `main`.
 | 3 | a numerar | Tabelas dos Anexos do Simples como dado com vigência e fonte; alíquota efetiva e pré-DAS com segregação (ISS retido, outro município) | 1 | 2 e leitura oficial dos Anexos da LC 123 |
 | 4 | a numerar | Validador de conformidade IBS/CBS das NFS-e recebidas, em modo aviso (HI-61) | 2 | pode correr em paralelo a 2 e 3 |
 | 5 | a numerar | ISS por município, começando por Palmas; relatório de ISS retido sofrido | 1 | 1 |
-| 6 | a numerar | Serviços tomados (entradas) e ISS retido pelo cliente tomador | 1 | 1 |
-| 7 | a numerar | Presumido: IRPJ/CSLL trimestral, depois de ler LC 224/2025 e IN RFB 2.306/2026 no texto oficial | 1 | 1 |
+| 6 | [DL-078](DL-078-servicos-tomados-e-retencoes.md) | Serviços tomados (entradas) e ISS retido pelo cliente tomador | 1 | 1 |
+| 7 | [DL-079](DL-079-lucro-presumido-irpj-csll.md) | Presumido: IRPJ/CSLL trimestral, depois de ler LC 224/2025 e IN RFB 2.306/2026 no texto oficial | 1 | 1 |
 | 8 | a numerar | NF-e (DL-010 fatia 2) e o restante do roteiro de ondas acima | 1 e 2 | 1 |
 
 O que continua bloqueado, mesmo com a delegação: alíquota, prazo ou leiaute

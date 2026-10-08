@@ -616,6 +616,316 @@ class EscrituracaoFiscal(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# DL-078 (frente A): escrituração das NFS-e TOMADAS. Registro PRÓPRIO, separado da
+# `EscrituracaoFiscal` (HI-93): a nota tomada nunca aparece em receita, RBT12, pré-DAS nem no
+# ISS próprio, porque esses leem só as escriturações prestadas. Plano: DL-078 e consulta de
+# 08/10/2026 (docs/projeto/consultas/2026-10-08-contador-senior-servicos-tomados.md).
+
+
+class NaturezaTomada(models.TextChoices):
+    """Catálogo FECHADO das naturezas de serviço TOMADO (HI-93; consulta, item 1).
+
+    T4 (importação de serviço) NÃO está aqui: o emissor nacional ainda não gera o XML
+    desse caso (P&R 7.8). A nota com tpEmit 2 ou 3 é recusada antes de qualquer natureza
+    (`apps.fiscal.tomadas`), porque tpEmit 2 não é só importação (cMotivoEmisTI).
+    """
+
+    TOMADO_ISS_RETIDO_PELO_CLIENTE = (
+        "tomado_iss_retido_pelo_cliente",
+        "Tomado — ISS retido pelo cliente tomador (T1)",
+    )
+    TOMADO_SEM_RETENCAO = ("tomado_sem_retencao", "Tomado — ISS do prestador, sem retenção (T2)")
+    TOMADO_PRESTADOR_OUTRO_MUNICIPIO = (
+        "tomado_prestador_outro_municipio",
+        "Tomado — prestador de outro município (T3)",
+    )
+    TOMADO_DE_MEI = ("tomado_de_mei", "Tomado de MEI (T5)")
+    TOMADO_DE_SIMPLES = ("tomado_de_simples", "Tomado de ME/EPP do Simples Nacional (T6)")
+    TOMADO_DE_PESSOA_FISICA = ("tomado_de_pessoa_fisica", "Tomado de pessoa física (T7)")
+
+
+class EscrituracaoTomada(models.Model):
+    """Escrituração de UMA NFS-e tomada por UMA empresa cliente, como TOMADORA (DL-078).
+
+    Mesmo desenho da `EscrituracaoFiscal` (DL-072): uma linha por vínculo e por tentativa;
+    uma efetivada estornada não é reaberta; no máximo uma linha não estornada por vínculo,
+    no banco. Os valores são COPIADOS do documento e do XML guardado no ato de efetivar, para
+    que o registro reproduza a escrituração sem reler o XML.
+
+    A DATA DE PAGAMENTO (`data_pagamento`) é a única coluna que muda depois de efetivada. Ela
+    é informada pelo contador, com quem e quando informou e motivo, e é o que agrupa o IRRF e
+    a CSRF (HI-96). Sem ela, a retenção fica pendente, nunca presumida.
+
+    Imutabilidade, em três camadas, como a DL-072:
+    1. `save()` recusa alterar linha efetivada ou estornada; `delete()` recusa linha que não
+       seja rascunho (`EscrituracaoImutavel`).
+    2. Os serviços mudam estado com `QuerySet.update()` condicionado ao estado anterior. O
+       BANCO (gatilhos da migração 0008) só aceita as transições rascunho→efetivada,
+       efetivada→estornada e a alteração das colunas de pagamento numa efetivada.
+    3. A coerência entre estado e colunas é `CheckConstraint`.
+
+    Limite declarado: `TRUNCATE` não aciona gatilho de linha (mesmo limite da DL-052 e da
+    DL-072); quem tem privilégio de dono da tabela está fora do que o banco impede sozinho.
+    """
+
+    vinculo = models.ForeignKey(
+        VinculoDocumentoEmpresa,
+        on_delete=models.PROTECT,
+        related_name="escrituracoes_tomadas",
+        verbose_name="vínculo documento-empresa",
+    )
+    # Redundante com `vinculo.empresa`, como na escrituração prestada: a consulta por empresa
+    # não atravessa o vínculo. A igualdade é garantida em `save()` e pelo gatilho do banco.
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="escrituracoes_tomadas",
+        verbose_name="empresa",
+    )
+    natureza = models.CharField(
+        "natureza da operação", max_length=40, choices=NaturezaTomada.choices
+    )
+    estado = models.CharField(
+        "estado",
+        max_length=12,
+        choices=EstadoEscrituracao.choices,
+        default=EstadoEscrituracao.RASCUNHO,
+    )
+    # Copiados do documento e do XML guardado na efetivação. Nulos enquanto for rascunho.
+    # `data_emissao` é o dia do dhEmi (HI-72); `data_competencia` é o dCompet (HI-94/HI-96).
+    data_emissao = models.DateField("data de emissão (dia do dhEmi)", null=True, blank=True)
+    data_competencia = models.DateField("data de competência (dCompet)", null=True, blank=True)
+    prestador_tipo_documento = models.CharField(
+        "tipo de documento do prestador", max_length=20, blank=True, default=""
+    )
+    tp_emit = models.CharField("emitente da DPS (tpEmit)", max_length=1, null=True, blank=True)
+    tp_ret_issqn = models.CharField(
+        "tipo de retenção do ISSQN (tpRetISSQN)", max_length=1, null=True, blank=True
+    )
+    c_loc_incid = models.CharField(
+        "município de incidência (cLocIncid)", max_length=7, null=True, blank=True
+    )
+    op_simp_nac = models.CharField(
+        "situação no Simples Nacional (opSimpNac)", max_length=1, null=True, blank=True
+    )
+    reg_ap_trib_sn = models.CharField(
+        "regime de apuração no Simples (regApTribSN)", max_length=1, null=True, blank=True
+    )
+    # Valores em Decimal com a escala do documento (TSDec15V2, duas casas). NULO é "não
+    # destacado no XML", e nunca zero (ausência ≠ zero).
+    valor_servico = models.DecimalField(
+        "valor do serviço (vServ)", max_digits=17, decimal_places=2, null=True, blank=True
+    )
+    valor_liquido = models.DecimalField(
+        "valor líquido (vLiq)", max_digits=17, decimal_places=2, null=True, blank=True
+    )
+    v_desc_incond = models.DecimalField(
+        "desconto incondicionado (vDescIncond)",
+        max_digits=17,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    v_desc_cond = models.DecimalField(
+        "desconto condicionado (vDescCond)", max_digits=17, decimal_places=2, null=True, blank=True
+    )
+    v_iss_qn = models.DecimalField(
+        "ISSQN destacado (vISSQN)", max_digits=17, decimal_places=2, null=True, blank=True
+    )
+    v_ret_cp = models.DecimalField(
+        "contribuição previdenciária retida (vRetCP)",
+        max_digits=17,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    v_ret_irrf = models.DecimalField(
+        "IRRF retido (vRetIRRF)", max_digits=17, decimal_places=2, null=True, blank=True
+    )
+    v_ret_csll = models.DecimalField(
+        "CSLL retida, com PIS e COFINS somados (vRetCSLL)",
+        max_digits=17,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    tp_ret_pis_cofins = models.CharField(
+        "tipo de retenção do PIS/COFINS (tpRetPisCofins)", max_length=1, null=True, blank=True
+    )
+    # vPis e vCofins são débito PRÓPRIO do prestador (não retenção). Não entram no total.
+    v_pis = models.DecimalField(
+        "PIS, débito próprio do prestador (vPis)",
+        max_digits=17,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    v_cofins = models.DecimalField(
+        "COFINS, débito próprio do prestador (vCofins)",
+        max_digits=17,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    efetivada_em = models.DateTimeField("efetivada em", null=True, blank=True)
+    efetivada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="efetivada por",
+    )
+    estornada_em = models.DateTimeField("estornada em", null=True, blank=True)
+    estornada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="estornada por",
+    )
+    motivo_estorno = models.CharField("motivo do estorno", max_length=500, blank=True, default="")
+    # Data em que o contador informou que o valor foi pago ou creditado (HI-96). Opcional.
+    # Alterável depois de efetivada, e só ela: `pagamento_informado_*` e `motivo_pagamento`
+    # acompanham a alteração, e a trilha guarda o antes e o depois.
+    data_pagamento = models.DateField("data de pagamento informada", null=True, blank=True)
+    pagamento_informado_em = models.DateTimeField(
+        "data de pagamento informada em", null=True, blank=True
+    )
+    pagamento_informado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="pagamento informado por",
+    )
+    motivo_pagamento = models.CharField(
+        "motivo da data de pagamento", max_length=500, blank=True, default=""
+    )
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="criada por",
+    )
+
+    class Meta:
+        verbose_name = "escrituração de nota tomada"
+        verbose_name_plural = "escriturações de notas tomadas"
+        ordering = ["id"]
+        constraints = [
+            # DL-078 critério 2: no máximo UMA escrituração não estornada por vínculo, no banco.
+            models.UniqueConstraint(
+                fields=["vinculo"],
+                condition=Q(estado__in=["rascunho", "efetivada"]),
+                name="escrituracao_tomada_ativa_unica_por_vinculo",
+            ),
+            models.CheckConstraint(
+                condition=Q(estado__in=["rascunho", "efetivada", "estornada"]),
+                name="escrituracao_tomada_estado_valido",
+            ),
+            # Coerência entre estado e colunas do ato. Efetivada exige os campos copiados que o
+            # relatório usa: data, competência, valores, tpRetISSQN e tpEmit.
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        estado="rascunho",
+                        efetivada_em__isnull=True,
+                        efetivada_por__isnull=True,
+                        estornada_em__isnull=True,
+                        estornada_por__isnull=True,
+                        motivo_estorno="",
+                    )
+                    | Q(
+                        estado="efetivada",
+                        efetivada_em__isnull=False,
+                        efetivada_por__isnull=False,
+                        data_emissao__isnull=False,
+                        data_competencia__isnull=False,
+                        valor_servico__isnull=False,
+                        valor_liquido__isnull=False,
+                        tp_ret_issqn__isnull=False,
+                        tp_emit__isnull=False,
+                        estornada_em__isnull=True,
+                        estornada_por__isnull=True,
+                        motivo_estorno="",
+                    )
+                    | Q(
+                        ~Q(motivo_estorno=""),
+                        estado="estornada",
+                        efetivada_em__isnull=False,
+                        efetivada_por__isnull=False,
+                        data_emissao__isnull=False,
+                        data_competencia__isnull=False,
+                        valor_servico__isnull=False,
+                        valor_liquido__isnull=False,
+                        tp_ret_issqn__isnull=False,
+                        tp_emit__isnull=False,
+                        estornada_em__isnull=False,
+                        estornada_por__isnull=False,
+                    )
+                ),
+                name="escrituracao_tomada_campos_coerentes_com_o_estado",
+            ),
+            # Data de pagamento só com quem informou, quando e por quê (trilha no próprio registro).
+            models.CheckConstraint(
+                condition=(
+                    Q(data_pagamento__isnull=True)
+                    | (
+                        Q(data_pagamento__isnull=False)
+                        & Q(pagamento_informado_em__isnull=False)
+                        & Q(pagamento_informado_por__isnull=False)
+                        & ~Q(motivo_pagamento="")
+                    )
+                ),
+                name="escrituracao_tomada_pagamento_com_informante",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"Escrituração de tomada {self.pk} — vínculo {self.vinculo_id} "
+            f"({self.get_estado_display()})"
+        )
+
+    def _estado_gravado(self):
+        # Lê o estado GRAVADO, não o do objeto em memória (mesma regra da escrituração prestada).
+        return (
+            EscrituracaoTomada.objects.filter(pk=self.pk).values_list("estado", flat=True).first()
+        )
+
+    def save(self, *args, **kwargs):
+        # Só o vínculo de TOMADOR da MESMA empresa pode ser escriturado aqui. O serviço já recusa
+        # antes; isto impede que um `objects.create()` contorne a regra.
+        if self.vinculo.papel != PapelDocumento.TOMADOR:
+            raise ValidationError(
+                "Só a nota em que a empresa é tomadora pode ser escriturada aqui."
+            )
+        if self.empresa_id != self.vinculo.empresa_id:
+            raise ValidationError("A escrituração deve ser da mesma empresa do vínculo.")
+        if self.pk is not None and self._estado_gravado() in (
+            EstadoEscrituracao.EFETIVADA,
+            EstadoEscrituracao.ESTORNADA,
+        ):
+            raise EscrituracaoImutavel()
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.pk is not None and self._estado_gravado() in (
+            EstadoEscrituracao.EFETIVADA,
+            EstadoEscrituracao.ESTORNADA,
+        ):
+            raise EscrituracaoImutavel(
+                "Escrituração de nota tomada efetivada ou estornada não pode ser excluída; "
+                "o histórico é preservado pelo estorno."
+            )
+        return super().delete(*args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
 # DL-074 (frente A): receita mensal do Simples Nacional por mercado.
 #
 # A receita bruta do Simples é a receita TOTAL da empresa (Res. CGSN 140 art.

@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+
+{% block titulo %}{{ titulo }}{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada and mes_rotulo %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Competência</span>
+            <strong>{{ mes_rotulo }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-078 (frente B), arquétipo A (tabela de consulta). ISS que o CLIENTE TOMADOR reteve e precisa
+recolher (HI-94): soma das notas efetivadas com tpRetISSQN 2, de qualquer natureza do prestador, por
+município de incidência, no mês de dCompet. Nada é calculado aqui: o total e o vencimento vêm do
+serviço, e cada nota mostra o que a própria nota diz.
+{% endcomment %}
+{% block titulo_pagina %}<h1>{{ titulo }}</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Total do ISS que o tomador retém e recolhe no município de incidência: a soma do ISS destacado
+        (vISSQN) das notas com retenção, escrituradas na competência. Entram notas de tomadas de qualquer
+        natureza de prestador (MEI, Simples ou pessoa física, além do prestador comum). Nota retida sem
+        valor destacado não vira zero: aparece para conferir.
+    </p>
+    <p class="mensagem mensagem-info" role="status">
+        <strong>{{ texto_de_conferencia }}</strong>
+    </p>
+
+    {% include "fiscal/_filtro_simples.html" %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver o ISS retido a recolher.</strong></p>
+            <p class="estado-vazio__descricao">O total é sempre de uma empresa e de uma competência.</p>
+        </div>
+    {% elif mes_rotulo %}
+        <p class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_escriturar }}">Serviços tomados</a>
+            <a class="botao botao--secundario" href="{{ url_retencoes }}">Retenções federais</a>
+        </p>
+
+        <h2>Total por município de incidência</h2>
+        {% if grupos %}
+            <table class="tabela-dados">
+                <caption>ISS retido a recolher por município de incidência, com o vencimento nominal da regra cadastrada</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Município</th>
+                        <th scope="col">Total a recolher (R$)</th>
+                        <th scope="col">Notas retidas sem valor destacado</th>
+                        <th scope="col">Vencimento nominal</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for grupo in grupos %}
+                        <tr>
+                            <th scope="row">{{ grupo.municipio }}</th>
+                            <td class="valor-monetario">{{ grupo.total }}</td>
+                            <td>
+                                {% if grupo.sem_valor %}
+                                    {{ grupo.sem_valor|length }} nota(s): conferir
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td>
+                                {{ grupo.vencimento }}
+                                {% if grupo.regra_dia_nao_util %}<br><span class="texto-apoio">{{ grupo.regra_dia_nao_util }}</span>{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <h2>Notas que compõem o total</h2>
+            <table class="tabela-dados">
+                <caption>Notas com ISS retido na competência, nota a nota, por município de incidência</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Município</th>
+                        <th scope="col">Nota</th>
+                        <th scope="col">Competência</th>
+                        <th scope="col">Prestador</th>
+                        <th scope="col">Natureza</th>
+                        <th scope="col">Valor do serviço (R$)</th>
+                        <th scope="col">ISS retido (R$)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for grupo in grupos %}
+                        {% for nota in grupo.notas %}
+                            <tr>
+                                <th scope="row">{{ grupo.municipio }}</th>
+                                <td>{{ nota.numero }}</td>
+                                <td>{{ nota.competencia }}</td>
+                                <td class="valor-quebravel">{{ nota.prestador }}</td>
+                                <td>{{ nota.natureza }}</td>
+                                <td class="valor-monetario">{{ nota.valor_servico }}</td>
+                                <td class="valor-monetario">{{ nota.iss }}</td>
+                            </tr>
+                        {% endfor %}
+                        {% for nota in grupo.sem_valor %}
+                            <tr>
+                                <th scope="row">{{ grupo.municipio }}</th>
+                                <td>{{ nota.numero }}</td>
+                                <td>{{ nota.competencia }}</td>
+                                <td class="valor-quebravel">{{ nota.prestador }}</td>
+                                <td>{{ nota.natureza }}</td>
+                                <td class="valor-monetario">{{ nota.valor_servico }}</td>
+                                <td><strong>Retida sem valor destacado: conferir</strong></td>
+                            </tr>
+                        {% endfor %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo"><strong>Nenhuma nota com ISS retido na competência.</strong></p>
+                <p class="estado-vazio__descricao">
+                    Nada a recolher nesta competência. O mês é o da competência da nota (dCompet), não o da emissão.
+                </p>
+            </div>
+        {% endif %}
+
+        {% if fora_do_total %}
+            <h2>Fora do total: conferir</h2>
+            <p class="mensagem mensagem-warning" role="status">
+                <strong>Atenção:</strong> estas notas têm retenção, mas a natureza não está entre as que somam
+                no ISS retido. Não entram no total; confira a natureza.
+            </p>
+            <table class="tabela-dados">
+                <caption>Notas com retenção fora do total, para conferir</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Nota</th>
+                        <th scope="col">Natureza</th>
+                        <th scope="col">ISS (R$)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for nota in fora_do_total %}
+                        <tr>
+                            <th scope="row">{{ nota.numero }}</th>
+                            <td>{{ nota.natureza }}</td>
+                            <td class="valor-monetario">{{ nota.iss }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+
+        {% if canceladas %}
+            <h2>Canceladas depois de escrituradas</h2>
+            <p class="texto-apoio">Fora do total. O estorno não é automático: estorne a escrituração, com motivo.</p>
+            <table class="tabela-dados">
+                <caption>Notas canceladas depois de escrituradas, à parte do total</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Nota</th>
+                        <th scope="col">Competência</th>
+                        <th scope="col">Natureza</th>
+                        <th scope="col">ISS (R$)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for nota in canceladas %}
+                        <tr>
+                            <th scope="row">{{ nota.numero }}</th>
+                            <td>{{ nota.competencia }}</td>
+                            <td>{{ nota.natureza }}</td>
+                            <td class="valor-monetario">{{ nota.iss }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+
+        {% if avisos %}
+            <h2>Avisos</h2>
+            <table class="tabela-dados">
+                <caption>Avisos do ISS retido, com o dispositivo de cada um</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Nota</th>
+                        <th scope="col">Código</th>
+                        <th scope="col">Aviso</th>
+                        <th scope="col">Dispositivo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for aviso in avisos %}
+                        <tr>
+                            <th scope="row">{{ aviso.nota }}</th>
+                            <td>{{ aviso.codigo }}</td>
+                            <td>{{ aviso.texto }}</td>
+                            <td class="texto-apoio">{{ aviso.fundamento }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    {% endif %}
+{% endblock %}

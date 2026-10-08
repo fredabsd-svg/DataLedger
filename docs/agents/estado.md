@@ -142,7 +142,9 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) | Fiscal: receita mensal, receita informada, confirmação e RBT12 do Simples por mercado | Integrada (PR #97, squash `ebc40a3`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 | [DL-075](../planos/DL-075-pre-das-do-simples.md) | Fiscal: pré-DAS do Simples para prestadores de serviço (Anexos I a V como dado, fator r, teto do ISS, segregação) | Integrada (PR #98, squash `05668d4`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 | [DL-076](../planos/DL-076-iss-por-municipio-palmas.md) | Fiscal: ISS por município, começando por Palmas (alíquota informada, conferência por nota, apuração fora do Simples, retido sofrido, outros municípios) | Integrada (PR #99, squash `6c2baf7`) — rodada 1 e reconferência aprovadas com ressalvas |
-| [DL-077](../planos/DL-077-importacao-e-exportacao-contabil-em-txt.md) | Contabilidade: importar e exportar plano de contas e lançamentos em TXT e Excel | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-077](../planos/DL-077-importacao-e-exportacao-contabil-em-txt.md) | Contabilidade: importar e exportar plano de contas e lançamentos em TXT e Excel | Integrada (PR #100, squash `929a79a`; PR #101, squash `b60560b`) — efetivação parcial suspensa (BL-676) |
+| [DL-078](../planos/DL-078-servicos-tomados-e-retencoes.md) | Fiscal: serviços tomados, ISS retido pelo tomador e retenções federais | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) | Fiscal: Lucro Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224 | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -249,8 +251,10 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
      dos PRs #99 e #100 foram **canceladas por tempo**. Limite subido para
      20 min no PR #100; desde então, todas as execuções verdes.
    - **Fatias 2 e 3 — exportar lançamentos e saldos; importar lançamentos
-     com área de conferência, de-para e efetivação: implementadas, em
-     auditoria**, em cópia isolada sobre a fatia 1 final.
+     com área de conferência, de-para e efetivação: INTEGRADAS** pelo
+     [PR #101](https://github.com/fredabsd-svg/DataLedger/pull/101), squash
+     `b60560b`, em 08/10/2026, com os quatro checks verdes em todas as
+     execuções; merge autorizado pelo Fred (RC-169).
      [Rodada 1](../auditorias/2026-10-08-dl-077-fatias-2-3-rodada-1.md):
      **REPROVADA** — A1 (alta: "só os válidos" ignorava erro do arquivo
      inteiro e gravou lançamentos de outra empresa no Diário), A2 a A7
@@ -270,17 +274,57 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
      auditor passando nas duas políticas, cada mutante derrubando o seu
      teste, e os fuzzers do auditor com **0 violações** nos quatro leitores
      (inclusive linhas em branco, que o fuzzer original não sorteava).
-     HI-92 e BL-677 registrados. **Próximo: PR, CI e merge (RC-169).**
+     HI-92 e BL-677 registrados.
      Suíte completa: 7.091 aprovados, 1 reprovado (ambiente). Teto de 2.000
      lançamentos por arquivo (efetivar 2.000 leva ~21 s; o servidor padrão
      corta em 30 s).
 
+7. **[DL-078](../planos/DL-078-servicos-tomados-e-retencoes.md) — serviços
+   tomados, ISS retido pelo cliente tomador e retenções federais:
+   implementada fora da branch (cópia isolada `dl078`: frente A `2c56a36`,
+   frente B `62768c0`); [rodada 1](../auditorias/2026-10-08-dl-078-rodada-1.md)
+   APROVADA COM RESSALVAS (A1 a A4 médios, A5 a A10 baixos); correção única
+   `5400e69` (A1 a A7 e A9);
+   [reconferência](../auditorias/2026-10-08-dl-078-reconferencia.md) APROVADA
+   COM RESSALVAS (7.527 aprovados, 1 reprovado de ambiente, 53 pulados).
+   R4 e R5 fechados com os testes do auditor (`6d18acc`); R2 declarado na
+   migração; R1 e R3 no BL-679. Suíte da branch integrada (`5c6673d`,
+   arquiteto, invocação única): 7.542 aprovados, 1 reprovado (ambiente), 53
+   pulados. PR #102 aberto, aguardando a CI.** HI-98, HI-99 e BL-678 registrados. Frente A: campos do XML,
+   escrituração das tomadas (rascunho, efetivação, estorno, gatilhos de
+   imutabilidade na migração `fiscal 0008`), ISS retido, retenções federais
+   e API. Frente B: seis telas, menu "Serviços tomados" e o ISS retido
+   somando toda tomada efetivada com retenção, qualquer que seja o tipo do
+   prestador (HI-94), com aviso para MEI. Suíte completa na frente B
+   (desenvolvedor, invocação única): 7.466 aprovados, 1 reprovado
+   (ambiente), 53 pulados.
+   [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-servicos-tomados.md):
+   desde a NT 007/2026 PIS, COFINS e CSLL retidos vêm somados num só campo
+   da nota; INSS de 11% vence pela emissão e IRRF/CSRF pelo pagamento
+   (HI-93 a HI-96). **PE-82 com o Fred** (rotina do escritório nos
+   tomados; não bloqueia).
+
+8. **[DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) — Lucro
+   Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224: frente A
+   entregue (`f392346`, cópia isolada `dl079` sobre a DL-078 corrigida;
+   suíte do desenvolvedor 7.741 aprovados, 1 reprovado de ambiente, 53
+   pulados; os oito mutantes do critério 10 morrem); frente B (telas e a
+   dedução do 4º trimestre sem os trimestres com medida judicial) em
+   desenvolvimento.** HI-108 registrada.
+   [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-presumido.md)
+   com o texto oficial lido no Planalto e no P&R da RFB: o acréscimo
+   multiplica o percentual por 1,10; IRPJ desde o 1º trimestre de 2026 e
+   CSLL desde o 2º (limite de R$ 3,75 milhões no ano para ela); a CSLL tem
+   percentuais próprios. HI-100 a HI-107; **PE-83 com o Fred** (rotina do
+   Presumido no escritório; não bloqueia).
+
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
-PostgreSQL 16 local, branch com a DL-077 fatia 1 sobre `6c2baf7`, medida
-pelo arquiteto numa única invocação):** `pytest` completo **6.811
+PostgreSQL 16 local, sobre `97c2ae6` — conteúdo da `main` em `b60560b` —,
+medida pelo arquiteto numa única invocação):** `pytest` completo **7.308
 aprovados, 1 reprovado, 53 pulados**; a reprovação é a conhecida de ambiente
 (`test_versao_minima_python.py`, exige Python 3.14). `ruff`, `check` e
-`makemigrations --check` limpos (465 arquivos). Lição da DL-075: a suíte
+`makemigrations --check` limpos (491 arquivos). A suíte leva cerca de 11
+min: o job "Lint e testes" tem limite de 20 min. Lição da DL-075: a suíte
 **em fatias** esconde interação entre migrações — só vale a invocação única.
 
 **Também achado em 08/10/2026:** o diagnóstico da DFC fatia 2 levantou, no

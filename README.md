@@ -257,6 +257,8 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-075** — Fiscal: pré-DAS do Simples para prestadores de serviço — tabelas oficiais dos Anexos como dado com vigência, fator r com folha informada, alíquota efetiva, repartição por tributo com o teto do ISS e segregação; só conferência, nunca transmissão. Situação em [estado.md](docs/agents/estado.md).
 - **DL-076** — Fiscal: ISS por município, começando por Palmas — alíquota por subitem informada pelo escritório com vigência e fonte, conferência do ISS destacado em cada nota, apuração do ISS próprio fora do Simples, relatórios de ISS retido sofrido e de ISS devido a outros municípios; só conferência, nunca guia. Situação em [estado.md](docs/agents/estado.md).
 - **DL-077** — Contabilidade: importar e exportar plano de contas e lançamentos em TXT (registros da ECD, leiaute do sistema de referência e formato próprio) e importar por planilha Excel, com área de conferência antes de gravar no Diário. Situação em [estado.md](docs/agents/estado.md).
+- **DL-078** — Fiscal: serviços tomados — escrituração das NFS-e em que o cliente é tomador, ISS retido a recolher pelo cliente e retenções federais destacadas na nota, só para conferência. Situação em [estado.md](docs/agents/estado.md).
+- **DL-079** — Fiscal: Lucro Presumido — apuração trimestral do IRPJ e da CSLL com o acréscimo da LC 224, controle do limite do ano, retenções confirmadas pelo contador e quotas, só para conferência. Situação em [estado.md](docs/agents/estado.md).
 
 Ainda não existem:
 

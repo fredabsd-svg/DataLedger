@@ -363,6 +363,20 @@ MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
         "Folha confirmada não se altera nem se exclui. A correção é o estorno, com motivo, "
         "e um novo lançamento do mês."
     ),
+    # DL-078 (frente A), gatilhos da migração fiscal 0008 (escrituração de NFS-e tomada). Mesmo
+    # desenho da escrituração prestada: só o banco recusa o que escapa de `QuerySet.update()`.
+    "escrituracao_tomada_vinculo_tomador_da_empresa": (
+        "A escrituração de tomada só pode apontar para um vínculo de TOMADOR da MESMA empresa: "
+        "nota prestada não se escritura como tomada, e a empresa tem de ser a do vínculo."
+    ),
+    "escrituracao_tomada_efetivada_bate_com_o_documento": (
+        "Escrituração de tomada efetivada com valor, competência ou retenção diferentes do "
+        "documento de origem. Os valores são os do documento, copiados na efetivação."
+    ),
+    "escrituracao_tomada_imutavel_depois_de_efetivada": (
+        "Escrituração de tomada efetivada não se altera nem se exclui, a não ser a data de "
+        "pagamento informada. A correção do resto é o estorno, com motivo, que fica na trilha."
+    ),
 }
 
 
@@ -477,6 +491,11 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     # violação e vira 409 com mensagem, no savepoint de `_inserir_escrituracao`
     # (apps.fiscal.escrituracao). Não é 400: é conflito de estado, não entrada.
     "escrituracao_ativa_unica_por_vinculo": "apps.fiscal.escrituracao._inserir_escrituracao",
+    # DL-078 (frente A): mesma corrida, na escrituração de NFS-e tomada. Savepoint e 409 como a
+    # prestada (apps.fiscal.tomadas._inserir_escrituracao_tomada).
+    "escrituracao_tomada_ativa_unica_por_vinculo": (
+        "apps.fiscal.tomadas._inserir_escrituracao_tomada"
+    ),
     "evento_fiscal_unico_por_escritorio": "apps.fiscal.services._processar_um_arquivo",
     # DL-043 (BL-474): a restrição que garante UMA vigência de parâmetro
     # contábil ABERTA por empresa — mesmo molde de
@@ -1036,6 +1055,22 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
     ),
     # DL-075 (frente A): o padrão e a vigência de atividade têm caminho de cliente
     # (cadastro) e são traduzidos em `RESTRICOES_TRADUZIDAS_FORA_DO_MAPA`.
+    # DL-078 (frente A): escrituração de NFS-e tomada. A API não recebe estado nem colunas do
+    # ato; natureza e motivo são validados pelo serviço (apps.fiscal.tomadas) antes do INSERT.
+    "escrituracao_tomada_estado_valido": (
+        "Estado de escrituração de tomada fora de rascunho, efetivada e estornada. Só os "
+        "serviços de apps.fiscal.tomadas gravam o estado; a API recebe apenas natureza, motivo "
+        "e data de pagamento."
+    ),
+    "escrituracao_tomada_campos_coerentes_com_o_estado": (
+        "Colunas do ato (efetivação e estorno) fora de sincronia com o estado. Os serviços "
+        "preenchem as colunas no mesmo UPDATE/INSERT que muda o estado; nenhuma rota recebe "
+        "esses campos do cliente."
+    ),
+    "escrituracao_tomada_pagamento_com_informante": (
+        "Data de pagamento sem quem informou, quando, ou sem motivo. `informar_data_pagamento` "
+        "recusa motivo vazio antes do UPDATE e grava quem e quando informou no mesmo UPDATE."
+    ),
 }
 
 

@@ -143,6 +143,14 @@ ROTULOS_DE_TELA = {
     ("fiscal_web", "iss_regime_novo"): "Novo regime do ISS",
     ("fiscal_web", "iss_regime_editar"): "Alterar regime do ISS",
     ("fiscal_web", "iss_regras_municipio"): "Regras do ISS por município",
+    # DL-078 (frente B): serviços tomados — escriturar, estornar, data de pagamento, ISS retido e
+    # retenções federais.
+    ("fiscal_web", "tomadas_lista"): "Serviços tomados",
+    ("fiscal_web", "tomada_escriturar"): "Escriturar tomada",
+    ("fiscal_web", "tomada_estornar"): "Estornar escrituração de tomada",
+    ("fiscal_web", "tomada_data_pagamento"): "Data de pagamento da tomada",
+    ("fiscal_web", "iss_retido_a_recolher"): "ISS retido a recolher",
+    ("fiscal_web", "retencoes_federais"): "Retenções federais",
     # DL-073: conformidade IBS/CBS das NFS-e recebidas (modo aviso).
     ("fiscal_web", "conformidade_ibscbs"): "Conformidade IBS/CBS",
     ("tenancy", "bootstrap-primeiro-acesso"): "Criar escritório",

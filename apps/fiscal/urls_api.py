@@ -19,15 +19,22 @@ from apps.fiscal.api import (
     ConfirmarFolhaView,
     ConfirmarMesView,
     ConfirmarReceitaInformadaView,
+    DataPagamentoLimparTomadaView,
+    DataPagamentoTomadaView,
     EfetivarNotaPrestadaView,
+    EfetivarTomadaView,
     EstornarEscrituracaoView,
     EstornarFolhaView,
     EstornarReceitaInformadaView,
+    EstornarTomadaView,
     FolhasFatorRView,
+    IssRetidoTomadoView,
     LancarFolhaView,
     NotasPrestadasView,
+    NotasTomadasView,
     OutrosMunicipiosIssView,
     PreDasView,
+    RascunhoTomadaView,
     Rbt12View,
     ReabrirMesView,
     ReceitaDoMesView,
@@ -36,6 +43,7 @@ from apps.fiscal.api import (
     RegimeIssDetalheView,
     RegimesIssView,
     RegrasIssMunicipioView,
+    RetencoesFederaisTomadoView,
     RetidoSofridoIssView,
 )
 
@@ -61,6 +69,47 @@ urlpatterns = [
         "empresas/<int:empresa_id>/conferencia/",
         ConferenciaView.as_view(),
         name="conferencia",
+    ),
+    # DL-078 (frente A): NFS-e TOMADAS. Escrituração própria, ISS retido e retenções federais.
+    path(
+        "empresas/<int:empresa_id>/tomadas/",
+        NotasTomadasView.as_view(),
+        name="notas_tomadas",
+    ),
+    path(
+        "empresas/<int:empresa_id>/tomadas/<int:vinculo_id>/rascunho/",
+        RascunhoTomadaView.as_view(),
+        name="tomada_rascunho",
+    ),
+    path(
+        "empresas/<int:empresa_id>/tomadas/<int:vinculo_id>/efetivar/",
+        EfetivarTomadaView.as_view(),
+        name="tomada_efetivar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/tomadas/escrituracoes/<int:escrituracao_id>/estornar/",
+        EstornarTomadaView.as_view(),
+        name="tomada_estornar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/tomadas/escrituracoes/<int:escrituracao_id>/data-pagamento/",
+        DataPagamentoTomadaView.as_view(),
+        name="tomada_data_pagamento",
+    ),
+    path(
+        "empresas/<int:empresa_id>/tomadas/escrituracoes/<int:escrituracao_id>/data-pagamento/limpar/",
+        DataPagamentoLimparTomadaView.as_view(),
+        name="tomada_data_pagamento_limpar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/tomadas/iss-retido/",
+        IssRetidoTomadoView.as_view(),
+        name="tomadas_iss_retido",
+    ),
+    path(
+        "empresas/<int:empresa_id>/tomadas/retencoes-federais/",
+        RetencoesFederaisTomadoView.as_view(),
+        name="tomadas_retencoes_federais",
     ),
     # DL-074 (frente A): receita mensal, confirmação, receita informada, RBT12.
     path(
