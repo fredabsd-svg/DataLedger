@@ -143,7 +143,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-075](../planos/DL-075-pre-das-do-simples.md) | Fiscal: pré-DAS do Simples para prestadores de serviço (Anexos I a V como dado, fator r, teto do ISS, segregação) | Integrada (PR #98, squash `05668d4`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 | [DL-076](../planos/DL-076-iss-por-municipio-palmas.md) | Fiscal: ISS por município, começando por Palmas (alíquota informada, conferência por nota, apuração fora do Simples, retido sofrido, outros municípios) | Integrada (PR #99, squash `6c2baf7`) — rodada 1 e reconferência aprovadas com ressalvas |
 | [DL-077](../planos/DL-077-importacao-e-exportacao-contabil-em-txt.md) | Contabilidade: importar e exportar plano de contas e lançamentos em TXT e Excel | Integrada (PR #100, squash `929a79a`; PR #101, squash `b60560b`) — efetivação parcial suspensa (BL-676) |
-| [DL-078](../planos/DL-078-servicos-tomados-e-retencoes.md) | Fiscal: serviços tomados, ISS retido pelo tomador e retenções federais | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-078](../planos/DL-078-servicos-tomados-e-retencoes.md) | Fiscal: serviços tomados, ISS retido pelo tomador e retenções federais | Integrada (PR #102, squash `49eacba`) — rodada 1 e reconferência aprovadas com ressalvas |
 | [DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) | Fiscal: Lucro Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224 | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -280,29 +280,16 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
      corta em 30 s).
 
 7. **[DL-078](../planos/DL-078-servicos-tomados-e-retencoes.md) — serviços
-   tomados, ISS retido pelo cliente tomador e retenções federais:
-   implementada fora da branch (cópia isolada `dl078`: frente A `2c56a36`,
-   frente B `62768c0`); [rodada 1](../auditorias/2026-10-08-dl-078-rodada-1.md)
-   APROVADA COM RESSALVAS (A1 a A4 médios, A5 a A10 baixos); correção única
-   `5400e69` (A1 a A7 e A9);
-   [reconferência](../auditorias/2026-10-08-dl-078-reconferencia.md) APROVADA
-   COM RESSALVAS (7.527 aprovados, 1 reprovado de ambiente, 53 pulados).
-   R4 e R5 fechados com os testes do auditor (`6d18acc`); R2 declarado na
-   migração; R1 e R3 no BL-679. Suíte da branch integrada (`5c6673d`,
-   arquiteto, invocação única): 7.542 aprovados, 1 reprovado (ambiente), 53
-   pulados. PR #102 aberto, aguardando a CI.** HI-98, HI-99 e BL-678 registrados. Frente A: campos do XML,
-   escrituração das tomadas (rascunho, efetivação, estorno, gatilhos de
-   imutabilidade na migração `fiscal 0008`), ISS retido, retenções federais
-   e API. Frente B: seis telas, menu "Serviços tomados" e o ISS retido
-   somando toda tomada efetivada com retenção, qualquer que seja o tipo do
-   prestador (HI-94), com aviso para MEI. Suíte completa na frente B
-   (desenvolvedor, invocação única): 7.466 aprovados, 1 reprovado
-   (ambiente), 53 pulados.
-   [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-servicos-tomados.md):
-   desde a NT 007/2026 PIS, COFINS e CSLL retidos vêm somados num só campo
-   da nota; INSS de 11% vence pela emissão e IRRF/CSRF pelo pagamento
-   (HI-93 a HI-96). **PE-82 com o Fred** (rotina do escritório nos
-   tomados; não bloqueia).
+   tomados, ISS retido pelo cliente tomador e retenções federais: INTEGRADA**
+   pelo PR #102 (squash `49eacba`), com os quatro checks verdes em todas as
+   execuções do último commit. [Rodada 1](../auditorias/2026-10-08-dl-078-rodada-1.md)
+   e [reconferência](../auditorias/2026-10-08-dl-078-reconferencia.md)
+   aprovadas com ressalvas; R4 e R5 fechados com os testes do auditor; R2
+   declarado na migração. Escrituração das tomadas com natureza, rascunho,
+   efetivação, estorno e imutabilidade no banco (`fiscal 0008`); ISS retido a
+   recolher de toda tomada com retenção (HI-94); retenções federais pelos
+   três relógios, com data de pagamento numa janela e limpável (HI-96,
+   HI-98). Abertos: HI-93 a HI-99 e **PE-82 com o Fred**; BL-678, BL-679.
 
 8. **[DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) — Lucro
    Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224: frente A
@@ -319,11 +306,11 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    Presumido no escritório; não bloqueia).
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
-PostgreSQL 16 local, sobre `97c2ae6` — conteúdo da `main` em `b60560b` —,
-medida pelo arquiteto numa única invocação):** `pytest` completo **7.308
+PostgreSQL 16 local, sobre `5c6673d` — conteúdo da `main` em `49eacba` —,
+medida pelo arquiteto numa única invocação):** `pytest` completo **7.542
 aprovados, 1 reprovado, 53 pulados**; a reprovação é a conhecida de ambiente
 (`test_versao_minima_python.py`, exige Python 3.14). `ruff`, `check` e
-`makemigrations --check` limpos (491 arquivos). A suíte leva cerca de 11
+`makemigrations --check` limpos (512 arquivos). A suíte leva cerca de 10 a 11
 min: o job "Lint e testes" tem limite de 20 min. Lição da DL-075: a suíte
 **em fatias** esconde interação entre migrações — só vale a invocação única.
 
