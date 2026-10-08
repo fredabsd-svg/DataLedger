@@ -21,6 +21,14 @@ from django.db import migrations, models
 #
 # Só PostgreSQL: em SQLite vale a guarda do Python. Limite declarado: TRUNCATE não
 # aciona gatilho de linha (mesmo limite da DL-052 e da DL-072).
+#
+# Limite declarado (A8, achado da auditoria DL-074 rodada 1): na transição
+# reaberta -> confirmada, as colunas do total (`valor_confirmado_interno` e
+# `valor_confirmado_externo`) são livres, porque a nova confirmação grava um total
+# novo. Por isso um UPDATE SQL direto nessa transição pode regravar um total
+# qualquer: o gatilho não confere o total com a composição do mês. Os serviços não
+# fazem isso (o total vem do instante do ato). É limite como o TRUNCATE, e a defesa
+# é o acesso direto ao banco, não este gatilho.
 
 _SQL_FUNCAO_RECEITA = """
 CREATE OR REPLACE FUNCTION fiscal_receita_informada_imutavel()

@@ -58,6 +58,7 @@ que guarda a duplicação.
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 from urllib.parse import urlencode
 
@@ -1422,16 +1423,33 @@ def _url_do_mes(empresa, ano, mes):
     return _url_da_competencia(reverse("fiscal_web:receita_do_mes"), empresa, ano, mes)
 
 
+# Ponto seguido de exatamente três dígitos, sem dígito logo depois: padrão de milhar.
+_PADRAO_DE_MILHAR_SEM_VIRGULA = re.compile(r"\.\d{3}(?!\d)")
+
+
+class ValorAmbiguo(ValueError):
+    """Valor digitado sem vírgula com ponto de milhar: a tela pede a vírgula (A4)."""
+
+
 def _valor_do_formulario(bruto: str) -> str:
     """Valor digitado pelo contador, em pt-BR ('1.234,56') ou com ponto ('1234.56').
 
-    Com vírgula, o ponto é separador de milhar e a vírgula é o decimal. Sem vírgula,
-    o texto segue como está. Não vira número aqui: o serviço recusa o que não for
-    decimal positivo de até duas casas, e nunca aceita float.
+    Com vírgula, o ponto é separador de milhar e a vírgula é o decimal ('1.000,50' vira
+    '1000.50'). Sem vírgula, o texto segue como está ('1500' e '1500.5'), exceto quando há
+    ponto seguido de exatamente três dígitos: '10.000' pode ser dez mil ou dez centavos, e
+    o sistema não adivinha. Nesse caso levanta `ValorAmbiguo` pedindo a vírgula (A4).
+
+    Não vira número aqui: o serviço recusa o que não for decimal positivo de até duas
+    casas, e nunca aceita float.
     """
     texto = bruto.strip()
     if "," in texto:
         return texto.replace(".", "").replace(",", ".")
+    if _PADRAO_DE_MILHAR_SEM_VIRGULA.search(texto):
+        raise ValorAmbiguo(
+            "Valor ambíguo: sem vírgula, o ponto é lido como separador de milhar. Se o valor é "
+            f"{texto} reais, use vírgula para os centavos: {texto},00."
+        )
     return texto
 
 
@@ -1783,7 +1801,11 @@ def _lancar_receita_post(request, empresa):
         messages.error(request, "Informe o ano e o mês da competência, com números.")
         return _tela_de_lancar_receita(request, empresa, valores=valores, status=200)
 
-    valor = _valor_do_formulario(valores["valor"])
+    try:
+        valor = _valor_do_formulario(valores["valor"])
+    except ValorAmbiguo as exc:
+        messages.error(request, str(exc))
+        return _tela_de_lancar_receita(request, empresa, valores=valores, status=200)
     if not _so_digitos_com_ponto_decimal(valor):
         # Notação científica, sinal e letras não são valor digitado pelo contador. O serviço
         # aceitaria "1e3" como decimal, então a forma é conferida aqui, na entrada.

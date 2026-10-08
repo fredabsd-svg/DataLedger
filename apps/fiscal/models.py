@@ -852,6 +852,11 @@ class ConfirmacaoReceitaMensal(models.Model):
     em mês confirmado reabrem a confirmação com trilha — `marcar_a_retificar` em
     `apps/fiscal/receita.py`). Mudou → o mês é "a retificar" e não entra no
     RBT12: é a segunda camada, para o que escapar dos ganchos.
+
+    Limite declarado (A8, auditoria DL-074 rodada 1): na transição reaberta -> confirmada,
+    o gatilho da migração 0003 aceita novos totais. Um UPDATE SQL direto nessa transição
+    pode regravar `valor_confirmado_interno`/`_externo`, porque o banco não confere o total
+    com a composição do mês. Os serviços não fazem isso. É o mesmo limite do TRUNCATE.
     """
 
     empresa = models.ForeignKey(

@@ -259,7 +259,7 @@ de apps.fiscal.rbt12, com o dispositivo que os motiva.
                 </p>
             {% endif %}
 
-            <h3>Avisos de limite e de regime</h3>
+            <h3>Avisos de limite, de regime e de dados</h3>
             {% if rbt12.avisos %}
                 <ul>
                     {% for aviso in rbt12.avisos %}
@@ -270,7 +270,7 @@ de apps.fiscal.rbt12, com o dispositivo que os motiva.
                     {% endfor %}
                 </ul>
             {% else %}
-                <p class="texto-apoio">Nenhum aviso de limite para este período.</p>
+                <p class="texto-apoio">Nenhum aviso para este período.</p>
             {% endif %}
         {% endif %}
     {% endif %}

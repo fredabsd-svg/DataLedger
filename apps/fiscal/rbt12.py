@@ -10,18 +10,21 @@ Regra do art. 22 da Res. CGSN 140 (texto lido, consulta item 2 e item 1):
 
 - § 1º (regra geral): RBT12 = receita total dos 12 meses ANTERIORES ao PA.
   Meses anteriores à abertura contam como zero e não exigem confirmação.
-- § 2º (primeiro mês de atividade, no ano da opção): RBT12 = receita do PRÓPRIO
-  mês × 12.
-- § 3º (meses seguintes do ano de início, no ano da opção): RBT12 = média das
+- § 2º (primeiro mês de atividade): RBT12 = receita do PRÓPRIO mês × 12.
+- § 3º (2º ao 12º mês de atividade, abertura no ano da opção): RBT12 = média das
   receitas dos meses de atividade ANTERIORES ao PA × 12. Mês sem receita
   entra como zero no número de meses.
-- § 4º (abertura no ano imediatamente anterior ao da opção): § 3º até o 12º mês
-  de atividade; § 1º a partir do 13º.
+- § 4º (2º ao 12º mês de atividade, abertura no ano imediatamente anterior ao
+  da opção): mesma conta do § 3º; § 1º a partir do 13º mês.
 
 "Mês de atividade" 1 é o mês da abertura no CNPJ. Fração de mês conta como mês
 inteiro. O "ano da opção" é o ano do período do Simples vigente no PA
-(`HistoricoRegimeTributario`). Sem período, a apuração recusa. Quando o ano da
-opção é anterior ao PA, a regra é sempre § 1º (é a regra geral do ano seguinte).
+(`HistoricoRegimeTributario`). Sem período, a apuração recusa.
+
+A proporcional vale enquanto o PA for até o 12º mês de atividade, mesmo que o PA
+caia no ano seguinte ao da opção (HI-76, achado A1 da auditoria rodada 1: a
+regra dos 12 primeiros meses atravessa a virada do ano). O rótulo § 3º ou § 4º
+depende só do ano da abertura em relação ao da opção.
 
 Só com TODOS os meses exigidos confirmados (critério 5) o RBT12 é apurado. Caso
 contrário, o resultado é "não apurável" e lista os meses. A lista vem de
@@ -284,10 +287,14 @@ def _regra_e_janela(ano: int, mes: int, abertura: date, ano_opcao: int):
     indice_abertura = _indice(abertura.year, abertura.month)
     n = indice_pa - indice_abertura + 1  # mês de atividade do PA; 1 = mês da abertura
 
-    if ano_opcao == ano and n <= 12:
+    # HI-76: a proporcional depende só de o PA estar até o 12º mês de atividade, e não
+    # do ano do PA ser o ano da opção. A abertura pode ser do ano da opção (§ 3º) ou do
+    # ano anterior a ela (§ 4º). Abertura posterior ao ano da opção (dado inconsistente)
+    # cai na regra geral, como antes.
+    if n <= 12 and abertura.year in (ano_opcao, ano_opcao - 1):
         if n == 1:
             return "§ 2º", [indice_pa]
-        regra = "§ 3º" if abertura.year == ano else "§ 4º"
+        regra = "§ 3º" if abertura.year == ano_opcao else "§ 4º"
         return regra, list(range(indice_abertura, indice_pa))
     return "§ 1º", list(range(indice_pa - 12, indice_pa))
 
@@ -393,6 +400,42 @@ def _avisos_de_excesso(mercado: str, acumulado: Decimal, teto_limite, teto_subli
     return avisos
 
 
+def _avisos_de_receita_antes_da_abertura(
+    empresa: Empresa, ano: int, mes: int, abertura: date
+) -> list[Aviso]:
+    """Aviso por mês e mercado com receita confirmada ANTES da abertura (A7, a).
+
+    Varre os meses que a apuração consulta e que são anteriores à abertura: os 12 que
+    antecedem o PA e o ano corrente. Essa receita não entra no RBT12 (o mês anterior à
+    abertura conta como zero), e o aviso diz isso, em vez de descartá-la em silêncio.
+    Só lê meses antes da abertura: para empresa antiga a varredura é vazia.
+    """
+    indice_abertura = _indice(abertura.year, abertura.month)
+    inicio = min(_indice(ano, mes) - 12, _indice(ano, 1))
+    avisos: list[Aviso] = []
+    for indice in range(inicio, indice_abertura):
+        ano_do_mes, mes_do_mes = _do_indice(indice)
+        composicao = recibo.composicao_do_mes(empresa, ano_do_mes, mes_do_mes)
+        for mercado in MERCADOS:
+            if composicao.total(mercado) > 0:
+                avisos.append(
+                    Aviso(
+                        codigo="receita_antes_da_abertura",
+                        mercado=mercado,
+                        mensagem=(
+                            f"receita de {_mm_aaaa(ano_do_mes, mes_do_mes)} anterior à abertura "
+                            f"no CNPJ ({abertura.strftime('%d/%m/%Y')}) não entra no RBT12 — "
+                            "confira a data de abertura."
+                        ),
+                        dispositivo=(
+                            "Res. CGSN 140, art. 2º, V (início de atividade = abertura no CNPJ) "
+                            "e art. 22, §§ 1º a 4º"
+                        ),
+                    )
+                )
+    return avisos
+
+
 def rbt12(empresa: Empresa, ano: int, mes: int) -> Rbt12:
     """RBT12 do PA `ano/mes` por mercado, com a regra usada, a janela e os avisos.
 
@@ -471,8 +514,11 @@ def rbt12(empresa: Empresa, ano: int, mes: int) -> Rbt12:
     )
 
     modo_limite, teto_limite, teto_sublimite = _limites_do_ano(abertura, ano, mes)
+    # HI-77: limite anual CHEIO do período, que é o que o aviso do § 5º compara com o RBT12.
+    limite_cheio = limite_vigente("limite_anual", date(ano, mes, 1))
+    teto_cheio = None if limite_cheio is None else limite_cheio.valor
 
-    avisos: list[Aviso] = []
+    avisos: list[Aviso] = _avisos_de_receita_antes_da_abertura(empresa, ano, mes, abertura)
     if recibo.opcao_caixa_do_ano(empresa, ano):
         avisos.append(
             Aviso(
@@ -519,16 +565,19 @@ def rbt12(empresa: Empresa, ano: int, mes: int) -> Rbt12:
         acumulado = None
         if not pendentes_do_ano:
             acumulado = sum((mes_lido(i).receita(mercado) for i in indices_do_ano), Decimal("0.00"))
-            if apurado is not None and teto_limite is not None and apurado > teto_limite:
-                if acumulado <= teto_limite:
+            # HI-77: o § 5º compara o RBT12 (anualizado) com o limite CHEIO; o teto
+            # proporcional do ano de início vale só para a receita acumulada no ano.
+            if apurado is not None and teto_cheio is not None and apurado > teto_cheio:
+                if teto_limite is not None and acumulado <= teto_limite:
                     avisos.append(
                         Aviso(
                             codigo="rbt12_acima_do_limite_ano_dentro",
                             mercado=mercado,
                             mensagem=(
-                                f"RBT12 do mercado {mercado} ({apurado}) acima do limite de "
-                                f"{teto_limite}, com a receita do ano ainda dentro dele: "
-                                "alíquota da última faixa (a alíquota fica para a etapa seguinte)."
+                                f"RBT12 do mercado {mercado} ({apurado}) acima do limite anual "
+                                f"de {teto_cheio}, com a receita do ano ainda dentro do teto "
+                                f"do ano ({teto_limite}): alíquota da última faixa (a alíquota "
+                                "fica para a etapa seguinte)."
                             ),
                             dispositivo="Res. CGSN 140, art. 22, § 5º",
                         )

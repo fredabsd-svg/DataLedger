@@ -35,6 +35,14 @@ def fixar_inicio_de_uso(empresa: Empresa, ano: int, mes: int) -> None:
     empresa.refresh_from_db()
 
 
+def fixar_hoje(monkeypatch, quando: date) -> None:
+    """Fixa o "hoje" de Brasília que o serviço usa para o mês corrente (A7).
+
+    Sem isso, os testes que confirmam meses de 2026 dependem da data em que rodam.
+    """
+    monkeypatch.setattr(servico_receita, "hoje_local", lambda: quando)
+
+
 def preparar_simples(empresa: Empresa, *, abertura: date | None, inicio_simples: date) -> Empresa:
     """Data de abertura no CNPJ e Simples Nacional (aberto) a partir de `inicio_simples`."""
     Empresa.objects.filter(pk=empresa.pk).update(data_abertura_cnpj=abertura)

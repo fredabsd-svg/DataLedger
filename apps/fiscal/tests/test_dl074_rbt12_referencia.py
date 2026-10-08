@@ -26,6 +26,7 @@ from apps.fiscal.models import MercadoReceita, NaturezaOperacao
 from apps.fiscal.tests.test_dl074_suporte import (
     confirmar_meses,
     escriturar,
+    fixar_hoje,
     fixar_inicio_de_uso,
     informar_e_confirmar,
     preparar_simples,
@@ -177,7 +178,10 @@ def test_regra_geral_caso_de_referencia_2_janela_com_meses_de_2026(
     assert resultado.de(INTERNO).apurado == Decimal("115000.00")
 
 
-def test_regra_geral_caso_de_referencia_3_com_fim_de_ano(empresa_antiga, usuario_gestor_a):
+def test_regra_geral_caso_de_referencia_3_com_fim_de_ano(
+    empresa_antiga, usuario_gestor_a, monkeypatch
+):
+    fixar_hoje(monkeypatch, date(2026, 12, 31))  # confirma dez/2026: o hoje tem de alcançá-lo
     # PA dez/2026 → janela dez/2025 a nov/2026: 1.000 (dez/2025) + 11 × 10.000 (jan a nov/2026)
     # = 111.000,00. O mês do próprio PA (dez/2026) não entra.
     valores = [((2025, 12), "1000")] + [((2026, mes), "10000") for mes in range(1, 12)]
@@ -195,7 +199,10 @@ def test_regra_geral_caso_de_referencia_3_com_fim_de_ano(empresa_antiga, usuario
 # ---------------------------------------------------------------------------
 
 
-def test_abertura_no_ano_anterior_usa_s4_ate_o_12_mes_e_s1_no_13(empresa_a, usuario_gestor_a):
+def test_abertura_no_ano_anterior_usa_s4_ate_o_12_mes_e_s1_no_13(
+    empresa_a, usuario_gestor_a, monkeypatch
+):
+    fixar_hoje(monkeypatch, date(2026, 12, 31))  # confirma até nov/2026
     # Abertura 15/11/2025 (mês de atividade 1); opção com efeitos desde 01/01/2026.
     # Meses de atividade: nov/25 = 1, dez/25 = 2, jan/26 = 3, ..., out/26 = 12, nov/26 = 13.
     # Receitas: nov/25 10.000; dez/25 20.000; jan/26 70.000; fev/26 20.000;
@@ -359,8 +366,9 @@ def test_limite_acima_de_20_por_cento_gera_aviso_de_efeito_retroativo(empresa_a,
 
 
 def test_rbt12_acima_do_limite_com_o_ano_ainda_dentro_gera_aviso_s5(
-    empresa_antiga, usuario_gestor_a
+    empresa_antiga, usuario_gestor_a, monkeypatch
 ):
+    fixar_hoje(monkeypatch, date(2026, 12, 31))  # confirma dez/2026
     # PA dez/2026, janela dez/2025 a nov/2026:
     # 3.000.000 (dez/25) + 11 × 200.000 = 5.200.000 > 4.800.000.
     # Receita acumulada em 2026 até dez/26: 11 × 200.000 + 100.000 = 2.300.000 ≤ 4.800.000.
@@ -515,3 +523,248 @@ def test_media_nao_exata_fica_com_precisao_guardada_sem_arredondar_a_centavos(
     # Mais de duas casas decimais guardadas: a precisão não foi cortada a centavos.
     assert apurado.as_tuple().exponent < -10
     assert abs(apurado * 7 - Decimal("120000")) < Decimal("1e-20")
+
+
+# ---------------------------------------------------------------------------
+# A1 (HI-76, achado A1 da auditoria rodada 1) — o § 3º vale na VIRADA do ano.
+# Os 12 primeiros meses de atividade usam a média × 12, mesmo que o PA caia em ano
+# diferente do da opção. Números escritos à mão; nenhum vem do código.
+# ---------------------------------------------------------------------------
+
+
+def _meses_ate_o_pa(abertura: date, pa: tuple[int, int]):
+    """(ano, mês) do mês da abertura até o PA, inclusive, em ordem."""
+    n = (pa[0] * 12 + pa[1] - 1) - (abertura.year * 12 + abertura.month - 1) + 1
+    return sequencia(abertura.year, abertura.month, n)
+
+
+@pytest.mark.parametrize(
+    ("abertura", "inicio_simples", "receitas", "pa", "regra", "apurado"),
+    [
+        # C9: abertura 15/10/2025, opção na abertura. PA 02/2026 é o 5º mês de atividade.
+        # Janela out/25 a jan/26 (4 meses): 10.000 + 20.000 + 30.000 + 40.000 = 100.000.
+        # Média = 100.000 ÷ 4 = 25.000; × 12 = 300.000. Antes de HI-76 saía § 1º: 100.000.
+        pytest.param(
+            date(2025, 10, 15),
+            date(2025, 10, 15),
+            {(2025, 10): "10000", (2025, 11): "20000", (2025, 12): "30000", (2026, 1): "40000"},
+            (2026, 2),
+            "§ 3º",
+            "300000",
+            id="C9-pa-02-2026-300000",
+        ),
+        # C9, mesmo lançamento: PA 12/2025 é o 3º mês. Janela out/25 e nov/25: 30.000 ÷ 2 × 12.
+        pytest.param(
+            date(2025, 10, 15),
+            date(2025, 10, 15),
+            {(2025, 10): "10000", (2025, 11): "20000", (2025, 12): "30000", (2026, 1): "40000"},
+            (2025, 12),
+            "§ 3º",
+            "180000",
+            id="C9-pa-12-2025-180000",
+        ),
+        # T1: abertura 03/11/2025, opção igual. PA 01/2026 é o 3º mês. Janela nov e dez:
+        # (10.000 + 20.000) ÷ 2 × 12 = 180.000.
+        pytest.param(
+            date(2025, 11, 3),
+            date(2025, 11, 3),
+            {(2025, 11): "10000", (2025, 12): "20000"},
+            (2026, 1),
+            "§ 3º",
+            "180000",
+            id="T1-pa-01-2026-180000",
+        ),
+        # T2: abertura 15/06/2025, 1.000 por mês de jun/25 a mai/26. PA 05/2026 é o 12º mês:
+        # janela jun/25 a abr/26 (11 meses, 11.000) ÷ 11 × 12 = 12.000.
+        pytest.param(
+            date(2025, 6, 15),
+            date(2025, 6, 15),
+            {ano_mes: "1000" for ano_mes in sequencia(2025, 6, 12)},
+            (2026, 5),
+            "§ 3º",
+            "12000",
+            id="T2-pa-05-2026-12000",
+        ),
+        # T2, PA 06/2026 é o 13º mês: § 1º = soma de jun/25 a mai/26 = 12 × 1.000 = 12.000.
+        pytest.param(
+            date(2025, 6, 15),
+            date(2025, 6, 15),
+            {ano_mes: "1000" for ano_mes in sequencia(2025, 6, 12)},
+            (2026, 6),
+            "§ 1º",
+            "12000",
+            id="T2-pa-06-2026-12000-s1",
+        ),
+    ],
+)
+def test_proporcional_vale_na_virada_do_ano_quando_a_abertura_e_no_ano_da_opcao(
+    empresa_a, usuario_gestor_a, abertura, inicio_simples, receitas, pa, regra, apurado
+):
+    empresa = preparar_simples(empresa_a, abertura=abertura, inicio_simples=inicio_simples)
+    pares = [(ano_mes, receitas.get(ano_mes, "0")) for ano_mes in _meses_ate_o_pa(abertura, pa)]
+    _lancar_meses(empresa, usuario_gestor_a, pares)
+
+    resultado = apuracao.rbt12(empresa, *pa)
+
+    assert resultado.regra == regra
+    assert resultado.de(INTERNO).apurado == Decimal(apurado)
+
+
+# ---------------------------------------------------------------------------
+# A5 (HI-77) — o aviso do § 5º compara o RBT12 com o limite CHEIO (4.800.000);
+# o teto proporcional do ano de início vale só para a receita acumulada no ano.
+# ---------------------------------------------------------------------------
+
+
+def _avisos_de_s5(resultado):
+    return [a for a in resultado.avisos if a.codigo == "rbt12_acima_do_limite_ano_dentro"]
+
+
+def test_a5_abertura_01_12_2026_com_100_mil_nao_gera_aviso_s5(
+    empresa_a, usuario_gestor_a, monkeypatch
+):
+    # Caso do relatório. Abertura 01/12/2026 (1º mês): § 2º = 100.000 × 12 = 1.200.000,00.
+    # O limite cheio é 4.800.000: o RBT12 não passa dele. O teto proporcional (1 mês,
+    # 400.000) só vale para a receita do ano (100.000): também dentro. Sem aviso de § 5º.
+    fixar_hoje(monkeypatch, date(2026, 12, 31))
+    empresa = preparar_simples(
+        empresa_a, abertura=date(2026, 12, 1), inicio_simples=date(2026, 12, 1)
+    )
+    _lancar_meses(empresa, usuario_gestor_a, [((2026, 12), "100000")])
+
+    resultado = apuracao.rbt12(empresa, 2026, 12)
+
+    assert resultado.de(INTERNO).apurado == Decimal("1200000")
+    assert _avisos_de_s5(resultado) == []
+
+
+def test_a5_abertura_05_10_2026_com_150_mil_nao_gera_aviso_s5(
+    empresa_a, usuario_gestor_a, monkeypatch
+):
+    # Segundo caso do relatório. Abertura 05/10/2026, § 2º: 150.000 × 12 = 1.800.000,00.
+    # Abaixo de 4.800.000 (limite cheio), mesmo acima do teto proporcional de 1.200.000.
+    fixar_hoje(monkeypatch, date(2026, 12, 31))
+    empresa = preparar_simples(
+        empresa_a, abertura=date(2026, 10, 5), inicio_simples=date(2026, 10, 5)
+    )
+    _lancar_meses(empresa, usuario_gestor_a, [((2026, 10), "150000")])
+
+    resultado = apuracao.rbt12(empresa, 2026, 10)
+
+    assert resultado.de(INTERNO).apurado == Decimal("1800000")
+    assert _avisos_de_s5(resultado) == []
+
+
+def test_a5_rbt12_acima_do_limite_cheio_com_receita_do_ano_dentro_do_teto_gera_aviso(
+    empresa_a, usuario_gestor_a, monkeypatch
+):
+    # Abertura 01/10/2026: teto proporcional do ano = 3 meses × 400.000 = 1.200.000.
+    # § 2º: 450.000 × 12 = 5.400.000,00 > 4.800.000 (limite cheio) → aviso de § 5º.
+    # Receita acumulada no ano = 450.000 ≤ 1.200.000 → o ano ainda está dentro do teto.
+    fixar_hoje(monkeypatch, date(2026, 12, 31))
+    empresa = preparar_simples(
+        empresa_a, abertura=date(2026, 10, 1), inicio_simples=date(2026, 10, 1)
+    )
+    _lancar_meses(empresa, usuario_gestor_a, [((2026, 10), "450000")])
+
+    resultado = apuracao.rbt12(empresa, 2026, 10)
+
+    assert resultado.de(INTERNO).apurado == Decimal("5400000")
+    avisos = _avisos_de_s5(resultado)
+    assert len(avisos) == 1
+    assert avisos[0].dispositivo == "Res. CGSN 140, art. 22, § 5º"
+    assert "4800000" in avisos[0].mensagem
+
+
+# ---------------------------------------------------------------------------
+# A7 (a) — receita confirmada em mês ANTERIOR à abertura não entra no RBT12, e o RBT12
+# avisa em vez de descartá-la em silêncio (achado A7 da auditoria rodada 1).
+# ---------------------------------------------------------------------------
+
+
+def test_a7_receita_confirmada_antes_da_abertura_gera_aviso_nomeado(
+    empresa_a, usuario_gestor_a, monkeypatch
+):
+    # Abertura 10/03/2026. Receita informada CONFIRMADA de 50.000 em 01/2026 (antes da
+    # abertura). PA 04/2026: janela só março (1.000) → RBT12 = 1.000 × 12 = 12.000.
+    # Os 50.000 de janeiro não entram, e o aviso diz isso.
+    fixar_hoje(monkeypatch, date(2026, 12, 31))
+    empresa = preparar_simples(
+        empresa_a, abertura=date(2026, 3, 10), inicio_simples=date(2026, 3, 1)
+    )
+    informar_e_confirmar(empresa, usuario_gestor_a, 2026, 1, "50000")
+    _lancar_meses(empresa, usuario_gestor_a, [((2026, 3), "1000"), ((2026, 4), "0")])
+
+    resultado = apuracao.rbt12(empresa, 2026, 4)
+
+    assert resultado.de(INTERNO).apurado == Decimal("12000")
+    avisos = [a for a in resultado.avisos if a.codigo == "receita_antes_da_abertura"]
+    assert len(avisos) == 1
+    assert avisos[0].mercado == INTERNO
+    assert (
+        "receita de 01/2026 anterior à abertura no CNPJ (10/03/2026) não entra no RBT12"
+        in avisos[0].mensagem
+    )
+    assert "confira a data de abertura" in avisos[0].mensagem
+
+
+def test_a7_receita_escriturada_antes_da_abertura_tambem_avisa(
+    empresa_a, escritorio_a, usuario_gestor_a, monkeypatch
+):
+    # A escrituração efetivada (DL-072) em 02/2026 também é receita confirmada, e fica de fora.
+    fixar_hoje(monkeypatch, date(2026, 12, 31))
+    empresa = preparar_simples(
+        empresa_a, abertura=date(2026, 3, 10), inicio_simples=date(2026, 3, 1)
+    )
+    escriturar(
+        escritorio_a, empresa, usuario_gestor_a, sufixo=971, competencia=(2026, 2), valor="7000"
+    )
+    _lancar_meses(empresa, usuario_gestor_a, [((2026, 3), "0"), ((2026, 4), "0")])
+
+    resultado = apuracao.rbt12(empresa, 2026, 4)
+
+    mensagens = [a.mensagem for a in resultado.avisos if a.codigo == "receita_antes_da_abertura"]
+    assert len(mensagens) == 1
+    assert "receita de 02/2026 anterior à abertura no CNPJ (10/03/2026)" in mensagens[0]
+
+
+def test_a7_sem_receita_antes_da_abertura_nao_ha_aviso(empresa_a, usuario_gestor_a, monkeypatch):
+    fixar_hoje(monkeypatch, date(2026, 12, 31))
+    empresa = preparar_simples(
+        empresa_a, abertura=date(2026, 3, 10), inicio_simples=date(2026, 3, 1)
+    )
+    _lancar_meses(empresa, usuario_gestor_a, [((2026, 3), "1000"), ((2026, 4), "0")])
+
+    resultado = apuracao.rbt12(empresa, 2026, 4)
+
+    assert not any(a.codigo == "receita_antes_da_abertura" for a in resultado.avisos)
+
+
+# ---------------------------------------------------------------------------
+# A6 (Proposta 8) — exemplo do Manual do PGDAS-D, item 8.3 (abertura 12/02/2018).
+# Números escritos à mão: fev 10.000, mar 0, abr 590.000, mai 50.000.
+# ---------------------------------------------------------------------------
+
+
+def test_exemplo_do_manual_abertura_12_02_2018_bate_com_120_mil_e_2_4_milhoes(
+    empresa_a, usuario_gestor_a, monkeypatch
+):
+    # PA 02/2018 = 1º mês: 10.000 × 12 = 120.000. PA 05/2018 = 4º mês: janela fev a abr,
+    # soma 10.000 + 0 + 590.000 = 600.000, média 600.000 ÷ 3 = 200.000, × 12 = 2.400.000.
+    fixar_hoje(monkeypatch, date(2026, 12, 31))
+    empresa = preparar_simples(
+        empresa_a, abertura=date(2018, 2, 12), inicio_simples=date(2018, 2, 12)
+    )
+    _lancar_meses(
+        empresa,
+        usuario_gestor_a,
+        [((2018, 2), "10000"), ((2018, 3), "0"), ((2018, 4), "590000"), ((2018, 5), "50000")],
+    )
+
+    fevereiro = apuracao.rbt12(empresa, 2018, 2)
+    maio = apuracao.rbt12(empresa, 2018, 5)
+
+    assert fevereiro.regra == "§ 2º"
+    assert fevereiro.de(INTERNO).apurado == Decimal("120000")
+    assert maio.regra == "§ 3º"
+    assert maio.de(INTERNO).apurado == Decimal("2400000")

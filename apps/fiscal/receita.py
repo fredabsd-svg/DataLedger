@@ -114,6 +114,14 @@ def _antes_do_inicio_de_uso(empresa: Empresa, ano: int, mes: int) -> bool:
     return (ano, mes) < inicio_de_uso(empresa)
 
 
+def hoje_local() -> date:
+    """Data de hoje em Brasília, lida só aqui. É a referência do "mês corrente" (A7).
+
+    Função própria para o teste fixar o relógio (`fixar_hoje` em `test_dl074_suporte`).
+    """
+    return timezone.localdate()
+
+
 # ---------------------------------------------------------------------------
 # Leitura: composição do mês
 # ---------------------------------------------------------------------------
@@ -379,6 +387,28 @@ def _inserir(objeto, restricao: str, mensagem: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _validar_mes_confirmavel(empresa: Empresa, ano: int, mes: int) -> None:
+    """A7 (b): não se confirma mês que ainda não começou nem mês anterior à abertura.
+
+    Mês posterior ao corrente (Brasília) não está completo, e confirmá-lo como "completo"
+    é declaração falsa. Mês anterior à abertura no CNPJ não tem receita a confirmar: se a
+    data de abertura estiver errada, o aviso do RBT12 é quem mostra, não a confirmação.
+    """
+    hoje = hoje_local()
+    if (ano, mes) > (hoje.year, hoje.month):
+        raise EntradaInvalidaReceita(
+            f"A competência {_mm_aaaa(ano, mes)} é posterior ao mês corrente "
+            f"({_mm_aaaa(hoje.year, hoje.month)}): o mês ainda não está completo, e não "
+            "pode ser confirmado como receita completa."
+        )
+    abertura = empresa.data_abertura_cnpj
+    if abertura is not None and (ano, mes) < (abertura.year, abertura.month):
+        raise EntradaInvalidaReceita(
+            f"A competência {_mm_aaaa(ano, mes)} é anterior à abertura no CNPJ "
+            f"({abertura.strftime('%d/%m/%Y')}): não há receita a confirmar nesse mês."
+        )
+
+
 @transaction.atomic
 def confirmar_mes(
     empresa: Empresa, ano: int, mes: int, usuario, request=None
@@ -388,9 +418,11 @@ def confirmar_mes(
     Grava o total de cada mercado no instante do ato. Mês já confirmado (e
     sem mudança) é recusado: para confirmar de novo, reabra com motivo antes.
     Mês reaberto (inclusive a retificar) é confirmado de novo, com novo ato.
+    Recusa mês posterior ao corrente e mês anterior à abertura (A7, b).
     """
     validar_competencia(ano, mes)
     travada = travar_empresa(empresa)
+    _validar_mes_confirmavel(travada, ano, mes)
     confirmacao = confirmacao_do_mes(travada, ano, mes, travar=True)
     if confirmacao is not None and confirmacao.estado == EstadoConfirmacaoMes.CONFIRMADA:
         raise ReceitaErro(
@@ -630,8 +662,35 @@ def lancar_receita_informada(
             "use outra origem."
         )
 
+    # A3 (auditoria DL-074, rodada 1): reenvio do mesmo formulário duplicava a receita.
+    # A empresa é travada ANTES da checagem, para que dois lançamentos iguais simultâneos
+    # não passem os dois. Identidade: mês, mercado, valor, origem e documento de suporte.
+    # Receita estornada não conta; o motivo não entra na identidade.
+    travada = travar_empresa(empresa)
+    existente = (
+        ReceitaInformada.objects.filter(
+            empresa=travada,
+            ano=ano,
+            mes=mes,
+            mercado=mercado,
+            valor=valor_decimal,
+            origem=origem,
+            documento_suporte=suporte,
+        )
+        .exclude(estado=EstadoReceitaInformada.ESTORNADA)
+        .order_by("criado_em", "id")
+        .first()
+    )
+    if existente is not None:
+        data_lancamento = timezone.localtime(existente.criado_em).strftime("%d/%m/%Y")
+        raise ReceitaErro(
+            f"Já existe receita igual lançada em {data_lancamento} "
+            f"(receita nº {existente.pk}) — se for outra receita, informe outro documento "
+            "de suporte."
+        )
+
     receita = ReceitaInformada(
-        empresa=empresa,
+        empresa=travada,
         ano=ano,
         mes=mes,
         mercado=mercado,
