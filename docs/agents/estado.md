@@ -137,8 +137,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-069](../planos/DL-069-travas-no-banco.md) | Travas no banco: livro-caixa imutável, período encerrado recusa INSERT, trilha imutável | Situação em **[Próximo passo](#próximo-passo)** — fatias 1 e 2 integradas (PR #92 e #93); fatia 3 bloqueada na PE-77 |
 | [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md) | Melhorias do repositório com equipe multiagente (RC-160): entradas do acesso, consultas por linha, testes que faltavam | Integrada (PR #94, squash `76cb92a`) — auditoria e reconferência aprovadas com ressalvas; BL-652 a BL-654 abertos |
 | [DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) | A marcação manual da DMPL respeita o período fechado (BL-655) | Integrada (PR #95, squash `389aafe`) — auditoria e reconferência aprovadas com ressalvas; BL-656 a BL-659 abertos |
-| [DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) | Fiscal F1: escrituração das NFS-e prestadas (natureza, competência, estorno, conferência) | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-073](../planos/DL-073-validador-ibscbs.md) | Fiscal: validador de conformidade IBS/CBS das NFS-e recebidas (modo aviso, HI-61) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) | Fiscal F1: escrituração das NFS-e prestadas (natureza, competência, estorno, conferência) | Integrada (PR #96, squash `8f36cd4`) — auditoria e reconferência aprovadas com ressalvas |
+| [DL-073](../planos/DL-073-validador-ibscbs.md) | Fiscal: validador de conformidade IBS/CBS das NFS-e recebidas (modo aviso, HI-61) | Integrada (PR #96, squash `8f36cd4`) — auditoria e reconferência aprovadas com ressalvas |
 | [DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) | Fiscal: receita mensal, receita informada, confirmação e RBT12 do Simples por mercado | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -181,24 +181,23 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 2. **[DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) — Fiscal
    F1, escrituração das NFS-e prestadas — e
    [DL-073](../planos/DL-073-validador-ibscbs.md) — validador de
-   conformidade IBS/CBS: em revisão** na branch `ccr-bf4b4a55-hpqgbp`, PR
-   para a `main` a abrir. Ciclo do §3.1 encerrado:
+   conformidade IBS/CBS: INTEGRADAS** pelo
+   [PR #96](https://github.com/fredabsd-svg/DataLedger/pull/96), squash
+   `8f36cd4`, em 08/10/2026, com os quatro checks verdes; merge feito pelo
+   arquiteto sob a RC-164. Ciclo do §3.1:
    [rodada 1](../auditorias/2026-10-08-dl-072-dl-073-rodada-1.md) e
    [reconferência](../auditorias/2026-10-08-dl-072-dl-073-reconferencia.md),
-   as duas **APROVADAS COM RESSALVAS** para as duas etapas; os achados novos
-   R1, R2, R4 e R5 da reconferência foram corrigidos depois (`5035bb8`), com
-   testes que derrubam os mutantes, sem nova rodada. R3 (a migração `0002`
-   foi editada antes de chegar a ambiente compartilhado — bancos locais
-   antigos precisam ser recriados) vai declarada no PR. Abertos: BL-660 a
-   BL-666.
+   aprovadas com ressalvas; R1, R2, R4 e R5 corrigidos depois. Abertos:
+   BL-660 a BL-666.
 3. **[DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) — receita
-   mensal e RBT12 do Simples: em desenvolvimento.** Frentes A (domínio, API,
-   110 testes) e B (telas, 73 testes) prontas em cópia isolada
-   (`/home/user/wt-dl074int`, branch `dl074-int`), para integrar depois do
-   merge da DL-072/073 e seguir para auditoria. Segunda consulta ao
-   `contador-senior` em
-   [consultas/](../projeto/consultas/2026-10-08-contador-senior-rbt12.md);
-   HI-64 a HI-71.
+   mensal, confirmação e RBT12 do Simples por mercado: em revisão** na branch
+   `ccr-bf4b4a55-hpqgbp`, recomeçada da `main` em `8f36cd4`. Frentes A
+   (domínio, API) e B (telas) integradas; efetivar em mês confirmado reabre
+   com trilha (HI-75). HI-73 a HI-75. Auditoria independente em seguida.
+4. **Próxima etapa fiscal: pré-DAS do Simples.** Tabelas oficiais dos
+   Anexos I a V vigentes em 2026 pesquisadas no Planalto e no Manual do
+   PGDAS-D, com quatro exemplos numéricos oficiais para casos de referência:
+   [consultas/](../projeto/consultas/2026-10-08-tabelas-simples-2026.md).
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `5035bb8`):** `pytest` completo **5.459
