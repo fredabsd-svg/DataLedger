@@ -1132,6 +1132,19 @@ NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE = {
     # DL-073 (validador IBS/CBS, modo aviso): tela de conferência. O teste de
     # cobertura mora em apps/fiscal/tests/test_dl073_conformidade_ibscbs.py.
     "fiscal_web:conformidade_ibscbs": "test_tela_conformidade_ibscbs_e_acessivel",
+    # DL-072 (frente B, apps/fiscal/tests/test_dl072_telas.py): as cinco telas
+    # de escrituração das NFS-e prestadas. Ficam AQUI, e não em
+    # universo_de_telas.py, pelo mesmo motivo das quatro acima: a rota precisa
+    # de ids do cenário (empresa, vínculo, escrituração), e
+    # `ARGS_DE_ROTA_FORA_DA_CONTABILIDADE` só aceita argumentos fixos.
+    "fiscal_web:notas_a_escriturar": (
+        "test_tela_notas_a_escriturar_e_acessivel, "
+        "test_tela_notas_a_escriturar_estado_vazio_e_acessivel"
+    ),
+    "fiscal_web:escriturar_nota": "test_tela_escriturar_nota_e_acessivel",
+    "fiscal_web:escrituracao_detalhe": "test_tela_escrituracao_detalhe_e_acessivel",
+    "fiscal_web:escrituracao_estornar": "test_tela_escrituracao_estornar_e_acessivel",
+    "fiscal_web:conferencia_escrituracao": "test_tela_conferencia_escrituracao_e_acessivel",
 }
 
 # DL-046, fatia 1 (especialista-frontend): as SEIS telas HTML de

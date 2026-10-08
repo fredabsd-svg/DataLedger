@@ -90,6 +90,12 @@ ROTULOS_DE_TELA = {
     ("fiscal_web", "relatorio_envio"): "Relatório do envio",
     ("fiscal_web", "documentos_lista"): "Documentos",
     ("fiscal_web", "documento_detalhe"): "Documento",
+    # DL-072 (frente B): escrituração das NFS-e prestadas.
+    ("fiscal_web", "notas_a_escriturar"): "Notas a escriturar",
+    ("fiscal_web", "conferencia_escrituracao"): "Conferência da escrituração",
+    ("fiscal_web", "escriturar_nota"): "Escriturar nota",
+    ("fiscal_web", "escrituracao_detalhe"): "Escrituração",
+    ("fiscal_web", "escrituracao_estornar"): "Estornar escrituração",
     ("tenancy", "bootstrap-primeiro-acesso"): "Criar escritório",
     ("tenancy", "aceitar-convite"): "Aceitar convite",
 }

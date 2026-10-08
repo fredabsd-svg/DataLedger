@@ -59,12 +59,15 @@ que guarda a duplicação.
 from __future__ import annotations
 
 from decimal import Decimal
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods, require_safe
 
@@ -75,8 +78,22 @@ from apps.core.requisicao import (
     recusar_dado_nao_contratado,
 )
 from apps.empresas.models import Empresa
-from apps.fiscal.models import DocumentoFiscal, EventoFiscal, LoteDeRecepcao
-from apps.fiscal.permissoes import papel_pode_consultar_documentos, papel_pode_receber_documentos
+from apps.fiscal import escrituracao as servico_escrituracao
+from apps.fiscal.models import (
+    DocumentoFiscal,
+    EscrituracaoFiscal,
+    EstadoEscrituracao,
+    EventoFiscal,
+    LoteDeRecepcao,
+    NaturezaOperacao,
+    PapelDocumento,
+    VinculoDocumentoEmpresa,
+)
+from apps.fiscal.permissoes import (
+    papel_pode_consultar_documentos,
+    papel_pode_escriturar_fiscal,
+    papel_pode_receber_documentos,
+)
 from apps.fiscal.services import (
     CODIGOS_QUE_CANCELAM,
     LIMITE_TAMANHO_ENVIO_BYTES,
@@ -505,18 +522,30 @@ def documentos_lista(request):
         request.escritorio, empresa=empresa, competencia=competencia, situacao=situacao
     )
     pagina = Paginator(documentos, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
-    linhas = [
-        {
-            "documento": documento,
-            "situacao": _situacao_de_exibicao(documento),
-            # Convenção do projeto (varredura de interface, apps/core/tests/
-            # test_dl024_varredura_de_interface.py): todo valor monetário
-            # chega ao template já formatado, com o sufixo '_ptbr' —
-            # `Decimal` até aqui, texto só a partir daqui (AGENTS.md §10).
-            "v_serv_ptbr": _valor_ptbr(documento.v_serv),
-        }
-        for documento in pagina.object_list
-    ]
+    documentos_da_pagina = list(pagina.object_list)
+    pode_escriturar = _pode_escriturar(request)
+    links_de_escrituracao = (
+        _links_de_escrituracao(request.escritorio, documentos_da_pagina) if pode_escriturar else {}
+    )
+    linhas = []
+    for documento in documentos_da_pagina:
+        situacao = _situacao_de_exibicao(documento)
+        linhas.append(
+            {
+                "documento": documento,
+                "situacao": situacao,
+                # Convenção do projeto (varredura de interface, apps/core/tests/
+                # test_dl024_varredura_de_interface.py): todo valor monetário
+                # chega ao template já formatado, com o sufixo '_ptbr' —
+                # `Decimal` até aqui, texto só a partir daqui (AGENTS.md §10).
+                "v_serv_ptbr": _valor_ptbr(documento.v_serv),
+                # DL-072 (frente B): nota cancelada não é escriturada (plano,
+                # critério 5); quem só consulta não recebe link nenhum.
+                "links_para_escriturar": (
+                    [] if situacao == "cancelada" else links_de_escrituracao.get(documento.pk, [])
+                ),
+            }
+        )
     contexto = {
         **contexto_comum,
         "pagina": pagina,
@@ -524,8 +553,36 @@ def documentos_lista(request):
         "querystring_sem_pagina": _querystring_sem_pagina(request),
         "empresa_selecionada": empresa,
         "algum_filtro_ativo": bool(empresa or competencia or situacao),
+        "pode_escriturar": pode_escriturar,
     }
     return render(request, "fiscal/documentos_lista.html", contexto)
+
+
+def _links_de_escrituracao(escritorio, documentos):
+    """`{documento_id: [{"url", "razao_social"}]}` — só vínculos de PRESTADOR
+    (nota tomada não se escritura nesta etapa, plano DL-072 "fica fora").
+    Uma consulta para a página inteira, nunca uma por documento."""
+    mapa = {documento.pk: [] for documento in documentos}
+    if not mapa:
+        return mapa
+    vinculos = (
+        VinculoDocumentoEmpresa.objects.filter(
+            documento_id__in=list(mapa.keys()),
+            papel=PapelDocumento.PRESTADOR,
+            documento__escritorio=escritorio,
+            empresa__escritorio=escritorio,
+        )
+        .select_related("empresa")
+        .order_by("empresa__razao_social", "id")
+    )
+    for vinculo in vinculos:
+        mapa[vinculo.documento_id].append(
+            {
+                "url": reverse("fiscal_web:escriturar_nota", args=[vinculo.empresa_id, vinculo.pk]),
+                "razao_social": vinculo.empresa.razao_social,
+            }
+        )
+    return mapa
 
 
 # ---------------------------------------------------------------------------
@@ -621,3 +678,492 @@ def evento_xml(request, evento_id):
         )
     evento = _evento_do_escritorio_ativo(request, evento_id)
     return _resposta_xml(f"{evento.identificador}.xml", evento.xml_original)
+
+
+# ---------------------------------------------------------------------------
+# DL-072 (frente B): telas da escrituração das NFS-e prestadas.
+#
+# Toda regra de escrituração (quem é prestador, o que se efetiva, o que é
+# estorno, a conferência) vem de `apps.fiscal.escrituracao`. Aqui só há
+# isolamento (escritório e empresa, 404), permissão (`papel_pode_*` no
+# servidor), formatação e montagem da resposta. Recusa do serviço vira
+# MENSAGEM na própria tela, com status 200 e nada gravado (plano DL-072,
+# critérios 2 e 4).
+# ---------------------------------------------------------------------------
+
+_ROTULO_DE_SITUACAO = {
+    servico_escrituracao.SITUACAO_A_ESCRITURAR: "A escriturar",
+    servico_escrituracao.SITUACAO_RASCUNHO: "Rascunho (ainda não efetivada)",
+    servico_escrituracao.SITUACAO_EFETIVADA: "Efetivada",
+    servico_escrituracao.SITUACAO_CANCELADA: "Cancelada",
+    servico_escrituracao.SITUACAO_CANCELADA_DEPOIS_DE_ESCRITURADA: (
+        "Cancelada depois de escriturada: estorne a escrituração"
+    ),
+}
+
+_SITUACOES_QUE_ESCRITURAM = frozenset(
+    {servico_escrituracao.SITUACAO_A_ESCRITURAR, servico_escrituracao.SITUACAO_RASCUNHO}
+)
+
+_SITUACOES_COM_ESCRITURACAO_PARA_VER = frozenset(
+    {
+        servico_escrituracao.SITUACAO_EFETIVADA,
+        servico_escrituracao.SITUACAO_CANCELADA_DEPOIS_DE_ESCRITURADA,
+    }
+)
+
+_ACOES_DO_FORMULARIO_DE_ESCRITURAR = frozenset({"rascunho", "efetivar"})
+
+_CONTRATO_ESCRITURAR_NOTA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "natureza", "acao"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na escrituração da nota",
+)
+
+_CONTRATO_ESTORNAR_ESCRITURACAO = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no estorno da escrituração",
+)
+
+
+def _pode_escriturar(request):
+    return papel_pode_escriturar_fiscal(getattr(request, "papel", None))
+
+
+def _resposta_sem_permissao_de_escriturar(request):
+    return _resposta_sem_permissao(
+        request,
+        "Seu papel consulta as notas, mas não escritura nem estorna. "
+        "Peça a um administrador ou gestor do escritório.",
+    )
+
+
+def _empresa_escopada(request, empresa_id):
+    # Empresa de OUTRO escritório é 404: não confirma que o ID existe.
+    return get_object_or_404(Empresa, pk=empresa_id, escritorio=request.escritorio)
+
+
+def _vinculo_da_empresa(request, empresa, vinculo_id):
+    # Vínculo de outra empresa (mesmo escritório) também é 404.
+    return get_object_or_404(
+        VinculoDocumentoEmpresa.objects.select_related("documento", "empresa"),
+        pk=vinculo_id,
+        empresa=empresa,
+        documento__escritorio=request.escritorio,
+    )
+
+
+def _escrituracao_da_empresa(request, empresa, escrituracao_id):
+    return get_object_or_404(
+        EscrituracaoFiscal.objects.select_related(
+            "vinculo__documento", "efetivada_por", "estornada_por"
+        ),
+        pk=escrituracao_id,
+        empresa=empresa,
+        empresa__escritorio=request.escritorio,
+    )
+
+
+def _competencia_de_escrituracao(request):
+    """`((ano, mes), erro)`. Sem competência pedida, mostra o mês corrente
+    (fuso de Brasília). Competência pedida pela metade ou inválida é erro de
+    formulário, mostrado na própria tela (mesma regra de `documentos_lista`)."""
+    competencia, erro = _competencia_do_filtro(request)
+    if erro or competencia is not None:
+        return competencia, erro
+    hoje = timezone.localdate()
+    return (hoje.year, hoje.month), None
+
+
+def _filtros_de_escrituracao(request):
+    """`(empresa, (ano, mes), erro)`. `empresa` é `None` quando não foi
+    escolhida — estado próprio da tela, não erro."""
+    empresa, erro_empresa = _empresa_do_filtro(request)
+    competencia, erro_competencia = _competencia_de_escrituracao(request)
+    return empresa, competencia, erro_empresa or erro_competencia
+
+
+def _contexto_do_filtro(request, competencia):
+    """Valores do formulário de filtro. Sem competência digitada, o formulário
+    mostra a competência que a tela usou (o mês corrente), para a pessoa ver
+    o que está consultando."""
+    ano = request.GET.get("ano", "").strip()
+    mes = request.GET.get("mes", "").strip()
+    if not ano and not mes and competencia is not None:
+        ano, mes = str(competencia[0]), str(competencia[1])
+    return {
+        "empresas_do_escritorio": Empresa.objects.filter(escritorio=request.escritorio).order_by(
+            "razao_social"
+        ),
+        "empresa_filtro_bruto": request.GET.get("empresa", ""),
+        "ano_filtro": ano,
+        "mes_filtro": mes,
+    }
+
+
+def _acao_da_nota(nota, empresa, pode_escriturar):
+    """Ação da linha: `{"rotulo", "url"}` ou `None`. Quem só consulta vê a
+    escrituração, nunca o botão de escriturar (plano, critério 10)."""
+    if nota.situacao in _SITUACOES_QUE_ESCRITURAM:
+        if not pode_escriturar:
+            return None
+        rotulo = "Continuar escrituração" if nota.escrituracao else "Escriturar"
+        return {
+            "rotulo": rotulo,
+            "url": reverse("fiscal_web:escriturar_nota", args=[empresa.pk, nota.vinculo.pk]),
+        }
+    if nota.escrituracao is not None and nota.situacao in _SITUACOES_COM_ESCRITURACAO_PARA_VER:
+        return {
+            "rotulo": "Ver escrituração",
+            "url": reverse(
+                "fiscal_web:escrituracao_detalhe", args=[empresa.pk, nota.escrituracao.pk]
+            ),
+        }
+    return None
+
+
+def _linha_da_nota(nota, empresa, pode_escriturar):
+    documento = nota.documento
+    return {
+        "nota": nota,
+        "situacao": _ROTULO_DE_SITUACAO.get(nota.situacao, nota.situacao),
+        "natureza_sugerida": NaturezaOperacao(nota.natureza_sugerida).label,
+        "retencao": DESCRICAO_TP_RET_ISSQN.get(documento.tp_ret_issqn, documento.tp_ret_issqn),
+        "v_serv_ptbr": _valor_ptbr(documento.v_serv),
+        "acao": _acao_da_nota(nota, empresa, pode_escriturar),
+    }
+
+
+def _url_da_competencia(url_base, empresa, ano, mes):
+    return f"{url_base}?{urlencode({'empresa': empresa.pk, 'ano': ano, 'mes': mes})}"
+
+
+# ---------------------------------------------------------------------------
+# Tela 6: notas a escriturar — arquétipo A (tabela de consulta) + filtro
+# ---------------------------------------------------------------------------
+
+
+@login_required
+@require_safe
+def notas_a_escriturar(request):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite consultar notas fiscais a escriturar."
+        )
+
+    empresa, competencia, erro = _filtros_de_escrituracao(request)
+    pode_escriturar = _pode_escriturar(request)
+    contexto = {
+        **_contexto_do_filtro(request, competencia),
+        "pode_escriturar": pode_escriturar,
+        "pagina": None,
+    }
+    if erro:
+        messages.error(request, erro)
+        return render(request, "fiscal/notas_a_escriturar.html", contexto, status=400)
+    if empresa is None:
+        return render(request, "fiscal/notas_a_escriturar.html", contexto)
+
+    ano, mes = competencia
+    notas = servico_escrituracao.notas_a_escriturar(empresa, ano, mes)
+    pagina = Paginator(notas, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
+    contexto.update(
+        {
+            "empresa_selecionada": empresa,
+            "ano": ano,
+            "mes": mes,
+            "pagina": pagina,
+            "linhas": [_linha_da_nota(n, empresa, pode_escriturar) for n in pagina.object_list],
+            "total_notas": len(notas),
+            # Aviso HI-57: competência (dCompet) diferente do mês de emissão.
+            "notas_com_aviso": sum(1 for n in notas if n.competencia_difere_da_emissao),
+            "querystring_sem_pagina": _querystring_sem_pagina(request),
+        }
+    )
+    return render(request, "fiscal/notas_a_escriturar.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# Tela 7: escriturar uma nota — arquétipo B (formulário de documento)
+# ---------------------------------------------------------------------------
+
+
+def _nota_do_vinculo(empresa, vinculo):
+    """A linha da nota na consulta da competência DELA, pela mesma fonte da
+    lista (`notas_a_escriturar`). `None` para nota tomada, que não entra nesta
+    escrituração."""
+    if vinculo.papel != PapelDocumento.PRESTADOR:
+        return None
+    competencia = vinculo.documento.d_competencia
+    notas = servico_escrituracao.notas_a_escriturar(empresa, competencia.year, competencia.month)
+    return next((nota for nota in notas if nota.vinculo.pk == vinculo.pk), None)
+
+
+def _tela_de_escriturar(request, empresa, vinculo, *, natureza=None, status=200):
+    documento = vinculo.documento
+    nota = _nota_do_vinculo(empresa, vinculo)
+    escrituracao = nota.escrituracao if nota is not None else None
+    if natureza is None:
+        # Sem escolha digitada: a natureza já confirmada (rascunho ou efetivada)
+        # ou, na primeira vez, a SUGERIDA — pré-selecionada, nunca gravada.
+        natureza = (
+            escrituracao.natureza
+            if escrituracao
+            else servico_escrituracao.sugerir_natureza(documento)
+        )
+    contexto = {
+        "empresa": empresa,
+        "vinculo": vinculo,
+        "documento": documento,
+        "nota": nota,
+        "escrituracao": escrituracao,
+        "natureza_selecionada": natureza,
+        "opcoes_de_natureza": NaturezaOperacao.choices,
+        "natureza_sugerida_rotulo": NaturezaOperacao(
+            servico_escrituracao.sugerir_natureza(documento)
+        ).label,
+        "situacao_rotulo": (
+            _ROTULO_DE_SITUACAO.get(nota.situacao, nota.situacao) if nota is not None else None
+        ),
+        "pode_formulario": nota is not None and nota.situacao in _SITUACOES_QUE_ESCRITURAM,
+        "v_serv_ptbr": _valor_ptbr(documento.v_serv),
+        "v_liq_ptbr": _valor_ptbr(documento.v_liq),
+        "retencao": DESCRICAO_TP_RET_ISSQN.get(documento.tp_ret_issqn, documento.tp_ret_issqn),
+        "url_lista": (
+            _url_da_competencia(
+                reverse("fiscal_web:notas_a_escriturar"),
+                empresa,
+                documento.d_competencia.year,
+                documento.d_competencia.month,
+            )
+        ),
+    }
+    return render(request, "fiscal/escriturar_nota.html", contexto, status=status)
+
+
+def _escriturar_nota_post(request, empresa, vinculo):
+    natureza = request.POST.get("natureza", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_ESCRITURAR_NOTA)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_escriturar(request, empresa, vinculo, natureza=natureza, status=400)
+
+    acao = request.POST.get("acao", "")
+    if acao not in _ACOES_DO_FORMULARIO_DE_ESCRITURAR:
+        messages.error(
+            request, "Ação desconhecida. Escolha 'Salvar rascunho' ou 'Efetivar escrituração'."
+        )
+        return _tela_de_escriturar(request, empresa, vinculo, natureza=natureza, status=400)
+
+    try:
+        if acao == "rascunho":
+            servico_escrituracao.salvar_rascunho(
+                vinculo, natureza, usuario=request.user, request=request
+            )
+            messages.success(
+                request, "Rascunho salvo. A nota continua a escriturar até você efetivar."
+            )
+            return redirect(
+                "fiscal_web:escriturar_nota", empresa_id=empresa.pk, vinculo_id=vinculo.pk
+            )
+        escrituracao = servico_escrituracao.efetivar_escrituracao(
+            vinculo, natureza, usuario=request.user, request=request
+        )
+    except servico_escrituracao.EscrituracaoErro as exc:
+        # Recusa do serviço (cancelada, já efetivada com outra natureza, papel
+        # tomador, natureza inválida): mensagem na tela, status 200, nada gravado.
+        messages.error(request, exc.mensagem)
+        return _tela_de_escriturar(request, empresa, vinculo, natureza=natureza, status=200)
+
+    if escrituracao.criada_agora:
+        messages.success(request, "Nota escriturada com a natureza confirmada.")
+    else:
+        # Idempotente (plano, decisão da frente A): repetir o clique não grava nada.
+        messages.info(
+            request, "Esta nota já estava escriturada com esta natureza. Nada foi alterado."
+        )
+    return redirect(
+        "fiscal_web:escrituracao_detalhe",
+        empresa_id=empresa.pk,
+        escrituracao_id=escrituracao.pk,
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def escriturar_nota(request, empresa_id, vinculo_id):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao_de_escriturar(request)
+    empresa = _empresa_escopada(request, empresa_id)
+    vinculo = _vinculo_da_empresa(request, empresa, vinculo_id)
+    if request.method == "POST":
+        return _escriturar_nota_post(request, empresa, vinculo)
+    return _tela_de_escriturar(request, empresa, vinculo)
+
+
+# ---------------------------------------------------------------------------
+# Tela 8: detalhe da escrituração — arquétipo A (detalhe) com trilha
+# ---------------------------------------------------------------------------
+
+
+@login_required
+@require_safe
+def escrituracao_detalhe(request, empresa_id, escrituracao_id):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite consultar notas fiscais a escriturar."
+        )
+    empresa = _empresa_escopada(request, empresa_id)
+    escrituracao = _escrituracao_da_empresa(request, empresa, escrituracao_id)
+    documento = escrituracao.vinculo.documento
+    efetivada = escrituracao.estado == EstadoEscrituracao.EFETIVADA
+    contexto = {
+        "empresa": empresa,
+        "escrituracao": escrituracao,
+        "documento": documento,
+        "natureza_rotulo": escrituracao.get_natureza_display(),
+        "estado_rotulo": escrituracao.get_estado_display(),
+        "valor_servico_ptbr": _valor_ptbr(escrituracao.valor_servico),
+        "valor_liquido_ptbr": _valor_ptbr(escrituracao.valor_liquido),
+        "iss_retido_rotulo": (
+            "Sim" if escrituracao.iss_retido else "Não" if escrituracao.iss_retido is False else "—"
+        ),
+        "efetivada": efetivada,
+        "pode_estornar": efetivada and _pode_escriturar(request),
+        # Pendência do plano (critério 5): cancelamento depois da efetivação.
+        "cancelada_depois": efetivada and situacao_do_documento(documento) == "cancelada",
+        "url_lista": _url_da_competencia(
+            reverse("fiscal_web:notas_a_escriturar"),
+            empresa,
+            documento.d_competencia.year,
+            documento.d_competencia.month,
+        ),
+    }
+    return render(request, "fiscal/escrituracao_detalhe.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# Tela 9: estornar — arquétipo E (confirmação com motivo obrigatório)
+# ---------------------------------------------------------------------------
+
+
+def _tela_de_estornar(request, empresa, escrituracao, *, motivo, status=200):
+    documento = escrituracao.vinculo.documento
+    contexto = {
+        "empresa": empresa,
+        "escrituracao": escrituracao,
+        "documento": documento,
+        "efetivada": escrituracao.estado == EstadoEscrituracao.EFETIVADA,
+        "natureza_rotulo": escrituracao.get_natureza_display(),
+        "estado_rotulo": escrituracao.get_estado_display(),
+        "motivo": motivo,
+        "motivo_maximo": servico_escrituracao.MOTIVO_MAXIMO,
+        "url_detalhe": reverse(
+            "fiscal_web:escrituracao_detalhe", args=[empresa.pk, escrituracao.pk]
+        ),
+    }
+    return render(request, "fiscal/escrituracao_estornar.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def escrituracao_estornar(request, empresa_id, escrituracao_id):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao_de_escriturar(request)
+    empresa = _empresa_escopada(request, empresa_id)
+    escrituracao = _escrituracao_da_empresa(request, empresa, escrituracao_id)
+
+    if request.method == "GET":
+        return _tela_de_estornar(request, empresa, escrituracao, motivo="")
+
+    motivo = request.POST.get("motivo", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_ESTORNAR_ESCRITURACAO)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_estornar(request, empresa, escrituracao, motivo=motivo, status=400)
+
+    try:
+        servico_escrituracao.estornar_escrituracao(
+            escrituracao, motivo, usuario=request.user, request=request
+        )
+    except servico_escrituracao.EscrituracaoErro as exc:
+        # Motivo vazio, longo demais, ou escrituração que não está efetivada:
+        # mensagem na tela, o motivo digitado continua lá, nada gravado.
+        messages.error(request, exc.mensagem)
+        return _tela_de_estornar(request, empresa, escrituracao, motivo=motivo, status=200)
+
+    messages.success(
+        request,
+        "Escrituração estornada. A nota voltou para a lista de notas a escriturar.",
+    )
+    return redirect(
+        "fiscal_web:escrituracao_detalhe",
+        empresa_id=empresa.pk,
+        escrituracao_id=escrituracao.pk,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tela 10: conferência da escrituração — arquétipo C (conferência)
+#
+# Relatório de CONFERÊNCIA (classe 1 de docs/projeto/personalizacao-de-
+# relatorio.md): não é demonstração contábil nem livro. Só leitura.
+# ---------------------------------------------------------------------------
+
+
+@login_required
+@require_safe
+def conferencia_escrituracao(request):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite consultar a conferência da escrituração."
+        )
+
+    empresa, competencia, erro = _filtros_de_escrituracao(request)
+    pode_escriturar = _pode_escriturar(request)
+    contexto = {
+        **_contexto_do_filtro(request, competencia),
+        "pode_escriturar": pode_escriturar,
+    }
+    if erro:
+        messages.error(request, erro)
+        return render(request, "fiscal/conferencia_escrituracao.html", contexto, status=400)
+    if empresa is None:
+        return render(request, "fiscal/conferencia_escrituracao.html", contexto)
+
+    ano, mes = competencia
+    resultado = servico_escrituracao.conferencia(empresa, ano, mes)
+    # Identidade da conferência, conferida aqui também (não só confiada ao
+    # serviço): recebidas = escrituradas + pendentes.
+    fecha = resultado.recebidas == resultado.escrituradas + resultado.pendentes
+    contexto.update(
+        {
+            "empresa_selecionada": empresa,
+            "ano": ano,
+            "mes": mes,
+            "recebidas": resultado.recebidas,
+            "escrituradas": resultado.escrituradas,
+            "pendentes": resultado.pendentes,
+            # Pendentes = bloqueios + pendentes sem bloqueio (canceladas que nunca
+            # foram escrituradas, sem o que escriturar).
+            "pendentes_com_bloqueio": len(resultado.bloqueios),
+            "pendentes_sem_bloqueio": resultado.pendentes - len(resultado.bloqueios),
+            "fecha": fecha,
+            "bloqueios": [_linha_da_nota(n, empresa, pode_escriturar) for n in resultado.bloqueios],
+            "avisos": [_linha_da_nota(n, empresa, pode_escriturar) for n in resultado.avisos],
+        }
+    )
+    return render(request, "fiscal/conferencia_escrituracao.html", contexto)

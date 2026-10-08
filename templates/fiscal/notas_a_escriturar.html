@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block titulo %}Notas a escriturar{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Competência</span>
+            <strong>{{ mes|stringformat:"02d" }}/{{ ano }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-072 (frente B), arquétipo A (tabela de consulta, direção de arte §2.A):
+"Notas a escriturar" — NFS-e recebidas em que a empresa é PRESTADORA, pela
+competência (dCompet). Nota tomada não aparece aqui (plano, critério 7).
+{% endcomment %}
+{% block titulo_pagina %}<h1>Notas a escriturar</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Notas fiscais de serviço (NFS-e) em que a empresa escolhida é prestadora, na competência
+        escolhida. Escriturar confirma a natureza da operação; esta tela não calcula imposto.
+    </p>
+
+    {% include "fiscal/_filtro_escrituracao.html" %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver as notas a escriturar.</strong></p>
+            <p class="estado-vazio__descricao">
+                A lista é sempre de uma empresa e de uma competência.
+            </p>
+        </div>
+    {% else %}
+        <p class="texto-apoio">
+            {{ total_notas }} nota(s) prestada(s) em {{ mes|stringformat:"02d" }}/{{ ano }}.
+        </p>
+
+        {% if not pode_escriturar %}
+            <p class="texto-apoio">
+                Seu papel consulta estas notas, mas não as escritura: por isso não há botão de
+                escriturar nesta tela.
+            </p>
+        {% endif %}
+
+        {% if notas_com_aviso %}
+            <p class="mensagem mensagem-warning" role="status">
+                <strong>Atenção:</strong>
+                {{ notas_com_aviso }} nota(s) têm mês de competência diferente do mês de emissão.
+                A escrituração usa a competência (dCompet); a marca "Emitida em" mostra o mês de emissão.
+            </p>
+        {% endif %}
+
+        {% if linhas %}
+            <table class="tabela-dados">
+                <caption class="visualmente-oculto">Notas prestadas pela empresa na competência, a escriturar</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Número</th>
+                        <th scope="col">Emissão</th>
+                        <th scope="col">Competência</th>
+                        <th scope="col">Tomador</th>
+                        <th scope="col">Valor do serviço</th>
+                        <th scope="col">Retenção do ISS</th>
+                        <th scope="col">Natureza sugerida</th>
+                        <th scope="col">Situação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in linhas %}
+                        <tr>
+                            <td>
+                                <a href="{% url 'fiscal_web:documento_detalhe' linha.nota.documento.id %}">
+                                    {{ linha.nota.documento.numero|default:linha.nota.documento.identificador }}
+                                </a>
+                            </td>
+                            <td>{{ linha.nota.documento.dh_emissao|date:"d/m/Y H:i" }}</td>
+                            <td>
+                                {{ linha.nota.documento.d_competencia|date:"m/Y" }}
+                                {% if linha.nota.competencia_difere_da_emissao %}
+                                    <br><span class="selo selo--atencao">Emitida em {{ linha.nota.data_emissao|date:"m/Y" }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="valor-quebravel">
+                                {{ linha.nota.documento.tomador_nome|default:"(sem tomador no documento)" }}
+                            </td>
+                            <td class="valor-monetario">{{ linha.v_serv_ptbr }}</td>
+                            <td>{{ linha.retencao }}</td>
+                            <td>{{ linha.natureza_sugerida }}</td>
+                            <td>
+                                {{ linha.situacao }}
+                                {% if linha.acao %}
+                                    <br><a class="botao botao--secundario botao--pequeno" href="{{ linha.acao.url }}">{{ linha.acao.rotulo }}</a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% include "fiscal/_paginacao.html" %}
+        {% else %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo">
+                    <strong>Nenhuma nota prestada por {{ empresa_selecionada.razao_social }} em {{ mes|stringformat:"02d" }}/{{ ano }}.</strong>
+                </p>
+                <p class="estado-vazio__descricao">
+                    Escolha outra competência. Notas em que a empresa é tomadora não aparecem nesta lista.
+                </p>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}

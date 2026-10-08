@@ -18,10 +18,15 @@ from django.urls import path
 
 from apps.fiscal.views_conformidade import conformidade_ibscbs
 from apps.fiscal.views_web import (
+    conferencia_escrituracao,
     documento_detalhe,
     documento_xml,
     documentos_lista,
+    escrituracao_detalhe,
+    escrituracao_estornar,
+    escriturar_nota,
     evento_xml,
+    notas_a_escriturar,
     recepcao,
     relatorio_envio,
 )
@@ -45,4 +50,29 @@ urlpatterns = [
     # XML original byte a byte (DE-074 item 1) e o detalhe do documento
     # (`documento_detalhe`) lista os eventos com link para este download.
     path("eventos/<int:evento_id>/xml/", evento_xml, name="evento_xml"),
+    # DL-072 (frente B): escrituração das NFS-e prestadas. A lista é por
+    # querystring (`?empresa=&ano=&mes=`) porque o menu do módulo não conhece
+    # uma empresa; as telas de UMA nota ou de UMA escrituração levam a empresa
+    # no caminho, e o vínculo/a escrituração é buscado DENTRO dela (404 fora).
+    path("escrituracao/", notas_a_escriturar, name="notas_a_escriturar"),
+    path(
+        "escrituracao/conferencia/",
+        conferencia_escrituracao,
+        name="conferencia_escrituracao",
+    ),
+    path(
+        "escrituracao/empresas/<int:empresa_id>/notas/<int:vinculo_id>/",
+        escriturar_nota,
+        name="escriturar_nota",
+    ),
+    path(
+        "escrituracao/empresas/<int:empresa_id>/escrituracoes/<int:escrituracao_id>/",
+        escrituracao_detalhe,
+        name="escrituracao_detalhe",
+    ),
+    path(
+        "escrituracao/empresas/<int:empresa_id>/escrituracoes/<int:escrituracao_id>/estornar/",
+        escrituracao_estornar,
+        name="escrituracao_estornar",
+    ),
 ]
