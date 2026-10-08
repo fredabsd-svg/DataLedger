@@ -265,8 +265,9 @@ def test_exportacao_do_leiaute_de_referencia_grava_a_situacao_real(empresa):
     arquivo = exportar_plano(empresa=empresa, formato="referencia", filtro="todas")
 
     linhas = arquivo.conteudo.decode("iso-8859-1").split("\r\n")
+    # Forma canônica: `|` nas pontas. Índice 0 vazio, REG no 1, classificação no 3, situação no 7.
     situacoes = {
-        linha.split("|")[2]: linha.split("|")[6] for linha in linhas if linha[:5] == "0200|"
+        linha.split("|")[3]: linha.split("|")[7] for linha in linhas if linha.startswith("|0200|")
     }
     assert situacoes == {"1": "A", "1.1": "I"}
     assert arquivo.avisos and "nao e estavel" in arquivo.avisos[0]

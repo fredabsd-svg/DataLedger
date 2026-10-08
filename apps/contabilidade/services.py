@@ -9076,21 +9076,30 @@ def criar_conta_pelo_plano(
     analitica,
     usuario=None,
     request=None,
+    pai=None,
 ):
     """Cria uma conta da empresa, com `full_clean()` e trilha `conta.criada`.
 
     `codigo_pai` é o código da conta superior NA MESMA empresa, ou `None` para
-    conta raiz. `analitica=True` grava `aceita_lancamento=True`. Levanta
+    conta raiz. `analitica=True` grava `aceita_lancamento=True`. `pai`, quando
+    vier, é a instância da superior já carregada pela aplicação em lote (evita
+    uma consulta por conta); sem ele, a superior é buscada aqui. Levanta
     `ContaRecusadaNoCadastro` se qualquer validação do modelo recusar; nada fica
     gravado nesse caso (o `atomic` desfaz).
     """
-    pai = None
-    if codigo_pai is not None:
+    # Defesa (A1): NUL e controles não cabem no PostgreSQL e quebram a exportação. O núcleo
+    # já recusa na conferência; esta checagem vale para qualquer outro caminho que chegue aqui.
+    mensagens_de_controle = [
+        f"{rotulo} com caractere de controle (00 a 31, ou 127), não permitido"
+        for rotulo, valor in (("código", codigo), ("nome", nome))
+        if any(ord(caractere) < 32 or ord(caractere) == 127 for caractere in valor or "")
+    ]
+    if mensagens_de_controle:
+        raise ContaRecusadaNoCadastro(mensagens_de_controle)
+    if pai is None and codigo_pai is not None:
         pai = Conta.objects.filter(empresa=empresa, codigo=codigo_pai).first()
-        if pai is None:
-            raise ContaRecusadaNoCadastro(
-                [f"a conta superior {codigo_pai} não existe nesta empresa"]
-            )
+    if codigo_pai is not None and pai is None:
+        raise ContaRecusadaNoCadastro([f"a conta superior {codigo_pai} não existe nesta empresa"])
     conta = Conta(
         empresa=empresa,
         codigo=codigo,
@@ -9102,7 +9111,18 @@ def criar_conta_pelo_plano(
     )
     with transaction.atomic():
         try:
-            conta.full_clean()
+            # `validate_constraints=False`: as quatro CheckConstraint de classificação
+            # (`classificacao_*` diferente de vazio) custam um savepoint e uma consulta
+            # CADA por conta. A importação nunca grava essas classificações (ficam None),
+            # então elas não podem falhar aqui. Continuam como defesa de banco (DE-008).
+            # `validate_unique` (código único por empresa), `clean()` e as FKs seguem.
+            conta.full_clean(validate_constraints=False)
+            # `validate_constraints=False` deixa de conferir também a UNICIDADE do código por
+            # empresa, que é uma UniqueConstraint sem condição. Sem esta linha, código repetido
+            # chegaria ao banco e viraria IntegrityError (500). Uma consulta, não uma por CHECK.
+            for restricao in Conta._meta.constraints:
+                if restricao.name == "codigo_unico_por_empresa":
+                    restricao.validate(Conta, conta)
         except DjangoValidationError as exc:
             raise ContaRecusadaNoCadastro(mensagens_da_validacao_django(exc)) from exc
         conta.save()

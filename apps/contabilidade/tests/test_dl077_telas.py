@@ -76,15 +76,15 @@ PROPRIO = (
     "9;Outros;;S;;\r\n"
 ).encode("utf-8")
 
-# Sistema de referência (ISO-8859-1, `|`, dd/mm/aaaa). Sem barras nas pontas: é a forma
-# que o próprio escritor grava (o leitor avisa quando encontra barras nas pontas). Sem
-# tipo no leiaute: todo tipo vem de prefixo ou de conta superior. A conta "3" nasce
-# inativa (situação I) e o leitor avisa disso (0200.7).
+# Sistema de referência (ISO-8859-1, `|`, dd/mm/aaaa). Forma CANÔNICA: `|` no início e no
+# fim de cada registro (decisão do arquiteto, 08/10/2026). Sem tipo no leiaute: todo tipo
+# vem de prefixo ou de conta superior. A conta "3" nasce inativa (situação I) e o leitor
+# avisa disso (0200.7).
 REFERENCIA = (
-    f"0000|{CNPJ_DA_EMPRESA}\r\n"
-    "0200|1|1|S|Ativo|01/01/2023|A||||\r\n"
-    "0200|2|1.1|A|Caixa|01/01/2023|A||||\r\n"
-    "0200|3|3|S|Receitas|01/01/2023|I|01/06/2024|||\r\n"
+    f"|0000|{CNPJ_DA_EMPRESA}|\r\n"
+    "|0200|1|1|S|Ativo|01/01/2023|A|||||\r\n"
+    "|0200|2|1.1|A|Caixa|01/01/2023|A|||||\r\n"
+    "|0200|3|3|S|Receitas|01/01/2023|I|01/06/2024||||\r\n"
 ).encode("iso-8859-1")
 
 
@@ -119,7 +119,8 @@ CASOS_DE_PREVIA = [
         "plano.txt",
         {"criar": 2, "atualizar": 0, "sem_mudanca": 0, "recusada": 2},
         {(3, "tipo"), (4, "codigo_pai"), (4, "tipo")},
-        {(1, "natureza"), (2, "natureza")},
+        # A12: duas contas novas sem classificação (linha 0). A9: o trecho não traz 0000.
+        {(0, "0000"), (0, "classificacao"), (1, "natureza"), (2, "natureza")},
         id="ecd",
     ),
     pytest.param(
@@ -128,7 +129,8 @@ CASOS_DE_PREVIA = [
         "plano.txt",
         {"criar": 2, "atualizar": 0, "sem_mudanca": 0, "recusada": 3},
         {(4, "tipo"), (5, "codigo_pai"), (5, "tipo"), (6, "tipo")},
-        {(3, "natureza")},
+        # A12: duas contas novas sem classificação (linha 0).
+        {(0, "classificacao"), (3, "natureza")},
         id="proprio",
     ),
     pytest.param(
@@ -147,7 +149,8 @@ CASOS_DE_PREVIA = [
         "plano.xlsx",
         {"criar": 2, "atualizar": 0, "sem_mudanca": 0, "recusada": 1},
         {(4, "tipo")},
-        {(3, "natureza")},
+        # A12: duas contas novas sem classificação (linha 0).
+        {(0, "classificacao"), (3, "natureza")},
         id="excel",
     ),
 ]
@@ -861,8 +864,8 @@ def test_exportacao_no_leiaute_de_referencia_sai_com_cabecalho_0000(client, cena
 
     assert resposta.status_code == 200
     assert "leiaute-com-separador.txt" in resposta["Content-Disposition"]
-    # Forma que o escritor grava: sem barra nas pontas (ver o comentário de REFERENCIA).
-    assert resposta.content.decode("iso-8859-1").startswith(f"0000|{CNPJ_DA_EMPRESA}\r\n")
+    # Forma canônica que o escritor grava: `|` no início e no fim de cada registro.
+    assert resposta.content.decode("iso-8859-1").startswith(f"|0000|{CNPJ_DA_EMPRESA}|\r\n")
 
 
 def test_exportacao_com_movimento_sem_periodo_e_recusada(client, cenario):

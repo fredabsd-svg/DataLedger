@@ -92,7 +92,8 @@ def test_codificacao_iso_8859_1_le_acento_certo():
 
     assert resultado.codificacao == "iso-8859-1"
     assert _conta("1", resultado.contas).nome == "Caixa geral ção"
-    assert resultado.ocorrencias == []
+    # A9: sem registro 0000 o arquivo tem um aviso, na linha 0 (empresa não conferida).
+    assert [(o.linha, o.campo, o.nivel) for o in resultado.ocorrencias] == [(0, "0000", "aviso")]
 
 
 def test_utf8_e_lido_com_detecao_e_aviso():
@@ -104,9 +105,13 @@ def test_utf8_e_lido_com_detecao_e_aviso():
     assert resultado.codificacao == "utf-8"
     assert _conta("1", resultado.contas).nome == "Caixa geral ção"
     avisos = [o for o in resultado.ocorrencias if o.nivel == NIVEL_AVISO]
-    assert len(avisos) == 1
-    assert avisos[0].campo == "codificacao"
-    assert "p. 52" in avisos[0].mensagem
+    # A9: além do aviso de codificação, o aviso de arquivo sem 0000 (linha 0).
+    assert len(avisos) == 2
+    assert any(o.linha == 0 and o.campo == "codificacao" for o in avisos)
+    assert any(o.linha == 0 and o.campo == "0000" for o in avisos)
+    # Ordenados por (linha, campo): o 0000 (linha 0) vem antes de "codificacao".
+    aviso_de_codificacao = next(o for o in avisos if o.campo == "codificacao")
+    assert "p. 52" in aviso_de_codificacao.mensagem
     assert not resultado.tem_erro
 
 
@@ -114,7 +119,8 @@ def test_ascii_puro_nao_gera_aviso_de_codificacao():
     resultado = ecd.ler(_arquivo("|I050|01012023|01|A|1|1||Caixa|"))
 
     assert resultado.codificacao == "ascii"
-    assert resultado.ocorrencias == []
+    # A9: sem registro 0000 o arquivo tem um aviso, na linha 0 (empresa não conferida).
+    assert [(o.linha, o.campo, o.nivel) for o in resultado.ocorrencias] == [(0, "0000", "aviso")]
 
 
 # -----------------------------------------------------------------------------
@@ -369,7 +375,8 @@ def test_i051_com_centro_de_custo_e_aviso_e_nao_e_guardado_p123():
 
     assert not resultado.tem_erro
     avisos = [o for o in resultado.ocorrencias if o.nivel == NIVEL_AVISO]
-    assert [(o.linha, o.campo) for o in avisos] == [(2, "COD_CCUS")]
+    # A9: o aviso de arquivo sem 0000 (linha 0) vem junto do aviso do I051 (linha 2).
+    assert [(o.linha, o.campo) for o in avisos] == [(0, "0000"), (2, "COD_CCUS")]
     assert _conta("1", resultado.contas).referencial is None
 
 

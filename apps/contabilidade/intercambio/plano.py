@@ -34,6 +34,14 @@ REGRAS DA FATIA 1 (plano DL-077, consulta do contador-senior de 08/10/2026).
   A conferência fica AQUI, no núcleo, para valer em qualquer porta que use o plano.
 - Situação (DL-077, B4): conta nova inativa no arquivo nasce inativa. Conta existente
   mantém a situação do cadastro, nas duas políticas; divergência é aviso.
+- Superior (A3): o leitor entrega o imediato e as superiores possíveis. Vale o MAIOR prefixo
+  que exista no arquivo OU no cadastro, respeitando a fronteira de nível. Aviso quando não é
+  o imediato.
+- Profundidade (A8): cadeia de superiores do arquivo acima de 50 níveis é recusada.
+- Teto (A6): mais de 5.000 contas numa importação é recusado (413, nomeado).
+- Controle (A1): caractere de 00 a 31, ou 127, no código ou no nome é erro com linha e campo.
+- Conta de resultado (A2): quando o formato marca COD_NAT 04, o tipo FINAL tem de ser receita
+  ou despesa, seja de onde vier.
 """
 
 import hashlib
@@ -41,7 +49,7 @@ import json
 import re
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from django.db import transaction
 
@@ -59,7 +67,7 @@ from apps.contabilidade.intercambio.formatos import (
     ESCRITORES,
     FORMATOS_QUE_PRECISAM_DO_DOCUMENTO,
 )
-from apps.contabilidade.intercambio.leitura import FormatoNaoSuportado
+from apps.contabilidade.intercambio.leitura import ArquivoGrandeDemais, FormatoNaoSuportado
 from apps.contabilidade.models import (
     NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO,
     Conta,
@@ -92,6 +100,19 @@ FILTROS_DE_EXPORTACAO = ("todas", "analiticas", "com_movimento")
 
 TAMANHO_MAXIMO_CODIGO = 20  # Conta.codigo
 TAMANHO_MAXIMO_NOME = 200  # Conta.nome
+
+# Teto de contas por importação (A6 da auditoria da DL-077). Acima disso a conferência e
+# a aplicação levariam minutos e segurariam o lock da empresa; a recusa é nomeada. Um
+# plano real cabe folgado: o limite é de operação, não de regra contábil.
+MAXIMO_DE_CONTAS_POR_IMPORTACAO = 5_000
+
+# Profundidade máxima da cadeia de superiores DENTRO do arquivo (A8). Acima disso o
+# núcleo recusa a conta com erro nomeado, em vez de estourar a recursão do Python. A
+# exportação em árvore também recursa, e este limite a mantém segura para o que se importa.
+MAXIMO_DE_NIVEIS_DE_SUPERIOR = 50
+
+# Tipo de conta de resultado (COD_NAT 04 da ECD): a mensagem nomeia o código do leiaute.
+_ROTULO_DE_RESULTADO = "conta de resultado (COD_NAT 04)"
 
 
 class ParametroInvalido(IntercambioRecusado):
@@ -223,6 +244,26 @@ def _natureza_presumida(tipo):
     return NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO[TipoConta(tipo)].value
 
 
+def _tem_controle(texto):
+    """Caractere de controle (00-31 e 127) no código ou no nome (A1).
+
+    NUL e os demais controles não cabem no PostgreSQL (NUL falha com 500 na gravação) e
+    quebram os leiautes de texto. Vale para TODOS os formatos porque a conferência é do
+    núcleo; o leitor da ECD e o da referência também recusam, mas por defesa em profundidade
+    o núcleo confere de novo.
+    """
+    return any(ord(caractere) < 32 or ord(caractere) == 127 for caractere in texto)
+
+
+def _documento_canonico(texto):
+    """CNPJ (inclusive alfanumérico, RC-46) ou CPF, na forma canônica: maiúsculas, sem máscara.
+
+    Não pode usar `\\D`: o CNPJ alfanumérico tem letras (RC-46, em vigor desde 31/07/2026),
+    e apagá-las faria duas empresas diferentes parecerem a mesma. Vazio se não há documento.
+    """
+    return re.sub(r"[^0-9A-Z]", "", (texto or "").upper())
+
+
 # -----------------------------------------------------------------------------
 # Conferência
 # -----------------------------------------------------------------------------
@@ -255,6 +296,61 @@ class _Conferencia:
         self.tipos = tipos
         self.memo = {}
         self.ordem = []
+        # Aviso de superior escolhida por prefixo (A3), por código da conta.
+        self.avisos_de_pai = {}
+        codigos = set(self.arquivo)
+        self.arquivo = {
+            codigo: self._escolher_superior(conta, codigos)
+            for codigo, conta in self.arquivo.items()
+        }
+
+    def _escolher_superior(self, conta, codigos_do_arquivo):
+        """Escolhe a conta superior entre os prefixos candidatos (A3).
+
+        O leitor entrega a classificação e as superiores POSSÍVEIS, da mais próxima para a
+        mais distante. Vale a primeira que exista no arquivo OU no cadastro: é o maior prefixo
+        existente, e o corte respeita a fronteira de nível (feita pelo leitor). Se nenhuma
+        existe, fica o imediato, e a resolução recusa com "não está no arquivo nem no cadastro".
+        Escolher o imediato sem olhar o cadastro foi o defeito: a conta caía na superior errada
+        em silêncio, com efeito em nível, balancete por nível e DRE.
+        """
+        candidatas = conta.superiores_candidatas
+        if not candidatas:
+            return conta
+        escolhida = next(
+            (c for c in candidatas if c in codigos_do_arquivo or c in self.banco), None
+        )
+        if escolhida is None:
+            return conta
+        if escolhida != candidatas[0]:
+            self.avisos_de_pai[conta.codigo] = Ocorrencia(
+                conta.linha,
+                "codigo_pai",
+                NIVEL_AVISO,
+                f"superior '{escolhida}' escolhida pelo maior prefixo existente: o prefixo "
+                f"imediato '{candidatas[0]}' não existe no arquivo nem no cadastro. Confira a "
+                "hierarquia.",
+            )
+        return replace(conta, codigo_pai=escolhida)
+
+    def _altura_da_cadeia(self, codigo):
+        """Quantas superiores DO ARQUIVO a conta tem, até o topo ou até o limite (A8).
+
+        Sem recursão e sem memo: a altura não depende da ordem em que as contas são
+        resolvidas. Para no limite, então custa no máximo MAXIMO_DE_NIVEIS_DE_SUPERIOR + 1 passos.
+        """
+        altura = 0
+        visitados = {codigo}
+        atual = self.arquivo[codigo].codigo_pai
+        while (
+            atual in self.arquivo
+            and atual not in visitados
+            and altura <= MAXIMO_DE_NIVEIS_DE_SUPERIOR
+        ):
+            visitados.add(atual)
+            altura += 1
+            atual = self.arquivo[atual].codigo_pai
+        return altura
 
     def resolver(self, codigo, em_curso=frozenset()):
         if codigo in self.memo:
@@ -268,6 +364,9 @@ class _Conferencia:
         def aviso(campo, mensagem):
             ocorrencias.append(Ocorrencia(conta.linha, campo, NIVEL_AVISO, mensagem))
 
+        if codigo in self.avisos_de_pai:
+            ocorrencias.append(self.avisos_de_pai[codigo])
+
         if not conta.nome.strip():
             erro("nome", "nome obrigatório.")
         elif len(conta.nome) > TAMANHO_MAXIMO_NOME:
@@ -279,11 +378,25 @@ class _Conferencia:
                 "codigo",
                 f"código com {len(codigo)} caracteres; o máximo é {TAMANHO_MAXIMO_CODIGO}.",
             )
+        # A1: NUL e controles entram no banco e quebram a exportação dos leiautes de texto.
+        for campo, valor in (("codigo", codigo), ("nome", conta.nome)):
+            if _tem_controle(valor):
+                erro(campo, f"{campo} com caractere de controle (00 a 31, ou 127), não permitido.")
 
         # Conta superior (p. ex. ECD COD_CTA_SUP): precisa existir e ser sintética.
         pai_tipo = None
         pai_analitica = None
-        if conta.codigo_pai is not None:
+        if conta.codigo_pai is not None and self._altura_da_cadeia(codigo) > (
+            MAXIMO_DE_NIVEIS_DE_SUPERIOR
+        ):
+            # A8: cadeia acima do limite. Não recursa: a conta é recusada aqui, e as
+            # filhas dela herdam o erro pela regra "superior tem erro" abaixo.
+            erro(
+                "codigo_pai",
+                f"a cadeia de superiores de {codigo} passa de {MAXIMO_DE_NIVEIS_DE_SUPERIOR} "
+                "níveis dentro do arquivo. Hierarquia tão funda não é aceita; reorganize o plano.",
+            )
+        elif conta.codigo_pai is not None:
             if conta.codigo_pai == codigo or conta.codigo_pai in em_curso:
                 erro(
                     "codigo_pai", f"a conta superior {conta.codigo_pai} forma ciclo na hierarquia."
@@ -316,6 +429,7 @@ class _Conferencia:
                 )
 
         tipo = natureza = origem_tipo = origem_natureza = None
+        prefixo_usado = None
         acao = ACAO_CRIAR
         ativa = None
 
@@ -387,6 +501,7 @@ class _Conferencia:
                 tipo, origem_tipo = pai_tipo, ORIGEM_CONTA_SUPERIOR
             else:
                 prefixo = _prefixo_que_casa(codigo, self.tipos)
+                prefixo_usado = prefixo
                 if prefixo is not None:
                     tipo, origem_tipo = self.tipos[prefixo], ORIGEM_PREFIXO
                 else:
@@ -407,6 +522,29 @@ class _Conferencia:
                     "Confira: contas redutoras, como depreciação acumulada no ativo, são "
                     "credoras (HI-88).",
                 )
+
+        # A2: conta de resultado (COD_NAT 04) só aceita receita ou despesa. Vale para o tipo
+        # FINAL, qualquer que seja a origem: arquivo, superior, prefixo ou cadastro. Sem isto,
+        # uma conta de resultado herdava "ativo" da superior e caía no Balanço, sem erro.
+        if tipo is not None and conta.tipos_aceitos is not None and tipo not in conta.tipos_aceitos:
+            if origem_tipo == ORIGEM_CONTA_SUPERIOR:
+                motivo = (
+                    f"não pode herdar '{tipo}' da conta superior; informe receita ou despesa "
+                    "por prefixo"
+                )
+            elif origem_tipo == ORIGEM_PREFIXO:
+                motivo = (
+                    f"não pode ter tipo '{tipo}' pelo prefixo '{prefixo_usado}'; informe receita "
+                    "ou despesa por prefixo"
+                )
+            elif origem_tipo == ORIGEM_CADASTRO:
+                motivo = (
+                    f"está cadastrada como '{tipo}', e o arquivo diz resultado. O produto não "
+                    "altera tipo de conta existente"
+                )
+            else:
+                motivo = f"não pode ter o tipo '{tipo}' do arquivo; informe receita ou despesa"
+            erro("tipo", f"{_ROTULO_DE_RESULTADO} {motivo}")
 
         if conta.referencial is not None:
             aviso(
@@ -444,9 +582,9 @@ class _Conferencia:
         return resolucao
 
 
-def _digitos_do_documento(empresa):
-    """CNPJ, ou CPF para empresa de pessoa física, só com dígitos. Vazio se não há."""
-    return re.sub(r"\D", "", empresa.cnpj or empresa.cpf or "")
+def _documento_da_empresa(empresa):
+    """CNPJ, ou CPF para empresa de pessoa física, na forma canônica. Vazio se não há."""
+    return _documento_canonico(empresa.cnpj or empresa.cpf or "")
 
 
 def _assinatura(itens):
@@ -480,6 +618,12 @@ def conferir_plano(empresa, resultado, politica, tipos_por_prefixo=None):
     """
     politica = validar_politica(politica)
     tipos = validar_prefixos(tipos_por_prefixo)
+    # A6: o teto vem antes de qualquer conferência cara. Recusa nomeada (413 na API).
+    if len(resultado.contas) > MAXIMO_DE_CONTAS_POR_IMPORTACAO:
+        raise ArquivoGrandeDemais(
+            f"o arquivo traz {len(resultado.contas)} contas; o limite por importação é "
+            f"{MAXIMO_DE_CONTAS_POR_IMPORTACAO}. Divida o plano em partes."
+        )
     banco = {
         conta.codigo: conta
         for conta in Conta.objects.filter(empresa=empresa).select_related("conta_pai")
@@ -536,20 +680,40 @@ def conferir_plano(empresa, resultado, politica, tipos_por_prefixo=None):
         primeira_linha[conta.codigo] = conta.linha
         itens.append(conferencia.resolver(conta.codigo).item)
 
-    if not resultado.contas:
-        ocorrencias_do_arquivo = [
+    # A12: "nenhuma conta" só quando não há erro de linha. Com erro de linha, o contador já
+    # vê o motivo na linha; a frase extra era duplicata.
+    ocorrencias_do_arquivo = []
+    if not resultado.contas and not resultado.tem_erro:
+        ocorrencias_do_arquivo.append(
             Ocorrencia(0, "arquivo", NIVEL_ERRO, "o arquivo não traz nenhuma conta do plano.")
-        ]
-    else:
-        ocorrencias_do_arquivo = []
+        )
+
+    contagens = {
+        "criar": sum(1 for i in itens if i.acao == ACAO_CRIAR),
+        "atualizar": sum(1 for i in itens if i.acao == ACAO_ATUALIZAR),
+        "sem_mudanca": sum(1 for i in itens if i.acao == ACAO_SEM_MUDANCA),
+        "recusada": sum(1 for i in itens if i.acao == ACAO_RECUSADA),
+    }
+    # A12: a importação não grava classificação de balanço, DRE, DLPA, DMPL nem DFC. Quem
+    # confere a prévia precisa saber que essas contas nascem sem classificação.
+    if contagens["criar"]:
+        ocorrencias_do_arquivo.append(
+            Ocorrencia(
+                0,
+                "classificacao",
+                NIVEL_AVISO,
+                f"{contagens['criar']} conta(s) nova(s) serão criadas sem classificação de "
+                "balanço, DRE, DLPA, DMPL nem DFC: classifique depois no plano de contas.",
+            )
+        )
 
     # Conferência da empresa (isolamento entre empresas): o documento que o PRÓPRIO arquivo
     # declara tem de ser o da empresa escolhida. Quando o arquivo não declara (None), não há
-    # o que comparar aqui; o leitor já recusa a falta do 0000 no leiaute que o exige. A
-    # mensagem não repete os números: o contador vê que o arquivo é de outra empresa.
+    # o que comparar aqui; o aviso de "empresa não conferida" vem do leitor. A comparação é
+    # na forma canônica (RC-46: CNPJ alfanumérico). A mensagem não repete os números.
     ocorrencias_do_documento = []
     if resultado.documento_declarado is not None and (
-        resultado.documento_declarado != _digitos_do_documento(empresa)
+        resultado.documento_declarado != _documento_da_empresa(empresa)
     ):
         ocorrencias_do_documento.append(
             Ocorrencia(
@@ -570,12 +734,6 @@ def conferir_plano(empresa, resultado, politica, tipos_por_prefixo=None):
         ],
         key=lambda o: (o.linha, o.campo),
     )
-    contagens = {
-        "criar": sum(1 for i in itens if i.acao == ACAO_CRIAR),
-        "atualizar": sum(1 for i in itens if i.acao == ACAO_ATUALIZAR),
-        "sem_mudanca": sum(1 for i in itens if i.acao == ACAO_SEM_MUDANCA),
-        "recusada": sum(1 for i in itens if i.acao == ACAO_RECUSADA),
-    }
     return PreviaDoPlano(
         resultado=resultado,
         politica=politica,
@@ -636,6 +794,9 @@ def aplicar_plano(empresa, previa, usuario, request=None, *, sha256_esperado, as
             )
 
         por_codigo = {item.codigo: item for item in fresca.itens}
+        # A6: as contas da empresa são lidas UMA vez. Cada conta criada entra no mapa, e a
+        # superior de cada conta nova sai daqui, em vez de uma consulta por conta.
+        existentes = {conta.codigo: conta for conta in Conta.objects.filter(empresa=empresa)}
         criadas = atualizadas = inativas_criadas = 0
         for codigo in fresca.ordem:
             item = por_codigo[codigo]
@@ -651,7 +812,9 @@ def aplicar_plano(empresa, previa, usuario, request=None, *, sha256_esperado, as
                         analitica=item.analitica,
                         usuario=usuario,
                         request=request,
+                        pai=existentes.get(item.codigo_pai) if item.codigo_pai else None,
                     )
+                    existentes[conta_criada.codigo] = conta_criada
                     criadas += 1
                     if item.ativa is False:
                         # A situação não é argumento de `criar_conta_pelo_plano`; grava-se
@@ -683,6 +846,9 @@ def aplicar_plano(empresa, previa, usuario, request=None, *, sha256_esperado, as
             detalhes={
                 "formato": fresca.resultado.formato,
                 "politica": fresca.politica,
+                # A12: o mapa de prefixos que decidiu os tipos vai para a trilha, para a
+                # aplicação poder ser reconstituída sem a prévia.
+                "prefixos": dict(fresca.tipos_por_prefixo),
                 "nome_arquivo": fresca.resultado.nome_arquivo,
                 "sha256": fresca.sha256,
                 "assinatura": fresca.assinatura,
@@ -815,7 +981,7 @@ def exportar_plano(*, empresa, formato, filtro="todas", inicio=None, fim=None, d
     # aceitam o argumento. Vem do próprio cadastro da empresa, nunca de parâmetro da API.
     argumentos = {"data_alteracao": data_alteracao}
     if formato in FORMATOS_QUE_PRECISAM_DO_DOCUMENTO:
-        argumentos["documento"] = _digitos_do_documento(empresa) or None
+        argumentos["documento"] = _documento_da_empresa(empresa) or None
     conteudo = ESCRITORES[formato](registros, **argumentos)
     return ArquivoDoPlano(
         formato=formato,

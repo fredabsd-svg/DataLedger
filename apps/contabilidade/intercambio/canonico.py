@@ -85,6 +85,17 @@ class ContaLida:
     # é criada inativa no DataLedger, com aviso. Na política de atualizar, a situação
     # de conta existente NÃO muda.
     ativa: bool | None = None
+    # Tipos que o formato ACEITA para esta conta, quando o formato restringe. A ECD
+    # marca a conta de resultado (COD_NAT 04) com {"receita", "despesa"}: ela não diz
+    # qual dos dois, e a conta não pode herdar "ativo" de uma superior nem de um prefixo.
+    # O núcleo confere o tipo FINAL (arquivo, superior, prefixo ou cadastro) contra esta
+    # lista e recusa com erro nomeado. None = qualquer tipo.
+    tipos_aceitos: frozenset | None = None
+    # Superiores POSSÍVEIS desta conta, da mais próxima para a mais distante, pela
+    # classificação (ex.: "1.1.01" -> ("1.1", "1")). O leitor só sabe a classificação; o
+    # núcleo escolhe a superior pelo maior destes prefixos que exista no arquivo OU no
+    # cadastro, e avisa quando não for o imediato. Vazio = o `codigo_pai` vale como está.
+    superiores_candidatas: tuple = ()
 
 
 @dataclass(frozen=True)

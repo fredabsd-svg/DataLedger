@@ -13,6 +13,11 @@ tamanho, que é `ArquivoGrandeDemais` (413):
 - descompactado acima de `TAMANHO_MAXIMO_DESCOMPACTADO_BYTES` (proteção contra
   bomba de compressão: o tamanho é MEDIDO lendo as partes, não lido do cabeçalho);
 - mais de `MAXIMO_DE_LINHAS` linhas;
+- planilha acima de 64 MB descompactados, ou outra parte acima de 16 MB (A4: sharedStrings
+  e tabela de estilos têm teto menor);
+- mais de 500 mil células lidas, ou mais de 50 células numa mesma linha, contadas DURANTE a
+  leitura do XML e ANTES de o openpyxl abrir a aba (ele lê a aba inteira ao abrir);
+- DTD ou entidade no XML (defusedxml); aba `plano` fora de `xl/worksheets/`.
 - aba `plano` ausente.
 
 ERROS DE CÉLULA (nível erro, com a linha da planilha):
@@ -61,6 +66,21 @@ ABA_DE_INSTRUCOES = "instrucoes"
 TAMANHO_MAXIMO_DESCOMPACTADO_BYTES = 200 * 1024 * 1024
 MAXIMO_DE_ENTRADAS_NO_PACOTE = 1_000
 _TAMANHO_DO_BLOCO = 64 * 1024
+
+# Limites POR PARTE descompactada (A4 da auditoria da DL-077). A planilha de um plano de
+# 5.000 contas tem poucos MB; um XML de 64 MB já é absurdo. Partes que não são planilha
+# (sharedStrings, estilos, tema) têm teto menor: a tabela de textos compartilhados é a que
+# mais cresce num arquivo hostil, e o limite vale para ela mesmo que ela seja renomeada.
+TAMANHO_MAXIMO_PLANILHA_BYTES = 64 * 1024 * 1024
+TAMANHO_MAXIMO_PARTE_DE_APOIO_BYTES = 16 * 1024 * 1024
+_PREFIXO_DAS_PLANILHAS = "xl/worksheets/"
+
+# Orçamento de células e colunas, contado DURANTE a leitura do XML da aba `plano`, antes de
+# o openpyxl montar a planilha. O orçamento de células é o que limita o custo total: o openpyxl
+# leva ~7 s por 2 milhões de células, nos dois passes. O de colunas por linha recusa a linha
+# com 16 mil `<c/>` no primeiro elemento que passa do limite, sem ler o resto.
+MAXIMO_DE_CELULAS_LIDAS = 500_000
+MAXIMO_DE_COLUNAS_POR_LINHA = 50
 
 _ASSINATURA_ZIP = b"PK\x03\x04"
 # Cabeçalho do formato binário antigo (.xls, OLE2). Recusado com mensagem própria.
@@ -142,6 +162,106 @@ def _tipo_da_pasta_de_trabalho(pacote):
     raise IntercambioRecusado("o .xlsx não declara a pasta de trabalho (xl/workbook.xml).")
 
 
+def _limite_da_parte(nome):
+    """Teto de bytes descompactados de UMA parte. Planilha tem o teto maior; o resto, o menor."""
+    if nome.startswith(_PREFIXO_DAS_PLANILHAS):
+        return TAMANHO_MAXIMO_PLANILHA_BYTES
+    return TAMANHO_MAXIMO_PARTE_DE_APOIO_BYTES
+
+
+def _caminho_da_aba(formulas):
+    """Caminho da parte XML da aba `plano`. Recusa se ela não está em `xl/worksheets/`.
+
+    O limite por planilha vale pelo prefixo do caminho. Uma aba apontada para fora dele
+    escaparia do orçamento de células, então a recusa é nomeada e não a leitura.
+    """
+    caminho = getattr(formulas[NOME_DA_ABA], "_worksheet_path", None)
+    if not isinstance(caminho, str) or not caminho.startswith(_PREFIXO_DAS_PLANILHAS):
+        raise IntercambioRecusado(
+            "a aba 'plano' não está em xl/worksheets/: estrutura de .xlsx não reconhecida. "
+            "Salve de novo no Excel como 'Pasta de Trabalho do Excel (.xlsx)'."
+        )
+    return caminho
+
+
+def _conferir_orcamento_das_planilhas(conteudo):
+    """Conta células e linhas de TODAS as partes de planilha, DURANTE a leitura do XML.
+
+    Roda ANTES de o openpyxl abrir o pacote: o `parse_dimensions` dele usa `iterparse` com
+    evento de fim, e por isso lê a aba inteira antes de chegar ao `sheetData`. Medido: um
+    XML de 59 MB levava 36 s só para ser aberto. Com esta varredura antes, a recusa sai no
+    primeiro excesso, sem o openpyxl tocar na aba.
+
+    Stream SAX com defusedxml (DTD e entidades proibidos). O orçamento de células é
+    acumulado entre as partes; o de linhas vale por parte. A recusa é `IntercambioRecusado`
+    (formato) ou `ArquivoGrandeDemais` (tamanho), conforme o motivo.
+    """
+    from xml.sax.handler import ContentHandler, feature_namespaces
+
+    from defusedxml import sax
+
+    from apps.contabilidade.intercambio.leitura import MAXIMO_DE_LINHAS, ArquivoGrandeDemais
+
+    class _Orcamento(ContentHandler):
+        def __init__(self):
+            super().__init__()
+            self.celulas = 0
+            self.linhas = 0
+            self.celulas_na_linha = 0
+            self.linha_atual = 0
+
+        def startElementNS(self, nome, _qname, attrs):  # noqa: N802 (nome da API do SAX)
+            _uri, local = nome
+            if local == "row":
+                self.linhas += 1
+                self.celulas_na_linha = 0
+                referencia = attrs.get((None, "r"))
+                if referencia and referencia.isdigit():
+                    self.linha_atual = int(referencia)
+                else:
+                    self.linha_atual = self.linhas
+                if self.linhas > MAXIMO_DE_LINHAS or self.linha_atual > MAXIMO_DE_LINHAS:
+                    raise ArquivoGrandeDemais(
+                        f"a planilha passa de {MAXIMO_DE_LINHAS} linhas. O limite é esse."
+                    )
+            elif local == "c":
+                self.celulas += 1
+                self.celulas_na_linha += 1
+                if self.celulas_na_linha > MAXIMO_DE_COLUNAS_POR_LINHA:
+                    raise IntercambioRecusado(
+                        f"a linha {self.linha_atual} da planilha tem mais de "
+                        f"{MAXIMO_DE_COLUNAS_POR_LINHA} células. O plano tem seis colunas: "
+                        "não é uma planilha de plano de contas."
+                    )
+                if self.celulas > MAXIMO_DE_CELULAS_LIDAS:
+                    raise ArquivoGrandeDemais(
+                        f"a planilha tem mais de {MAXIMO_DE_CELULAS_LIDAS} células. O limite é "
+                        "esse, e a planilha é grande demais para um plano de contas."
+                    )
+
+    manipulador = _Orcamento()
+    with zipfile.ZipFile(io.BytesIO(conteudo)) as pacote:
+        caminhos = [
+            parte.filename
+            for parte in pacote.infolist()
+            if parte.filename.startswith(_PREFIXO_DAS_PLANILHAS)
+        ]
+        for caminho in caminhos:
+            manipulador.linhas = 0
+            leitor = sax.make_parser()
+            leitor.setFeature(feature_namespaces, True)
+            leitor.setContentHandler(manipulador)
+            try:
+                with pacote.open(caminho) as parte:
+                    leitor.parse(parte)
+            except (IntercambioRecusado, ArquivoGrandeDemais):
+                raise
+            except Exception as exc:  # XML malformado, DTD ou entidade: recusa, nunca ignora.
+                raise IntercambioRecusado(
+                    f"a planilha tem XML inválido ou com DTD/entidades ({type(exc).__name__})."
+                ) from exc
+
+
 def _medir_descompactado(pacote, partes):
     """Soma o tamanho REAL descompactado de cada parte, sem confiar no cabeçalho.
 
@@ -153,10 +273,18 @@ def _medir_descompactado(pacote, partes):
 
     total = 0
     for parte in partes:
+        limite_da_parte = _limite_da_parte(parte.filename)
+        lido = 0
         try:
             with pacote.open(parte) as conteudo:
                 while bloco := conteudo.read(_TAMANHO_DO_BLOCO):
                     total += len(bloco)
+                    lido += len(bloco)
+                    if lido > limite_da_parte:
+                        raise ArquivoGrandeDemais(
+                            f"a parte '{parte.filename}' da planilha, descompactada, passa de "
+                            f"{limite_da_parte // (1024 * 1024)} MB. Não é aceita."
+                        )
                     if total > TAMANHO_MAXIMO_DESCOMPACTADO_BYTES:
                         raise ArquivoGrandeDemais(
                             "a planilha, descompactada, passa de "
@@ -334,9 +462,13 @@ def _campos_da_linha(numero, celulas, valor_salvo, ocorrencias):
     ocorrencias.extend(erros)
     if erros:
         return None
-    if not any(colunas[: len(CABECALHO)]):
+    # Célula final vazia e sem estilo pode não estar no XML: a linha vem curta. O plano tem
+    # seis colunas, e a falta delas é vazio, não erro.
+    campos = colunas[: len(CABECALHO)]
+    campos += [""] * (len(CABECALHO) - len(campos))
+    if not any(campos):
         return None
-    return colunas[: len(CABECALHO)]
+    return campos
 
 
 def ler(conteudo: bytes) -> ResultadoLeitura:
@@ -347,8 +479,17 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
     """
     _verificar_pacote(conteudo)
     resultado = ResultadoLeitura(formato=FORMATO, codificacao="")
+    # Orçamento ANTES de o openpyxl abrir o pacote (ver `_conferir_orcamento_das_planilhas`).
+    _conferir_orcamento_das_planilhas(conteudo)
     formulas, valores = _abrir(conteudo)
     try:
+        if NOME_DA_ABA in formulas.sheetnames:
+            # A aba `plano` precisa estar em xl/worksheets/, onde o orçamento foi medido.
+            _caminho_da_aba(formulas)
+            # A dimensão declarada no XML só serve para o openpyxl montar a aba. Ela descartava,
+            # em silêncio, conteúdo além dela (a nota A4). Sem ela, cada célula é lida.
+            formulas[NOME_DA_ABA].reset_dimensions()
+            valores[NOME_DA_ABA].reset_dimensions()
         _ler_planilha(formulas, valores, resultado)
     finally:
         formulas.close()

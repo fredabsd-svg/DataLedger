@@ -17,6 +17,8 @@ ESCOPO DESTA FATIA.
   `None`; na escrita, não sai.
 - COD_NAT 04 (resultado) não separa receita de despesa (HI-87): na leitura,
   tipo é `None`; na escrita, receita e despesa saem como 04.
+- Registro 0000 (A5, A9): CNPJ alfanumérico (RC-46) é aceito, sem máscara, e comparado na forma
+  canônica. 0000 repetido é erro; 0000 sem CNPJ é aviso; arquivo sem 0000 é aviso na prévia.
 - COD_NAT 05 (compensação) e 09 (outras) são RECUSADAS na leitura com erro
   nomeado: o produto não cadastra essas contas nesta fatia.
 
@@ -146,7 +148,10 @@ REGISTROS_USADOS = frozenset({"I050", "I051"})
 # e é o único campo dele que o DataLedger lê, só para a conferência com a empresa.
 REGISTRO_DE_IDENTIFICACAO = "0000"
 _INDICE_DO_CNPJ_NO_0000 = 5  # campos[0] é o REG; o campo 06 do manual fica no índice 5
-_PADRAO_CNPJ_DIGITOS = re.compile(r"[0-9]{14}")
+# CNPJ alfanumérico (RC-46, em vigor desde 31/07/2026): 12 caracteres [A-Z0-9] e 2 dígitos
+# verificadores. Sem máscara: o campo é C 014 (p. 64) e o manual não prevê máscara. A
+# comparação com a empresa é na forma canônica (maiúsculas), feita no núcleo.
+_PADRAO_CNPJ = re.compile(r"[A-Z0-9]{12}[0-9]{2}")
 
 # Registros que, pela tabela de níveis (pp. 57-58), são filhos do I050 (nível 4)
 # ou o próprio I050. Eles não encerram a associação entre um I051 e o I050 acima.
@@ -160,6 +165,11 @@ COD_NAT_PARA_TIPO = {
     "02": TipoConta.PASSIVO,
     "03": TipoConta.PATRIMONIO_LIQUIDO,
     "04": None,
+}
+# A2: o 04 é resultado, então o tipo final só pode ser receita ou despesa. O núcleo confere
+# esta lista contra o tipo que vier da superior, do prefixo ou do cadastro.
+TIPOS_ACEITOS_POR_COD_NAT = {
+    "04": frozenset({TipoConta.RECEITA.value, TipoConta.DESPESA.value}),
 }
 # 05 e 09 existem no leiaute (p. 119), mas o DataLedger não cadastra essas
 # contas nesta fatia. A recusa é nomeada, não um "código inválido" genérico.
@@ -245,6 +255,7 @@ class _I050:
     nivel: int
     tipo: TipoConta | None
     referencial: str | None = None
+    tipos_aceitos: frozenset | None = None
 
 
 _I050_RECUSADO = object()
@@ -346,6 +357,7 @@ def _interpretar_i050(numero, campos):
             cod_nat=cod_nat,
             nivel=nivel,
             tipo=COD_NAT_PARA_TIPO[cod_nat],
+            tipos_aceitos=TIPOS_ACEITOS_POR_COD_NAT.get(cod_nat),
         ),
         [],
     )
@@ -406,32 +418,56 @@ def _interpretar_i051(numero, campos, i050):
     return erros
 
 
-def _ler_documento_do_0000(numero, campos, resultado, ocorrencias):
-    """Guarda em `documento_declarado` o CNPJ do 0000 (campo 06, p. 64), se houver.
+def _ler_0000(numero, campos, resultado, ocorrencias, primeiro_0000):
+    """Lê o registro 0000 (abertura) e devolve a linha do PRIMEIRO 0000 visto.
 
-    O manual torna o campo obrigatório, mas um trecho de ECD sem ele não é recusado
-    aqui: sem CNPJ não há conferência, e o núcleo diz isso pelo `documento_declarado`
-    vazio. O CNPJ é 14 dígitos (tamanho do campo, p. 64); nada é aceito com máscara,
-    porque o manual não a prevê, e uma máscara seria palpite sobre o formato.
-    Só o primeiro 0000 conta: o manual limita o registro a uma ocorrência.
+    - 0000 repetido é ERRO: um arquivo de uma empresa só. Antes, a concatenação de dois
+      arquivos de empresas diferentes passava sem aviso, e a conferência era contornável.
+    - 0000 sem CNPJ é AVISO: não há como conferir a empresa, e o contador precisa saber.
+    - CNPJ presente: guarda em `documento_declarado` (campo 06, p. 64), na forma canônica
+      (maiúsculas, sem máscara). CNPJ alfanumérico (RC-46) é aceito. Quem confere com a
+      empresa é o núcleo.
     """
-    if len(campos) <= _INDICE_DO_CNPJ_NO_0000 or resultado.documento_declarado is not None:
-        return
-    cnpj = campos[_INDICE_DO_CNPJ_NO_0000].strip()
+    if primeiro_0000 is not None:
+        ocorrencias.append(
+            Ocorrencia(
+                numero,
+                "0000",
+                NIVEL_ERRO,
+                f"registro 0000 repetido (primeiro na linha {primeiro_0000}). Um arquivo "
+                "traz a abertura de uma empresa só.",
+            )
+        )
+        return primeiro_0000
+    cnpj = (
+        campos[_INDICE_DO_CNPJ_NO_0000].strip().upper()
+        if len(campos) > _INDICE_DO_CNPJ_NO_0000
+        else ""
+    )
     if not cnpj:
-        return
-    if not _PADRAO_CNPJ_DIGITOS.fullmatch(cnpj):
+        ocorrencias.append(
+            Ocorrencia(
+                numero,
+                "0000.06",
+                NIVEL_AVISO,
+                "registro 0000 sem CNPJ (campo 06, p. 64): a empresa do arquivo não foi conferida.",
+            )
+        )
+        return numero
+    if not _PADRAO_CNPJ.fullmatch(cnpj):
         ocorrencias.append(
             Ocorrencia(
                 numero,
                 "0000.06",
                 NIVEL_ERRO,
-                "CNPJ do registro 0000 (campo 06, p. 64) deve ter 14 dígitos, sem máscara. "
-                "Não é possível conferir a empresa.",
+                "CNPJ do registro 0000 (campo 06, p. 64) deve ter 14 caracteres: 12 letras "
+                "maiúsculas ou dígitos e 2 dígitos verificadores, sem máscara (RC-46). Não é "
+                "possível conferir a empresa.",
             )
         )
-        return
+        return numero
     resultado.documento_declarado = cnpj
+    return numero
 
 
 def ler(conteudo: bytes) -> ResultadoLeitura:
@@ -449,6 +485,7 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
     i050s = []  # I050 aceitos, em ordem de arquivo
     recusados = {}  # código -> linha, de I050 recusado (para a cascata abaixo)
     ultimo = None  # _I050 aceito, _I050_RECUSADO, ou None (sem I050 acima)
+    primeiro_0000 = None  # linha do primeiro 0000 (A9: repetido é erro, sem 0000 é aviso)
 
     for numero, bruta in enumerate(texto.split("\n"), start=1):
         linha = bruta.rstrip("\r")
@@ -482,8 +519,8 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
 
         if reg == REGISTRO_DE_IDENTIFICACAO:
             # O 0000 não entra no plano, mas traz o CNPJ que o núcleo confere com a
-            # empresa (ver `_ler_documento_do_0000`). Continua contado como ignorado.
-            _ler_documento_do_0000(numero, campos, resultado, ocorrencias)
+            # empresa (ver `_ler_0000`). Continua contado como ignorado.
+            primeiro_0000 = _ler_0000(numero, campos, resultado, ocorrencias, primeiro_0000)
 
         if reg not in REGISTROS_FILHOS_DO_I050:
             # Outro registro encerra a associação com o I050 anterior.
@@ -613,6 +650,18 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
                 natureza=None,  # HI-88: a ECD não traz natureza.
                 codigo_origem=None,
                 referencial=i050.referencial,
+                tipos_aceitos=i050.tipos_aceitos,
+            )
+        )
+
+    if primeiro_0000 is None:
+        ocorrencias.append(
+            Ocorrencia(
+                0,
+                "0000",
+                NIVEL_AVISO,
+                "o arquivo não traz o registro 0000: a empresa do arquivo não conferida. "
+                "Confira que o trecho é mesmo desta empresa antes de aplicar.",
             )
         )
 

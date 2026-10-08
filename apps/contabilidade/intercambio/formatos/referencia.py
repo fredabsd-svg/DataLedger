@@ -19,9 +19,12 @@ O QUE O MANUAL DEFINE, e o que este módulo aplica:
 
 O QUE O MANUAL NÃO DEFINE, e como este módulo trata. Nada disto é apresentado como
 regra do manual:
-- se a linha começa ou termina com `|`: não define. O LEITOR é tolerante: tira um
-  `|` no início e um `|` no fim, se houver, e avisa uma vez por arquivo que esse
-  formato foi aceito. O ESCRITOR não põe `|` nas pontas.
+- se a linha começa e termina com `|`: a edição de 2018 do manual não diz. A forma
+  CANÔNICA deste módulo é a do exemplo oficial do fornecedor (`|REG|campo|...|campo|`,
+  com `|` no início e no fim), segundo pesquisa do arquiteto de 08/10/2026. O ESCRITOR
+  escreve assim. O LEITOR aceita a forma com barras SEM aviso e a forma sem barras com
+  UM aviso por arquivo, dizendo que ela não é a do exemplo oficial. O exemplo do fornecedor
+  não foi copiado para o repositório (RC-167).
 - codificação e fim de linha: não definidos no capítulo consultado. Adotamos
   ISO-8859-1 e CRLF, como a ECD e o Carnê-Leão (HI-41). É decisão do projeto. A
   leitura aceita UTF-8 com aviso.
@@ -96,35 +99,59 @@ def _campo(campos, numero):
 
 
 def _separar_linha(linha):
-    """(campos, tirou_barra_nas_pontas) de uma linha, com a barra das pontas tolerada.
+    """Campos de uma linha, com a barra das pontas tolerada (e não exigida).
 
-    A contagem LITERAL vem primeiro: uma linha `0200|...|A||||` tem 11 campos, e o último
-    `|` é o separador do campo vazio, não uma barra de ponta. Só se a literal não bate
-    com o registro é que se tenta tirar um `|` inicial e/ou um `|` final. Entre as
-    opções, a que dá a contagem do registro é a escolhida. Se nenhuma dá, vale a literal,
-    e a contagem errada é recusada com a linha.
+    A forma canônica tem `|` no início e no fim de cada registro: `|0200|...|A||||`. A
+    contagem é a de campos entre os separadores, com o identificador incluído. Quando a
+    linha tem barra nas pontas, ela é tirada; a contagem vale para a forma com barras,
+    que é a canônica. A forma sem barras também é lida, e o aviso de "não é a forma do
+    exemplo oficial" é dado por quem chama (ver `ler`).
+
+    Entre as opções (com e sem a barra de cada ponta), vale a que dá a contagem do
+    registro. Se nenhuma dá, vale a contagem literal, e a diferença é recusada com a linha.
     """
     inicio = linha.startswith(SEPARADOR)
     fim = linha.endswith(SEPARADOR)
     opcoes = []
-    for tira_inicio in (False, True) if inicio else (False,):
-        for tira_fim in (False, True) if fim else (False,):
+    # Ordem de preferência: com as DUAS barras tiradas primeiro (a canônica). Tirar só uma
+    # barra daria, para `|0200|...|`, um campo a mais que casaria com o registro por engano.
+    for tira_inicio in (True, False) if inicio else (False,):
+        for tira_fim in (True, False) if fim else (False,):
             nucleo = linha
             if tira_inicio:
                 nucleo = nucleo[len(SEPARADOR) :]
             if tira_fim and nucleo.endswith(SEPARADOR):
                 nucleo = nucleo[: -len(SEPARADOR)]
-            campos = nucleo.split(SEPARADOR)
-            opcoes.append((tira_inicio or tira_fim, campos))
+            opcoes.append(nucleo.split(SEPARADOR))
 
-    for com_barras, campos in opcoes:
+    for campos in opcoes:
         registro = campos[0].strip()
         if registro in CAMPOS_POR_REGISTRO and len(campos) == CAMPOS_POR_REGISTRO[registro]:
-            return campos, com_barras
-    for com_barras, campos in opcoes:
+            return campos
+    for campos in opcoes:
         if _PADRAO_REGISTRO.fullmatch(campos[0].strip()):
-            return campos, com_barras  # registro que o produto não usa: contado, não conferido
-    return opcoes[0][1], False
+            return campos  # registro que o produto não usa: contado, não conferido
+    return opcoes[0]
+
+
+def _linha_do_leiaute(campos):
+    """Linha escrita na forma canônica: `|` no início, `|` entre os campos e `|` no fim."""
+    return SEPARADOR + SEPARADOR.join(campos) + SEPARADOR
+
+
+def _e_cnpj_alfanumerico(texto):
+    """True se `texto` é um CNPJ de 14 caracteres com letras (RC-46), sem contar máscara.
+
+    Recusado NOMEADO neste leiaute: a edição de 2018 do manual só define inscrição numérica.
+    """
+    canonico = re.sub(r"[./\- ]", "", texto or "").upper()
+    return bool(re.fullmatch(r"[A-Z0-9]{14}", canonico)) and bool(re.search(r"[A-Z]", canonico))
+
+
+MENSAGEM_CNPJ_ALFANUMERICO = (
+    "o leiaute do sistema de referência, edição de 2018, só define inscrição numérica; "
+    "CNPJ alfanumérico ainda não é suportado nesse formato."
+)
 
 
 # -----------------------------------------------------------------------------
@@ -378,14 +405,17 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
     conta_acima = None  # o último 0200, enquanto o próximo registro não for outro
     linha_do_documento = None
 
-    barras_nas_pontas = False
+    sem_barras_nas_pontas = False
     for numero, bruta in enumerate(texto.split("\n"), start=1):
         linha = bruta.rstrip("\r")
         if not linha.strip():
             continue
 
-        brutos, com_barras_nas_pontas = _separar_linha(linha)
-        barras_nas_pontas = barras_nas_pontas or com_barras_nas_pontas
+        # Forma canônica: `|` no início e no fim. A forma sem barras é aceita, com UM aviso
+        # por arquivo (ver adiante); a com barras não gera aviso.
+        if not (linha.startswith(SEPARADOR) and linha.endswith(SEPARADOR)):
+            sem_barras_nas_pontas = True
+        brutos = _separar_linha(linha)
         if not any(valor.strip() for valor in brutos):
             conta_acima = None  # linha só com barras: não tem registro
             continue
@@ -412,16 +442,10 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
         campos = [valor.strip() for valor in brutos]
         esperados = CAMPOS_POR_REGISTRO[registro]
         if len(campos) != esperados:
-            if len(campos) == esperados + 1 and campos[-1] == "":
-                mensagem = (
-                    f"a linha do registro {registro} termina com '|'. O manual não define se o "
-                    "separador fecha a linha, e o importador não supõe. Retire o '|' final."
-                )
-            else:
-                mensagem = (
-                    f"o registro {registro} tem {esperados} campos (identificador incluído); "
-                    f"a linha tem {len(campos)}."
-                )
+            mensagem = (
+                f"o registro {registro} tem {esperados} campos (identificador incluído); "
+                f"a linha tem {len(campos)}."
+            )
             ocorrencias.append(Ocorrencia(numero, registro, NIVEL_ERRO, mensagem))
             if registro == REG_CONTA:
                 # Conta com estrutura errada: não entra. Mesmo assim, o 0250 dela
@@ -452,15 +476,14 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
             if not re.search(r"[^0-9./\- ]", inscricao):
                 digitos = _documento_valido(inscricao)
             if digitos is None:
-                ocorrencias.append(
-                    Ocorrencia(
-                        numero,
-                        "0000.2",
-                        NIVEL_ERRO,
-                        "inscrição da empresa deve ser CNPJ (14) ou CPF (11), com ou sem "
-                        "máscara (registro 0000, campo 2).",
-                    )
+                # A6/RC-46: CNPJ com letra tem mensagem própria, e não a genérica de "CNPJ (14)".
+                mensagem = (
+                    MENSAGEM_CNPJ_ALFANUMERICO
+                    if _e_cnpj_alfanumerico(inscricao)
+                    else "inscrição da empresa deve ser CNPJ (14) ou CPF (11), com ou sem "
+                    "máscara (registro 0000, campo 2)."
                 )
+                ocorrencias.append(Ocorrencia(numero, "0000.2", NIVEL_ERRO, mensagem))
             else:
                 # Máscara é normalizada aqui; o núcleo compara só os dígitos.
                 resultado.documento_declarado = digitos
@@ -486,14 +509,15 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
             )
         )
 
-    if barras_nas_pontas:
+    if sem_barras_nas_pontas:
         ocorrencias.append(
             Ocorrencia(
                 0,
                 "formato",
                 NIVEL_AVISO,
-                "o arquivo traz '|' nas pontas de algumas linhas. O manual não define esse "
-                "formato: o importador aceitou e descartou essas barras. Confira o arquivo.",
+                "o arquivo traz linhas sem '|' no início e no fim: não é a forma do exemplo "
+                "oficial do fornecedor, que tem '|' nas pontas de cada registro. O importador "
+                "aceitou a forma sem barras. Confira o arquivo.",
             )
         )
     _montar_contas(contas_lidas, resultado, ocorrencias)
@@ -504,8 +528,12 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
 
 
 def _montar_contas(contas_lidas, resultado, ocorrencias):
-    """Converte os `_Conta` válidos em `ContaLida`, com a superior derivada."""
-    existentes = {conta.classificacao for conta in contas_lidas if conta.classificacao}
+    """Converte os `_Conta` válidos em `ContaLida`, com as superiores POSSÍVEIS.
+
+    O leitor não escolhe a superior contra o cadastro: não o conhece. Entrega o imediato
+    (`codigo_pai`) e a lista de prefixos (`superiores_candidatas`), e o núcleo escolhe o
+    maior que existe no arquivo OU no cadastro (A3).
+    """
     vistos = {}
     for conta in contas_lidas:
         if not conta.valido:
@@ -523,15 +551,16 @@ def _montar_contas(contas_lidas, resultado, ocorrencias):
             continue
         vistos[conta.classificacao] = conta.linha
 
-        pai = derivar_pai(conta.classificacao, existentes)
-        if pai is not None and SEPARADOR_DE_NIVEL not in conta.classificacao:
+        candidatas = _prefixos_da_classificacao(conta.classificacao)
+        imediato = candidatas[0] if candidatas else None
+        if imediato is not None and SEPARADOR_DE_NIVEL not in conta.classificacao:
             ocorrencias.append(
                 Ocorrencia(
                     conta.linha,
                     "0200.3",
                     NIVEL_AVISO,
-                    f"superior '{pai}' tomada pelo prefixo da classificação, sem separador de "
-                    "nível (o manual não define máscara). Confira a hierarquia.",
+                    f"superior '{imediato}' tomada pelo prefixo da classificação, sem separador "
+                    "de nível (o manual não define máscara). Confira a hierarquia.",
                 )
             )
         resultado.contas.append(
@@ -539,13 +568,14 @@ def _montar_contas(contas_lidas, resultado, ocorrencias):
                 linha=conta.linha,
                 codigo=conta.classificacao,
                 nome=conta.nome,
-                codigo_pai=pai,
+                codigo_pai=imediato,
                 analitica=conta.analitica,
                 tipo=None,  # HI-87: o arquivo não traz tipo.
                 natureza=None,  # HI-88: o arquivo não traz natureza.
                 codigo_origem=conta.reduzido,
                 referencial=conta.referencial,
                 ativa=conta.ativa,
+                superiores_candidatas=tuple(candidatas),
             )
         )
 
@@ -605,6 +635,8 @@ def escrever(contas, *, data_alteracao=None, documento=None):
         raise IntercambioRecusado(
             "o leiaute do sistema de referência exige o CNPJ/CPF da empresa no registro 0000."
         )
+    if _e_cnpj_alfanumerico(documento):
+        raise IntercambioRecusado(MENSAGEM_CNPJ_ALFANUMERICO)
     digitos = _documento_valido(documento)
     if digitos is None:
         raise IntercambioRecusado("o CNPJ/CPF da empresa para o registro 0000 é inválido.")
@@ -664,10 +696,11 @@ def escrever(contas, *, data_alteracao=None, documento=None):
         )
 
     reduzidos = {codigo: n for n, codigo in enumerate(sorted(codigos), start=1)}
-    linhas = [SEPARADOR.join([REG_DOCUMENTO, digitos])]
+    # Forma canônica: `|` no início e no fim de cada registro (ver o docstring do módulo).
+    linhas = [_linha_do_leiaute([REG_DOCUMENTO, digitos])]
     for conta in sorted(contas, key=lambda c: c.codigo):
         linhas.append(
-            SEPARADOR.join(
+            _linha_do_leiaute(
                 [
                     REG_CONTA,
                     str(reduzidos[conta.codigo]),

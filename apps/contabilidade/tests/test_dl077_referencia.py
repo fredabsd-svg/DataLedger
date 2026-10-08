@@ -51,6 +51,12 @@ def _linhas(*linhas):
 
 
 def _registro(*campos):
+    """Registro na forma CANÔNICA: `|` no início e no fim (a do exemplo oficial do fornecedor)."""
+    return "|" + "|".join(campos) + "|"
+
+
+def _registro_sem_barras(*campos):
+    """Registro SEM as barras das pontas: a leitura aceita, com aviso de forma."""
     return "|".join(campos)
 
 
@@ -117,9 +123,10 @@ def test_plano_lido_com_superior_derivada_da_classificacao_e_sem_tipo_nem_nature
 
 
 def test_superior_e_o_maior_prefixo_existente_no_arquivo():
-    """Com `1`, `1.1` e `1.1.01.001` no arquivo, a superior de `1.1.01.001` é `1.1.01`
-    se existir; sem ele, `1.1`. Escolher o prefixo mais CURTO daria `1` e esconderia a
-    hierarquia real. Este teste mata essa mutação."""
+    """O LEITOR entrega o pai imediato e as superiores possíveis, da mais próxima para a mais
+    distante. A ESCOLHA do maior prefixo existente (no arquivo OU no cadastro) é do núcleo
+    (A3, coberta em `test_dl077_correcao_nucleo.py`). Aqui: o imediato é `1.1.01` e a lista
+    de candidatas é `1.1.01`, `1.1`, `1`, nessa ordem, respeitando a fronteira de nível."""
     resultado = ler(
         _linhas(
             _cabecalho(),
@@ -130,7 +137,8 @@ def test_superior_e_o_maior_prefixo_existente_no_arquivo():
     )
 
     por_codigo = {c.codigo: c for c in resultado.contas}
-    assert por_codigo["1.1.01.001"].codigo_pai == "1.1"
+    assert por_codigo["1.1.01.001"].codigo_pai == "1.1.01"
+    assert por_codigo["1.1.01.001"].superiores_candidatas == ("1.1.01", "1.1", "1")
 
 
 def test_superior_sem_nenhum_prefixo_no_arquivo_fica_como_prefixo_imediato():
@@ -151,8 +159,11 @@ def test_classificacao_sem_separador_deriva_superior_por_prefixo_com_aviso():
         )
     )
 
+    # O leitor entrega o imediato ("110") e as candidatas; a escolha de "11" (que existe no
+    # arquivo) é do núcleo (A3).
     por_codigo = {c.codigo: c for c in resultado.contas}
-    assert por_codigo["1101"].codigo_pai == "11"
+    assert por_codigo["1101"].codigo_pai == "110"
+    assert por_codigo["1101"].superiores_candidatas == ("110", "11", "1")
     avisos = [o for o in resultado.ocorrencias if o.nivel == NIVEL_AVISO]
     assert any(o.linha == 3 and "prefixo" in o.mensagem for o in avisos)
 
@@ -296,21 +307,25 @@ def test_linha_com_numero_de_campos_errado_e_recusada_com_contagem():
 
 @pytest.mark.parametrize(
     ("com_inicio", "com_fim"),
-    [(False, False), (True, False), (False, True), (True, True)],
-    ids=["sem_barras", "so_inicio", "so_fim", "inicio_e_fim"],
+    [(True, True), (False, False), (True, False), (False, True)],
+    ids=["canonica_com_barras", "sem_barras", "so_inicio", "so_fim"],
 )
-def test_barras_nas_pontas_sao_toleradas_e_avisadas_uma_vez_por_arquivo(com_inicio, com_fim):
-    """O manual não diz se a linha começa/termina com `|`. O leitor tolera: tira UM `|` de
-    cada ponta, se houver, e avisa uma vez por arquivo. Os quatro casos têm o mesmo
-    resultado de conta; só o aviso muda."""
+def test_barras_nas_pontas_canonicas_sem_aviso_e_sem_barras_com_um_aviso_por_arquivo(
+    com_inicio, com_fim
+):
+    """Forma canônica (`|` no início e no fim, do exemplo oficial do fornecedor): sem aviso.
+    Qualquer outra forma é aceita, e gera UM aviso por arquivo dizendo que não é a do exemplo.
+    Os quatro casos têm o mesmo resultado de conta; só o aviso muda."""
 
     def com_pontas(linha):
         return ("|" if com_inicio else "") + linha + ("|" if com_fim else "")
 
+    # `[1:-1]` tira EXATAMENTE uma barra de cada ponta. `strip("|")` comeria também o `|` que
+    # separa os campos vazios do fim (`A||||`), e a contagem de campos mudaria.
     arquivo = _linhas(
-        com_pontas(_cabecalho()),
-        com_pontas(_conta("1", "1", "S", "Ativo")),
-        com_pontas(_conta("2", "1.1", "S", "Circulante")),
+        com_pontas(_cabecalho()[1:-1]),
+        com_pontas(_conta("1", "1", "S", "Ativo")[1:-1]),
+        com_pontas(_conta("2", "1.1", "S", "Circulante")[1:-1]),
     )
 
     resultado = ler(arquivo)
@@ -322,7 +337,9 @@ def test_barras_nas_pontas_sao_toleradas_e_avisadas_uma_vez_por_arquivo(com_inic
     ]
     assert resultado.documento_declarado == CNPJ
     avisos_de_formato = [o for o in resultado.ocorrencias if o.campo == "formato"]
-    assert len(avisos_de_formato) == (0 if not (com_inicio or com_fim) else 1)
+    # Só a forma com as DUAS barras é a canônica. Ela é a única sem aviso.
+    assert len(avisos_de_formato) == (0 if (com_inicio and com_fim) else 1)
+    assert all(o.nivel == NIVEL_AVISO for o in avisos_de_formato)
 
 
 def test_campo_vazio_no_fim_nao_e_confundido_com_barra_de_ponta():
@@ -336,7 +353,9 @@ def test_campo_vazio_no_fim_nao_e_confundido_com_barra_de_ponta():
 
 def test_barra_so_no_inicio_com_contagem_errada_continua_sendo_erro_de_campos():
     """Tolerar a barra não apaga o erro real: sem a barra, a contagem ainda tem de bater."""
-    resultado = ler(_linhas(_cabecalho(), "|" + _registro("0200", "1", "1", "S", "Ativo")))
+    resultado = ler(
+        _linhas(_cabecalho(), "|" + _registro_sem_barras("0200", "1", "1", "S", "Ativo"))
+    )
 
     assert resultado.contas == []
     erro = next(o for o in resultado.ocorrencias if o.nivel == NIVEL_ERRO and o.linha == 2)
@@ -418,10 +437,11 @@ def test_escrever_gera_0000_e_0200_em_latin1_crlf_com_codigo_reduzido_sequencial
 
     assert saida.endswith(b"\r\n")
     linhas = saida.decode("iso-8859-1").split("\r\n")[:-1]
-    assert linhas[0] == "0000|" + CNPJ  # máscara normalizada na escrita
-    assert linhas[1] == "0200|1|1|S|Ativo||A||||"
-    assert linhas[2] == "0200|2|1.1|S|Circulante||A||||"
-    assert linhas[3] == "0200|3|1.1.01|A|Caixa geral||A||||"
+    # Forma canônica: `|` no início e no fim de cada registro (decisão do arquiteto, 08/10/2026).
+    assert linhas[0] == "|0000|" + CNPJ + "|"  # máscara normalizada na escrita
+    assert linhas[1] == "|0200|1|1|S|Ativo||A|||||"
+    assert linhas[2] == "|0200|2|1.1|S|Circulante||A|||||"
+    assert linhas[3] == "|0200|3|1.1.01|A|Caixa geral||A|||||"
 
 
 def test_escrita_e_leitura_se_reproduzem_codigo_nome_superior_e_analitica():
@@ -816,9 +836,10 @@ def test_api_ida_e_volta_no_leiaute_de_referencia_preserva_estrutura_e_situacao(
     assert "leiaute-com-separador" in exportado.headers["Content-Disposition"]
     assert "nao e estavel" in exportado.headers["X-DataLedger-Avisos"]
     arquivo = exportado.content
-    assert arquivo.startswith(b"0000|" + CNPJ.encode() + b"\r\n")
-    linhas_1_2 = [linha for linha in arquivo.split(b"\r\n") if linha.split(b"|")[2:3] == [b"1.2"]]
-    assert linhas_1_2 and linhas_1_2[0].split(b"|")[6] == b"I"  # campo 7: situação real
+    assert arquivo.startswith(b"|0000|" + CNPJ.encode() + b"|\r\n")
+    # Com as barras das pontas, o índice 0 é vazio, o REG é o 1, e a classificação é o 3.
+    linhas_1_2 = [linha for linha in arquivo.split(b"\r\n") if linha.split(b"|")[3:4] == [b"1.2"]]
+    assert linhas_1_2 and linhas_1_2[0].split(b"|")[7] == b"I"  # campo 7: situação real
 
     _esvaziar_plano(empresa)
     _entrar(client, "analista-ref")

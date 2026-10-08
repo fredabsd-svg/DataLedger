@@ -7741,6 +7741,10 @@ def _prefixos_do_formulario(post):
     return mapa, erros
 
 
+# Campos de TEXTO da tela de importação (os de prefixo são tratados à parte). Ver A10.
+_CAMPOS_DE_TEXTO_DA_TELA = ("formato", "politica", "sha256", "assinatura")
+
+
 def _entrada_da_importacao(request, *, com_assinatura):
     """Lê e valida a FORMA do formulário de importação. Devolve (dados, erros).
 
@@ -7751,12 +7755,18 @@ def _entrada_da_importacao(request, *, com_assinatura):
     post = request.POST
     arquivo = request.FILES.get("arquivo")
     erros = {}
+    # A10 (BL-196): campo de TEXTO enviado como arquivo era descartado em silêncio (`post.get`
+    # não lê FILES). A recusa vai no campo, antes de qualquer leitura. `prefixo_N` e `tipo_N`
+    # são do formulário de prefixos, e o erro cai em "prefixos".
     formato = (post.get("formato") or "").strip()
     politica = (post.get("politica") or POLITICA_SO_ACRESCENTAR).strip()
 
     if arquivo is None:
         erros["arquivo"] = "Escolha o arquivo do plano de contas."
     elif arquivo.size > TAMANHO_MAXIMO_ARQUIVO_BYTES:
+        # A11 (limite de corpo): checado DEPOIS de o Django receber o corpo. O proxy à frente
+        # DEVE limitar o corpo antes do aplicativo (`client_max_body_size` ou equivalente, de
+        # implantação; não está no repositório).
         erros["arquivo"] = (
             f"arquivo com {arquivo.size} bytes; o limite é "
             f"{TAMANHO_MAXIMO_ARQUIVO_BYTES // (1024 * 1024)} MB."
@@ -7790,6 +7800,14 @@ def _entrada_da_importacao(request, *, com_assinatura):
         erros["geral"] = (
             "Faça a conferência de novo: a aplicação precisa do resumo da prévia que você revisou."
         )
+
+    # Por último, para não ser trocada pelas mensagens de valor acima: campo de texto que chegou
+    # como arquivo é recusado no próprio campo (A10).
+    for nome_enviado in request.FILES:
+        if nome_enviado in _CAMPOS_DE_TEXTO_DA_TELA:
+            erros[nome_enviado] = f"o campo '{nome_enviado}' é texto: não envie arquivo nele."
+        elif nome_enviado.startswith(("prefixo_", "tipo_")):
+            erros["prefixos"] = f"o campo '{nome_enviado}' é texto: não envie arquivo nele."
 
     dados = {
         "arquivo": arquivo,

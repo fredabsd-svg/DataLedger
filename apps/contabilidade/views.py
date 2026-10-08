@@ -2594,12 +2594,25 @@ class ArquivoAcimaDoLimite(APIException):
     default_code = "arquivo_acima_do_limite"
 
 
+# Campos de TEXTO do multipart da importação (A7/A10). Enviados como arquivo, o `.strip()`
+# da view estourava em 500 (BL-196/R6-2). A recusa sai antes de qualquer leitura, no campo.
+_CAMPOS_DE_TEXTO_DA_IMPORTACAO = ("formato", "politica", "prefixos", "sha256", "assinatura")
+
+
 def _entrada_da_importacao(request, *, com_token):
     """Lê e valida os campos do multipart. Devolve (formato, política, prefixos, arquivo).
 
     `com_token=True` (aplicação) exige também `sha256` e `assinatura`, os dois
     valores que a prévia devolveu. Erro de campo vira 400 com o nome do campo.
     """
+    erros_de_texto = {
+        campo: [f"o campo '{campo}' é texto: não envie arquivo nele."]
+        for campo in _CAMPOS_DE_TEXTO_DA_IMPORTACAO
+        if campo in request.FILES
+    }
+    if erros_de_texto:
+        raise DRFValidationError(erros_de_texto)
+
     arquivo = request.FILES.get("arquivo")
     erros = {}
     if arquivo is None:
@@ -2641,6 +2654,10 @@ def _entrada_da_importacao(request, *, com_token):
 
     if erros:
         raise DRFValidationError(erros)
+    # A11 (limite de corpo): esta checagem vem DEPOIS de o Django receber o corpo inteiro, e
+    # é por isso que não basta. O limite de corpo da requisição (ex.: `client_max_body_size`
+    # no proxy à frente) é de implantação e não está no repositório: o proxy DEVE limitar o
+    # corpo antes do aplicativo, senão o servidor grava um arquivo grande em disco antes do 413.
     if arquivo.size > TAMANHO_MAXIMO_ARQUIVO_BYTES:
         raise ArquivoAcimaDoLimite(
             f"arquivo com {arquivo.size} bytes; o limite é "
@@ -2661,7 +2678,11 @@ def _ler_e_conferir(empresa, arquivo, formato, politica, prefixos):
         raise ArquivoAcimaDoLimite(exc.mensagem) from exc
     except IntercambioRecusado as exc:
         raise DRFValidationError({"arquivo": [exc.mensagem]}) from exc
-    return conferir_plano(empresa, resultado, politica, prefixos)
+    try:
+        return conferir_plano(empresa, resultado, politica, prefixos)
+    except ArquivoGrandeDemais as exc:
+        # Teto de contas por importação (A6): é o núcleo que recusa, e a API responde 413.
+        raise ArquivoAcimaDoLimite(exc.mensagem) from exc
 
 
 def _ocorrencia_como_dict(ocorrencia):

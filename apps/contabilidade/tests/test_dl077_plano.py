@@ -99,7 +99,9 @@ def test_arquivo_com_tipo_e_natureza_em_empresa_vazia_cria_tudo_com_origem_no_ar
     assert (caixa.natureza, caixa.origem_natureza) == ("devedora", "arquivo")
     assert caixa.codigo_pai == "1"
     assert caixa.analitica is True
-    assert _avisos(previa) == set()
+    # A12: conta nova sem classificação gera o aviso de classificar depois (linha 0). É o
+    # único aviso que este teste espera.
+    assert _avisos(previa) == {(0, "classificacao")}
 
 
 def test_tipo_herdado_da_conta_superior_quando_o_arquivo_nao_diz(empresa):
@@ -186,7 +188,14 @@ def test_natureza_presumida_pelo_tipo_gera_aviso_por_conta_HI88(empresa):
     )
 
     assert not previa.tem_erro, previa.ocorrencias
-    assert _avisos(previa) == {(2, "natureza"), (3, "natureza"), (4, "natureza"), (5, "natureza")}
+    # A12: além dos avisos de natureza por conta, o aviso de classificação pendente (linha 0).
+    assert _avisos(previa) == {
+        (0, "classificacao"),
+        (2, "natureza"),
+        (3, "natureza"),
+        (4, "natureza"),
+        (5, "natureza"),
+    }
     assert _item(previa, "1").natureza == "devedora"
     assert _item(previa, "3.1").natureza == "credora"
     assert _item(previa, "1.1").origem_natureza == "presumida_pelo_tipo"
@@ -202,7 +211,9 @@ def test_natureza_informada_pelo_arquivo_nao_gera_aviso_nem_e_trocada(empresa):
         ),
     )
 
-    assert _avisos(previa) == set()
+    # A12: conta nova sem classificação gera o aviso de classificar depois (linha 0). É o
+    # único aviso que este teste espera.
+    assert _avisos(previa) == {(0, "classificacao")}
     redutora = _item(previa, "1.2")
     assert (redutora.natureza, redutora.origem_natureza) == ("credora", "arquivo")
 
