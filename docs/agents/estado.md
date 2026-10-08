@@ -136,7 +136,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-068](../planos/DL-068-prontidao-para-implantacao.md) | Prontidão para implantação: Django 6.1.2, limite no login do admin, `.dockerignore`, `DJANGO_AMBIENTE` (BL-82) e proxies `/0` (BL-577) | **Integrada (PR #91, squash `7c23894`, merge feito pelo Fred em 07/10/2026)** — auditoria e reconferência aprovadas com ressalvas; R1 com o Fred (BL-642) |
 | [DL-069](../planos/DL-069-travas-no-banco.md) | Travas no banco: livro-caixa imutável, período encerrado recusa INSERT, trilha imutável | Situação em **[Próximo passo](#próximo-passo)** — fatias 1 e 2 integradas (PR #92 e #93); fatia 3 bloqueada na PE-77 |
 | [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md) | Melhorias do repositório com equipe multiagente (RC-160): entradas do acesso, consultas por linha, testes que faltavam | Integrada (PR #94, squash `76cb92a`) — auditoria e reconferência aprovadas com ressalvas; BL-652 a BL-654 abertos |
-| [DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) | A marcação manual da DMPL respeita o período fechado (BL-655) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) | A marcação manual da DMPL respeita o período fechado (BL-655) | Integrada (PR #95, squash `389aafe`) — auditoria e reconferência aprovadas com ressalvas; BL-656 a BL-659 abertos |
 | [DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) | Fiscal F1: escrituração das NFS-e prestadas (natureza, competência, estorno, conferência) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -161,8 +161,11 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 **AGORA, em 08/10/2026:**
 
 1. **[DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) — a
-   marcação manual da DMPL respeita o período fechado (BL-655): em revisão**
-   na branch `ccr-bf4b4a55-hpqgbp`, PR para a `main` a abrir. Nível 1.
+   marcação manual da DMPL respeita o período fechado (BL-655): INTEGRADA**
+   pelo [PR #95](https://github.com/fredabsd-svg/DataLedger/pull/95), squash
+   `389aafe`, em 08/10/2026, com os quatro checks verdes em todas as
+   execuções do último commit; merge feito pelo arquiteto sob a RC-164.
+   Nível 1.
    [Rodada 1](../auditorias/2026-10-08-dl-071-rodada-1.md) **APROVADA COM
    RESSALVAS**; correção única (`f4f2a72`, Haiku);
    [reconferência](../auditorias/2026-10-08-dl-071-reconferencia.md)
@@ -176,8 +179,8 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 2. **[DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) — Fiscal
    F1, escrituração das NFS-e prestadas: em desenvolvimento.** Frente A
    (domínio, API) em cópia isolada (`/home/user/wt-dl072a`, branch
-   `dl072-frente-a`), para entrar depois do merge da DL-071; frente B (telas)
-   em seguida.
+   `dl072-frente-a`, partindo de `a3076c6`), a integrar por cherry-pick na
+   branch recomeçada da `main` em `389aafe`; frente B (telas) em seguida.
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `f4f2a72`, medida pelo auditor):** `pytest`
