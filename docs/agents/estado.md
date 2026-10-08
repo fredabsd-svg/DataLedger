@@ -250,7 +250,16 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
      20 min no PR #100; desde então, todas as execuções verdes.
    - **Fatias 2 e 3 — exportar lançamentos e saldos; importar lançamentos
      com área de conferência, de-para e efetivação: implementadas, em
-     auditoria** (rodada 1, Sonnet), em cópia isolada sobre a fatia 1 final.
+     auditoria**, em cópia isolada sobre a fatia 1 final.
+     [Rodada 1](../auditorias/2026-10-08-dl-077-fatias-2-3-rodada-1.md):
+     **REPROVADA** — A1 (alta: "só os válidos" ignorava erro do arquivo
+     inteiro e gravou lançamentos de outra empresa no Diário), A2 a A7
+     (byte nulo dava 500; teto não limitava o custo; mais de 200 partidas
+     travava a efetivação; exportar e reimportar dobrava o Diário sem aviso;
+     histórico fora do Latin-1 impedia exportar o período; soma da
+     efetivação parcial). Exportação e conciliação com o balancete,
+     atomicidade, imutabilidade e isolamento aprovados. Correção única em
+     andamento.
      Suíte completa: 7.091 aprovados, 1 reprovado (ambiente). Teto de 2.000
      lançamentos por arquivo (efetivar 2.000 leva ~21 s; o servidor padrão
      corta em 30 s).
