@@ -9,6 +9,11 @@ Cobre os achados do domínio (docs/auditorias/2026-10-08-dl-072-dl-073-rodada-1.
   escritos à mão;
 - A10: a tela de uma nota usa o mesmo cálculo da lista, sem o mês inteiro.
 
+Reconferência (docs/auditorias/2026-10-08-dl-072-dl-073-reconferencia.md):
+- R1: aceitar a sugestão nunca gera divergência;
+- R4: o estorno continua possível depois de o documento mudar;
+- R5: os totais da conferência somam centavos sem float.
+
 Dados 100% sintéticos (xml_sinteticos.py), recebidos pelo pipeline real.
 """
 
@@ -21,6 +26,7 @@ from apps.fiscal import services
 from apps.fiscal.models import (
     DocumentoFiscal,
     EscrituracaoFiscal,
+    EstadoEscrituracao,
     NaturezaOperacao,
     PapelDocumento,
     VinculoDocumentoEmpresa,
@@ -164,6 +170,44 @@ def test_rascunho_com_natureza_que_contradiz_o_xml_tambem_avisa(
 
 
 # ---------------------------------------------------------------------------
+# Reconferência R1 — aceitar a sugestão nunca gera divergência
+# ---------------------------------------------------------------------------
+
+# Código de não incidência por versão (XSD, ver escrituracao.py). Só serve para
+# escrever a expectativa do teste, de forma independente da implementação.
+_NAO_INCIDENCIA_POR_VERSAO = {"1.00": "3", "1.01": "4"}
+
+
+@pytest.mark.parametrize("tp_ret_issqn", ["1", "2", "3"])
+@pytest.mark.parametrize("trib_issqn", ["1", "2", "3", "4", None])
+@pytest.mark.parametrize("versao", ["1.00", "1.01"])
+def test_aceitar_a_sugestao_nunca_gera_divergencia(
+    escritorio_a, empresa_a, usuario_gestor_a, versao, trib_issqn, tp_ret_issqn
+):
+    documento = _nota(
+        escritorio_a,
+        usuario_gestor_a,
+        versao=versao,
+        trib_issqn=trib_issqn,
+        tp_ret_issqn=tp_ret_issqn,
+    )
+    vinculo = _vinculo(documento, empresa_a)
+    sugerida = servico.nota_do_vinculo(empresa_a, vinculo).natureza_sugerida
+
+    # A única combinação sem sugestão é a não incidência sem retenção (HI-67). A
+    # expectativa é conferida, e o caso não é pulado.
+    sem_sugestao = tp_ret_issqn == "1" and trib_issqn == _NAO_INCIDENCIA_POR_VERSAO[versao]
+    assert (sugerida is None) == sem_sugestao
+    if sugerida is None:
+        return
+
+    servico.efetivar_escrituracao(vinculo, sugerida, usuario_gestor_a)
+
+    assert servico.nota_do_vinculo(empresa_a, vinculo).divergencias_de_natureza == ()
+    assert servico.conferencia(empresa_a, 2024, 1).divergencias == []
+
+
+# ---------------------------------------------------------------------------
 # A8 — totais em R$ e conciliação com valores escritos à mão
 # ---------------------------------------------------------------------------
 
@@ -206,6 +250,19 @@ def test_conciliacao_aponta_documento_alterado_depois_da_escrituracao(
     assert conferencia.diferenca_escrituradas == Decimal("-0.01")
 
 
+def test_totais_da_conferencia_somam_centavos_sem_float(escritorio_a, empresa_a, usuario_gestor_a):
+    # Reconferência R5: em float, 0,10 + 0,20 dá 0,30000000000000004, e um valor de 15
+    # dígitos inteiros (o máximo de vServ) perde os centavos. O total tem que sair exato.
+    _nota(escritorio_a, usuario_gestor_a, sufixo=1, v_serv="0.10", v_liq="0.10")
+    _nota(escritorio_a, usuario_gestor_a, sufixo=2, v_serv="0.20", v_liq="0.20")
+    _nota(escritorio_a, usuario_gestor_a, sufixo=3, v_serv="999999999999999.99", v_liq="1.00")
+
+    conferencia = servico.conferencia(empresa_a, 2024, 1)
+
+    assert conferencia.total_recebidas == Decimal("1000000000000000.29")
+    assert str(conferencia.total_pendentes) == "1000000000000000.29"
+
+
 # ---------------------------------------------------------------------------
 # A10 — a tela de uma nota usa a mesma regra da lista, sem o mês inteiro
 # ---------------------------------------------------------------------------
@@ -243,3 +300,25 @@ def test_nota_do_vinculo_de_tomada_e_none_e_de_outra_empresa_levanta(
     assert servico.nota_do_vinculo(empresa_a2, tomador) is None
     with pytest.raises(ValueError):
         servico.nota_do_vinculo(empresa_a2, _vinculo(documento, empresa_a))
+
+
+# ---------------------------------------------------------------------------
+# Reconferência R4 — o estorno não depende do documento estar igual à efetivação
+# ---------------------------------------------------------------------------
+
+
+def test_estorno_funciona_mesmo_depois_de_o_documento_mudar(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
+    # A checagem de valores vale para a EFETIVAÇÃO (e para o INSERT de estornada), nunca
+    # para o UPDATE de estorno. Se o documento muda depois, o estorno continua possível:
+    # é quando ele é mais necessário.
+    documento = _nota(escritorio_a, usuario_gestor_a, v_serv="10.00", v_liq="10.00")
+    efetivada = servico.efetivar_escrituracao(
+        _vinculo(documento, empresa_a), DEVIDO, usuario_gestor_a
+    )
+    DocumentoFiscal.objects.filter(pk=documento.pk).update(v_serv=Decimal("11.00"))
+
+    estornada = servico.estornar_escrituracao(efetivada, "documento mudou", usuario_gestor_a)
+
+    assert estornada.estado == EstadoEscrituracao.ESTORNADA

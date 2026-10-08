@@ -42,12 +42,12 @@ NATUREZA = NaturezaOperacao.PRESTADO_ISS_DEVIDO_PRESTADOR
 OUTRA_NATUREZA = NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO
 
 
-def _nota(escritorio, usuario, sufixo=1):
+def _nota(escritorio, usuario, sufixo=1, **kwargs):
     identificador = identificador_nfse(sufixo)
     services.receber_envio(
         escritorio=escritorio,
         usuario=usuario,
-        arquivo=xml_nfse(identificador=identificador, numero=str(sufixo)),
+        arquivo=xml_nfse(identificador=identificador, numero=str(sufixo), **kwargs),
         nome_arquivo="nota.xml",
     )
     return DocumentoFiscal.objects.get(escritorio=escritorio, identificador=identificador)
@@ -496,3 +496,117 @@ def test_efetivada_com_os_valores_do_documento_e_aceita_pelo_banco(
         **_valores_do_ato(usuario_gestor_a),
     )
     assert EscrituracaoFiscal.objects.filter(estado=EstadoEscrituracao.EFETIVADA).count() == 1
+
+
+# ---------------------------------------------------------------------------
+# Reconferência R2 — o gatilho confere o INSERT de estornada e o iss_retido
+# ---------------------------------------------------------------------------
+
+
+def _estornada_do_ato(usuario, **trocados):
+    """Colunas de uma escrituração que NASCE estornada, com os valores do documento."""
+    return _valores_do_ato(
+        usuario,
+        estado=EstadoEscrituracao.ESTORNADA,
+        estornada_em=timezone.now(),
+        estornada_por=usuario,
+        motivo_estorno="criada estornada por teste",
+        **trocados,
+    )
+
+
+@pytest.mark.parametrize("trocado", [*_VALOR_ALHEIO, {"iss_retido": True}])
+def test_insert_de_estornada_com_valor_alheio_ao_documento_e_recusado_pelo_banco(
+    escritorio_a, empresa_a, usuario_gestor_a, trocado
+):
+    # Uma linha que nasce estornada também é um ato gravado, e não muda depois. Por isso
+    # o INSERT dela é conferido. O UPDATE de estorno não é (ver R4 em correcao_auditoria).
+    nota = _nota(escritorio_a, usuario_gestor_a)
+
+    _recusa_do_banco(
+        _RESTRICAO_DOS_VALORES,
+        lambda: EscrituracaoFiscal.objects.create(
+            vinculo=_vinculo(nota, empresa_a),
+            empresa=empresa_a,
+            criado_por=usuario_gestor_a,
+            **_estornada_do_ato(usuario_gestor_a, **trocado),
+        ),
+    )
+    assert EscrituracaoFiscal.objects.count() == 0
+
+
+# tpRetISSQN 2 ou 3 é retenção (HI-67). O par (tp, iss) abaixo é incoerente quando
+# iss_retido não corresponde à retenção do documento.
+_TP_RET_E_ISS_INCOERENTE = [("1", True), ("2", False), ("3", False)]
+_TP_RET_E_ISS_COERENTE = [("1", False), ("2", True), ("3", True)]
+
+
+@pytest.mark.parametrize(("tp_ret_issqn", "iss_retido"), _TP_RET_E_ISS_INCOERENTE)
+def test_insert_de_efetivada_com_iss_retido_incoerente_e_recusado_pelo_banco(
+    escritorio_a, empresa_a, usuario_gestor_a, tp_ret_issqn, iss_retido
+):
+    nota = _nota(escritorio_a, usuario_gestor_a, tp_ret_issqn=tp_ret_issqn)
+
+    _recusa_do_banco(
+        _RESTRICAO_DOS_VALORES,
+        lambda: EscrituracaoFiscal.objects.create(
+            vinculo=_vinculo(nota, empresa_a),
+            empresa=empresa_a,
+            criado_por=usuario_gestor_a,
+            **_valores_do_ato(usuario_gestor_a, iss_retido=iss_retido),
+        ),
+    )
+    assert EscrituracaoFiscal.objects.count() == 0
+
+
+@pytest.mark.parametrize(("tp_ret_issqn", "iss_retido"), _TP_RET_E_ISS_INCOERENTE)
+def test_update_de_rascunho_para_efetivada_com_iss_retido_incoerente_e_recusado_pelo_banco(
+    escritorio_a, empresa_a, usuario_gestor_a, tp_ret_issqn, iss_retido
+):
+    nota = _nota(escritorio_a, usuario_gestor_a, tp_ret_issqn=tp_ret_issqn)
+    rascunho = servico.salvar_rascunho(_vinculo(nota, empresa_a), NATUREZA, usuario_gestor_a)
+
+    _recusa_do_banco(
+        _RESTRICAO_DOS_VALORES,
+        lambda: EscrituracaoFiscal.objects.filter(pk=rascunho.pk).update(
+            **_valores_do_ato(usuario_gestor_a, iss_retido=iss_retido)
+        ),
+    )
+    assert EscrituracaoFiscal.objects.get(pk=rascunho.pk).estado == EstadoEscrituracao.RASCUNHO
+
+
+@pytest.mark.parametrize("estado", [EstadoEscrituracao.EFETIVADA, EstadoEscrituracao.ESTORNADA])
+@pytest.mark.parametrize(("tp_ret_issqn", "iss_retido"), _TP_RET_E_ISS_COERENTE)
+def test_ato_com_iss_retido_coerente_com_o_documento_e_aceito_pelo_banco(
+    escritorio_a, empresa_a, usuario_gestor_a, estado, tp_ret_issqn, iss_retido
+):
+    # Controle positivo: a checagem nova não recusa o ato legítimo, em nenhum dos dois estados.
+    nota = _nota(escritorio_a, usuario_gestor_a, tp_ret_issqn=tp_ret_issqn)
+    if estado == EstadoEscrituracao.ESTORNADA:
+        valores = _estornada_do_ato(usuario_gestor_a, iss_retido=iss_retido)
+    else:
+        valores = _valores_do_ato(usuario_gestor_a, iss_retido=iss_retido)
+
+    EscrituracaoFiscal.objects.create(
+        vinculo=_vinculo(nota, empresa_a),
+        empresa=empresa_a,
+        criado_por=usuario_gestor_a,
+        **valores,
+    )
+    assert EscrituracaoFiscal.objects.filter(estado=estado).count() == 1
+
+
+def test_efetivar_e_estornar_pelo_servico_seguem_funcionando_com_retencao(
+    escritorio_a, empresa_a, usuario_gestor_a
+):
+    # Caminho normal com a checagem nova: o serviço copia o iss_retido do documento, e o
+    # estorno (um UPDATE) continua aceito pelo banco.
+    nota = _nota(escritorio_a, usuario_gestor_a, tp_ret_issqn="2")
+    efetivada = servico.efetivar_escrituracao(
+        _vinculo(nota, empresa_a), NaturezaOperacao.PRESTADO_ISS_RETIDO, usuario_gestor_a
+    )
+    assert efetivada.iss_retido is True
+
+    estornada = servico.estornar_escrituracao(efetivada, "lançamento errado", usuario_gestor_a)
+
+    assert estornada.estado == EstadoEscrituracao.ESTORNADA

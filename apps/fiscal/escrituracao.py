@@ -179,18 +179,63 @@ def _data_de_emissao(documento: DocumentoFiscal) -> date | None:
     return _ler_xml(documento).dia_emissao
 
 
-def _sugestao(documento: DocumentoFiscal, trib_issqn: str | None) -> NaturezaOperacao | None:
-    if _iss_retido(documento):
-        return NaturezaOperacao.PRESTADO_ISS_RETIDO
+# Naturezas que o XML NÃO contradiz quando ele não diz exportação: todas, menos a
+# própria exportação, que é a única que a regra A7 (b) contradiz. Devido, outro
+# município, fora da lista, imune e retido são escolhas que esse XML não desmente.
+# Outro município e fora da lista nunca são sugeridas (HI-67), então compará-las com
+# a sugestão daria aviso falso. Retido sem tpRetISSQN 2 ou 3 também fica aceito: a
+# regra A7 não cobre essa direção, e a correção não a amplia.
+_NAO_CONTRADITO_SEM_EXPORTACAO = frozenset(NaturezaOperacao.values) - {
+    NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO
+}
+
+
+@dataclass(frozen=True)
+class _Veredito:
+    """O que o XML diz sobre a natureza, calculado em UM lugar (reconferência R1).
+
+    `sugerida` é o que o contador vê pré-selecionado. `aceitas` são as naturezas
+    que o XML não contradiz, e a divergência é "natureza gravada FORA de `aceitas`".
+    Os dois saem da mesma passada, pela mesma precedência, então não podem divergir:
+    a sugestão está sempre em `aceitas` (teste nas 30 combinações de versão,
+    tribISSQN e tpRetISSQN). `retido` e `exportacao` são os fatos do XML que a
+    mensagem de aviso cita.
+    """
+
+    sugerida: NaturezaOperacao | None
+    aceitas: frozenset
+    retido: bool
+    exportacao: bool
+
+
+def _veredito(documento: DocumentoFiscal, trib_issqn: str | None) -> _Veredito:
+    # Precedência da sugestão (HI-67): retenção, exportação, imunidade, não incidência
+    # (sugestão None), e por fim devido. A primeira regra que casa vence.
+    retido = _iss_retido(documento)
+    codigos = _TRIB_ISSQN_POR_VERSAO.get(documento.versao, {})
+    exportacao = trib_issqn is not None and trib_issqn == codigos.get("exportacao")
+    if retido:
+        # A retenção vence o tribISSQN na sugestão. Exportação no XML não contradiz
+        # a retenção, então as duas são aceitas, e a escolha entre elas é do contador.
+        aceitas = {NaturezaOperacao.PRESTADO_ISS_RETIDO}
+        if exportacao:
+            aceitas.add(NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO)
+        return _Veredito(NaturezaOperacao.PRESTADO_ISS_RETIDO, frozenset(aceitas), True, exportacao)
+    if exportacao:
+        return _Veredito(
+            NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO,
+            frozenset({NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO}),
+            False,
+            True,
+        )
+    sugerida = NaturezaOperacao.PRESTADO_ISS_DEVIDO_PRESTADOR
     if trib_issqn is not None:
-        codigos = _TRIB_ISSQN_POR_VERSAO[documento.versao]
-        if trib_issqn == codigos["exportacao"]:
-            return NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO
-        if trib_issqn == codigos["imunidade"]:
-            return NaturezaOperacao.PRESTADO_ISS_IMUNE_ISENTO_REDUZIDO
-        if trib_issqn == codigos["nao_incidencia"]:
-            return None
-    return NaturezaOperacao.PRESTADO_ISS_DEVIDO_PRESTADOR
+        if trib_issqn == codigos.get("imunidade"):
+            sugerida = NaturezaOperacao.PRESTADO_ISS_IMUNE_ISENTO_REDUZIDO
+        elif trib_issqn == codigos.get("nao_incidencia"):
+            sugerida = None
+    # Imunidade não tem regra de divergência em A7: o escopo da correção não a inclui.
+    return _Veredito(sugerida, _NAO_CONTRADITO_SEM_EXPORTACAO, False, False)
 
 
 def sugerir_natureza(documento: DocumentoFiscal) -> NaturezaOperacao | None:
@@ -208,8 +253,9 @@ def sugerir_natureza(documento: DocumentoFiscal) -> NaturezaOperacao | None:
 
     NUNCA sugere "ISS devido a outro município" nem "fora da lista da LC 116".
     Os códigos de `tribISSQN` estão conferidos nos XSD: ver `_TRIB_ISSQN_POR_VERSAO`.
+    A sugestão e a divergência da natureza saem do mesmo `_Veredito` (reconferência R1).
     """
-    return _sugestao(documento, _ler_xml(documento).trib_issqn)
+    return _veredito(documento, _ler_xml(documento).trib_issqn).sugerida
 
 
 @dataclass(frozen=True)
@@ -354,19 +400,19 @@ def _montar_nota(
     documento: DocumentoFiscal,
     escrituracao: EscrituracaoFiscal | None,
 ) -> NotaPrestada:
-    # Uma leitura do XML por nota: a data (HI-72), o tribISSQN (sugestão e A7).
+    # Uma leitura do XML por nota (HI-72: a data; tribISSQN) e UM veredito, que alimenta
+    # a sugestão e a divergência (R1). Não se recalcula uma coisa a partir da outra.
     leitura = _ler_xml(documento)
+    veredito = _veredito(documento, leitura.trib_issqn)
     divergencias = ()
     if escrituracao is not None:
-        divergencias = tuple(
-            _divergencias_da_natureza(escrituracao.natureza, documento, leitura.trib_issqn)
-        )
+        divergencias = tuple(_divergencias_da_natureza(escrituracao.natureza, veredito, documento))
     return NotaPrestada(
         vinculo=vinculo,
         documento=documento,
         situacao=_situacao(documento, escrituracao),
         escrituracao=escrituracao,
-        natureza_sugerida=_sugestao(documento, leitura.trib_issqn),
+        natureza_sugerida=veredito.sugerida,
         data_emissao=leitura.dia_emissao,
         divergencias_de_natureza=divergencias,
     )
@@ -384,27 +430,33 @@ _NATUREZAS_QUE_CONTRADIZEM_RETENCAO = frozenset(
 
 
 def _divergencias_da_natureza(
-    natureza: str, documento: DocumentoFiscal, trib_issqn: str | None
+    natureza: str, veredito: _Veredito, documento: DocumentoFiscal
 ) -> list[str]:
     """Contradições entre a natureza GRAVADA e o XML (auditoria A7, HI-59 "avisa").
 
-    Só relata: o contador decide, e a divergência não bloqueia a efetivação. As três
-    regras são as da tabela de conferência, e nenhuma presume código novo.
+    Só relata: o contador decide, e a divergência não bloqueia a efetivação.
+
+    Por que a regra é "fora de `aceitas`", e não "diferente da sugestão" (R1): a
+    sugestão é a pré-seleção de uma precedência, não tudo o que o XML permite. Com
+    "diferente da sugestão", um outro município escolhido pelo contador, num XML sem
+    retenção nem exportação, viraria aviso falso. Aceitar a sugestão nunca gera aviso,
+    porque a sugestão sempre está em `aceitas`. As mensagens continuam por regra, e
+    só saem quando a natureza já foi recusada por `aceitas`.
     """
+    if natureza in veredito.aceitas:
+        return []
     avisos = []
-    if _iss_retido(documento) and natureza in _NATUREZAS_QUE_CONTRADIZEM_RETENCAO:
+    if veredito.retido and natureza in _NATUREZAS_QUE_CONTRADIZEM_RETENCAO:
         avisos.append(
             f"O XML indica retenção do ISS (tpRetISSQN {documento.tp_ret_issqn}), "
             f"mas a natureza gravada é '{NaturezaOperacao(natureza).label}'."
         )
-    codigo_exportacao = _TRIB_ISSQN_POR_VERSAO.get(documento.versao, {}).get("exportacao")
-    xml_diz_exportacao = codigo_exportacao is not None and trib_issqn == codigo_exportacao
-    if natureza == NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO and not xml_diz_exportacao:
+    if natureza == NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO and not veredito.exportacao:
         avisos.append(
             "A natureza gravada é exportação de serviço, mas o XML não traz "
             "tribISSQN de exportação."
         )
-    if natureza != NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO and xml_diz_exportacao:
+    if natureza != NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO and veredito.exportacao:
         avisos.append(
             "O XML traz tribISSQN de exportação, mas a natureza gravada é "
             f"'{NaturezaOperacao(natureza).label}'."

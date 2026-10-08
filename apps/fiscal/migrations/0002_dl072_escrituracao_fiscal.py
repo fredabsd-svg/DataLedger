@@ -13,12 +13,17 @@ from django.db import migrations, models
 #    para um vínculo de PRESTADOR da MESMA empresa (a coluna `empresa_id` é
 #    redundante com `vinculo.empresa`, e o banco confere a igualdade).
 #    A mesma função confere, para a linha EFETIVADA, que `valor_servico`,
-#    `valor_liquido` e `data_competencia` são os do documento do vínculo (`vServ`,
-#    `vLiq`, `dCompet`). Restrição `escrituracao_efetivada_bate_com_o_documento`
-#    (auditoria A4): sem ela, um INSERT direto gravaria um ato fiscal com valor
-#    que o documento não tem, e a trava de imutabilidade o congelaria. Coluna
-#    NULA não é conferida aqui: passa para a coerência de campos (CHECK), que a
-#    recusa. Estorno (`estornada`) não é conferido, para nunca bloquear o estorno.
+#    `valor_liquido`, `data_competencia` e `iss_retido` são os do documento do
+#    vínculo (`vServ`, `vLiq`, `dCompet`, e `tpRetISSQN` 2 ou 3 = retido).
+#    Restrição `escrituracao_efetivada_bate_com_o_documento` (auditoria A4 e R2 da
+#    reconferência): sem ela, um INSERT direto gravaria um ato fiscal com valor que
+#    o documento não tem, e a trava de imutabilidade o congelaria. A conferência
+#    vale para a efetivada (INSERT e UPDATE) e para o INSERT de uma linha que já
+#    nasce estornada, porque também é um ato gravado. NÃO vale para o UPDATE de
+#    estorno (R4): se o documento mudou depois da efetivação, o estorno continua
+#    possível. Coluna NULA não é conferida aqui: passa para a coerência de campos
+#    (CHECK), que a recusa. `data_emissao` também não é conferida no banco: o dia
+#    só existe no XML guardado, que o banco não lê.
 #
 # 2. `escrituracao_imutavel_depois_de_efetivada`: transições permitidas, e
 #    só estas — rascunho -> rascunho/efetivada; efetivada -> estornada, e
@@ -39,9 +44,10 @@ DECLARE
     v_serv fiscal_documentofiscal.v_serv%TYPE;
     v_liq fiscal_documentofiscal.v_liq%TYPE;
     v_competencia fiscal_documentofiscal.d_competencia%TYPE;
+    v_tp_ret fiscal_documentofiscal.tp_ret_issqn%TYPE;
 BEGIN
-    SELECT v.empresa_id, v.papel, d.v_serv, d.v_liq, d.d_competencia
-      INTO v_empresa_id, v_papel, v_serv, v_liq, v_competencia
+    SELECT v.empresa_id, v.papel, d.v_serv, d.v_liq, d.d_competencia, d.tp_ret_issqn
+      INTO v_empresa_id, v_papel, v_serv, v_liq, v_competencia, v_tp_ret
       FROM fiscal_vinculodocumentoempresa AS v
       JOIN fiscal_documentofiscal AS d ON d.id = v.documento_id
      WHERE v.id = NEW.vinculo_id;
@@ -50,13 +56,17 @@ BEGIN
             USING ERRCODE = '23514',
                   CONSTRAINT = 'escrituracao_vinculo_prestador_da_empresa';
     END IF;
-    -- A4: a efetivada carrega os valores do documento. NULL fica para o CHECK.
-    IF NEW.estado = 'efetivada' AND (
+    -- A4 e R2: a efetivada carrega os valores do documento, e um INSERT que já nasce
+    -- estornada também (é um ato gravado). O UPDATE de estorno não é conferido (R4).
+    -- NULL fica para o CHECK. iss_retido segue tpRetISSQN, como em _iss_retido().
+    IF (NEW.estado = 'efetivada' OR (TG_OP = 'INSERT' AND NEW.estado = 'estornada')) AND (
            (NEW.valor_servico IS NOT NULL AND NEW.valor_servico <> v_serv)
         OR (NEW.valor_liquido IS NOT NULL AND NEW.valor_liquido <> v_liq)
         OR (NEW.data_competencia IS NOT NULL AND NEW.data_competencia <> v_competencia)
+        OR (NEW.iss_retido IS NOT NULL
+            AND NEW.iss_retido <> (COALESCE(v_tp_ret, '') IN ('2', '3')))
     ) THEN
-        RAISE EXCEPTION 'escrituração efetivada precisa ter os valores do documento'
+        RAISE EXCEPTION 'escrituração precisa ter os valores e a retenção do documento de origem'
             USING ERRCODE = '23514',
                   CONSTRAINT = 'escrituracao_efetivada_bate_com_o_documento';
     END IF;
