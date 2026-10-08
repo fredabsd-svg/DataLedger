@@ -36,7 +36,7 @@ from apps.fiscal.tests.suporte_tomada_dl078 import (
 from apps.fiscal.tests.xml_tomada_dl078 import CPF_PRESTADOR_SINTETICO
 from apps.tenancy.models import Papel, VinculoUsuarioEscritorio
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("relogio_do_teste")]
 
 ANO, MES = 2026, 10
 TEXTO_DE_CONFERENCIA_DO_RETIDO = (
@@ -741,6 +741,7 @@ def test_rotas_de_tomadas_estao_no_inventario_do_dl024():
         "fiscal_web:tomada_escriturar",
         "fiscal_web:tomada_estornar",
         "fiscal_web:tomada_data_pagamento",
+        "fiscal_web:tomada_data_pagamento_limpar",
         "fiscal_web:iss_retido_a_recolher",
         "fiscal_web:retencoes_federais",
     }

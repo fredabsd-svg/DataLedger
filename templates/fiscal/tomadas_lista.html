@@ -81,6 +81,9 @@ origem diz qual das duas é.
                             <td>
                                 {{ linha.natureza }}
                                 <br><span class="texto-apoio">{{ linha.origem_natureza }}</span>
+                                {% if linha.bloqueio %}
+                                    <br><span class="texto-apoio">{{ linha.bloqueio }}</span>
+                                {% endif %}
                             </td>
                             <td>
                                 {{ linha.situacao }}

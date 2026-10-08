@@ -91,6 +91,8 @@ from apps.fiscal import receita as servico_receita
 from apps.fiscal import retencoes as servico_retencoes
 from apps.fiscal import simples_tabelas as tabelas
 from apps.fiscal import tomadas as servico_tomadas
+from apps.fiscal.formatacao_ptbr import milhar_ptbr as _milhar_ptbr
+from apps.fiscal.formatacao_ptbr import valor_ptbr as _valor_ptbr
 from apps.fiscal.models import (
     AliquotaIssMunicipal,
     AtividadeEmpresa,
@@ -169,43 +171,9 @@ CLASSE_CSS_POR_RESULTADO = {
 _SITUACOES_VALIDAS = frozenset({"valida", "cancelada"})
 
 
-# ---------------------------------------------------------------------------
-# Formatação de apresentação (mesmo espírito de `apps.contabilidade.
-# views_web._valor_ptbr`/`_milhar_ptbr` — NÃO importado de lá: é
-# apresentação pura, sem regra de negócio, e os dois módulos não têm uma
-# dependência um do outro nem um lugar comum para este utilitário hoje.
-# Sinalizado no relatório de entrega como candidato a `apps.core` — mover
-# exigiria tocar em `apps/contabilidade/views_web.py`, fora dos arquivos
-# desta etapa).
-# ---------------------------------------------------------------------------
-
-
-def _milhar_ptbr(parte_inteira):
-    negativo = parte_inteira.startswith("-")
-    digitos = parte_inteira[1:] if negativo else parte_inteira
-    grupos = []
-    while len(digitos) > 3:
-        grupos.insert(0, digitos[-3:])
-        digitos = digitos[:-3]
-    grupos.insert(0, digitos)
-    resultado = ".".join(grupos)
-    return f"-{resultado}" if negativo else resultado
-
-
-def _valor_ptbr(valor):
-    """`Decimal` -> texto pt-BR, sempre duas casas, '.' de milhar, ','
-    decimal. Nunca recebe `float` (AGENTS.md §10) — `v_serv`/`v_liq` chegam
-    como `Decimal` desde `apps.fiscal.leitor` (DE-010) e permanecem assim
-    até aqui."""
-    if valor is None:
-        return "—"
-    quantizado = Decimal(valor).quantize(Decimal("0.01"))
-    sinal, digitos, expoente = quantizado.as_tuple()
-    texto_digitos = "".join(str(d) for d in digitos).rjust(3, "0")
-    parte_inteira = texto_digitos[:-2] or "0"
-    parte_decimal = texto_digitos[-2:]
-    resultado = f"{_milhar_ptbr(parte_inteira)},{parte_decimal}"
-    return f"-{resultado}" if sinal else resultado
+# Formatação pt-BR de apresentação: `_valor_ptbr` e `_milhar_ptbr` moram em
+# `apps.fiscal.formatacao_ptbr` (importados no topo) desde a DL-078 (auditoria A6), para que o
+# serviço de tomadas use o mesmo formatador nos avisos, sem importar a camada de tela.
 
 
 # ---------------------------------------------------------------------------
@@ -4020,24 +3988,8 @@ _DESCRICAO_DA_NATUREZA_TOMADA = {
     ),
 }
 
-# Por que a natureza foi SUGERIDA: o sinal do XML que `sugerir_natureza` leu (ordem da consulta,
-# item 1). Só apresentação; se a ordem das regras mudar, este texto acompanha.
-_PORQUE_DA_SUGESTAO_TOMADA = {
-    NaturezaTomada.TOMADO_ISS_RETIDO_PELO_CLIENTE: (
-        "o XML traz tpRetISSQN 2 (ISS retido pelo tomador)."
-    ),
-    NaturezaTomada.TOMADO_DE_MEI: "o XML traz opSimpNac 2 (MEI), e não traz tpRetISSQN 2.",
-    NaturezaTomada.TOMADO_DE_SIMPLES: (
-        "o XML traz opSimpNac 3 (ME/EPP do Simples), e não traz tpRetISSQN 2."
-    ),
-    NaturezaTomada.TOMADO_DE_PESSOA_FISICA: (
-        "o prestador é pessoa física (CPF), sem opSimpNac 2 ou 3 e sem tpRetISSQN 2."
-    ),
-    NaturezaTomada.TOMADO_PRESTADOR_OUTRO_MUNICIPIO: (
-        "o XML traz tpRetISSQN 1 e o município de incidência é diferente do município da prestação."
-    ),
-    NaturezaTomada.TOMADO_SEM_RETENCAO: "o XML traz tpRetISSQN 1, sem outro sinal de natureza.",
-}
+# O motivo da sugestão (o sinal do XML) vem do SERVIÇO, com a natureza: `NotaTomada.motivo_sugestao`
+# (auditoria A7). A tela não repete a ordem das regras em texto.
 
 _CONTRATO_ESCRITURAR_TOMADA = ContratoDeRequisicao(
     campos={"csrfmiddlewaretoken", "natureza", "acao"},
@@ -4054,7 +4006,16 @@ _CONTRATO_DATA_PAGAMENTO_TOMADA = ContratoDeRequisicao(
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na data de pagamento da nota tomada",
 )
-_ACAO_DATA_PAGAMENTO_TOMADA = "escrituracao_tomada.data_pagamento_informada"
+# Ações da trilha da data de pagamento (informada e limpa): a tela mostra as duas.
+_ACOES_DA_DATA_DE_PAGAMENTO = (
+    "escrituracao_tomada.data_pagamento_informada",
+    "escrituracao_tomada.data_pagamento_limpa",
+)
+_CONTRATO_LIMPAR_DATA_PAGAMENTO_TOMADA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na limpeza da data de pagamento da nota tomada",
+)
 
 
 def _escrituracao_tomada_da_empresa(request, empresa, escrituracao_id):
@@ -4127,6 +4088,8 @@ def _linha_da_tomada(nota, empresa, pode_escriturar, municipio, nomes):
         "v_serv_ptbr": _valor_ptbr(documento.v_serv),
         "natureza": natureza,
         "origem_natureza": origem,
+        # Recusa nomeada (ex.: tpEmit 2 ou 3) aparece na lista, e não só na tela de escriturar.
+        "bloqueio": nota.bloqueio,
         "situacao": _ROTULO_DE_SITUACAO.get(nota.situacao, nota.situacao),
         "acao": _acao_da_tomada(nota, empresa, pode_escriturar),
     }
@@ -4196,22 +4159,27 @@ def _recusa_da_natureza_escolhida(documento, natureza):
     """Motivo, em texto, pelo qual a natureza ESCOLHIDA não pode ser efetivada nesta nota, ou None.
 
     A regra (T1 exige tpRetISSQN 2; T2 e T3 exigem tpRetISSQN 1) mora em
-    `apps.fiscal.tomadas._recusa_de_natureza`. A tela a consulta só para decidir se o botão
+    `apps.fiscal.tomadas.recusa_de_natureza`. A tela a consulta só para decidir se o botão
     Efetivar aparece habilitado; o servidor recusa de novo na efetivação, de qualquer forma.
     """
     if natureza not in NaturezaTomada.values:
         return servico_tomadas.MENSAGEM_NATUREZA_FORA_DO_CATALOGO
-    return servico_tomadas._recusa_de_natureza(natureza, campos_tomada_do_documento(documento))
+    return servico_tomadas.recusa_de_natureza(natureza, campos_tomada_do_documento(documento))
 
 
 def _estado_dos_botoes(nota, documento, natureza):
     """`(pode_rascunho, motivo_rascunho, pode_efetivar, motivo_efetivar)`. O motivo é texto e vai
-    na tela ao lado do botão desabilitado (direção de arte §2.B: nunca o botão sumindo)."""
-    sem_natureza = "Escolha a natureza da operação antes de salvar ou efetivar."
-    if not natureza:
-        return False, sem_natureza, False, sem_natureza
+    na tela ao lado do botão desabilitado (direção de arte §2.B: nunca o botão sumindo).
+
+    A ORDEM importa (auditoria A2): o bloqueio da nota (tpEmit 2 ou 3) é testado ANTES da natureza.
+    Se a natureza vazia viesse primeiro, o motivo real da recusa nunca apareceria na tela.
+    """
     if nota.bloqueio:
         return False, nota.bloqueio, False, nota.bloqueio
+    if not natureza:
+        # Sem natureza escolhida, os botões ficam HABILITADOS: a tela não tem JavaScript para
+        # destravar um botão desabilitado, e o servidor já recusa a natureza vazia com mensagem.
+        return True, "", True, ""
     recusa = _recusa_da_natureza_escolhida(documento, natureza)
     return True, "", recusa is None, recusa or ""
 
@@ -4242,7 +4210,8 @@ def _tela_de_escriturar_tomada(request, empresa, vinculo, *, natureza=None, stat
         "natureza_sugerida_rotulo": (
             NaturezaTomada(sugerida).label if sugerida is not None else ROTULO_SEM_SUGESTAO
         ),
-        "porque_sugestao": _PORQUE_DA_SUGESTAO_TOMADA.get(sugerida, ""),
+        # O sinal do XML que o serviço usou para sugerir (auditoria A7).
+        "porque_sugestao": nota.motivo_sugestao if nota is not None else "",
         "situacao_rotulo": (
             _ROTULO_DE_SITUACAO.get(nota.situacao, nota.situacao) if nota is not None else None
         ),
@@ -4416,7 +4385,7 @@ def _trilha_do_pagamento(request, escrituracao):
             escritorio=request.escritorio,
             objeto_tipo="EscrituracaoTomada",
             objeto_id=str(escrituracao.pk),
-            acao=_ACAO_DATA_PAGAMENTO_TOMADA,
+            acao__in=_ACOES_DA_DATA_DE_PAGAMENTO,
         )
         .select_related("usuario")
         .order_by("criado_em", "id")
@@ -4429,13 +4398,29 @@ def _trilha_do_pagamento(request, escrituracao):
         trilha.append(
             {
                 "quando": timezone.localtime(registro.criado_em).strftime("%d/%m/%Y %H:%M"),
+                "operacao": (
+                    "Data limpa"
+                    if registro.acao == "escrituracao_tomada.data_pagamento_limpa"
+                    else "Data informada"
+                ),
                 "usuario": registro.usuario.get_username() if registro.usuario else "—",
                 "antes": _data_iso_na_tela(antes.get("data_pagamento")),
                 "depois": _data_iso_na_tela(depois.get("data_pagamento")),
-                "motivo": depois.get("motivo_pagamento", ""),
+                # A limpeza grava o motivo em `detalhes`; a informação, na coluna da nota.
+                "motivo": detalhes.get("motivo", depois.get("motivo_pagamento", "")),
             }
         )
     return trilha
+
+
+def _janela_da_data_de_pagamento_na_tela(escrituracao):
+    """`janela_inicio` e `janela_fim` para o texto de ajuda, ou None. Vem do serviço (HI-98)."""
+    if escrituracao.data_emissao is None:
+        return {"janela_inicio": None, "janela_fim": None}
+    inicio, fim = servico_tomadas.janela_da_data_de_pagamento(
+        escrituracao.data_emissao, servico_tomadas.hoje()
+    )
+    return {"janela_inicio": inicio, "janela_fim": fim}
 
 
 def _tela_de_data_pagamento(
@@ -4452,6 +4437,13 @@ def _tela_de_data_pagamento(
         "irrf_ptbr": _valor_ptbr(escrituracao.v_ret_irrf),
         "csrf_ptbr": _valor_ptbr(escrituracao.v_ret_csll),
         "data_pagamento_atual": _data_na_tela(escrituracao.data_pagamento) or "Não informada",
+        "tem_data_pagamento": escrituracao.data_pagamento is not None,
+        # Janela que o serviço aceita (HI-98). Só existe com emissão (nota efetivada).
+        **_janela_da_data_de_pagamento_na_tela(escrituracao),
+        "url_limpar_pagamento": reverse(
+            "fiscal_web:tomada_data_pagamento_limpar",
+            args=[empresa.pk, escrituracao.pk],
+        ),
         "data_digitada": data_digitada or _data_na_tela(escrituracao.data_pagamento),
         "motivo": motivo,
         "motivo_maximo": servico_tomadas.MOTIVO_MAXIMO,
@@ -4519,6 +4511,51 @@ def tomada_data_pagamento(request, empresa_id, escrituracao_id):
     if request.method == "POST":
         return _data_pagamento_post(request, empresa, escrituracao)
     return _tela_de_data_pagamento(request, empresa, escrituracao)
+
+
+def _limpar_data_pagamento_post(request, empresa, escrituracao):
+    motivo = request.POST.get("motivo", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_LIMPAR_DATA_PAGAMENTO_TOMADA)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_data_pagamento(request, empresa, escrituracao, motivo=motivo, status=400)
+
+    try:
+        limpa = servico_tomadas.limpar_data_pagamento(
+            escrituracao, motivo, usuario=request.user, request=request
+        )
+    except servico_escrituracao.EscrituracaoErro as exc:
+        # Motivo vazio ou nota não efetivada: mensagem na tela, nada gravado.
+        messages.error(request, exc.mensagem)
+        return _tela_de_data_pagamento(request, empresa, escrituracao, motivo=motivo, status=200)
+
+    if limpa.criada_agora:
+        messages.success(
+            request,
+            "Data de pagamento limpa. O IRRF e a CSRF desta nota voltaram para 'pendente de data "
+            "de pagamento'.",
+        )
+    else:
+        messages.info(request, "Esta nota já não tinha data de pagamento. Nada foi alterado.")
+    return redirect(
+        "fiscal_web:tomada_data_pagamento",
+        empresa_id=empresa.pk,
+        escrituracao_id=escrituracao.pk,
+    )
+
+
+@login_required
+@require_http_methods(["POST"])
+def tomada_data_pagamento_limpar(request, empresa_id, escrituracao_id):
+    """POST — limpa a data de pagamento (HI-96). Só na tela de data de pagamento; sem GET."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao_de_escriturar(request)
+    empresa = _empresa_escopada(request, empresa_id)
+    escrituracao = _escrituracao_tomada_da_empresa(request, empresa, escrituracao_id)
+    return _limpar_data_pagamento_post(request, empresa, escrituracao)
 
 
 # ---------------------------------------------------------------------------

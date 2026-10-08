@@ -6,6 +6,8 @@ real (`apps.fiscal.tomadas`). Nada aqui grava valor de cliente: os dados são si
 
 from __future__ import annotations
 
+from datetime import date
+
 from apps.fiscal import services, tomadas
 from apps.fiscal.models import (
     DocumentoFiscal,
@@ -18,6 +20,12 @@ from apps.fiscal.tests.xml_tomada_dl078 import xml_tomada
 
 PALMAS = "1721000"
 OUTRO_MUNICIPIO = "1100205"  # sem regra de ISS cadastrada: caso "não parametrizado"
+
+# "Hoje" fixo dos testes (AGENTS.md §7). Os cenários pagam em outubro e novembro de 2026, e a janela
+# da data de pagamento (HI-98) não aceita data futura. O relógio do teste fica em 15/12/2026, depois
+# de todos os pagamentos dos cenários, para que o resultado não dependa do dia em que o teste roda.
+# O fixture que fixa o relógio mora em `apps/fiscal/tests/conftest.py` (`relogio_do_teste`).
+DIA_DE_HOJE_NO_TESTE = date(2026, 12, 15)
 
 T1 = NaturezaTomada.TOMADO_ISS_RETIDO_PELO_CLIENTE
 T2 = NaturezaTomada.TOMADO_SEM_RETENCAO

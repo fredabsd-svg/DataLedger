@@ -50,7 +50,7 @@ FUNDAMENTO_INSS = "Lei 8.212, art. 31, red. Lei 11.933/2009 (lido); informativo,
 
 # Naturezas que totalizam o ISS retido quando tpRetISSQN é 2. A retenção não depende do tipo do
 # prestador (HI-94): T5 (MEI), T6 (Simples) e T7 (pessoa física) entram como T1. T2 e T3 ficam de
-# fora por construção: a efetivação exige tpRetISSQN 1 nelas (`tomadas._recusa_de_natureza`).
+# fora por construção: a efetivação exige tpRetISSQN 1 nelas (`tomadas.recusa_de_natureza`).
 NATUREZAS_COM_ISS_RETIDO = frozenset(
     {
         NaturezaTomada.TOMADO_ISS_RETIDO_PELO_CLIENTE,
@@ -59,6 +59,10 @@ NATUREZAS_COM_ISS_RETIDO = frozenset(
         NaturezaTomada.TOMADO_DE_PESSOA_FISICA,
     }
 )
+
+# Fundamento do aviso de pagamento anterior à emissão. Decisão de produto, não norma: a aceitação
+# da data de pagamento é a HI-98 (o Fred confirma ou ajusta). O aviso não altera nenhum total.
+FUNDAMENTO_PAGAMENTO_ANTERIOR = "HI-98 (decisão de produto, reversível): conferência, sem cálculo"
 
 # Fundamento do aviso de MEI com ISS retido. Inferência, não norma lida: o texto de LC 123, art.
 # 18-A não foi conferido nesta etapa (a citação vem do DL-067, MF-SN-12).
@@ -359,5 +363,32 @@ def retencoes_federais(empresa, ano: int, mes: int) -> RetencoesFederais:
         csrf_total=_soma(g.total for g in csrf),
         pendentes_de_pagamento=tuple(pendentes),
         canceladas=tuple(canceladas_por_id.values()),
-        avisos=_avisos_das_notas(empresa, list(notas_com_avisos.values()), regimes),
+        avisos=(
+            *_avisos_das_notas(empresa, list(notas_com_avisos.values()), regimes),
+            *_avisos_de_pagamento_anterior_a_emissao(pagas),
+        ),
+    )
+
+
+def _avisos_de_pagamento_anterior_a_emissao(
+    notas,
+) -> tuple[tuple[EscrituracaoTomada, AvisoTomada], ...]:
+    """Pagamento ANTES da emissão: aceito como adiantamento, mas com aviso (HI-98, auditoria A1).
+
+    A data é aceita pelo serviço (`tomadas.informar_data_pagamento`); o aviso fica aqui, nas
+    retenções federais, para o contador conferir. Não muda nenhum total.
+    """
+    return tuple(
+        (
+            escrituracao,
+            AvisoTomada(
+                "PAGAMENTO_ANTES_DA_EMISSAO",
+                "Nota com pagamento anterior à emissão (adiantamento) — conferir. Data de "
+                f"pagamento: {iss_municipal.data_nominal_br(escrituracao.data_pagamento)}; "
+                f"emissão: {iss_municipal.data_nominal_br(escrituracao.data_emissao)}.",
+                FUNDAMENTO_PAGAMENTO_ANTERIOR,
+            ),
+        )
+        for escrituracao in notas
+        if escrituracao.data_pagamento < escrituracao.data_emissao
     )

@@ -19,6 +19,7 @@ from apps.fiscal.api import (
     ConfirmarFolhaView,
     ConfirmarMesView,
     ConfirmarReceitaInformadaView,
+    DataPagamentoLimparTomadaView,
     DataPagamentoTomadaView,
     EfetivarNotaPrestadaView,
     EfetivarTomadaView,
@@ -94,6 +95,11 @@ urlpatterns = [
         "empresas/<int:empresa_id>/tomadas/escrituracoes/<int:escrituracao_id>/data-pagamento/",
         DataPagamentoTomadaView.as_view(),
         name="tomada_data_pagamento",
+    ),
+    path(
+        "empresas/<int:empresa_id>/tomadas/escrituracoes/<int:escrituracao_id>/data-pagamento/limpar/",
+        DataPagamentoLimparTomadaView.as_view(),
+        name="tomada_data_pagamento_limpar",
     ),
     path(
         "empresas/<int:empresa_id>/tomadas/iss-retido/",

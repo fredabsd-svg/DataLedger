@@ -63,6 +63,10 @@ e o motivo.
                        inputmode="numeric" maxlength="10" required aria-describedby="id_data_ajuda">
                 <p class="texto-apoio" id="id_data_ajuda">
                     Dia em que o valor foi pago ou creditado ao prestador. Não é a data de emissão.
+                    {% if janela_inicio %}
+                        Aceita de {{ janela_inicio|date:"d/m/Y" }} até {{ janela_fim|date:"d/m/Y" }} (hoje).
+                        Data anterior à emissão é aceita, com aviso de adiantamento.
+                    {% endif %}
                 </p>
             </div>
             <div class="campo">
@@ -75,6 +79,26 @@ e o motivo.
             </div>
             <button type="submit" class="botao botao--primario">Informar data de pagamento</button>
         </form>
+
+        {% if tem_data_pagamento %}
+            <h2>Limpar a data de pagamento</h2>
+            <p class="texto-apoio">
+                Limpar devolve o IRRF e a CSRF desta nota para "pendente de data de pagamento". Exige motivo;
+                a trilha guarda a data que estava informada.
+            </p>
+            <form method="post" action="{{ url_limpar_pagamento }}" class="formulario">
+                {% csrf_token %}
+                <div class="campo">
+                    <label for="id_motivo_limpeza">Motivo da limpeza</label>
+                    <textarea id="id_motivo_limpeza" name="motivo" required rows="3" maxlength="{{ motivo_maximo }}"
+                              aria-describedby="id_motivo_limpeza_ajuda"></textarea>
+                    <p class="texto-apoio" id="id_motivo_limpeza_ajuda">
+                        Obrigatório. Fica na trilha desta nota, com até {{ motivo_maximo }} caracteres.
+                    </p>
+                </div>
+                <button type="submit" class="botao botao--secundario">Limpar data de pagamento</button>
+            </form>
+        {% endif %}
     {% else %}
         <p class="mensagem mensagem-error" role="alert">
             <strong>Erro:</strong> a data de pagamento só é informada em escrituração efetivada. Esta está "{{ estado_rotulo }}".
@@ -84,10 +108,11 @@ e o motivo.
     <h2>Trilha da data de pagamento</h2>
     {% if trilha %}
         <table class="tabela-dados">
-            <caption>Quem informou a data de pagamento desta nota, quando, a data anterior, a nova e o motivo</caption>
+            <caption>Quem informou ou limpou a data de pagamento desta nota, quando, a data anterior, a nova e o motivo</caption>
             <thead>
                 <tr>
                     <th scope="col">Quando</th>
+                    <th scope="col">Operação</th>
                     <th scope="col">Quem informou</th>
                     <th scope="col">Data anterior</th>
                     <th scope="col">Data nova</th>
@@ -98,6 +123,7 @@ e o motivo.
                 {% for item in trilha %}
                     <tr>
                         <th scope="row">{{ item.quando }}</th>
+                        <td>{{ item.operacao }}</td>
                         <td>{{ item.usuario }}</td>
                         <td>{{ item.antes }}</td>
                         <td>{{ item.depois }}</td>

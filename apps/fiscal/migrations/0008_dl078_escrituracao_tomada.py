@@ -22,6 +22,21 @@
 #
 # Só PostgreSQL: em SQLite vale a guarda do Python. Limite declarado: TRUNCATE não aciona
 # gatilho de linha (mesmo limite da DL-052 e da DL-072).
+#
+# LIMITE DECLARADO (auditoria da DL-078, rodada 1, achado A9): o gatilho de INSERT de uma linha já
+# efetivada confere o vínculo, `valor_servico`, `valor_liquido`, `data_competencia` e
+# `tp_ret_issqn` contra o documento, mas NÃO confere `v_iss_qn`, `v_ret_cp`, `v_ret_irrf` nem
+# `v_ret_csll` contra o XML guardado: o banco não lê o XML. Um INSERT direto com `v_iss_qn`
+# forjado passa. Isso exige privilégio de ESCRITA no banco, que está fora do que a aplicação
+# expõe; a integridade dos valores do XML depende desse privilégio, não do gatilho. Conferir
+# contra o XML no gatilho exigiria copiar o XML para colunas, o que não se faz aqui.
+#
+# DATA DE PAGAMENTO LIMPA (HI-98, auditoria A1): limpar é um UPDATE que zera as colunas do grupo de
+# pagamento (`data_pagamento`, `pagamento_informado_em`, `pagamento_informado_por_id`,
+# `motivo_pagamento`). Passa pelo ramo efetivada→efetivada, que só aceita essas colunas; e a
+# restrição `escrituracao_tomada_pagamento_com_informante` aceita data nula sem as demais. Por
+# isso nenhuma regra nova foi preciso no banco. O motivo da limpeza fica na trilha da aplicação
+# (`escrituracao_tomada.data_pagamento_limpa`), não em coluna.
 
 import django.db.models.deletion
 from django.conf import settings

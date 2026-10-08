@@ -27,6 +27,11 @@ HI-93 a HI-96 em docs/projeto/requisitos.md. Decisões que o código não explic
 - A data de pagamento é o ÚNICO campo que muda depois de efetivada (HI-96). Ela só existe
   em nota efetivada, sempre com motivo e com quem e quando informou. O banco permite a
   alteração só dessas colunas (gatilho da migração 0008).
+- Janela da data de pagamento (HI-98, auditoria A1): de `data_emissao − 366 dias` até HOJE.
+  Data futura seria pagamento presumido, o que a HI-96 proíbe. Data antes da emissão é aceita
+  (adiantamento) e gera aviso em `apps.fiscal.retencoes`. A data pode ser LIMPA, com motivo e
+  trilha: a retenção volta a "pendente". Limpar grava as colunas do pagamento como nunca
+  informadas (nulas), e o motivo fica na trilha `escrituracao_tomada.data_pagamento_limpa`.
 
 Concorrência e atomicidade: cada serviço que escreve é `transaction.atomic()` e trava o
 VÍNCULO com `select_for_update` antes de decidir. A restrição parcial
@@ -37,7 +42,7 @@ entra na MESMA transação.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from django.db import IntegrityError, transaction
@@ -55,6 +60,7 @@ from apps.fiscal.escrituracao import (
     EntradaInvalidaEscrituracao,
     EscrituracaoErro,
 )
+from apps.fiscal.formatacao_ptbr import valor_ptbr
 from apps.fiscal.models import (
     DocumentoFiscal,
     EscrituracaoTomada,
@@ -84,6 +90,12 @@ TOLERANCIA_LIQUIDO = Decimal("0.01")
 PALMAS = "1721000"
 
 MOTIVO_MAXIMO = 500  # coluna `motivo_estorno` e `motivo_pagamento` (models.py)
+
+# Janela da data de pagamento (HI-98, auditoria A1). DECISÃO DE PRODUTO, não norma: a data vai de
+# `data_emissao − 366 dias` até hoje. Data futura seria pagamento presumido (HI-96 proíbe); data
+# muito antiga é, na prática, erro de digitação que tiraria IRRF e CSRF do "pendente" sem levá-los
+# a nenhum mês consultável. O Fred confirma ou ajusta o número.
+DIAS_ANTES_DA_EMISSAO_PARA_PAGAMENTO = 366
 
 _NOME_RESTRICAO_UNICA = "escrituracao_tomada_ativa_unica_por_vinculo"
 
@@ -236,9 +248,9 @@ def avisos_da_tomada(dados: DadosTomada, regime_tomador: str | None) -> tuple[Av
             avisos.append(
                 AvisoTomada(
                     "A1",
-                    f"O valor líquido ({dados.valor_liquido}) não fecha com a fórmula do XML "
-                    f"({esperado}): serviço menos descontos menos valores retidos. Termos "
-                    "ausentes contam como zero. Confira a nota.",
+                    f"O valor líquido ({valor_ptbr(dados.valor_liquido)}) não fecha com a "
+                    f"fórmula do XML ({valor_ptbr(esperado)}): serviço menos descontos menos "
+                    "valores retidos. Termos ausentes contam como zero. Confira a nota.",
                     "P&R NFS-e v1.1, item 13.2 (tolerância de R$ 0,01)",
                 )
             )
@@ -258,7 +270,7 @@ def avisos_da_tomada(dados: DadosTomada, regime_tomador: str | None) -> tuple[Av
             AvisoTomada(
                 "A2",
                 f"tpRetPisCofins {tp_pc} diz que não há retenção de PIS/COFINS/CSLL, mas vRetCSLL "
-                f"traz {csll}. Confira a nota.",
+                f"traz {valor_ptbr(csll)}. Confira a nota.",
                 "P&R NFS-e v1.1, item 13.1",
             )
         )
@@ -297,8 +309,8 @@ def avisos_da_tomada(dados: DadosTomada, regime_tomador: str | None) -> tuple[Av
             avisos.append(
                 AvisoTomada(
                     "A5",
-                    f"{nome} de {valor} está abaixo do mínimo de dispensa de R$ "
-                    f"{LIMITE_MINIMO_DISPENSA}. Confira se a retenção deveria existir.",
+                    f"{nome} de {valor_ptbr(valor)} está abaixo do mínimo de dispensa de R$ "
+                    f"{valor_ptbr(LIMITE_MINIMO_DISPENSA)}. Confira se a retenção deveria existir.",
                     "Lei 10.833, art. 31, § 3º, red. Lei 13.137/2015 (lido); Lei 9.430, art. 67",
                 )
             )
@@ -343,9 +355,10 @@ def avisos_da_tomada(dados: DadosTomada, regime_tomador: str | None) -> tuple[Av
         )
 
     # vPis e vCofins são débito próprio do prestador. Com tpRetPisCofins de retenção, o XML
-    # fica ambíguo: nunca somar os dois.
+    # fica ambíguo: nunca somar os dois. Só valor POSITIVO conta como preenchido: a P&R 13.1
+    # manda manter vPis e vCofins zerados quando há retenção, e zero não é ambiguidade (A5).
     if tp_pc in TP_RET_PIS_COFINS_COM_RETENCAO and (
-        dados.v_pis is not None or dados.v_cofins is not None
+        _positivo(dados.v_pis) or _positivo(dados.v_cofins)
     ):
         avisos.append(
             AvisoTomada(
@@ -381,48 +394,93 @@ def _recusa_do_documento(documento: DocumentoFiscal, campos: CamposTomada) -> st
     return None
 
 
-def sugerir_natureza(
+# Por que a natureza foi SUGERIDA: o sinal do XML que a ordem de `sugerir_natureza_com_motivo` leu.
+# Fica no serviço, junto da ordem, para que a tela mostre o sinal que o serviço usou e não repita
+# a ordem em texto (auditoria A7). Se a ordem mudar, este texto muda na mesma etapa.
+_PORQUE_DA_SUGESTAO = {
+    NaturezaTomada.TOMADO_ISS_RETIDO_PELO_CLIENTE: (
+        "o XML traz tpRetISSQN 2 (ISS retido pelo tomador)."
+    ),
+    NaturezaTomada.TOMADO_DE_MEI: "o XML traz opSimpNac 2 (MEI), e não traz tpRetISSQN 2.",
+    NaturezaTomada.TOMADO_DE_SIMPLES: (
+        "o XML traz opSimpNac 3 (ME/EPP do Simples), e não traz tpRetISSQN 2."
+    ),
+    NaturezaTomada.TOMADO_DE_PESSOA_FISICA: (
+        "o prestador é pessoa física (CPF), sem opSimpNac 2 ou 3 e sem tpRetISSQN 2."
+    ),
+    NaturezaTomada.TOMADO_PRESTADOR_OUTRO_MUNICIPIO: (
+        "o XML traz tpRetISSQN 1 e o município de incidência é diferente do município da prestação."
+    ),
+    NaturezaTomada.TOMADO_SEM_RETENCAO: "o XML traz tpRetISSQN 1, sem outro sinal de natureza.",
+}
+
+
+@dataclass(frozen=True)
+class SugestaoNatureza:
+    """Natureza sugerida e o motivo, em texto, do sinal do XML que a determinou.
+
+    `natureza` é None quando o XML não permite sugerir; então `motivo` é "" e a tela diz que não
+    há sugestão. Quem decide é o contador (HI-93): isto é só a leitura do XML.
+    """
+
+    natureza: NaturezaTomada | None
+    motivo: str
+
+
+def sugerir_natureza_com_motivo(
     documento: DocumentoFiscal, campos: CamposTomada | None = None
-) -> NaturezaTomada | None:
-    """Natureza SUGERIDA para a nota tomada (HI-93), ou None quando o XML não permite sugerir.
+) -> SugestaoNatureza:
+    """Natureza SUGERIDA para a nota tomada (HI-93), com o sinal do XML que a determinou.
 
     Ordem, e a primeira regra que casa vence (consulta, item 1):
-    1. tpEmit 2 ou 3 → None (fora do catálogo; a recusa diz o motivo).
+    1. tpEmit 2 ou 3 → sem sugestão (fora do catálogo; a recusa diz o motivo).
     2. tpRetISSQN 2 → T1, ISS retido pelo cliente tomador.
     3. opSimpNac 2 → T5, MEI.
     4. opSimpNac 3 → T6, ME/EPP do Simples.
     5. prestador com CPF → T7, pessoa física.
     6. tpRetISSQN 1 com cLocIncid e cLocPrestacao diferentes → T3, prestador de outro município.
     7. tpRetISSQN 1 → T2, sem retenção.
-    8. Qualquer outro caso (tpRetISSQN ausente ou inválido) → None.
+    8. Qualquer outro caso (tpRetISSQN ausente ou inválido) → sem sugestão.
     """
     campos = campos if campos is not None else campos_tomada_do_documento(documento)
+    sem_sugestao = SugestaoNatureza(natureza=None, motivo="")
     if campos.tp_emit in TP_EMIT_FORA_DO_CATALOGO or campos.tp_emit is None:
-        return None
+        return sem_sugestao
     if campos.tp_ret_issqn == "2":
-        return NaturezaTomada.TOMADO_ISS_RETIDO_PELO_CLIENTE
-    if campos.op_simp_nac == "2":
-        return NaturezaTomada.TOMADO_DE_MEI
-    if campos.op_simp_nac == "3":
-        return NaturezaTomada.TOMADO_DE_SIMPLES
-    if documento.prestador_tipo_documento == TipoDocumentoParticipante.CPF:
-        return NaturezaTomada.TOMADO_DE_PESSOA_FISICA
-    if campos.tp_ret_issqn == "1":
+        natureza = NaturezaTomada.TOMADO_ISS_RETIDO_PELO_CLIENTE
+    elif campos.op_simp_nac == "2":
+        natureza = NaturezaTomada.TOMADO_DE_MEI
+    elif campos.op_simp_nac == "3":
+        natureza = NaturezaTomada.TOMADO_DE_SIMPLES
+    elif documento.prestador_tipo_documento == TipoDocumentoParticipante.CPF:
+        natureza = NaturezaTomada.TOMADO_DE_PESSOA_FISICA
+    elif campos.tp_ret_issqn == "1":
         if (
             campos.c_loc_incid is not None
             and campos.c_loc_prestacao is not None
             and campos.c_loc_incid != campos.c_loc_prestacao
         ):
-            return NaturezaTomada.TOMADO_PRESTADOR_OUTRO_MUNICIPIO
-        return NaturezaTomada.TOMADO_SEM_RETENCAO
-    return None
+            natureza = NaturezaTomada.TOMADO_PRESTADOR_OUTRO_MUNICIPIO
+        else:
+            natureza = NaturezaTomada.TOMADO_SEM_RETENCAO
+    else:
+        return sem_sugestao
+    return SugestaoNatureza(natureza=natureza, motivo=_PORQUE_DA_SUGESTAO[natureza])
 
 
-def _recusa_de_natureza(natureza: str, campos: CamposTomada) -> str | None:
+def sugerir_natureza(
+    documento: DocumentoFiscal, campos: CamposTomada | None = None
+) -> NaturezaTomada | None:
+    """Só a natureza de `sugerir_natureza_com_motivo` (sem o motivo). Ver a ordem lá."""
+    return sugerir_natureza_com_motivo(documento, campos).natureza
+
+
+def recusa_de_natureza(natureza: str, campos: CamposTomada) -> str | None:
     """Natureza incompatível com o XML, nomeada, ou None. Só vale para efetivar (ver módulo).
 
     T1 exige tpRetISSQN 2; T2 e T3 exigem tpRetISSQN 1. As outras naturezas não têm regra de
     compatibilidade por tpRetISSQN (T5, T6 e T7 podem vir com retenção; ver `retencoes`).
+    Pública (auditoria A7): a tela a consulta para dizer por que o botão Efetivar está desabilitado.
     """
     tp = campos.tp_ret_issqn or "ausente"
     if natureza == NaturezaTomada.TOMADO_ISS_RETIDO_PELO_CLIENTE:
@@ -465,6 +523,8 @@ class NotaTomada:
     # Motivo pelo qual esta nota NÃO pode ser efetivada, ou None.
     bloqueio: str | None
     avisos: tuple[AvisoTomada, ...]
+    # Sinal do XML que determinou a sugestão (A7): a tela mostra este texto, não repete a ordem.
+    motivo_sugestao: str = ""
 
 
 def _cancelada(documento: DocumentoFiscal) -> bool:
@@ -504,15 +564,17 @@ def _montar_nota(
         if chave not in regimes:
             regimes[chave] = regime_em(vinculo.empresa, chave)
         regime = regimes[chave]
+    sugestao = sugerir_natureza_com_motivo(documento, campos)
     return NotaTomada(
         vinculo=vinculo,
         documento=documento,
         situacao=_situacao(documento, escrituracao),
         escrituracao=escrituracao,
-        natureza_sugerida=sugerir_natureza(documento, campos),
+        natureza_sugerida=sugestao.natureza,
         data_emissao=campos.data_emissao,
         bloqueio=_recusa_do_documento(documento, campos),
         avisos=avisos_da_tomada(dados, regime),
+        motivo_sugestao=sugestao.motivo,
     )
 
 
@@ -776,7 +838,7 @@ def efetivar_escrituracao_tomada(
     recusa = _recusa_do_documento(documento, campos)
     if recusa is not None:
         raise EntradaInvalidaEscrituracao(recusa)
-    recusa = _recusa_de_natureza(natureza, campos)
+    recusa = recusa_de_natureza(natureza, campos)
     if recusa is not None:
         raise EntradaInvalidaEscrituracao(recusa)
     valores = _valores_copiados(documento, campos)
@@ -884,6 +946,43 @@ def estornar_escrituracao_tomada(
     return travada
 
 
+def _data_br(dia: date) -> str:
+    # Sem `strftime`: no Linux, `%Y` de um ano menor que 1000 sai sem zeros à esquerda.
+    return f"{dia.day:02d}/{dia.month:02d}/{dia.year:04d}"
+
+
+def janela_da_data_de_pagamento(data_emissao: date, hoje: date) -> tuple[date, date]:
+    """(primeiro dia aceito, último dia aceito) para a data de pagamento de uma nota (HI-98)."""
+    try:
+        inicio = data_emissao - timedelta(days=DIAS_ANTES_DA_EMISSAO_PARA_PAGAMENTO)
+    except OverflowError:
+        # Emissão tão antiga que a subtração sai do calendário: a janela começa no primeiro dia.
+        inicio = date.min
+    return inicio, hoje
+
+
+def hoje() -> date:
+    """O dia de hoje para a janela da data de pagamento (HI-98).
+
+    Função própria para o teste fixar o relógio: as datas de pagamento dos cenários são de meses
+    posteriores ao dia real da execução, e o teste precisa de um "hoje" controlado (AGENTS.md §7).
+    """
+    return timezone.localdate()
+
+
+def _recusa_da_data_de_pagamento(data_emissao: date, data_pagamento: date) -> str | None:
+    """Motivo, em texto, de a data estar fora da janela, ou None. Nomeia a janela (HI-98)."""
+    inicio, fim = janela_da_data_de_pagamento(data_emissao, hoje())
+    if inicio <= data_pagamento <= fim:
+        return None
+    return (
+        f"Data de pagamento fora da janela aceita: de {_data_br(inicio)} "
+        f"({DIAS_ANTES_DA_EMISSAO_PARA_PAGAMENTO} dias antes da emissão, "
+        f"em {_data_br(data_emissao)}) até {_data_br(fim)} (hoje). Data futura seria pagamento "
+        "presumido, e data muito antiga costuma ser erro de digitação. Nada foi gravado."
+    )
+
+
 @transaction.atomic
 def informar_data_pagamento(
     escrituracao: EscrituracaoTomada,
@@ -897,6 +996,10 @@ def informar_data_pagamento(
     Só nota EFETIVADA recebe data de pagamento, porque é a única com retenção no total. O motivo
     é obrigatório em toda informação ou correção, e a trilha guarda o antes e o depois. Repetir a
     mesma data é no-op, como a repetição de efetivação: não é fato novo.
+
+    A data tem de estar entre `data_emissao − 366 dias` e hoje (HI-98). Data ANTES da emissão é
+    aceita como adiantamento: `apps.fiscal.retencoes` a aponta com aviso, nas retenções federais.
+    Esta função é a única porta: serviço, API e tela chamam daqui.
     """
     # `type(...) is date` e não `isinstance`: datetime é subclasse de date, e um instante com
     # hora não é o dia de pagamento que a retenção agrupa.
@@ -913,6 +1016,9 @@ def informar_data_pagamento(
             "A data de pagamento só é informada em escrituração efetivada; esta está "
             f"'{travada.get_estado_display()}'."
         )
+    recusa = _recusa_da_data_de_pagamento(travada.data_emissao, data_pagamento)
+    if recusa is not None:
+        raise EntradaInvalidaEscrituracao(recusa)
     if travada.data_pagamento == data_pagamento:
         travada.criada_agora = False
         return travada
@@ -941,6 +1047,67 @@ def informar_data_pagamento(
         request=request,
         detalhes={
             "vinculo_id": travada.vinculo_id,
+            "antes": antes,
+            "depois": _snapshot(travada),
+        },
+    )
+    return travada
+
+
+@transaction.atomic
+def limpar_data_pagamento(
+    escrituracao: EscrituracaoTomada,
+    motivo: str,
+    usuario,
+    request=None,
+) -> EscrituracaoTomada:
+    """Limpa a data de pagamento informada: a retenção volta a "pendente" (HI-96, HI-98).
+
+    Exige motivo, como toda alteração da data. As colunas do pagamento (data, quando e quem
+    informou, motivo) ficam NULAS, como numa nota que nunca teve data: o banco aceita isso (a
+    restrição `escrituracao_tomada_pagamento_com_informante` só exige o grupo quando há data). A
+    trilha `escrituracao_tomada.data_pagamento_limpa` guarda a data anterior, o motivo e quem
+    limpou. Limpar nota sem data é no-op, como repetir uma data: não é fato novo, e não grava
+    trilha.
+    """
+    motivo_limpo = _motivo_limpo(motivo, "motivo da limpeza da data de pagamento")
+    travada = (
+        EscrituracaoTomada.objects.select_for_update(of=("self",))
+        .select_related("empresa__escritorio")
+        .get(pk=escrituracao.pk)
+    )
+    if travada.estado != EstadoEscrituracao.EFETIVADA:
+        raise EscrituracaoErro(
+            "A data de pagamento só é limpa em escrituração efetivada; esta está "
+            f"'{travada.get_estado_display()}'."
+        )
+    if travada.data_pagamento is None:
+        travada.criada_agora = False
+        return travada
+
+    antes = _snapshot(travada)
+    atualizadas = EscrituracaoTomada.objects.filter(
+        pk=travada.pk, estado=EstadoEscrituracao.EFETIVADA
+    ).update(
+        data_pagamento=None,
+        pagamento_informado_em=None,
+        pagamento_informado_por=None,
+        motivo_pagamento="",
+    )
+    if atualizadas != 1:
+        raise EscrituracaoErro("A escrituração mudou enquanto a data era limpa. Atualize a lista.")
+    travada.refresh_from_db()
+    travada.criada_agora = True
+
+    registrar(
+        acao="escrituracao_tomada.data_pagamento_limpa",
+        usuario=usuario,
+        escritorio=travada.empresa.escritorio,
+        objeto=travada,
+        request=request,
+        detalhes={
+            "vinculo_id": travada.vinculo_id,
+            "motivo": motivo_limpo,
             "antes": antes,
             "depois": _snapshot(travada),
         },

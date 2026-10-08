@@ -59,6 +59,7 @@ from apps.fiscal.views_web import (
     relatorio_envio,
     retencoes_federais,
     tomada_data_pagamento,
+    tomada_data_pagamento_limpar,
     tomada_escriturar,
     tomada_estornar,
     tomadas_lista,
@@ -222,5 +223,10 @@ urlpatterns = [
         "tomadas/<int:empresa_id>/escrituracoes/<int:escrituracao_id>/data-pagamento/",
         tomada_data_pagamento,
         name="tomada_data_pagamento",
+    ),
+    path(
+        "tomadas/<int:empresa_id>/escrituracoes/<int:escrituracao_id>/data-pagamento/limpar/",
+        tomada_data_pagamento_limpar,
+        name="tomada_data_pagamento_limpar",
     ),
 ]

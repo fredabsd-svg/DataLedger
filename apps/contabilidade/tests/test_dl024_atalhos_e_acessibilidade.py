@@ -1235,6 +1235,10 @@ NOMES_DE_TELA_DOS_SERVICOS_TOMADOS = {
     "fiscal_web:tomada_data_pagamento": (
         "test_tela_data_pagamento_e_acessivel, test_informar_data_pagamento_pela_tela"
     ),
+    "fiscal_web:tomada_data_pagamento_limpar": (
+        "test_tela_limpa_com_motivo_recusa_sem_motivo_e_mostra_a_trilha, "
+        "test_tela_limpar_so_aceita_post, test_tela_limpar_de_outra_empresa_responde_404"
+    ),
     "fiscal_web:iss_retido_a_recolher": (
         "test_tela_iss_retido_a_recolher_e_acessivel, test_fluxo_por_natureza_chega_ao_iss_retido"
     ),

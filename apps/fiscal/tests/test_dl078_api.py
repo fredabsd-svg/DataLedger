@@ -24,7 +24,7 @@ from apps.fiscal.tests.suporte_tomada_dl078 import (
 )
 from apps.tenancy.models import Papel, VinculoUsuarioEscritorio
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("relogio_do_teste")]
 
 
 def _usuario(escritorio, papel, username):

@@ -1521,6 +1521,13 @@ CONTRATO_POST_DATA_PAGAMENTO = ContratoDeRequisicao(
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na informação da data de pagamento",
 )
+# Rota separada, e não um campo `limpar` na de informar: a operação é outra, tem corpo só com o
+# motivo e trilha própria (`escrituracao_tomada.data_pagamento_limpa`). Mesmo padrão do estorno.
+CONTRATO_POST_LIMPAR_DATA_PAGAMENTO = ContratoDeRequisicao(
+    campos={"motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na limpeza da data de pagamento",
+)
 
 
 class EscrituracaoTomadaSerializer(serializers.ModelSerializer):
@@ -1580,6 +1587,13 @@ class DataPagamentoEntradaSerializer(serializers.Serializer):
             "invalid": "Data de pagamento inválida: use o formato AAAA-MM-DD.",
         }
     )
+    motivo = serializers.CharField(
+        max_length=tomadas_servico.MOTIVO_MAXIMO, trim_whitespace=True, allow_blank=True
+    )
+
+
+class LimparDataPagamentoEntradaSerializer(serializers.Serializer):
+    # allow_blank: motivo vazio chega ao serviço, que responde com a mensagem em português.
     motivo = serializers.CharField(
         max_length=tomadas_servico.MOTIVO_MAXIMO, trim_whitespace=True, allow_blank=True
     )
@@ -1829,6 +1843,35 @@ class DataPagamentoTomadaView(EmpresaEscopadaMixin, APIView):
             return _resposta_de_conflito(exc)
         codigo = status.HTTP_201_CREATED if informada.criada_agora else status.HTTP_200_OK
         return Response(EscrituracaoTomadaSerializer(informada).data, status=codigo)
+
+
+class DataPagamentoLimparTomadaView(EmpresaEscopadaMixin, APIView):
+    """POST — limpa a data de pagamento de uma escrituração de tomada efetivada, com motivo.
+
+    A retenção volta a "pendente de data de pagamento" (HI-96). 200 em todos os casos de sucesso:
+    limpar nota sem data é no-op.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def post(self, request, empresa_id, escrituracao_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_LIMPAR_DATA_PAGAMENTO)
+        empresa = self.get_empresa()
+        escrituracao = get_object_or_404(EscrituracaoTomada, pk=escrituracao_id, empresa=empresa)
+        entrada = LimparDataPagamentoEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        try:
+            limpa = tomadas_servico.limpar_data_pagamento(
+                escrituracao,
+                entrada.validated_data["motivo"],
+                usuario=request.user,
+                request=request,
+            )
+        except servico.EntradaInvalidaEscrituracao as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except servico.EscrituracaoErro as exc:
+            return _resposta_de_conflito(exc)
+        return Response(EscrituracaoTomadaSerializer(limpa).data, status=status.HTTP_200_OK)
 
 
 class IssRetidoTomadoView(EmpresaEscopadaMixin, APIView):
