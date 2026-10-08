@@ -139,6 +139,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) | A marcação manual da DMPL respeita o período fechado (BL-655) | Integrada (PR #95, squash `389aafe`) — auditoria e reconferência aprovadas com ressalvas; BL-656 a BL-659 abertos |
 | [DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) | Fiscal F1: escrituração das NFS-e prestadas (natureza, competência, estorno, conferência) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-073](../planos/DL-073-validador-ibscbs.md) | Fiscal: validador de conformidade IBS/CBS das NFS-e recebidas (modo aviso, HI-61) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) | Fiscal: receita mensal, receita informada, confirmação e RBT12 do Simples por mercado | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -184,9 +185,15 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    branch recomeçada da `main` em `389aafe`; frente B (telas) em seguida.
 3. **[DL-073](../planos/DL-073-validador-ibscbs.md) — validador de
    conformidade IBS/CBS das NFS-e recebidas: em desenvolvimento**, em
-   paralelo, em cópia isolada (`/home/user/wt-dl073`). Leiaute oficial
+   paralelo; **integrado na branch** (`98c1e77`, 77 testes). Leiaute oficial
    pesquisado e registrado em
    [consultas/](../projeto/consultas/2026-10-08-leiaute-ibscbs-nfse.md).
+   A tela ainda não está no menu.
+4. **[DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) — receita
+   mensal e RBT12 do Simples: planejada**, depois do desdobramento da natureza
+   na DL-072 (HI-67). Segunda consulta ao `contador-senior` registrada em
+   [consultas/](../projeto/consultas/2026-10-08-contador-senior-rbt12.md);
+   HI-64 a HI-71.
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `f4f2a72`, medida pelo auditor):** `pytest`

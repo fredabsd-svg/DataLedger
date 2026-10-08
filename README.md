@@ -253,6 +253,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-071** — A marcação manual da DMPL passa a respeitar o período encerrado ou entregue, como a reclassificação de conta já respeitava. Situação em [estado.md](docs/agents/estado.md).
 - **DL-072** — Fiscal F1: escrituração das NFS-e prestadas pelos clientes — natureza da operação, mês pela data de competência, estorno rastreável e conferência de notas recebidas × escrituradas. Situação em [estado.md](docs/agents/estado.md).
 - **DL-073** — Fiscal: validador de conformidade do grupo IBS/CBS das NFS-e já recebidas, em modo aviso — presença, CST/cClassTrib, alíquotas de teste de 2026 e aritmética, pelo leiaute oficial. Situação em [estado.md](docs/agents/estado.md).
+- **DL-074** — Fiscal: receita mensal do Simples (notas escrituradas mais receita informada pelo contador), confirmação mensal e RBT12 por mercado, com limites como dado com vigência. Situação em [estado.md](docs/agents/estado.md).
 
 Ainda não existem:
 
