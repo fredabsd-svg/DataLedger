@@ -37,6 +37,11 @@
 # restrição `escrituracao_tomada_pagamento_com_informante` aceita data nula sem as demais. Por
 # isso nenhuma regra nova foi preciso no banco. O motivo da limpeza fica na trilha da aplicação
 # (`escrituracao_tomada.data_pagamento_limpa`), não em coluna.
+#
+# LIMITE DECLARADO (reconferência da DL-078, R2): a JANELA da data de pagamento (HI-98) e a
+# limpeza COMPLETA do grupo de pagamento só existem na aplicação. Por SQL direto, o banco aceita
+# `data_pagamento` fora da janela e `data_pagamento` nula com informante e motivo ainda
+# preenchidos. Como no A9, isso exige privilégio de escrita no banco.
 
 import django.db.models.deletion
 from django.conf import settings
