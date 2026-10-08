@@ -240,6 +240,13 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    do CNPJ do arquivo, contas inativas, prévia com tipos por prefixo e
    aplicação atômica com SHA-256, e as telas — suíte completa com 6.560
    aprovados e só a reprovação de ambiente. Dependência nova: `openpyxl`.
+   [Auditoria rodada 1](../auditorias/2026-10-08-dl-077-fatia-1-rodada-1.md):
+   **REPROVADA** — nada grava com erro e a aplicação é atômica, mas: A2
+   (conta de resultado da ECD herdava "ativo"), A3 (pai errado no leiaute de
+   referência), A4 (planilha pequena prendia o servidor 1 a 2 minutos), A5
+   (CNPJ alfanumérico recusado, contra a RC-46), A1 e A6. Correção única em
+   andamento. Fatia 2 (exportar lançamentos e saldos) em desenvolvimento em
+   paralelo.
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `4f42117`, medida na reconferência da DL-075):**
