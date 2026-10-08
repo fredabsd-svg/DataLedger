@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Exists, F, Max, OuterRef, Q
 from django.shortcuts import redirect, render
 from django.urls import NoReverseMatch, reverse
@@ -37,6 +37,11 @@ from apps.fiscal.permissoes import (
     papel_pode_receber_documentos,
 )
 from apps.fiscal.services import documentos_do_escritorio
+from apps.tenancy.forms import (
+    MENSAGEM_CNPJ_JA_CADASTRADO,
+    ConviteEmailForm,
+    PrimeiroEscritorioForm,
+)
 from apps.tenancy.models import (
     ConviteEscritorio,
     Escritorio,
@@ -913,9 +918,13 @@ def ativar_escritorio(request):
 #   token recebido (em geral via link), autenticado, e virar
 #   ANALISTA do escritório.
 #
-# A defesa é no serviço (`primeiro_acesso.py`), não nas views — aqui só
-# tradução HTTP. As exceções de domínio viram 400/403/409/410 conforme o
-# contrato.
+# As REGRAS de domínio (um escritório por usuário sem vínculo, quem pode
+# convidar, validade do convite) moram no serviço (`primeiro_acesso.py`), não
+# nas views. A view faz duas coisas além da tradução HTTP: valida a ENTRADA
+# EXTERNA pelos formulários de `apps/tenancy/forms.py` (CNPJ, nome, e-mail;
+# DL-070, BL-645 a BL-647) e restringe a busca do escritório aos vínculos do
+# próprio usuário (BL-651). As exceções de domínio viram 400/403/409/410
+# conforme o contrato.
 
 
 @login_required
@@ -954,16 +963,47 @@ def bootstrap_primeiro_acesso(request):
                 {"nome": nome, "cnpj": cnpj},
             )
 
+        # DL-070 (BL-645, BL-646): sem esta validação, CNPJ malformado era gravado
+        # como veio, máscara dava 500 (coluna de 14), CNPJ repetido dava 500 e nome
+        # acima de 200 dava 500. O banco não devolve erro de negócio, então a
+        # recusa tem de acontecer antes do serviço. A tela é a mesma, com a mensagem.
+        formulario = PrimeiroEscritorioForm({"nome": nome, "cnpj": cnpj})
+        if not formulario.is_valid():
+            for erros in formulario.errors.values():
+                for mensagem in erros:
+                    messages.error(request, mensagem)
+            return render(
+                request,
+                "tenancy/primeiro_acesso.html",
+                {"nome": nome, "cnpj": cnpj},
+            )
+
         try:
             resultado = criar_primeiro_escritorio_e_vinculo_admin(
                 usuario=request.user,
-                nome=nome,
-                cnpj=cnpj,
+                nome=formulario.cleaned_data["nome"],
+                cnpj=formulario.cleaned_data["cnpj"],
                 request=request,
             )
         except PrimeiroEscritorioJaExiste:
             messages.error(request, "Você já tem escritório ativo.")
             return redirect("tenancy:painel")
+        except IntegrityError:
+            # DL-070 (BL-645): corrida de CNPJ duplicado. A checagem do formulário
+            # passou (outra requisição gravou o CNPJ depois dela), e a unicidade do
+            # banco recusou o INSERT. O serviço é `@transaction.atomic`, então o
+            # INSERT já foi desfeito e a conexão segue utilizável. ATOMIC_REQUESTS
+            # está desligado, então esta view não roda numa transação externa.
+            # Só o caso de CNPJ já existente vira mensagem; qualquer outra violação
+            # de integridade é relançada, para não ser escondida como duplicidade.
+            if not Escritorio.objects.filter(cnpj=formulario.cleaned_data["cnpj"]).exists():
+                raise
+            messages.error(request, MENSAGEM_CNPJ_JA_CADASTRADO)
+            return render(
+                request,
+                "tenancy/primeiro_acesso.html",
+                {"nome": nome, "cnpj": cnpj},
+            )
 
         messages.success(
             request,
@@ -990,7 +1030,6 @@ def emitir_convite(request):
         return redirect("tenancy:painel")
 
     escritorio_id_raw = request.POST.get("escritorio_id")
-    email = (request.POST.get("email") or "").strip()
 
     try:
         escritorio_id = para_id(escritorio_id_raw)
@@ -998,15 +1037,24 @@ def emitir_convite(request):
         messages.error(request, "Escritório inválido.")
         return redirect("tenancy:painel")
 
-    try:
-        escritorio = Escritorio.objects.get(pk=escritorio_id)
-    except Escritorio.DoesNotExist:
+    # DL-070 (BL-651): a busca vale só pelos escritórios em que o próprio usuário
+    # tem vínculo. Se o escritório é alheio, a resposta tem de ser a mesma do id
+    # inexistente; senão a diferença de mensagem revela que o id existe. Quem tem
+    # vínculo sem ser ADMINISTRADOR ainda recebe a recusa do serviço, que segue
+    # como a autorização real.
+    escritorio = Escritorio.objects.filter(pk=escritorio_id, vinculos__usuario=request.user).first()
+    if escritorio is None:
         messages.error(request, "Escritório inválido.")
         return redirect("tenancy:painel")
 
-    if not email:
-        messages.error(request, "E-mail do convidado é obrigatório.")
+    # DL-070 (BL-647): e-mail malformado ou acima de 254 caracteres dava 500 no banco
+    # ou virava convite. A validação roda antes do serviço, e a recusa volta ao
+    # painel com a mensagem, como os outros erros desta view.
+    formulario = ConviteEmailForm(request.POST)
+    if not formulario.is_valid():
+        messages.error(request, formulario.errors["email"][0])
         return redirect("tenancy:painel")
+    email = formulario.cleaned_data["email"]
 
     try:
         convite = emitir_convite_para_escritorio(

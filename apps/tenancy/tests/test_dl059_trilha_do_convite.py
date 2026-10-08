@@ -208,6 +208,20 @@ def test_tela_do_convite_consumido_explica_e_nao_oferece_aceitar(client, cenario
     assert EMAIL_CONVITE not in html
 
 
+def test_tela_de_token_inexistente_diz_invalido_e_nao_oferece_aceitar(client, cenario):
+    # BL-600: o ramo `not convite` só ocorre com token que não existe; não pode
+    # usar o texto de expirado/consumido nem oferecer o botão de aceitar.
+    client.force_login(cenario["convidada"])
+
+    resposta = client.get(reverse("tenancy:aceitar-convite", kwargs={"token": "nao-existe"}))
+
+    html = resposta.content.decode()
+    assert resposta.status_code == 200
+    assert "inexistente ou inválido" in html
+    assert "consumido" not in html
+    assert "Aceitar e entrar" not in html
+
+
 def test_post_do_convite_consumido_continua_recusado(client, cenario):
     aceitar_convite_e_criar_vinculo(token=cenario["convite"].token, usuario=cenario["convidada"])
     vinculos = VinculoUsuarioEscritorio.objects.count()
@@ -281,7 +295,7 @@ def test_primeiro_acesso_pela_tela_grava_o_ip(client):
 
     resposta = client.post(
         reverse("tenancy:bootstrap-primeiro-acesso"),
-        {"nome": "Escritório Primeiro 059", "cnpj": "55555555000159"},
+        {"nome": "Escritório Primeiro 059", "cnpj": "12345678000195"},
         REMOTE_ADDR=IP,
     )
 

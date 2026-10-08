@@ -945,7 +945,7 @@ class EstadoMesCaixa(models.TextChoices):
     Só existem DOIS estados, e "mês sem registro" é `ABERTO` por definição
     (decisão 3 do plano): todo mês nasce aberto, sem que nenhuma linha
     precise ser criada. Não há "entregue" nem "em encerramento" — ficaram
-    fora do escopo da DL-053 (decisão 6)."""
+    fora do escopo da DL-053 (decisão 7)."""
 
     ABERTO = "aberto", "Aberto"
     ENCERRADO = "encerrado", "Encerrado"

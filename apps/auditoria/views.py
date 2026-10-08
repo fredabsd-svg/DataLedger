@@ -17,4 +17,10 @@ class RegistroAuditoriaListView(generics.ListAPIView):
     permission_classes = [TemEscritorioAtivo, papel_permitido(Papel.ADMINISTRADOR, Papel.GESTOR)]
 
     def get_queryset(self):
-        return RegistroAuditoria.objects.filter(escritorio=self.request.escritorio)
+        # BL-649 (DL-070): `usuario` é serializado por `StringRelatedField`, que
+        # chama `str(usuario)`. Sem `select_related`, cada registro de um usuário
+        # diferente fazia uma consulta própria. O filtro por escritório é o
+        # isolamento desta rota e continua exatamente igual.
+        return RegistroAuditoria.objects.filter(escritorio=self.request.escritorio).select_related(
+            "usuario"
+        )

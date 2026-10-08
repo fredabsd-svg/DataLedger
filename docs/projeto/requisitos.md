@@ -89,6 +89,15 @@ Fred nesta sessão, fora do repositório.
 | RC-159 | Confirmado | Fred, 07/10/2026, respondendo à PE-76: *"a trilha deve ser preservada"*. A exclusão de um escritório, inclusive por pedido de exclusão pela LGPD, **não apaga** a trilha de auditoria dele. A fatia 3 da [DL-069](../planos/DL-069-travas-no-banco.md) pode recusar no banco todo DELETE na trilha, sem exceção. Fica para o desenho da fatia 3 como a trilha continua **identificável** depois que o escritório some: hoje o vínculo vira `escritorio_id=NULL`. |
 | PE-77 | Pendência — **bloqueia a fatia 3 da DL-069** | Existe prazo de retenção da trilha de auditoria? Nada no repositório fixa prazo. Decisão do Fred, com base normativa se houver. |
 
+## Melhorias com equipe multiagente — DL-070
+
+| ID | Categoria | Requisito e origem |
+| --- | --- | --- |
+| RC-160 | Confirmado | Fred, 08/10/2026: *"Atue como uma equipe multi-agente para analisar e melhorar o meu repositório"*, com orquestrador em Opus (mapear, planejar, dividir, atribuir, coordenar), **desenvolvedores em Haiku** em paralelo e **auditor em Sonnet** revisando boas práticas, segurança, desempenho e cobertura de testes antes da aprovação final. Diverge da RC-143 só quanto ao modelo de implementação; a ordem mais recente prevalece (AGENTS.md §0). O arquiteto restringiu o escopo da etapa ao nível 2 e 3 por causa disso — ver [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md). |
+| RC-161 | Confirmado | Fred, 08/10/2026: *"Próxima etapa"*, dito logo depois de o arquiteto perguntar *"Posso abrir o PR para a `main`?"* ao fim da DL-070. O arquiteto **interpretou** como autorização para o próximo passo do ciclo do AGENTS.md §5 — abrir o PR #94 e levar a CI ao verde —, não como autorização de merge, que continua com o Fred. Se ele quis dizer outra etapa da fila, a ordem dele prevalece. |
+| RC-162 | Confirmado | Fred, 08/10/2026: *"pode fazer o merge quando a CI ficar verde"* — autoriza o `arquiteto-senior` a fazer o merge do PR #94 (DL-070) na `main` com os quatro checks verdes no último commit. |
+| HI-53 | Hipótese de processo | A RC-160 vale **para esta etapa**. Se o Fred quiser Haiku como padrão de implementação daqui em diante, inclusive em nível 1, a RC-143 precisa ser revista por ele. |
+
 ## Legenda
 
 | Estado | Significado |

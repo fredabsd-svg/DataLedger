@@ -97,12 +97,19 @@ def criar_primeiro_escritorio_e_vinculo_admin(
     """Operação atômica: cria o primeiro escritório e vincula o usuário
     como ADMINISTRADOR. Falha se o usuário já tem escritório.
 
-    A defesa é NA ORIGEM (serviço), não na view: se a regra morresse
-    na view, qualquer outro caminho (shell, fixture, importador da
-    DL-010) reproduziria o defeito. O modelo `VinculoUsuarioEscritorio`
-    tem `UniqueConstraint(fields=["usuario", "escritorio"], ...)`, mas
-    isso cobre duplicar (mesmo escritório, mesmo usuário), não o
-    estado "usuário com QUALQUER escritório ativo".
+    Quem valida a ENTRADA EXTERNA (CNPJ e nome) é o formulário da view,
+    `PrimeiroEscritorioForm` em apps/tenancy/forms.py (DL-070, BL-645 e
+    BL-646): tamanho, normalização e dígitos verificadores. Este serviço
+    confia no chamador e não revalida CNPJ nem tamanho do nome. Quem o
+    chamar de outro caminho (shell, fixture, importador da DL-010) precisa
+    passar pela mesma validação antes.
+
+    A regra "um escritório por usuário sem vínculo ativo" é deste serviço,
+    e aqui ela tem defesa própria, porque se morresse na view qualquer outro
+    caminho a reproduziria. O modelo `VinculoUsuarioEscritorio` tem
+    `UniqueConstraint(fields=["usuario", "escritorio"], ...)`, mas isso cobre
+    duplicar (mesmo escritório, mesmo usuário), não o estado "usuário com
+    QUALQUER escritório ativo".
 
     Mensagens de erro são `Exception` específica (não `ValidationError`)
     porque o serviço não toca em `full_clean()` — a view é que decide

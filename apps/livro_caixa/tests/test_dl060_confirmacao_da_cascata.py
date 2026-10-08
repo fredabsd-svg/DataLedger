@@ -431,6 +431,7 @@ def test_api_lista_de_outro_ano_nao_confirma_os_meses_do_ano_pedido(cenario):
         (2, _meses(1, 3)),  # mês anterior ao pedido, no mesmo ano
         (2, _meses(12, ano=2025) + _meses(3)),  # anterior, na virada do ano
         (1, _meses(2) + _meses(2, ano=2027)),  # mesmo mês em outro ano
+        (1, _meses(1, 2, 3)),  # lista certa (2 e 3) mais o próprio mês pedido
     ],
     ids=[
         "proprio_mes_e_posterior",
@@ -438,6 +439,7 @@ def test_api_lista_de_outro_ano_nao_confirma_os_meses_do_ano_pedido(cenario):
         "anterior_do_ano",
         "anterior_2025",
         "ano_2027",
+        "lista_certa_mais_proprio_mes",
     ],
 )
 def test_api_lista_forjada_com_proprio_mes_ou_anterior_da_409_e_nao_altera_nada(

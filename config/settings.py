@@ -289,6 +289,16 @@ if _database_url:
         # de erro depois do estouro. Reavaliar esta conta se a medição do
         # piso mudar materialmente (ex.: `localizar_lotes_desbalanceados`
         # crescer muito com o tamanho real da base do Fred).
+        #
+        # Atualização (DL-054, RC-148; achado H4 da auditoria da rodada 1,
+        # docs/auditorias/2026-10-01-dl-054-rodada-1.md): o lançamento do
+        # livro-caixa toma até 12 locks de mês em sequência, um por mês de M
+        # a dezembro (`_adquirir_locks_dos_meses_do_ano` em
+        # apps/livro_caixa/services.py; 12 só em lançamento de janeiro). Como
+        # `lock_timeout` vale por comando, a espera acumulada no pior caso
+        # seria 12 × 1,21 s ≈ 14,5 s, ainda abaixo de 30 s (cerca de 48% do
+        # teto). Isso é ARITMÉTICA, NÃO MEDIÇÃO: a latência de 12 locks em
+        # sequência não foi medida. Os percentuais acima valem por lock.
         DATABASES["default"].setdefault("OPTIONS", {})
         _options_previas = DATABASES["default"]["OPTIONS"].get("options", "")
         DATABASES["default"]["OPTIONS"]["options"] = (

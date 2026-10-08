@@ -338,7 +338,7 @@ def test_bootstrap_post_cria_escritorio_e_redireciona_para_painel(client):
 
     resposta = client.post(
         reverse("tenancy:bootstrap-primeiro-acesso"),
-        {"nome": "Escritório Bootstrap", "cnpj": "77777777000177"},
+        {"nome": "Escritório Bootstrap", "cnpj": "12345678000195"},
     )
     assert resposta.status_code == 302, (
         f"bootstrap POST deveria redirecionar; recebi {resposta.status_code}"
@@ -495,6 +495,6 @@ def test_bootstrap_primeiro_acesso_por_view_chama_recusar_dado_nao_contratado(
 
     resposta = client.post(
         reverse("tenancy:bootstrap-primeiro-acesso"),
-        {"nome": "Outro Escritório", "cnpj": "99999999000199"},
+        {"nome": "Outro Escritório", "cnpj": "22233344000183"},
     )
     assert resposta.status_code == 302
