@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block titulo %}{{ titulo }}{% endblock %}
+
+{% comment %}
+DL-076 (frente B), arquétipo B (formulário de documento). A pergunta antes de gravar: a alíquota vale
+para qual município, subitem e período, e está dentro da faixa? A recusa (fora de 2% a 5%, vigência
+sobreposta, dado fora da regra) mostra o motivo e não grava nada. O aviso da exceção do § 1º do art.
+8º-A entra, e aparece depois de gravar.
+{% endcomment %}
+{% block titulo_pagina %}<h1>{{ titulo }}</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa">
+        <h2>O que vai acontecer</h2>
+        <p>
+            A alíquota passa a valer na vigência informada, para o município e o subitem. O produto não busca a alíquota no município: quem a informa é o escritório, com a fonte.
+        </p>
+        <p class="texto-apoio">{{ faixa }}</p>
+        <p class="texto-apoio">
+            Alterar mantém a trilha: quem alterou, quando e o que mudou. Para tirar a alíquota de uso sem apagar o histórico, encerre a vigência.
+        </p>
+    </div>
+
+    <form method="post" action="{{ url_envio }}" class="formulario">
+        {% csrf_token %}
+        <div class="campo">
+            <label for="id_municipio_ibge">Código IBGE do município</label>
+            <input type="text" id="id_municipio_ibge" name="municipio_ibge" value="{{ valores.municipio_ibge }}" required
+                   inputmode="numeric" maxlength="{{ municipio_maximo }}" aria-describedby="id_municipio_ajuda">
+            <p class="texto-apoio" id="id_municipio_ajuda">Sete dígitos. Palmas é 1721000.</p>
+        </div>
+        <div class="campo">
+            <label for="id_subitem">Subitem da LC 116 (II.SS)</label>
+            <input type="text" id="id_subitem" name="subitem" value="{{ valores.subitem }}" required
+                   maxlength="{{ subitem_maximo }}" aria-describedby="id_subitem_ajuda">
+            <p class="texto-apoio" id="id_subitem_ajuda">Formato 17.01 ou 7.02 (item de 01 a 40, dois dígitos no subitem).</p>
+        </div>
+        <div class="campo">
+            <label for="id_percentual">Alíquota (%)</label>
+            <input type="text" id="id_percentual" name="percentual" value="{{ valores.percentual }}" required
+                   inputmode="decimal" maxlength="12" aria-describedby="id_percentual_ajuda">
+            <p class="texto-apoio" id="id_percentual_ajuda">Em pontos, com vírgula: 5,00 é 5%. Até 4 casas. Entre 2% e 5%, salvo a exceção do § 1º do art. 8º-A.</p>
+        </div>
+        <div class="campo">
+            <label for="id_fonte">Fonte (dispositivo, documento e data de consulta)</label>
+            <textarea id="id_fonte" name="fonte" required maxlength="{{ fonte_maxima }}" aria-describedby="id_fonte_ajuda">{{ valores.fonte }}</textarea>
+            <p class="texto-apoio" id="id_fonte_ajuda">Obrigatória. Diga de onde saiu a alíquota: lei ou decreto municipal, artigo, e a data em que você consultou.</p>
+        </div>
+        <div class="campo">
+            <label for="id_inicio">Início da vigência</label>
+            <input type="text" id="id_inicio" name="inicio" value="{{ valores.inicio }}" inputmode="numeric"
+                   required maxlength="10" aria-describedby="id_inicio_ajuda">
+            <p class="texto-apoio" id="id_inicio_ajuda">Obrigatório, em dd/mm/aaaa.</p>
+        </div>
+        <div class="campo">
+            <label for="id_fim">Fim da vigência</label>
+            <input type="text" id="id_fim" name="fim" value="{{ valores.fim }}" inputmode="numeric"
+                   maxlength="10" aria-describedby="id_fim_ajuda">
+            <p class="texto-apoio" id="id_fim_ajuda">Em dd/mm/aaaa, inclusive. Em branco, a alíquota fica em aberto.</p>
+        </div>
+        <div class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+            <button type="submit" class="botao botao--primario">{% if editando %}Salvar alteração{% else %}Cadastrar alíquota{% endif %}</button>
+        </div>
+    </form>
+{% endblock %}

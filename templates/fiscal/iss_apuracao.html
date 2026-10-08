@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block titulo %}ISS próprio do município{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada and mes_rotulo %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Competência</span>
+            <strong>{{ mes_rotulo }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-076 (frente B), arquétipo D (painel de período) com a pergunta da FISCAL (direção §3): a
+apuração confere com a memória de cálculo? É CONFERÊNCIA, classe 1 de
+docs/projeto/personalizacao-de-relatorio.md: o contador emite a guia no portal do município.
+Nada é gerado nem transmitido. A regra fica em apps.fiscal.iss_municipal; a tela mostra o que o
+serviço apura, a memória com o dispositivo de cada passo, e cada bloqueio quando a apuração
+recusa. Pendência (vISSQN diferente de base × alíquota, além de R$ 0,01) aparece destacada e não
+bloqueia o total.
+{% endcomment %}
+{% block titulo_pagina %}<h1>ISS próprio do município</h1>{% endblock %}
+
+{% block content %}
+    <p class="mensagem mensagem-info" role="status">
+        <strong>{{ texto_de_conferencia }}</strong>
+    </p>
+
+    {% include "fiscal/_filtro_simples.html" %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver a apuração do ISS do mês.</strong></p>
+            <p class="estado-vazio__descricao">
+                A apuração é sempre de uma empresa e de uma competência. Sem regime do ISS cadastrado no exercício, ela recusa e diz o que falta.
+            </p>
+        </div>
+    {% elif recusado %}
+        <div class="painel-etapa painel-etapa--risco">
+            <h2>ISS próprio não apurado em {{ mes_rotulo }}</h2>
+            <p>
+                Há {{ bloqueios|length }} motivo(s) impedindo a apuração. Cada um diz o que falta e onde resolver.
+                Nada foi gravado: a apuração é cálculo sob demanda, a partir das notas escrituradas.
+            </p>
+        </div>
+        <table class="tabela-dados">
+            <caption>Bloqueios da apuração do ISS de {{ mes_rotulo }}, com o que falta e onde resolver</caption>
+            <thead>
+                <tr>
+                    <th scope="col">O que falta</th>
+                    <th scope="col">Dispositivo</th>
+                    <th scope="col">Onde resolver</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for bloqueio in bloqueios %}
+                    <tr>
+                        <td>{{ bloqueio.mensagem }}</td>
+                        <td class="texto-apoio">{{ bloqueio.dispositivo }}</td>
+                        <td>
+                            {% if bloqueio.url %}
+                                <a class="botao botao--secundario botao--pequeno" href="{{ bloqueio.url }}">{{ bloqueio.acao }}</a>
+                            {% else %}
+                                {{ bloqueio.sem_acao }}
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {% if notas %}
+            <h2>Notas da competência para conferência</h2>
+            <p class="texto-apoio">
+                Regime fixo: não há apuração por alíquota. As notas abaixo são listadas para o contador conferir. Nenhuma soma entra em total.
+            </p>
+            <table class="tabela-dados">
+                <caption>Notas escrituradas na competência, sem apuração por alíquota (regime fixo)</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Nota</th>
+                        <th scope="col">Tomador</th>
+                        <th scope="col">Município de incidência</th>
+                        <th scope="col">Subitem</th>
+                        <th scope="col">Base (R$)</th>
+                        <th scope="col">ISS (R$)</th>
+                        <th scope="col">Retenção</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for nota in notas %}
+                        <tr>
+                            <th scope="row">{{ nota.numero }}</th>
+                            <td>{{ nota.tomador }}</td>
+                            <td>{{ nota.municipio }}</td>
+                            <td>{{ nota.subitem }}</td>
+                            <td class="valor-monetario">{{ nota.base }}</td>
+                            <td class="valor-monetario">{{ nota.valor }}</td>
+                            <td>{{ nota.retencao }}{% if nota.ausentes %}<br><span class="texto-apoio">{{ nota.ausentes }}</span>{% endif %}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    {% else %}
+        <p class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_retido }}">ISS retido sofrido do mês</a>
+            <a class="botao botao--secundario" href="{{ url_outros }}">ISS devido a outros municípios</a>
+            <a class="botao botao--secundario" href="{{ url_regimes }}">Regime do ISS</a>
+            <a class="botao botao--secundario" href="{{ url_aliquotas }}">Alíquotas do ISS</a>
+        </p>
+
+        <h2>Total a recolher de {{ mes_rotulo }}</h2>
+        <dl class="lista-de-definicao">
+            <div>
+                <dt>Total a recolher (soma do vISSQN das notas, conferir com a guia)</dt>
+                <dd class="valor-monetario">{{ total }}</dd>
+            </div>
+            <div>
+                <dt>Município do estabelecimento</dt>
+                <dd>{{ municipio }}</dd>
+            </div>
+            <div>
+                <dt>Regime do ISS no exercício</dt>
+                <dd>{{ regime }}</dd>
+            </div>
+            <div>
+                <dt>Vencimento do ISS próprio (dia do mês seguinte)</dt>
+                <dd>{{ vencimento_proprio }}</dd>
+            </div>
+            <div>
+                <dt>Regra do dia não útil</dt>
+                <dd>{{ regra_dia_nao_util }}<br><span class="texto-apoio">Dispositivo: {{ dispositivo_do_vencimento }}</span></dd>
+            </div>
+            <div>
+                <dt>Vencimento do ISS retido (informativo)</dt>
+                <dd>{{ vencimento_retido }}</dd>
+            </div>
+        </dl>
+        {% if aviso_multa %}
+            <p class="mensagem mensagem-warning" role="alert">
+                <strong>Atenção:</strong> {{ aviso_multa }}
+            </p>
+        {% endif %}
+
+        {% if pendencias %}
+            <div class="painel-etapa painel-etapa--risco">
+                <h2>Pendências de conferência: {{ pendencias|length }}</h2>
+                <p>
+                    Nota(s) {{ pendencias|join:", " }}: o vISSQN da nota difere de base × alíquota cadastrada além de R$ 0,01.
+                    A pendência não bloqueia o total, mas confira cada nota antes de emitir a guia.
+                </p>
+            </div>
+        {% endif %}
+
+        <h2>Notas da apuração, nota a nota</h2>
+        <p class="texto-apoio">
+            Esperado = base (vBC) × alíquota cadastrada ÷ 100. Esperado e diferença têm 4 casas, para que a diferença de centavos que a tolerância decide não fique escondida no arredondamento.
+        </p>
+        {% if notas %}
+            <table class="tabela-dados">
+                <caption>Notas do ISS próprio da competência, com a conferência de cada uma</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Nota</th>
+                        <th scope="col">Tomador</th>
+                        <th scope="col">Subitem</th>
+                        <th scope="col">Base (R$)</th>
+                        <th scope="col">Alíquota da nota</th>
+                        <th scope="col">ISS da nota (R$)</th>
+                        <th scope="col">Alíquota cadastrada</th>
+                        <th scope="col">Esperado (R$)</th>
+                        <th scope="col">Diferença (R$)</th>
+                        <th scope="col">Situação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for nota in notas %}
+                        <tr>
+                            <th scope="row">{{ nota.numero }}</th>
+                            <td>{{ nota.tomador }}</td>
+                            <td>{{ nota.subitem }}</td>
+                            <td class="valor-monetario">{{ nota.base }}</td>
+                            <td class="valor-monetario">{{ nota.aliquota_nota }}</td>
+                            <td class="valor-monetario">{{ nota.iss }}</td>
+                            <td class="valor-monetario">{{ nota.aliquota_cadastrada }}</td>
+                            <td class="valor-monetario">{{ nota.esperado }}</td>
+                            <td class="valor-monetario">{{ nota.diferenca }}</td>
+                            <td>
+                                {% if nota.conferida %}
+                                    Conferida
+                                {% else %}
+                                    <strong>{{ nota.situacao }}</strong>
+                                {% endif %}
+                                {% for aviso in nota.avisos %}
+                                    <br><span class="texto-apoio">{{ aviso }}</span>
+                                {% endfor %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <th scope="row" colspan="5">Total a recolher (soma do vISSQN das notas acima)</th>
+                        <td class="valor-monetario">{{ total }}</td>
+                        <td colspan="4"></td>
+                    </tr>
+                </tfoot>
+            </table>
+        {% else %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo"><strong>Nenhuma nota de ISS próprio na competência.</strong></p>
+                <p class="estado-vazio__descricao">
+                    Só entram notas escrituradas como ISS devido pelo prestador, no município do estabelecimento, com a competência do mês.
+                </p>
+            </div>
+        {% endif %}
+
+        {% if avisos %}
+            <h2>Avisos da apuração</h2>
+            <table class="tabela-dados">
+                <caption>Avisos que não bloqueiam a apuração, com o dispositivo de cada um</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Aviso</th>
+                        <th scope="col">Dispositivo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for aviso in avisos %}
+                        <tr>
+                            <td>{{ aviso.mensagem }}</td>
+                            <td class="texto-apoio">{{ aviso.dispositivo }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+
+        <h2>Memória de cálculo</h2>
+        <p class="texto-apoio">Cada passo, com o valor e o dispositivo que o fundamenta, para a conferência com a guia do município.</p>
+        <table class="tabela-dados">
+            <caption>Memória de cálculo do ISS próprio de {{ mes_rotulo }}, passo a passo</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Passo</th>
+                    <th scope="col">Descrição</th>
+                    <th scope="col">Valor</th>
+                    <th scope="col">Dispositivo</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for passo in memoria %}
+                    <tr>
+                        <th scope="row">{{ passo.ordem }}</th>
+                        <td>{{ passo.descricao }}</td>
+                        <td class="valor-monetario">{{ passo.valor }}</td>
+                        <td>{{ passo.dispositivo }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+{% endblock %}

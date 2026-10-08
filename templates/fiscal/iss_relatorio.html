@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block titulo %}{{ titulo }}{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada and mes_rotulo %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Competência</span>
+            <strong>{{ mes_rotulo }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-076 (frente B), arquétipo A (tabela de consulta). Um só template para o ISS retido sofrido (HI-86)
+e o ISS devido a outros municípios (HI-85): o que muda é o rótulo da coluna de valor e a coluna de
+vencimento do retido, que só existe no retido. Nada é calculado aqui: os totais por município vêm
+do serviço, e cada nota mostra o que a própria nota diz.
+{% endcomment %}
+{% block titulo_pagina %}<h1>{{ titulo }}</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">{{ descricao }}</p>
+    <p class="mensagem mensagem-info" role="status">
+        <strong>{{ texto_de_conferencia }}</strong>
+    </p>
+
+    {% include "fiscal/_filtro_simples.html" %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver o relatório do mês.</strong></p>
+            <p class="estado-vazio__descricao">O relatório é sempre de uma empresa e de uma competência.</p>
+        </div>
+    {% elif mes_rotulo %}
+        <p class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_apuracao }}">Apuração do ISS próprio do mês</a>
+        </p>
+
+        <h2>Totais por município de incidência</h2>
+        {% if grupos %}
+            <table class="tabela-dados">
+                <caption>Total por município de incidência, com as notas sem valor (fora do total, nunca como zero)</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Município</th>
+                        <th scope="col">Total (R$)</th>
+                        <th scope="col">Notas sem valor (fora do total)</th>
+                        {% if mostrar_vencimento %}<th scope="col">Vencimento do retido</th>{% endif %}
+                        <th scope="col">Aviso</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for grupo in grupos %}
+                        <tr>
+                            <th scope="row">{{ grupo.municipio }}</th>
+                            <td class="valor-monetario">{{ grupo.total }}</td>
+                            <td>{{ grupo.incompletas }}</td>
+                            {% if mostrar_vencimento %}<td class="valor-monetario">{{ grupo.vencimento_retido }}</td>{% endif %}
+                            <td>{{ grupo.aviso|default:"—" }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="texto-apoio">Sem notas com valor na competência, portanto sem total por município.</p>
+        {% endif %}
+
+        <h2>Notas da competência</h2>
+        {% if notas %}
+            <table class="tabela-dados">
+                <caption>{{ titulo }}: nota a nota, com os valores que a própria nota traz</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Nota</th>
+                        <th scope="col">Competência</th>
+                        <th scope="col">Tomador</th>
+                        <th scope="col">Município de incidência</th>
+                        <th scope="col">Subitem</th>
+                        <th scope="col">Base (R$)</th>
+                        <th scope="col">Alíquota aplicada</th>
+                        <th scope="col">{{ coluna_valor }}</th>
+                        <th scope="col">Retenção</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for nota in notas %}
+                        <tr>
+                            <th scope="row">{{ nota.numero }}</th>
+                            <td>{{ nota.data }}</td>
+                            <td>{{ nota.tomador }}</td>
+                            <td>{{ nota.municipio }}</td>
+                            <td>{{ nota.subitem }}</td>
+                            <td class="valor-monetario">{{ nota.base }}</td>
+                            <td class="valor-monetario">{{ nota.aliquota }}</td>
+                            <td class="valor-monetario">{{ nota.valor }}</td>
+                            <td>
+                                {{ nota.retencao }}
+                                {% if nota.situacao %}<br><span class="texto-apoio">{{ nota.situacao }}</span>{% endif %}
+                                {% if nota.ausentes %}<br><span class="texto-apoio">{{ nota.ausentes }}</span>{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo"><strong>{{ sem_notas }}</strong></p>
+                <p class="estado-vazio__descricao">Nada a somar nesta competência. O mês é o da competência da nota, não o da emissão.</p>
+            </div>
+        {% endif %}
+
+        {% if avisos %}
+            <h2>Avisos</h2>
+            <table class="tabela-dados">
+                <caption>Avisos do relatório, com o dispositivo de cada um</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Aviso</th>
+                        <th scope="col">Dispositivo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for aviso in avisos %}
+                        <tr>
+                            <td>{{ aviso.mensagem }}</td>
+                            <td class="texto-apoio">{{ aviso.dispositivo }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    {% endif %}
+{% endblock %}

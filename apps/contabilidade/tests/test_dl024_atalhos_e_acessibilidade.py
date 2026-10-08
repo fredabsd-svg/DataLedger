@@ -1193,6 +1193,27 @@ NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE = {
     "fiscal_web:folha_estornar": (
         "test_tela_estornar_folha_e_acessivel, test_estornar_folha_pela_tela_exige_motivo"
     ),
+    # DL-076 (frente B, apps/fiscal/tests/test_dl076_telas.py): ISS por município — apuração do
+    # ISS próprio, relatórios de retido sofrido e de outros municípios, alíquotas do escritório,
+    # regime por exercício e regras (só leitura). Ficam AQUI pelo mesmo motivo das de DL-075:
+    # as rotas precisam de ids do cenário (empresa, alíquota, regime).
+    "fiscal_web:iss_apuracao": (
+        "test_tela_iss_apuracao_e_acessivel, "
+        "test_tela_iss_apuracao_recusada_lista_bloqueios_com_caminho, "
+        "test_tela_iss_apuracao_regime_fixo_lista_notas_para_conferencia"
+    ),
+    "fiscal_web:iss_retido_sofrido": "test_tela_iss_retido_sofrido_totais_por_municipio",
+    "fiscal_web:iss_outros_municipios": "test_tela_iss_outros_municipios_totais_por_municipio",
+    "fiscal_web:iss_aliquotas": "test_tela_iss_aliquotas_lista_vigencia_fonte_e_autor",
+    "fiscal_web:iss_aliquota_nova": (
+        "test_tela_iss_aliquota_nova_e_acessivel, test_cadastrar_aliquota_pela_tela"
+    ),
+    "fiscal_web:iss_aliquota_editar": "test_alterar_aliquota_pela_tela",
+    "fiscal_web:iss_aliquota_encerrar": "test_encerrar_aliquota_pela_tela",
+    "fiscal_web:iss_regimes": "test_tela_iss_regimes_e_acessivel",
+    "fiscal_web:iss_regime_novo": "test_cadastrar_regime_pela_tela",
+    "fiscal_web:iss_regime_editar": "test_alterar_regime_pela_tela",
+    "fiscal_web:iss_regras_municipio": "test_tela_iss_regras_municipio_e_acessivel",
 }
 
 # DL-046, fatia 1 (especialista-frontend): as SEIS telas HTML de

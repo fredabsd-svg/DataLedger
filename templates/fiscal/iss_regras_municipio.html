@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block titulo %}Regras do ISS por município{% endblock %}
+
+{% comment %}
+DL-076 (frente B), tela de LEITURA (arquétipo A). A regra do município (vencimento do ISS próprio e do
+retido, regra do dia não útil, fonte e vigência; HI-83) é dado legal: aqui só se consulta. O cadastro
+não tem tela nem rota de API nesta versão.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Regras do ISS por município</h1>{% endblock %}
+
+{% block content %}
+    <p class="mensagem mensagem-info" role="status">
+        <strong>Somente leitura.</strong> {{ texto_das_regras }}
+    </p>
+
+    <p class="acoes-formulario">
+        <a class="botao botao--secundario" href="{{ url_aliquotas }}">Alíquotas do escritório</a>
+    </p>
+
+    {% if linhas %}
+        <table class="tabela-dados">
+            <caption>Regras do ISS cadastradas por município, com os dias de vencimento, a regra do dia não útil, a fonte e a vigência</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Município</th>
+                    <th scope="col">Vencimento do ISS próprio (dia do mês seguinte)</th>
+                    <th scope="col">Vencimento do ISS retido (dia do mês seguinte)</th>
+                    <th scope="col">Regra do dia não útil</th>
+                    <th scope="col">Fonte</th>
+                    <th scope="col">Vigência</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for linha in linhas %}
+                    <tr>
+                        <th scope="row">{{ linha.municipio }}</th>
+                        <td>Dia {{ linha.dia_proprio }}</td>
+                        <td>Dia {{ linha.dia_retido }}</td>
+                        <td>{{ linha.regra_dia_nao_util }}</td>
+                        <td class="texto-apoio">{{ linha.fonte }}</td>
+                        <td>{{ linha.vigencia }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Nenhuma regra de município cadastrada.</strong></p>
+            <p class="estado-vazio__descricao">Sem regra, a apuração do ISS recusa e diz que o vencimento não pode ser calculado.</p>
+        </div>
+    {% endif %}
+{% endblock %}
