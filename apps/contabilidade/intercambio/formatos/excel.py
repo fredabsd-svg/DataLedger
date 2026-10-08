@@ -126,7 +126,7 @@ def _verificar_pacote(conteudo):
     if not conteudo.startswith(_ASSINATURA_ZIP):
         raise IntercambioRecusado(
             "o arquivo não é uma planilha .xlsx. Arquivo CSV renomeado não é aceito: baixe o "
-            "modelo e preencha a aba 'plano'."
+            "modelo do DataLedger e preencha a aba de dados que ele traz."
         )
     try:
         pacote = zipfile.ZipFile(io.BytesIO(conteudo))
@@ -138,7 +138,7 @@ def _verificar_pacote(conteudo):
         if len(partes) > MAXIMO_DE_ENTRADAS_NO_PACOTE:
             raise IntercambioRecusado(
                 f"o .xlsx tem {len(partes)} partes internas; o máximo é "
-                f"{MAXIMO_DE_ENTRADAS_NO_PACOTE}. Não é uma planilha de plano de contas."
+                f"{MAXIMO_DE_ENTRADAS_NO_PACOTE}. Não é uma planilha no modelo do DataLedger."
             )
         nomes = {parte.filename for parte in partes}
         # Macro é recusada pelo NOME da parte e pelo tipo da pasta, porque um .xlsm
@@ -303,12 +303,13 @@ def _conferir_orcamento_das_planilhas(conteudo):
             if self.elementos > teto_da_parte:
                 raise ArquivoGrandeDemais(
                     f"a parte '{self.parte}' tem mais de {teto_da_parte} elementos XML. O limite "
-                    "é esse, e a parte é grande demais para um plano de contas."
+                    "é esse, e a parte é grande demais para o modelo do DataLedger."
                 )
             if self.elementos_no_pacote > MAXIMO_DE_ELEMENTOS_NO_PACOTE:
                 raise ArquivoGrandeDemais(
                     f"o .xlsx tem mais de {MAXIMO_DE_ELEMENTOS_NO_PACOTE} elementos XML somando "
-                    "as partes. O limite é esse, e o arquivo é grande demais para um plano."
+                    "as partes. O limite é esse, e o arquivo é grande demais para o modelo do "
+                    "DataLedger."
                 )
             if self.coletar_alvos and local == "Relationship":
                 self.alvos_do_workbook.append(
@@ -359,7 +360,7 @@ def _conferir_orcamento_das_planilhas(conteudo):
                 if self.celulas > MAXIMO_DE_CELULAS_LIDAS:
                     raise ArquivoGrandeDemais(
                         f"a planilha tem mais de {MAXIMO_DE_CELULAS_LIDAS} células. O limite é "
-                        "esse, e a planilha é grande demais para um plano de contas."
+                        "esse, e a planilha é grande demais para o modelo do DataLedger."
                     )
 
     def varrer(pacote, caminho, manipulador):

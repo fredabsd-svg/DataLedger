@@ -99,9 +99,12 @@ LEITORES_DE_LANCAMENTOS = {
     FormatoImportacaoLancamentos.REFERENCIA: referencia_lancamentos_leitura.ler,
 }
 
-# Limite de lançamentos por arquivo (decisão da DL-077, fatia 3). Acima dele a conferência
-# não cabe numa tela e a transação de efetivação fica longa demais.
-LIMITE_DE_LANCAMENTOS_POR_ARQUIVO = 20_000
+# Limite de lançamentos por arquivo. MEDIDO (2026-10-08, PostgreSQL, dados sintéticos, plano do
+# cenário de exportação): efetivar custa ~10,7 ms por lançamento, em ~18 consultas, e cresce de
+# forma linear: 1.000 = 10,9 s; 2.000 = 21,5 s; 5.000 = 54,4 s; 20.000 = 214 s. Receber 20.000
+# leva 38 s. O gunicorn do Dockerfile corta a requisição em 30 s (sem --workers). Por isso o teto
+# é 2.000: a efetivação nele cabe em ~25 s. Acima disso a recusa é nomeada, nunca truncada.
+LIMITE_DE_LANCAMENTOS_POR_ARQUIVO = 2_000
 
 TAMANHO_MAXIMO_HISTORICO = LancamentoContabil._meta.get_field("historico").max_length
 TAMANHO_MAXIMO_NUMERO = 100  # a chave `importacao:<64>:<número>` cabe em 255 com folga
@@ -494,7 +497,7 @@ def receber(*, empresa, formato, conteudo, nome_arquivo="", usuario=None, reques
     """Lê e confere o arquivo e grava a importação EM CONFERÊNCIA. Nada entra no Diário.
 
     Levanta `ImportacaoRecusada` (400) para formato sem leitura, arquivo com CNPJ de outra empresa
-    e arquivo acima de 20.000 lançamentos; `ImportacaoJaExiste` (409) se o mesmo arquivo já está
+    e arquivo acima de 2.000 lançamentos; `ImportacaoJaExiste` (409) se o mesmo arquivo já está
     em conferência ou efetivado; `ArquivoGrandeDemais` (413) acima do limite de tamanho ou linhas.
     """
     _validar_formato(formato)
@@ -639,8 +642,21 @@ def definir_de_para(*, empresa, formato, codigo_origem, conta, usuario=None, req
             "código de origem obrigatório, até 100 caracteres, sem caractere nulo."
         )
     if conta.empresa_id != empresa.pk:
-        # A API responde 404 antes de chegar aqui; esta é a defesa do serviço.
+        # A API responde 404 antes de chegar aqui; esta é a defesa do serviço. Vem antes das
+        # outras checagens para não dizer nada sobre a conta de outra empresa.
         raise ImportacaoRecusada("a conta não pertence a esta empresa.")
+    # O de-para aponta para conta que RECEBE lançamento. Sintética não recebe (regra de
+    # `_conferir_lancamento`) e inativa não é usada: gravar um de-para assim só daria erro na
+    # próxima conferência, longe de quem o escolheu. A tela já oferece só as analíticas ativas.
+    if not conta.aceita_lancamento:
+        raise ImportacaoRecusada(
+            f"a conta {conta.codigo} é sintética: o de-para aponta só para conta analítica, "
+            "que recebe lançamento."
+        )
+    if not conta.ativo:
+        raise ImportacaoRecusada(
+            f"a conta {conta.codigo} está inativa: o de-para aponta só para conta ativa."
+        )
     with transaction.atomic():
         depara, criado = DeParaConta.objects.update_or_create(
             empresa=empresa,
@@ -728,6 +744,9 @@ def efetivar(importacao, *, politica=TUDO_OU_NADA, usuario=None, request=None):
     Reconfere antes, sob a trava da empresa (a mesma da aplicação do plano). Cada lançamento
     passa por `criar_lancamento`, com `chave_idempotencia = importacao:<SHA-256>:<número>`.
     Qualquer exceção no meio desfaz tudo: nenhum lançamento fica sem a importação e vice-versa.
+    Recusa com `ImportacaoNaoEfetivada` (nada gravado) quando há erro ou aviso não aceito, na
+    política tudo ou nada, e quando não há nenhum lançamento para efetivar (arquivo sem lançamento,
+    ou, em só os válidos, nenhum pronto).
     """
     if politica not in POLITICAS_DE_EFETIVACAO:
         raise ImportacaoRecusada(
@@ -763,15 +782,24 @@ def efetivar(importacao, *, politica=TUDO_OU_NADA, usuario=None, request=None):
             ]
             ids = {linha.pk for linha in a_efetivar}
             nao_efetivados = [linha for linha in linhas if linha.pk not in ids]
-            if not a_efetivar:
-                raise ImportacaoNaoEfetivada(
-                    "nenhum lançamento está válido para efetivar. Nada foi gravado.",
-                    [
-                        dict(o, numero=linha.numero_origem)
-                        for linha in linhas
-                        for o in linha.ocorrencias
-                    ],
-                )
+        if not a_efetivar:
+            # Zero para efetivar não é efetivação. Sem esta recusa a importação iria a EFETIVADA
+            # com zero lançamentos, e a tela mostraria um "sucesso" vazio. Em tudo_ou_nada o zero
+            # só chega aqui com arquivo sem lançamento (erro e aviso já recusaram acima); em
+            # so_validos, com nenhum lançamento pronto.
+            motivo = (
+                "o arquivo não tem lançamento"
+                if not linhas
+                else "nenhum está pronto (sem erro e com avisos aceitos)"
+            )
+            raise ImportacaoNaoEfetivada(
+                f"não há lançamento para efetivar: {motivo}. Nada foi gravado.",
+                [
+                    dict(o, numero=linha.numero_origem)
+                    for linha in linhas
+                    for o in linha.ocorrencias
+                ],
+            )
 
         contas = {conta.pk: conta for conta in Conta.objects.filter(empresa=atual.empresa)}
         criados = reaproveitados = 0

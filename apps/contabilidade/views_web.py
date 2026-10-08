@@ -8692,9 +8692,10 @@ def _contagens_da_conferencia(importacao):
 def _vereditos_da_efetivacao(importacao, contagens):
     """O que cada política efetivaria, e o que a impede quando não pode.
 
-    APRESENTAÇÃO. `tudo_ou_nada` só é possível sem erro do arquivo, sem erro de lançamento e sem
-    aviso por aceitar: é a condição que o serviço aplica. `so_validos` é possível com ao menos um
-    lançamento pronto.
+    APRESENTAÇÃO. `tudo_ou_nada` só é possível com ao menos um lançamento, sem erro do arquivo,
+    sem erro de lançamento e sem aviso por aceitar: é a condição que o serviço aplica (ele recusa
+    zero lançamento com a mesma mensagem). `so_validos` é possível com ao menos um lançamento
+    pronto. Sem lançamento nenhum, a tela não oferece botão de efetivar.
     """
     erros_do_arquivo = sum(1 for o in importacao.ocorrencias_do_arquivo if o["nivel"] == NIVEL_ERRO)
     pendencias = []
@@ -8710,15 +8711,25 @@ def _vereditos_da_efetivacao(importacao, contagens):
         pendencias.append(
             _contado(contagens["com_aviso_a_aceitar"], "aviso a aceitar", "avisos a aceitar")
         )
+    total = contagens["total"]
     prontos = contagens["prontos"]
+    sem_lancamento = total == 0
+    if sem_lancamento:
+        pendencias.append("não há lançamento para efetivar")
     tudo = {
         "pode": not pendencias,
         "pendencias": pendencias,
-        "quantidade": contagens["total"],
+        "quantidade": total,
     }
+    if sem_lancamento:
+        pendencias_so_validos = ["não há lançamento para efetivar"]
+    elif not prontos:
+        pendencias_so_validos = ["nenhum lançamento está pronto para efetivar"]
+    else:
+        pendencias_so_validos = []
     so_validos = {
         "pode": prontos > 0,
-        "pendencias": [] if prontos else ["nenhum lançamento está pronto para efetivar"],
+        "pendencias": pendencias_so_validos,
         "quantidade": prontos,
     }
     return tudo, so_validos

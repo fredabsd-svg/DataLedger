@@ -12,6 +12,7 @@ Dados SINTÉTICOS. Duas coisas são provadas aqui:
 """
 
 import io
+import zipfile
 
 import pytest
 from openpyxl import Workbook, load_workbook
@@ -153,8 +154,26 @@ def test_conta_gravada_como_numero_e_recusada_com_a_orientacao_de_formatar_como_
 # ---------------------------------------------------------------------------
 
 
-def _linha_com_51_celulas():
-    return [["x"] * 51]
+def _pasta_com_aba_bruta(aba, sheet_data):
+    """Pasta `.xlsx` cuja aba tem o `sheetData` dado (XML bruto). Célula sem `r` é só isso.
+
+    O openpyxl sempre grava `r`, então a contagem POR LINHA (mais de 50 células) só é alcançada
+    com XML escrito à mão. A fatia 1 confere a referência de coluna antes dessa contagem (R3a).
+    """
+    base = _pasta({aba: [["x"]]})
+    origem = zipfile.ZipFile(io.BytesIO(base))
+    saida = io.BytesIO()
+    with zipfile.ZipFile(saida, "w", zipfile.ZIP_DEFLATED) as destino:
+        for parte in origem.infolist():
+            dados = origem.read(parte.filename)
+            if parte.filename == "xl/worksheets/sheet1.xml":
+                dados = (
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                    f"<sheetData>{sheet_data}</sheetData></worksheet>"
+                ).encode("utf-8")
+            destino.writestr(parte.filename, dados)
+    return saida.getvalue()
 
 
 @pytest.mark.parametrize(
@@ -164,8 +183,11 @@ def _linha_com_51_celulas():
         ("lancamentos", excel_lancamentos.ler),
     ],
 )
-def test_orcamento_de_celulas_serve_as_duas_planilhas_e_nao_cita_o_plano(aba, ler):
-    conteudo = _pasta({aba: _linha_com_51_celulas()})
+def test_orcamento_de_celulas_por_linha_serve_as_duas_planilhas_e_nao_cita_o_plano(aba, ler):
+    """Expectativa mantida: a contagem POR LINHA ("mais de 50 células") é a mesma nas duas
+    planilhas e a mensagem não cita o plano. Só a CONSTRUÇÃO mudou: com `<c/>` sem `r`, a
+    recusa sai pela contagem da linha, e não pela referência de coluna (que a fatia 1 vê antes)."""
+    conteudo = _pasta_com_aba_bruta(aba, "<row>" + "<c/>" * 51 + "</row>")
 
     with pytest.raises(IntercambioRecusado) as excinfo:
         ler(conteudo)
@@ -176,6 +198,27 @@ def test_orcamento_de_celulas_serve_as_duas_planilhas_e_nao_cita_o_plano(aba, le
     assert "modelo do DataLedger" in mensagem
     assert "plano" not in mensagem.lower()
     assert "seis colunas" not in mensagem
+
+
+@pytest.mark.parametrize(
+    "aba,ler",
+    [
+        ("plano", excel.ler),
+        ("lancamentos", excel_lancamentos.ler),
+    ],
+)
+def test_coluna_alem_de_50_serve_as_duas_planilhas_e_nao_cita_o_plano(aba, ler):
+    """A referência de coluna além de 50 (AY1, fatia 1) tem a mesma mensagem nas duas planilhas."""
+    conteudo = _pasta({aba: [["x"] * 51]})
+
+    with pytest.raises(IntercambioRecusado) as excinfo:
+        ler(conteudo)
+
+    mensagem = excinfo.value.mensagem
+    assert "além da coluna 50" in mensagem
+    assert "linha 1" in mensagem
+    assert "modelo do DataLedger" in mensagem
+    assert "plano" not in mensagem.lower()
 
 
 def test_caminho_da_aba_recebe_o_nome_da_aba_e_recusa_a_aba_fora_de_xl_worksheets():
@@ -201,7 +244,9 @@ def test_leitor_de_lancamentos_usa_a_mesma_checagem_do_plano_e_nao_tem_copia():
     assert not hasattr(excel_lancamentos, "_conferir_caminho_da_aba")
 
 
-def test_mensagem_de_orcamento_de_celulas_nao_mudou_o_limite_nem_a_regra():
+def test_limites_de_celulas_e_colunas_sao_os_da_fatia_1():
+    """Expectativa ATUALIZADA (era 500.000 células): a fatia 1 (R3, 6deb7b3) fixou o orçamento em
+    60 mil células, e a fatia 3 ainda fixava o valor antigo. Quem manda é a fatia 1."""
     assert excel.MAXIMO_DE_COLUNAS_POR_LINHA == 50
-    assert excel.MAXIMO_DE_CELULAS_LIDAS == 500_000
+    assert excel.MAXIMO_DE_CELULAS_LIDAS == 60_000
     assert CABECALHO == ("codigo", "nome", "codigo_pai", "analitica", "tipo", "natureza")

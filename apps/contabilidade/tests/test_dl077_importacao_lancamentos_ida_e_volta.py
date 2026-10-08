@@ -125,6 +125,11 @@ def test_ida_e_volta_pelo_sistema_de_referencia_com_o_de_para_dos_reduzidos(orig
         conta.codigo for conta in origem["contas"].values()
     )
     for codigo, reduzido in mapa.items():
+        # Expectativa ajustada (DL-077, alinhamento das fatias 2 e 3): o de-para só aponta para
+        # conta analítica, e o serviço recusa a sintética. Lançamento nunca usa conta sintética,
+        # então pular a sintética não tira nada da ida e volta.
+        if not origem["contas"][codigo].aceita_lancamento:
+            continue
         servico.definir_de_para(
             empresa=destino,
             formato="referencia",

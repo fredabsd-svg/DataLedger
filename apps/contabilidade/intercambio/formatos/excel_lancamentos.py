@@ -6,8 +6,10 @@ formato próprio (`montar_lancamentos`); este módulo cuida da planilha.
 
 PROTEÇÕES: as de `excel.py`, reusadas e NÃO copiadas: `_verificar_pacote` (só `.xlsx`, sem
 macro, sem `.xls`, sem CSV renomeado, limite de partes e de tamanho descompactado),
-`_conferir_orcamento_das_planilhas` (A4: 500 mil células e 50 por linha, contadas no stream SAX
-ANTES do openpyxl, com limite por parte) e `_abrir` (duas visões: fórmulas e valores salvos).
+`_conferir_orcamento_das_planilhas` (R3: referência de coluna até XFD e no máximo 50 colunas por
+linha, 60 mil células, elementos XML contados por parte e no pacote, tetos de 16 MB e 4 MB; tudo
+contado no stream SAX ANTES do openpyxl), `_abrir` (duas visões: fórmulas e valores salvos) e
+`_xml_invalido` (R2: qualquer falha da leitura da aba vira "planilha com XML inválido", nunca 500).
 Limite de linhas: `MAXIMO_DE_LINHAS`.
 
 REGRAS DE CÉLULA (erro com a linha da planilha e a coluna):
@@ -35,13 +37,14 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from apps.contabilidade.intercambio.canonico import (
     NIVEL_AVISO,
     NIVEL_ERRO,
+    IntercambioRecusado,
     Ocorrencia,
     ResultadoLeitura,
 )
 
-# Privados da fatia 1, importados e NÃO copiados: o orçamento de células (A4), a checagem da aba
-# em `xl/worksheets/` (`_caminho_da_aba`, generalizada para receber o nome da aba) e o modelo
-# (constantes de layout). Ver `ler` e `gerar_modelo`.
+# Privados da fatia 1, importados e NÃO copiados: o orçamento de células e colunas (R3), a checagem
+# da aba em `xl/worksheets/` (`_caminho_da_aba`, generalizada para receber o nome da aba), a recusa
+# nomeada de XML inválido (R2) e o modelo (constantes de layout). Ver `ler` e `gerar_modelo`.
 from apps.contabilidade.intercambio.formatos.excel import (
     ABA_DE_INSTRUCOES,
     LINHAS_FORMATADAS_NO_MODELO,
@@ -50,6 +53,7 @@ from apps.contabilidade.intercambio.formatos.excel import (
     _conferir_orcamento_das_planilhas,
     _texto,
     _verificar_pacote,
+    _xml_invalido,
 )
 from apps.contabilidade.intercambio.formatos.proprio_lancamentos_leitura import (
     CABECALHO_LANCAMENTOS,
@@ -249,32 +253,50 @@ def _ler_planilha(formulas, valores, resultado):
         valores[NOME_DA_ABA].iter_rows(values_only=True),
         strict=True,
     )
-    for numero, (celulas, valor_salvo) in enumerate(pares, 1):
+    iterador = enumerate(pares, 1)
+    numero = 0
+    while True:
+        # R2, como em `excel._ler_planilha` (que não é reusável aqui: o laço é dela). O openpyxl
+        # converte a célula ao montar a linha, então uma falha ao buscar a próxima é a da linha
+        # `numero + 1`; falha ao ler a linha sai com o número dela. Recusa do leitor passa intacta.
+        try:
+            numero, (celulas, valor_salvo) = next(iterador)
+        except StopIteration:
+            break
+        except Exception as exc:
+            raise _xml_invalido(exc, linha=numero + 1) from exc
         if numero > MAXIMO_DE_LINHAS:
             raise ArquivoGrandeDemais(
                 f"a planilha passa de {MAXIMO_DE_LINHAS} linhas. O limite é esse."
             )
-        celulas = list(celulas)
-        valor_salvo = list(valor_salvo)
-        if numero == 1:
-            cabecalho = tuple(_texto(valor) for valor in valor_salvo[: len(CABECALHO_LANCAMENTOS)])
-            alem = [_texto(v) for v in valor_salvo[len(CABECALHO_LANCAMENTOS) :] if _texto(v)]
-            if cabecalho != CABECALHO_LANCAMENTOS or alem:
-                ocorrencias.append(
-                    Ocorrencia(
-                        1,
-                        "cabecalho",
-                        NIVEL_ERRO,
-                        "a linha 1 deve ser exatamente "
-                        f"{';'.join(CABECALHO_LANCAMENTOS)}, nesta ordem. "
-                        "Use o modelo para baixar.",
-                    )
+        try:
+            celulas = list(celulas)
+            valor_salvo = list(valor_salvo)
+            if numero == 1:
+                cabecalho = tuple(
+                    _texto(valor) for valor in valor_salvo[: len(CABECALHO_LANCAMENTOS)]
                 )
-                return
-            continue
-        linha = _linha(numero, celulas, valor_salvo, ocorrencias)
-        if linha is not None:
-            linhas.append(linha)
+                alem = [_texto(v) for v in valor_salvo[len(CABECALHO_LANCAMENTOS) :] if _texto(v)]
+                if cabecalho != CABECALHO_LANCAMENTOS or alem:
+                    ocorrencias.append(
+                        Ocorrencia(
+                            1,
+                            "cabecalho",
+                            NIVEL_ERRO,
+                            "a linha 1 deve ser exatamente "
+                            f"{';'.join(CABECALHO_LANCAMENTOS)}, nesta ordem. "
+                            "Use o modelo para baixar.",
+                        )
+                    )
+                    return
+                continue
+            linha = _linha(numero, celulas, valor_salvo, ocorrencias)
+            if linha is not None:
+                linhas.append(linha)
+        except IntercambioRecusado:
+            raise
+        except Exception as exc:
+            raise _xml_invalido(exc, linha=numero) from exc
     montar_lancamentos(linhas, resultado)
 
 
@@ -287,14 +309,19 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
     _conferir_orcamento_das_planilhas(conteudo)
     formulas, valores = _abrir(conteudo)
     try:
-        if NOME_DA_ABA in formulas.sheetnames:
-            # A aba tem de estar em `xl/worksheets/`, onde o orçamento foi medido (ver `excel`).
-            _caminho_da_aba(formulas, NOME_DA_ABA)
-            # A dimensão declarada só serve para o openpyxl montar a aba. Sem zerá-la, o
-            # conteúdo além dela seria descartado em silêncio (a nota A4 do plano).
-            formulas[NOME_DA_ABA].reset_dimensions()
-            valores[NOME_DA_ABA].reset_dimensions()
-        _ler_planilha(formulas, valores, resultado)
+        try:
+            if NOME_DA_ABA in formulas.sheetnames:
+                # A aba tem de estar em `xl/worksheets/`, onde o orçamento foi medido (ver `excel`).
+                _caminho_da_aba(formulas, NOME_DA_ABA)
+                # A dimensão declarada só serve para o openpyxl montar a aba. Sem zerá-la, o
+                # conteúdo além dela seria descartado em silêncio (a nota A4 do plano).
+                formulas[NOME_DA_ABA].reset_dimensions()
+                valores[NOME_DA_ABA].reset_dimensions()
+            _ler_planilha(formulas, valores, resultado)
+        except IntercambioRecusado:
+            raise
+        except Exception as exc:  # R2: nenhuma falha do openpyxl/XML na aba vira 500.
+            raise _xml_invalido(exc) from exc
     finally:
         formulas.close()
         valores.close()

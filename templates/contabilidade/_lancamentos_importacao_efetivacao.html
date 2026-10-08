@@ -82,10 +82,10 @@ reconfere e recusa de novo antes de gravar.
                 <p>
                     <strong>Não é possível efetivar tudo:</strong>
                     {% for pendencia in tudo_ou_nada.pendencias %}{{ pendencia }}{% if not forloop.last %}; {% endif %}{% endfor %}.
-                    Corrija o arquivo ou o de-para e reconfira, ou efetive só os válidos abaixo.
+                    {% if contagens.total %}Corrija o arquivo ou o de-para e reconfira, ou efetive só os válidos abaixo.{% else %}Envie um arquivo com lançamentos.{% endif %}
                 </p>
             </div>
-            {% if pode_agir %}
+            {% if pode_agir and contagens.total %}
                 <button type="button" class="botao botao--primario" disabled aria-disabled="true">Efetivar tudo ou nada (indisponível)</button>
             {% endif %}
         {% endif %}
@@ -116,7 +116,7 @@ reconfere e recusa de novo antes de gravar.
             <div class="mensagem mensagem-warning">
                 <p><strong>Não é possível efetivar só os válidos:</strong> {{ so_validos.pendencias|join:"; " }}.</p>
             </div>
-            {% if pode_agir %}
+            {% if pode_agir and contagens.total %}
                 <button type="button" class="botao botao--secundario" disabled aria-disabled="true">Efetivar só os válidos (indisponível)</button>
             {% endif %}
         {% endif %}
