@@ -47,8 +47,10 @@ segunda quota os juros são só 1%, e a Selic entra a partir da terceira.
    informadas com atividade de presunção e documento de suporte; e **receitas
    integrais do art. 25, II** (financeiras, ganhos de capital, demais)
    declaradas pelo contador com suporte, ou a declaração explícita "não houve
-   receitas integrais no trimestre". Sem a declaração, a apuração sai como
-   **parcial** e não pode ser marcada como conferida (HI-104).
+   receitas integrais no trimestre". Sem a declaração, ou se as receitas
+   integrais mudarem depois dela, a apuração sai como **parcial** (HI-104).
+   O primeiro corte calcula a apuração na consulta e não grava um estado de
+   "conferida"; isso vem com a integração contábil.
 4. **Cálculo do trimestre e controle do limite da LC 224** por empresa, ano e
    tributo (IN 2.305, art. 15, na redação da IN 2.306): limite com sobra dos
    trimestres anteriores; excedente rateado por atividade; fechamento no 4º
