@@ -1129,6 +1129,9 @@ NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE = {
         "test_tela_fiscal_documentos_lista_estado_de_erro_e_acessivel"
     ),
     "fiscal_web:documento_detalhe": "test_tela_fiscal_documento_detalhe_e_acessivel",
+    # DL-073 (validador IBS/CBS, modo aviso): tela de conferência. O teste de
+    # cobertura mora em apps/fiscal/tests/test_dl073_conformidade_ibscbs.py.
+    "fiscal_web:conformidade_ibscbs": "test_tela_conformidade_ibscbs_e_acessivel",
 }
 
 # DL-046, fatia 1 (especialista-frontend): as SEIS telas HTML de

@@ -16,6 +16,7 @@ obriga o usuário a reaprender").
 
 from django.urls import path
 
+from apps.fiscal.views_conformidade import conformidade_ibscbs
 from apps.fiscal.views_web import (
     documento_detalhe,
     documento_xml,
@@ -31,6 +32,7 @@ urlpatterns = [
     path("recepcao/", recepcao, name="recepcao"),
     path("recepcao/<int:lote_id>/", relatorio_envio, name="relatorio_envio"),
     path("documentos/", documentos_lista, name="documentos_lista"),
+    path("conformidade/", conformidade_ibscbs, name="conformidade_ibscbs"),
     path("documentos/<int:documento_id>/", documento_detalhe, name="documento_detalhe"),
     # Download do XML original (critério 29): rota PRÓPRIA, sem overlap com
     # a de detalhe — o Content-Type de resposta é application/xml, nunca
