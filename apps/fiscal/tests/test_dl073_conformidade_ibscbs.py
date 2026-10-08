@@ -37,7 +37,9 @@ from apps.fiscal.services import receber_envio
 from apps.fiscal.tests.xml_sinteticos import (
     CNPJ_PRESTADOR_PADRAO,
     CNPJ_TOMADOR_PADRAO,
+    chave_nfse_de,
     identificador_nfse,
+    xml_evento,
 )
 from apps.tenancy.models import Papel, VinculoUsuarioEscritorio
 
@@ -453,6 +455,16 @@ def test_criterio_8_valor_negativo_vira_aviso_de_formato():
     assert "valor_invalido" in _codigos(_avisos(xml_1_01(v_cbs="-0.90")))
 
 
+def test_decimal_lido_sem_passar_por_float():
+    # Regressão (auditoria DL-072/DL-073, B3, AGENTS §10): float perde o último
+    # centavo deste valor (999999999999999.99 vira ...9.9). Lido do texto, não.
+    grupo = ler_grupo_ibscbs(
+        xml_1_01(v_serv="999999999999999.99", v_bc="999999999999999.99"), "1.01"
+    )
+    assert grupo.v_bc == Decimal("999999999999999.99")
+    assert grupo.v_serv == Decimal("999999999999999.99")
+
+
 # ---------------------------------------------------------------------------
 # Critério 9 — XML malformado ou sem o elemento esperado: aviso nomeado
 # ---------------------------------------------------------------------------
@@ -483,6 +495,22 @@ def test_criterio_9_xml_ilegivel_vira_aviso_nomeado_sem_excecao(xml):
 def test_criterio_9_leitura_de_xml_ilegivel_nao_levanta_excecao():
     grupo = ler_grupo_ibscbs(b"<NFSe", "1.01")
     assert grupo.erro_leitura is not None
+
+
+def test_dtd_com_entidade_dentro_de_nota_valida_e_recusado_pelo_validador():
+    # Auditoria DL-072/DL-073, B1: as versões anteriores deste teste usavam um
+    # XML sem `infNFSe`, que vira "ilegível" de qualquer jeito. Aqui a nota é
+    # válida e só a entidade a torna recusada. Com `xml.etree.ElementTree`
+    # (parser inseguro), a entidade se expande, a nota fica válida e o teste
+    # falha.
+    controle = xml_1_01()
+    assert situacao_de_conformidade(_nota(controle, date(2026, 10, 5))) == SITUACAO_COM_GRUPO
+    x = controle.replace(
+        b'<?xml version="1.0" encoding="UTF-8"?>\n',
+        b'<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE NFSe [<!ENTITY x "000">]>',
+    )
+    x = x.replace(b"<CST>000</CST>", b"<CST>&x;</CST>", 1)
+    assert situacao_de_conformidade(_nota(x, date(2026, 10, 5))) == SITUACAO_XML_ILEGIVEL
 
 
 def test_criterio_9_elemento_esperado_ausente_e_nomeado_pelo_caminho():
@@ -568,6 +596,16 @@ def test_criterio_10_conformidade_do_mes_nao_mistura_escritorios(
 
     notas = conformidade_do_mes(empresa_a, 2026, 10)
     assert [nota.documento.identificador for nota in notas] == [identificador_nfse(1)]
+
+
+def test_conformidade_do_mes_nao_lista_nota_em_que_a_empresa_e_tomadora(
+    escritorio_a, empresa_a, empresa_a2, usuario_gestor_a
+):
+    # B2 (auditoria DL-073, baixa): a conferência é das notas PRESTADAS. A
+    # empresa_a2 é a TOMADORA da nota padrão; ela não pode aparecer na lista.
+    _receber(escritorio_a, usuario_gestor_a, xml_1_01(sufixo=1))
+    assert len(conformidade_do_mes(empresa_a, 2026, 10)) == 1
+    assert conformidade_do_mes(empresa_a2, 2026, 10) == []
 
 
 def test_criterio_10_empresa_de_outro_escritorio_e_404(client, usuario_gestor_a, empresa_b):
@@ -674,6 +712,69 @@ def test_tela_mostra_nota_1_00_como_leiaute_sem_grupo_e_sem_aviso(
     conteudo = resposta.content.decode()
     assert SITUACAO_LEIAUTE_SEM_GRUPO in conteudo
     assert "Sem aviso." in conteudo
+
+
+def _cancelar_nota(escritorio, usuario, sufixo):
+    """Evento de cancelamento (e101101) recebido pelo caminho real da DL-010, o
+    mesmo que `situacao_do_documento` lê. Não se duplica a regra de cancelamento."""
+    receber_envio(
+        escritorio=escritorio,
+        usuario=usuario,
+        arquivo=xml_evento(chave_nfse=chave_nfse_de(identificador_nfse(sufixo)), codigo="e101101"),
+        nome_arquivo="evento-cancelamento.xml",
+    )
+
+
+def test_b5_nota_cancelada_sai_sem_avisos_e_marcada(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    # B5 (auditoria DL-073, baixa). Duas notas com o MESMO defeito (grupo
+    # ausente, competência de 2026, prestador não optante). Só a cancelada
+    # deixa de receber aviso.
+    _receber(
+        escritorio_a,
+        usuario_gestor_a,
+        xml_1_01(sufixo=5, grupo_nfse=False, grupo_dps=False),
+    )
+    _receber(
+        escritorio_a,
+        usuario_gestor_a,
+        xml_1_01(sufixo=6, grupo_nfse=False, grupo_dps=False),
+    )
+    _cancelar_nota(escritorio_a, usuario_gestor_a, sufixo=5)
+
+    notas = {
+        nota.documento.identificador: nota for nota in conformidade_do_mes(empresa_a, 2026, 10)
+    }
+    cancelada = notas[identificador_nfse(5)]
+    viva = notas[identificador_nfse(6)]
+    assert cancelada.cancelada is True
+    assert cancelada.avisos == ()
+    # Controle: a nota não cancelada com o mesmo defeito continua avisada.
+    assert viva.cancelada is False
+    assert "grupo_ausente" in _codigos(viva.avisos)
+
+    client.force_login(usuario_gestor_a)
+    resposta = client.get(
+        reverse("fiscal_web:conformidade_ibscbs"),
+        {"empresa": empresa_a.id, "ano": "2026", "mes": "10"},
+    )
+    conteudo = resposta.content.decode()
+    assert "<td>cancelada</td>" in conteudo
+    assert "Não conferida: nota cancelada." in conteudo
+    assert conteudo.count("Sem grupo IBS/CBS em nota de competência") == 1
+
+
+def test_tela_declara_o_limite_da_nt009(client, usuario_gestor_a):
+    # B4 (auditoria DL-073, baixa): a tela diz o que ainda não é conferido. A
+    # regra da NT 009 (grupo de valores opcional) não está no leiaute de produção.
+    client.force_login(usuario_gestor_a)
+    conteudo = client.get(reverse("fiscal_web:conformidade_ibscbs")).content.decode()
+    assert (
+        "As regras da NT 009 (grupo de valores opcional quando o CST não exige tributação) "
+        "ainda não estão no leiaute de produção; notas já emitidas no desenho da NT 009 "
+        "podem receber avisos de elemento ausente."
+    ) in conteudo
 
 
 def test_tela_sem_notas_no_mes_mostra_estado_vazio(client, usuario_gestor_a, empresa_a):

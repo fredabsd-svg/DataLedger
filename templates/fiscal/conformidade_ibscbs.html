@@ -47,6 +47,8 @@ fonte que o motivou, em texto (cor nunca é o único canal).
         <p>A existência do cClassTrib na tabela oficial <strong>não é verificada nesta etapa</strong>: a tabela ainda não é importada. Um código com o formato certo pode não existir na tabela.</p>
         <p>As alíquotas de teste e a fórmula da base de cálculo (E1530) são conferidas só para competência de 2026. Para 2027 em diante, nenhuma alíquota é conferida aqui.</p>
         <p>O cronograma de obrigatoriedade do grupo IBS/CBS começa em {{ data_obrigatoriedade|date:"d/m/Y" }} para a maioria dos serviços da LC 116. O sistema não classifica a categoria do serviço, então o aviso de ausência cita as duas datas. Cada aviso traz a fonte que o motivou.</p>
+        <p><strong>Limite da NT 009.</strong> As regras da NT 009 (grupo de valores opcional quando o CST não exige tributação) ainda não estão no leiaute de produção; notas já emitidas no desenho da NT 009 podem receber avisos de elemento ausente.</p>
+        <p>Notas canceladas aparecem marcadas como "cancelada", sem avisos de conformidade.</p>
     </div>
 
     {% if consultado %}
@@ -73,9 +75,11 @@ fonte que o motivou, em texto (cor nunca é o único canal).
                             <td>{{ nota.documento.numero|default:"—" }}</td>
                             <td>{{ nota.documento.dh_emissao|date:"d/m/Y H:i" }}</td>
                             <td class="valor-quebravel">{{ nota.documento.tomador_nome|default:"(sem tomador no documento)" }}</td>
-                            <td>{{ nota.situacao }}</td>
+                            <td>{% if nota.cancelada %}cancelada{% else %}{{ nota.situacao }}{% endif %}</td>
                             <td>
-                                {% if nota.avisos %}
+                                {% if nota.cancelada %}
+                                    Não conferida: nota cancelada.
+                                {% elif nota.avisos %}
                                     <ul>
                                         {% for aviso in nota.avisos %}
                                             <li>

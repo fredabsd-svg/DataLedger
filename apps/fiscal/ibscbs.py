@@ -22,7 +22,8 @@ from datetime import date
 from decimal import Context, Decimal, localcontext
 
 from apps.fiscal.leitor import NS_NFSE, ArquivoRecusado, _raiz_segura
-from apps.fiscal.models import DocumentoFiscal, PapelDocumento
+from apps.fiscal.models import DocumentoFiscal, PapelDocumento, VinculoDocumentoEmpresa
+from apps.fiscal.services import documentos_do_escritorio
 
 # ---------------------------------------------------------------------------
 # Vigência, alíquotas e tolerância — constantes com fonte e data de consulta
@@ -220,11 +221,15 @@ class GrupoIBSCBS:
 
 @dataclass(frozen=True)
 class NotaConferida:
-    """Uma NFS-e da empresa com a situação e os avisos de conformidade."""
+    """Uma NFS-e da empresa com a situação e os avisos de conformidade.
+    Nota cancelada (a mesma regra de `situacao_do_documento`, DL-010) vem com
+    `cancelada=True` e `avisos` vazio: destaque de nota cancelada não é
+    conferido (DL-073, B5)."""
 
     documento: DocumentoFiscal
     situacao: str
     avisos: tuple[Aviso, ...]
+    cancelada: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -639,18 +644,30 @@ def situacao_de_conformidade(documento) -> str:
 
 def conformidade_do_mes(empresa, ano: int, mes: int) -> list[NotaConferida]:
     """Notas em que a empresa é PRESTADORA, com competência no mês, e a
-    conferência de cada uma. Uma consulta ao banco para os documentos; o
-    parsing é feito em memória (sem N+1). Isolamento: só documentos do
-    escritório da empresa."""
-    documentos = DocumentoFiscal.objects.filter(
-        escritorio_id=empresa.escritorio_id,
-        vinculos__empresa=empresa,
-        vinculos__papel=PapelDocumento.PRESTADOR,
-        d_competencia__year=ano,
-        d_competencia__month=mes,
-    ).order_by("dh_emissao", "id")
+    conferência de cada uma. Uma consulta ao banco: a lista vem de
+    `documentos_do_escritorio` (DL-010), que já traz o `cancelada` calculado
+    no banco; o parsing é feito em memória (sem N+1). Isolamento: só
+    documentos do escritório da empresa, e só os vínculos de PRESTADOR dela
+    (notas tomadas ficam de fora, B2)."""
+    prestados = VinculoDocumentoEmpresa.objects.filter(
+        empresa=empresa, papel=PapelDocumento.PRESTADOR
+    ).values("documento")
+    documentos = (
+        documentos_do_escritorio(empresa.escritorio_id, competencia=(ano, mes))
+        .filter(pk__in=prestados)
+        .order_by("dh_emissao", "id")
+    )
     notas = []
     for documento in documentos:
         situacao, avisos = _avaliar(documento)
-        notas.append(NotaConferida(documento=documento, situacao=situacao, avisos=avisos))
+        if documento.cancelada:
+            avisos = ()  # B5: nota cancelada não recebe aviso de conformidade
+        notas.append(
+            NotaConferida(
+                documento=documento,
+                situacao=situacao,
+                avisos=avisos,
+                cancelada=documento.cancelada,
+            )
+        )
     return notas
