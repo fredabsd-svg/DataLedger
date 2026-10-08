@@ -129,7 +129,8 @@ class NotaPrestadaSerializer(serializers.Serializer):
     )
     tp_ret_issqn = serializers.CharField(source="documento.tp_ret_issqn", read_only=True)
     situacao = serializers.CharField(read_only=True)
-    natureza_sugerida = serializers.CharField(read_only=True)
+    # Nulo quando o XML indica não incidência: não há sugestão, e o contador escolhe.
+    natureza_sugerida = serializers.CharField(read_only=True, allow_null=True)
     competencia_difere_da_emissao = serializers.BooleanField(read_only=True)
     escrituracao_id = serializers.SerializerMethodField()
     estado_escrituracao = serializers.SerializerMethodField()

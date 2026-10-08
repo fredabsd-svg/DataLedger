@@ -294,6 +294,97 @@ def test_natureza_sugerida_devida_quando_nao_retida(
 
 
 # ---------------------------------------------------------------------------
+# HI-67 — seis naturezas na tela, e sem sugestão nada vem marcado
+# ---------------------------------------------------------------------------
+
+
+def test_tela_mostra_as_seis_naturezas_com_rotulos(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    nota = _nota(escritorio_a, usuario_gestor_a)
+    _logar(client, usuario_gestor_a)
+
+    conteudo = client.get(_url_escriturar(empresa_a, _vinculo(nota, empresa_a))).content.decode()
+
+    assert len(NaturezaOperacao.choices) == 6
+    for valor, rotulo in NaturezaOperacao.choices:
+        assert f'value="{valor}"' in conteudo
+        assert rotulo in conteudo
+
+
+def test_exportacao_sugerida_vem_pre_selecionada(client, escritorio_a, empresa_a, usuario_gestor_a):
+    nota = _nota(escritorio_a, usuario_gestor_a, trib_issqn="3")
+    _logar(client, usuario_gestor_a)
+
+    conteudo = client.get(_url_escriturar(empresa_a, _vinculo(nota, empresa_a))).content.decode()
+
+    assert f'value="{NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO.value}" selected' in conteudo
+    assert "Sugerida a partir do XML" in conteudo
+    assert EscrituracaoFiscal.objects.count() == 0
+
+
+def test_sem_sugestao_nenhuma_natureza_vem_marcada(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    # XML com não incidência (tribISSQN 4): sem sugestão, nenhuma opção marcada.
+    nota = _nota(escritorio_a, usuario_gestor_a, trib_issqn="4")
+    _logar(client, usuario_gestor_a)
+
+    conteudo = client.get(_url_escriturar(empresa_a, _vinculo(nota, empresa_a))).content.decode()
+
+    for valor, _rotulo in NaturezaOperacao.choices:
+        assert f'value="{valor}" selected' not in conteudo
+    # A primeira opção é um aviso vazio e marcado, não uma natureza.
+    assert '<option value="" selected>' in conteudo
+    assert "não incidência de ISS" in conteudo
+    assert EscrituracaoFiscal.objects.count() == 0
+
+
+def test_sem_sugestao_efetivar_sem_escolher_e_recusado_pela_tela(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    nota = _nota(escritorio_a, usuario_gestor_a, trib_issqn="4")
+    _logar(client, usuario_gestor_a)
+
+    resposta = client.post(
+        _url_escriturar(empresa_a, _vinculo(nota, empresa_a)),
+        {"natureza": "", "acao": "efetivar"},
+    )
+
+    assert resposta.status_code == 200
+    assert "Natureza de operação desconhecida" in resposta.content.decode()
+    assert EscrituracaoFiscal.objects.count() == 0
+
+
+def test_sem_sugestao_contador_escolhe_e_efetiva_pela_tela(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    nota = _nota(escritorio_a, usuario_gestor_a, trib_issqn="4")
+    _logar(client, usuario_gestor_a)
+
+    resposta = client.post(
+        _url_escriturar(empresa_a, _vinculo(nota, empresa_a)),
+        {"natureza": NaturezaOperacao.PRESTADO_FORA_LISTA_LC116.value, "acao": "efetivar"},
+    )
+
+    escrituracao = EscrituracaoFiscal.objects.get()
+    assert resposta.status_code == 302
+    assert escrituracao.natureza == NaturezaOperacao.PRESTADO_FORA_LISTA_LC116
+
+
+def test_lista_mostra_sem_sugestao_com_rotulo_proprio(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    _nota(escritorio_a, usuario_gestor_a, trib_issqn="4")
+    _logar(client, usuario_gestor_a)
+
+    resposta = client.get(_url_lista(), _competencia(empresa_a, 2024, 1))
+
+    assert resposta.status_code == 200
+    assert "Sem sugestão — escolha a natureza" in resposta.content.decode()
+
+
+# ---------------------------------------------------------------------------
 # Critério 2 — efetivar e salvar rascunho pela tela; repetir não duplica (6)
 # ---------------------------------------------------------------------------
 

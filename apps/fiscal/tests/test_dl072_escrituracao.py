@@ -218,18 +218,22 @@ def test_sugestao_retido_so_para_tpretissqn_2_ou_3(
     assert linha.natureza_sugerida == esperada
 
 
-def test_sugestao_nunca_presume_outro_municipio_nem_sem_incidencia(
+def test_sugestao_nunca_presume_outro_municipio_nem_fora_da_lista(
     escritorio_a, empresa_a, usuario_gestor_a
 ):
     # `empresa_a` precisa existir: sem um participante do escritório, o
     # pipeline recusa a nota (não há o que vincular).
-    # O XML não diz o município de incidência nem se há exceção de ISS. Quem
-    # decide é o contador; a sugestão só distingue retido de devido.
+    # Sem `tribISSQN` no XML, o município de incidência e a situação do ISS não
+    # estão dizendo nada: a sugestão nunca chega a outro município, a
+    # exportação, a imunidade nem a "fora da lista" (HI-67). Quem decide é o
+    # contador; a sugestão só distingue retido de devido.
     for tp in ("1", "2", "3"):
         nota = _nota(escritorio_a, usuario_gestor_a, sufixo=int(tp) + 10, tp_ret_issqn=tp)
         assert servico.sugerir_natureza(nota) not in {
             NaturezaOperacao.PRESTADO_ISS_OUTRO_MUNICIPIO,
-            NaturezaOperacao.PRESTADO_SEM_INCIDENCIA_ISS,
+            NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO,
+            NaturezaOperacao.PRESTADO_ISS_IMUNE_ISENTO_REDUZIDO,
+            NaturezaOperacao.PRESTADO_FORA_LISTA_LC116,
         }
 
 

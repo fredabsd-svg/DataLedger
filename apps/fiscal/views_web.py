@@ -823,12 +823,24 @@ def _acao_da_nota(nota, empresa, pode_escriturar):
     return None
 
 
+# Sem sugestão (XML com não incidência de ISS, HI-67): a tela não escolhe por
+# o contador. O rótulo diz isso, em vez de mostrar uma natureza que não foi
+# dita pelo XML.
+ROTULO_SEM_SUGESTAO = "Sem sugestão — escolha a natureza"
+
+
+def _rotulo_da_sugestao(natureza):
+    if natureza is None:
+        return ROTULO_SEM_SUGESTAO
+    return NaturezaOperacao(natureza).label
+
+
 def _linha_da_nota(nota, empresa, pode_escriturar):
     documento = nota.documento
     return {
         "nota": nota,
         "situacao": _ROTULO_DE_SITUACAO.get(nota.situacao, nota.situacao),
-        "natureza_sugerida": NaturezaOperacao(nota.natureza_sugerida).label,
+        "natureza_sugerida": _rotulo_da_sugestao(nota.natureza_sugerida),
         "retencao": DESCRICAO_TP_RET_ISSQN.get(documento.tp_ret_issqn, documento.tp_ret_issqn),
         "v_serv_ptbr": _valor_ptbr(documento.v_serv),
         "acao": _acao_da_nota(nota, empresa, pode_escriturar),
@@ -906,14 +918,12 @@ def _tela_de_escriturar(request, empresa, vinculo, *, natureza=None, status=200)
     documento = vinculo.documento
     nota = _nota_do_vinculo(empresa, vinculo)
     escrituracao = nota.escrituracao if nota is not None else None
+    sugerida = servico_escrituracao.sugerir_natureza(documento)
     if natureza is None:
         # Sem escolha digitada: a natureza já confirmada (rascunho ou efetivada)
         # ou, na primeira vez, a SUGERIDA — pré-selecionada, nunca gravada.
-        natureza = (
-            escrituracao.natureza
-            if escrituracao
-            else servico_escrituracao.sugerir_natureza(documento)
-        )
+        # Sem sugestão (None): nada pré-selecionado; o contador precisa escolher.
+        natureza = escrituracao.natureza if escrituracao else sugerida
     contexto = {
         "empresa": empresa,
         "vinculo": vinculo,
@@ -922,9 +932,8 @@ def _tela_de_escriturar(request, empresa, vinculo, *, natureza=None, status=200)
         "escrituracao": escrituracao,
         "natureza_selecionada": natureza,
         "opcoes_de_natureza": NaturezaOperacao.choices,
-        "natureza_sugerida_rotulo": NaturezaOperacao(
-            servico_escrituracao.sugerir_natureza(documento)
-        ).label,
+        "tem_sugestao": sugerida is not None,
+        "natureza_sugerida_rotulo": _rotulo_da_sugestao(sugerida),
         "situacao_rotulo": (
             _ROTULO_DE_SITUACAO.get(nota.situacao, nota.situacao) if nota is not None else None
         ),

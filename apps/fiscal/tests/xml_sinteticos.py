@@ -117,6 +117,7 @@ def xml_nfse(
     declaracao: str | None = "UTF-8",
     minificado: bool = False,
     crlf: bool = False,
+    trib_issqn: str | None = None,
 ) -> bytes:
     """NFS-e nacional sintética. Todos os parâmetros têm um valor padrão
     válido; sobrescreva só o que o cenário do teste precisa variar.
@@ -124,10 +125,17 @@ def xml_nfse(
     `tp_amb`: "1" (Produção, padrão) ou "2" (Homologação — DE-076 item 3,
     achado A11: recusada pelo leitor). `None` omite o elemento inteiro
     (XML sem o campo, caso residual do acervo real que não deve recusar).
+
+    `trib_issqn`: valor de `tribISSQN` (grupo tribMun). Padrão `None` = o
+    elemento não é escrito, e o XML sai byte a byte igual ao de antes deste
+    parâmetro existir.
     """
     if identificador is None:
         identificador = identificador_nfse()
 
+    trib_issqn_xml = (
+        f"<tribISSQN>{escape(trib_issqn)}</tribISSQN>" if trib_issqn is not None else ""
+    )
     toma_xml = ""
     if incluir_tomador:
         toma_xml = _bloco_pessoa(
@@ -157,7 +165,7 @@ def xml_nfse(
           </vServPrest>
           <trib>
             <tribMun>
-              <tpRetISSQN>{tp_ret_issqn}</tpRetISSQN>
+              {trib_issqn_xml}<tpRetISSQN>{tp_ret_issqn}</tpRetISSQN>
             </tribMun>
           </trib>
         </valores>

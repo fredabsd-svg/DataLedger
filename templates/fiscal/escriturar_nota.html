@@ -84,10 +84,17 @@ efetivação registra, e o que ainda dá para desfazer (estorno, com motivo).
                     copiados do documento, na hora. Depois de efetivada, a escrituração só muda por
                     estorno, com motivo registrado.
                 </p>
-                <p class="texto-apoio">
-                    Sugerida a partir do XML: {{ natureza_sugerida_rotulo }}. A sugestão não é a
-                    escrituração: quem confirma a natureza é você.
-                </p>
+                {% if tem_sugestao %}
+                    <p class="texto-apoio">
+                        Sugerida a partir do XML: {{ natureza_sugerida_rotulo }}. A sugestão não é a
+                        escrituração: quem confirma a natureza é você.
+                    </p>
+                {% else %}
+                    <p class="texto-apoio">
+                        O XML indica não incidência de ISS, e isso não basta para definir a natureza.
+                        O sistema não sugere nenhuma: escolha a que se aplica a esta nota.
+                    </p>
+                {% endif %}
             </div>
 
             <form method="post" action="{% url 'fiscal_web:escriturar_nota' empresa.id vinculo.id %}" class="formulario">
@@ -95,6 +102,10 @@ efetivação registra, e o que ainda dá para desfazer (estorno, com motivo).
                 <div class="campo">
                     <label for="id_natureza">Natureza da operação</label>
                     <select id="id_natureza" name="natureza" required>
+                        {% if not natureza_selecionada %}
+                            {% comment %}Sem natureza marcada, a primeira opção é um aviso, não uma natureza: o `required` impede enviar sem escolher.{% endcomment %}
+                            <option value="" selected>Escolha a natureza da operação</option>
+                        {% endif %}
                         {% for valor, rotulo in opcoes_de_natureza %}
                             <option value="{{ valor }}"{% if valor == natureza_selecionada %} selected{% endif %}>{{ rotulo }}</option>
                         {% endfor %}

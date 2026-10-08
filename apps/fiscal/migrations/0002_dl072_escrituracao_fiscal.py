@@ -174,8 +174,16 @@ class Migration(migrations.Migration):
                                 "Serviço prestado — ISS devido a outro município",
                             ),
                             (
-                                "prestado_sem_incidencia_iss",
-                                "Serviço prestado — sem incidência de ISS",
+                                "prestado_exportacao_servico",
+                                "Serviço prestado — exportação de serviço (mercado externo)",
+                            ),
+                            (
+                                "prestado_iss_imune_isento_reduzido",
+                                "Serviço prestado — ISS imune, isento ou reduzido por lei do ente",
+                            ),
+                            (
+                                "prestado_fora_lista_lc116",
+                                "Serviço prestado — fora da lista da LC 116 (sem ISS)",
                             ),
                         ],
                         max_length=40,

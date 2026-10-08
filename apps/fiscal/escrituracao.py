@@ -8,8 +8,9 @@ Contrato: docs/planos/DL-072-escrituracao-das-nfse-prestadas.md (critérios
 - O mês da escrituração é o de `dCompet` (HI-57). `dhEmi` só aparece no
   AVISO de competência diferente da emissão.
 - A natureza é SUGERIDA a partir do XML e CONFIRMADA pelo contador. A sugestão
-  nunca vira efetivação sozinha, e nunca presume "outro município" nem "sem
-  incidência" — só distingue "retido" de "devido pelo prestador".
+  nunca vira efetivação sozinha. Ela distingue retido, exportação e ISS
+  imune/isento/reduzido; não-incidência não gera sugestão (None); e nunca
+  presume "outro município" nem "fora da lista da LC 116" (HI-67).
 - Nenhum serviço aqui calcula alíquota, base ou imposto. Os valores são
   copiados do documento no ato de efetivar (plano, item 4).
 - Situação "cancelada" é a de `apps.fiscal.services.situacao_do_documento`,
@@ -33,6 +34,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.auditoria.services import registrar
+from apps.fiscal.leitor import NS_NFSE, ArquivoRecusado, _raiz_segura
 from apps.fiscal.models import (
     DocumentoFiscal,
     EscrituracaoFiscal,
@@ -47,6 +49,30 @@ from apps.fiscal.services import documentos_do_escritorio, situacao_do_documento
 # "retido" da natureza. 1 (não retido) não é contado aqui — cai em "devido
 # pelo prestador". Leitura do código, não cálculo: a retenção é só marcada.
 TP_RET_ISSQN_RETIDO = frozenset({"2", "3"})
+
+# `tribISSQN` — tributação do ISSQN sobre o serviço prestado. A TABELA DE
+# CÓDIGOS MUDA ENTRE LEIAUTES, por isso há uma tabela por versão. Conferido nos
+# XSD oficiais do pacote nfse-esquemas_xsd-v1-01-20260209.zip (caminhos dentro
+# do pacote, 08/10/2026):
+#   1.01 — Schemas/1.01/tiposSimples_v1.01.xsd:1068 (TSTribISSQN), enumeração
+#          nas linhas 1080-1083: 1 operação tributável; 2 imunidade;
+#          3 exportação de serviço; 4 não incidência.
+#   1.00 — Schemas/1.00/tiposSimples_v1.00.xsd:1074 (TSTribISSQN), enumeração
+#          nas linhas 1086-1089: 1 operação tributável; 2 exportação de serviço;
+#          3 não incidência; 4 imunidade.
+# Caminho do campo, nas duas versões: NFSe/infNFSe/DPS/infDPS/valores/trib/
+# tribMun/tribISSQN (valores em TCInfDPS; trib em TCInfoValores; tribMun em
+# TCInfoTributacao; tribISSQN em TCTribMunicipal):
+#   1.01 — tiposComplexos_v1.01.xsd:831, :1626, :1638, :1859
+#   1.00 — tiposComplexos_v1.00.xsd:365, :1229, :1242, :1471
+# Só os códigos que a sugestão usa estão aqui; "1" (tributável) cai na regra
+# seguinte, "devido pelo prestador".
+_TRIB_ISSQN_POR_VERSAO = {
+    "1.01": {"exportacao": "3", "imunidade": "2", "nao_incidencia": "4"},
+    "1.00": {"exportacao": "2", "imunidade": "4", "nao_incidencia": "3"},
+}
+_NS = {"n": NS_NFSE}
+_CAMINHO_TRIB_ISSQN = "n:infNFSe/n:DPS/n:infDPS/n:valores/n:trib/n:tribMun/n:tribISSQN"
 
 # Situações devolvidas por `notas_a_escriturar` e pela conferência.
 SITUACAO_A_ESCRITURAR = "a_escriturar"
@@ -90,16 +116,57 @@ def _data_de_emissao(documento: DocumentoFiscal) -> date:
     return timezone.localtime(documento.dh_emissao).date()
 
 
-def sugerir_natureza(documento: DocumentoFiscal) -> str:
-    """Natureza SUGERIDA para a nota. Só distingue retido de devido.
+def _trib_issqn(documento: DocumentoFiscal) -> str | None:
+    """`tribISSQN` lido do XML guardado, ou None se não for possível lê-lo.
 
-    "Retido" quando `tpRetISSQN` é 2 ou 3. Em qualquer outro caso, sugere
-    "ISS devido pelo prestador". NUNCA sugere "outro município" nem "sem
-    incidência": isso depende de fato que o XML não traz, e quem decide é o
-    contador.
+    Não levanta exceção. XML ilegível, versão sem tabela, raiz fora do
+    namespace da NFS-e e campo ausente viram None, e a sugestão cai na regra
+    seguinte. A leitura usa `_raiz_segura` (defusedxml, sem DTD), o mesmo
+    caminho seguro do recebimento: a sugestão não abre brecha que a recepção
+    fecha. O texto do elemento é aparado de espaços e comparado, depois, com os
+    códigos exatos da tabela da versão.
+    """
+    if documento.versao not in _TRIB_ISSQN_POR_VERSAO:
+        return None
+    try:
+        raiz = _raiz_segura(bytes(documento.xml_original or b""))
+    except ArquivoRecusado:
+        return None
+    if raiz.tag != f"{{{NS_NFSE}}}NFSe":
+        return None
+    elemento = raiz.find(_CAMINHO_TRIB_ISSQN, _NS)
+    if elemento is None or elemento.text is None:
+        return None
+    return elemento.text.strip()
+
+
+def sugerir_natureza(documento: DocumentoFiscal) -> NaturezaOperacao | None:
+    """Natureza SUGERIDA para a nota (HI-67), ou None quando o XML não permite sugerir.
+
+    Ordem, e a primeira regra que casa vence:
+    1. `tpRetISSQN` 2 ou 3 → "ISS retido". A retenção vence qualquer `tribISSQN`.
+    2. `tribISSQN` = exportação → exportação de serviço.
+    3. `tribISSQN` = imunidade → "ISS imune, isento ou reduzido por lei do ente".
+    4. `tribISSQN` = não incidência → **None**. Não-incidência NÃO é o mesmo que
+       "fora da lista da LC 116", e o XML não diz qual dos dois é: o contador
+       escolhe, e nada vem pré-selecionado.
+    5. Qualquer outro caso (`tribISSQN` 1, campo ausente, XML ilegível, versão
+       sem tabela) → "ISS devido pelo prestador".
+
+    NUNCA sugere "ISS devido a outro município" nem "fora da lista da LC 116".
+    Os códigos de `tribISSQN` estão conferidos nos XSD: ver `_TRIB_ISSQN_POR_VERSAO`.
     """
     if _iss_retido(documento):
         return NaturezaOperacao.PRESTADO_ISS_RETIDO
+    trib = _trib_issqn(documento)
+    if trib is not None:
+        codigos = _TRIB_ISSQN_POR_VERSAO[documento.versao]
+        if trib == codigos["exportacao"]:
+            return NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO
+        if trib == codigos["imunidade"]:
+            return NaturezaOperacao.PRESTADO_ISS_IMUNE_ISENTO_REDUZIDO
+        if trib == codigos["nao_incidencia"]:
+            return None
     return NaturezaOperacao.PRESTADO_ISS_DEVIDO_PRESTADOR
 
 
@@ -109,7 +176,8 @@ class NotaPrestada:
     documento: DocumentoFiscal
     situacao: str
     escrituracao: EscrituracaoFiscal | None
-    natureza_sugerida: str
+    # None quando a sugestão é "não incidência": nada vem pré-selecionado.
+    natureza_sugerida: NaturezaOperacao | None
 
     @property
     def data_emissao(self) -> date:

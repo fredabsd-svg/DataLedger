@@ -341,9 +341,13 @@ class ResultadoDoArquivo(models.Model):
 # DL-072 (frente A): escrituração das NFS-e prestadas.
 #
 # O catálogo de natureza é FECHADO e vive em código (HI-56): é o contador
-# quem escolhe, entre estas quatro, a natureza de cada nota prestada. Nenhuma
+# quem escolhe, entre estas seis, a natureza de cada nota prestada. Nenhuma
 # delas carrega alíquota nesta etapa — alíquota, imposto e guia ficam para as
 # etapas seguintes, cada uma com fonte oficial e vigência.
+#
+# A antiga "sem incidência de ISS" foi DESDOBRADA (HI-67): exportação, ISS
+# imune/isento/reduzido e serviço fora da lista da LC 116 têm tratamentos
+# diferentes (mercado, base, RBT12 e ISS), e um valor único os misturava.
 # ---------------------------------------------------------------------------
 
 
@@ -360,11 +364,45 @@ class NaturezaOperacao(models.TextChoices):
         "prestado_iss_outro_municipio",
         "Serviço prestado — ISS devido a outro município",
     )
-    # Exportação, imunidade ou não incidência: é o CONTADOR quem escolhe.
-    PRESTADO_SEM_INCIDENCIA_ISS = (
-        "prestado_sem_incidencia_iss",
-        "Serviço prestado — sem incidência de ISS",
+    PRESTADO_EXPORTACAO_SERVICO = (
+        "prestado_exportacao_servico",
+        "Serviço prestado — exportação de serviço (mercado externo)",
     )
+    PRESTADO_ISS_IMUNE_ISENTO_REDUZIDO = (
+        "prestado_iss_imune_isento_reduzido",
+        "Serviço prestado — ISS imune, isento ou reduzido por lei do ente",
+    )
+    PRESTADO_FORA_LISTA_LC116 = (
+        "prestado_fora_lista_lc116",
+        "Serviço prestado — fora da lista da LC 116 (sem ISS)",
+    )
+
+
+# Naturezas de mercado EXTERNO. Só a exportação é externa; as outras cinco
+# são mercado interno. Esta é a ÚNICA definição do mercado de uma natureza:
+# a escrituração e, depois, a apuração do Simples (bases, RBT12 e limites
+# separados por mercado, HI-67) devem consultá-la, nunca repetir a regra.
+#
+# Por que só a exportação: a definição de exportação de serviço é a da Res.
+# CGSN 140 art. 25 § 4º (que repete LC 116 art. 2º, parágrafo único), e a
+# separação dos mercados para alíquota, base e limites está em LC 123 art. 3º
+# §§ 14 e 15. ISS imune/isento/reduzido por lei do ente e serviço fora da lista
+# continuam no mercado INTERNO: a lei municipal afeta só a parcela do ISS, não
+# a origem da receita (Res. CGSN 140 art. 25 § 10). Fonte: HI-67 (requisitos.md).
+_NATUREZAS_DE_MERCADO_EXTERNO = frozenset({NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO})
+
+
+def mercado_da_natureza(natureza: str) -> str:
+    """Mercado da natureza: "externo" para exportação de serviço, "interno" para as demais.
+
+    Recusa valor fora do catálogo com `ValueError`: um valor desconhecido
+    NÃO vira "interno" em silêncio, porque isso mudaria a base do Simples.
+    """
+    if natureza not in NaturezaOperacao.values:
+        raise ValueError(f"natureza fora do catálogo: {natureza!r}")
+    if natureza in _NATUREZAS_DE_MERCADO_EXTERNO:
+        return "externo"
+    return "interno"
 
 
 class EstadoEscrituracao(models.TextChoices):

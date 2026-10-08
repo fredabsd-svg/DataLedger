@@ -19,6 +19,7 @@ from django.contrib.auth import get_user_model
 from apps.auditoria.models import RegistroAuditoria
 from apps.fiscal import escrituracao as servico
 from apps.fiscal import services
+from apps.fiscal.api import EfetivarEntradaSerializer
 from apps.fiscal.models import (
     DocumentoFiscal,
     EscrituracaoFiscal,
@@ -516,3 +517,77 @@ def test_erro_de_negocio_responde_json_sem_detalhe_interno(
     assert resposta.status_code == 400
     assert resposta.headers["Content-Type"].startswith("application/json")
     assert b"Traceback" not in resposta.content
+
+
+# ---------------------------------------------------------------------------
+# HI-67 — seis naturezas pela API, e sugestão nula sem inventar natureza
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "natureza",
+    [
+        "prestado_iss_devido_prestador",
+        "prestado_iss_retido",
+        "prestado_iss_outro_municipio",
+        "prestado_exportacao_servico",
+        "prestado_iss_imune_isento_reduzido",
+        "prestado_fora_lista_lc116",
+    ],
+)
+def test_entrada_da_api_aceita_as_seis_naturezas(natureza):
+    entrada = EfetivarEntradaSerializer(data={"natureza": natureza})
+
+    assert entrada.is_valid(), entrada.errors
+
+
+def test_entrada_da_api_recusa_o_valor_antigo_sem_incidencia():
+    entrada = EfetivarEntradaSerializer(data={"natureza": "prestado_sem_incidencia_iss"})
+
+    assert not entrada.is_valid()
+    assert "natureza" in entrada.errors
+
+
+def test_lista_sem_sugestao_devolve_natureza_sugerida_nula(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    _nota(escritorio_a, usuario_gestor_a, trib_issqn="4")
+    _logar(client, usuario_gestor_a)
+
+    resposta = client.get(_url_notas(empresa_a))
+
+    (nota,) = resposta.json()["notas"]
+    assert nota["natureza_sugerida"] is None
+    assert nota["situacao"] == "a_escriturar"
+
+
+def test_efetivar_sem_natureza_com_nota_sem_sugestao_responde_400_e_nao_grava(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    nota = _nota(escritorio_a, usuario_gestor_a, trib_issqn="4")
+    _logar(client, usuario_gestor_a)
+
+    resposta = _post(client, _url_efetivar(empresa_a, _vinculo(nota, empresa_a)), {})
+
+    assert resposta.status_code == 400
+    assert EscrituracaoFiscal.objects.count() == 0
+
+
+def test_efetivar_exportacao_pela_api_grava_mercado_externo(
+    client, escritorio_a, empresa_a, usuario_gestor_a
+):
+    nota = _nota(escritorio_a, usuario_gestor_a, trib_issqn="3")
+    _logar(client, usuario_gestor_a)
+
+    resposta = _post(
+        client,
+        _url_efetivar(empresa_a, _vinculo(nota, empresa_a)),
+        {"natureza": NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO.value},
+    )
+
+    assert resposta.status_code == 201
+    corpo = resposta.json()
+    assert corpo["natureza"] == "prestado_exportacao_servico"
+    assert (
+        corpo["natureza_descricao"] == "Serviço prestado — exportação de serviço (mercado externo)"
+    )

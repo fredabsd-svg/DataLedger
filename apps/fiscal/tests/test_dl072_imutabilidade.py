@@ -37,7 +37,7 @@ from apps.fiscal.tests.xml_sinteticos import identificador_nfse, xml_nfse
 pytestmark = pytest.mark.django_db
 
 NATUREZA = NaturezaOperacao.PRESTADO_ISS_DEVIDO_PRESTADOR
-OUTRA_NATUREZA = NaturezaOperacao.PRESTADO_SEM_INCIDENCIA_ISS
+OUTRA_NATUREZA = NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO
 
 
 def _nota(escritorio, usuario, sufixo=1):
