@@ -141,7 +141,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-073](../planos/DL-073-validador-ibscbs.md) | Fiscal: validador de conformidade IBS/CBS das NFS-e recebidas (modo aviso, HI-61) | Integrada (PR #96, squash `8f36cd4`) — auditoria e reconferência aprovadas com ressalvas |
 | [DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) | Fiscal: receita mensal, receita informada, confirmação e RBT12 do Simples por mercado | Integrada (PR #97, squash `ebc40a3`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 | [DL-075](../planos/DL-075-pre-das-do-simples.md) | Fiscal: pré-DAS do Simples para prestadores de serviço (Anexos I a V como dado, fator r, teto do ISS, segregação) | Integrada (PR #98, squash `05668d4`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
-| [DL-076](../planos/DL-076-iss-por-municipio-palmas.md) | Fiscal: ISS por município, começando por Palmas (alíquota informada, conferência por nota, apuração fora do Simples, retido sofrido, outros municípios) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-076](../planos/DL-076-iss-por-municipio-palmas.md) | Fiscal: ISS por município, começando por Palmas (alíquota informada, conferência por nota, apuração fora do Simples, retido sofrido, outros municípios) | Integrada (PR #99, squash `6c2baf7`) — rodada 1 e reconferência aprovadas com ressalvas |
 | [DL-077](../planos/DL-077-importacao-e-exportacao-contabil-em-txt.md) | Contabilidade: importar e exportar plano de contas e lançamentos em TXT e Excel | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -218,40 +218,28 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    BL-668, BL-670, PE-78; HI-71 e HI-79 a conciliar com o extrato do
    PGDAS-D.
 5. **[DL-076](../planos/DL-076-iss-por-municipio-palmas.md) — ISS por
-   município, começando por Palmas: implementada, em auditoria.** Frentes A
-   (campos de ISS da nota conferidos no XSD oficial, regra do município,
-   alíquotas, regime, apuração, relatórios, API) e B (11 telas), em Haiku;
-   suíte completa sobre a DL-075 corrigida: 6.232 aprovados, 1 reprovado
-   (ambiente), 53 pulados.
-   [Auditoria rodada 1](../auditorias/2026-10-08-dl-076-rodada-1.md):
-   **APROVADA COM RESSALVAS** — campos conferidos contra o XSD oficial,
-   tabela do art. 3º contra o Planalto, 63 de 90 mutantes mortos. Correção
-   única feita (`a8c8def`, Haiku): A1 (500 com percentual mal digitado), A2
-   (nota não escriturada vira aviso forte, HI-89), A3, A4 e A5 (testes de
-   isolamento; 19 mutantes vivos agora mortos), A6 (consultas por nota), A7
-   (vencimento nominal com dia da semana), A8 a A11; migração `fiscal 0007`
-   (piso de 2% no banco). Suíte completa: 6.343 aprovados, 1 reprovado
-   (ambiente), 53 pulados.
-   [Reconferência](../auditorias/2026-10-08-dl-076-reconferencia.md):
-   **APROVADA COM RESSALVAS** — A1 a A12 fechados por execução; 92 de 107
-   mutantes mortos; a tela com 1.000 notas caiu de 1.016 consultas para 16;
-   ciclo do §3.1 encerrado. Ressalvas, todas baixas: R4 (texto "7.02") e R6
-   (plano e HI-82) corrigidas pelo arquiteto; R1 a R3 e R5 no backlog
-   (BL-671, BL-672), com os testes propostos pelo auditor. **Próximo: PR,
-   CI e merge (RC-168).**
-   [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-iss-palmas.md):
-   a tabela de alíquotas vigente de Palmas **não foi achada** (LC 300/2014
-   inacessível); a alíquota vira dado informado pelo escritório e o produto
-   confere o ISS de cada nota (HI-82 a HI-86). **PE-79 para o Fred:** as
-   alíquotas que o WebISS aplica aos clientes dele, a LC 300/2014 e a UFIP
-   2026 — não bloqueia o código.
+   município, começando por Palmas: INTEGRADA** pelo
+   [PR #99](https://github.com/fredabsd-svg/DataLedger/pull/99), squash
+   `6c2baf7`, em 08/10/2026; merge autorizado pelo Fred (RC-168). Os quatro
+   checks tiveram execução verde no último commit; duas execuções duplicadas
+   foram **canceladas** no meio, sem falha no log, e a causa não foi
+   identificada (o workflow não tem `concurrency`). Ciclo do §3.1:
+   [rodada 1](../auditorias/2026-10-08-dl-076-rodada-1.md) e
+   [reconferência](../auditorias/2026-10-08-dl-076-reconferencia.md),
+   aprovadas com ressalvas. A tabela de alíquotas de Palmas não foi achada:
+   o escritório cadastra (HI-82). **PE-79 com o Fred.** Abertos: BL-668,
+   BL-671, BL-672.
 6. **[DL-077](../planos/DL-077-importacao-e-exportacao-contabil-em-txt.md) —
    importar e exportar plano de contas e lançamentos em TXT e Excel (RC-166,
    RC-167): planejada.** [Consulta](../projeto/consultas/2026-10-08-contador-senior-txt-contabil.md)
    ao manual de referência e ao leiaute oficial da ECD. O Fred respondeu a
    PE-80: **as três opções** (registros da ECD, leiaute do sistema de
-   referência e formato próprio) **e importação por Excel**. Primeira fatia:
-   plano de contas.
+   referência e formato próprio) **e importação por Excel**. **Fatia 1
+   (plano de contas) implementada, em auditoria**, em cópia isolada: núcleo
+   comum, os quatro formatos (importar; exportar nos três TXT), conferência
+   do CNPJ do arquivo, contas inativas, prévia com tipos por prefixo e
+   aplicação atômica com SHA-256, e as telas — suíte completa com 6.560
+   aprovados e só a reprovação de ambiente. Dependência nova: `openpyxl`.
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `4f42117`, medida na reconferência da DL-075):**
