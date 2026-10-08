@@ -5,6 +5,11 @@ retenção era devida e não gera guia: DAM, DARF, EFD-Reinf e DCTFWeb ficam for
 só escriturações EFETIVADAS de notas NÃO canceladas. Rascunho, estornada e cancelada ficam de
 fora, e a cancelada depois de escriturada aparece à parte, nunca somada em silêncio.
 
+ISS retido (HI-94, item 0 da DL-078 frente B): entra toda tomada efetivada com tpRetISSQN 2,
+seja qual for a natureza do prestador (T1, T5, T6 ou T7). O tipo do prestador e a retenção são
+independentes: retenção sobre prestador do Simples é legítima (Res. CGSN 140, art. 27; LC 123,
+art. 21, § 4º, indicados pelo arquiteto-senior, não conferidos nesta etapa).
+
 Três relógios de competência (HI-96; consulta, item 4):
 - ISS retido a recolher: mês de `dCompet` (RCTM art. 145). Vencimento pela regra do município.
 - INSS (vRetCP): mês de EMISSÃO (Lei 8.212, art. 31). Vencimento informativo no dia 20.
@@ -43,6 +48,25 @@ from apps.fiscal.tomadas import (
 DIA_VENCIMENTO_INSS = 20
 FUNDAMENTO_INSS = "Lei 8.212, art. 31, red. Lei 11.933/2009 (lido); informativo, sem cálculo"
 
+# Naturezas que totalizam o ISS retido quando tpRetISSQN é 2. A retenção não depende do tipo do
+# prestador (HI-94): T5 (MEI), T6 (Simples) e T7 (pessoa física) entram como T1. T2 e T3 ficam de
+# fora por construção: a efetivação exige tpRetISSQN 1 nelas (`tomadas._recusa_de_natureza`).
+NATUREZAS_COM_ISS_RETIDO = frozenset(
+    {
+        NaturezaTomada.TOMADO_ISS_RETIDO_PELO_CLIENTE,
+        NaturezaTomada.TOMADO_DE_MEI,
+        NaturezaTomada.TOMADO_DE_SIMPLES,
+        NaturezaTomada.TOMADO_DE_PESSOA_FISICA,
+    }
+)
+
+# Fundamento do aviso de MEI com ISS retido. Inferência, não norma lida: o texto de LC 123, art.
+# 18-A não foi conferido nesta etapa (a citação vem do DL-067, MF-SN-12).
+FUNDAMENTO_AVISO_MEI = (
+    "LC 123, art. 18-A (citado no DL-067, MF-SN-12; texto não conferido); consulta, item 1 "
+    "(inferência). Informativo: nenhum valor é alterado."
+)
+
 
 @dataclass(frozen=True)
 class GrupoIssRetido:
@@ -53,7 +77,8 @@ class GrupoIssRetido:
     # retenção sem ISS destacado não é zero (ver `sem_valor`).
     total: Decimal | None
     notas: tuple[EscrituracaoTomada, ...]
-    # Retidas (T1) sem vISSQN no XML: "retida sem valor destacado — conferir".
+    # Retidas (tpRetISSQN 2, qualquer natureza do ISS_RETIDO) sem vISSQN no XML:
+    # "retida sem valor destacado — conferir".
     sem_valor: tuple[EscrituracaoTomada, ...]
     vencimento: date | None
     vencimento_texto: str
@@ -65,8 +90,9 @@ class IssRetidoAReceber:
     ano: int
     mes: int
     grupos: tuple[GrupoIssRetido, ...]
-    # Notas com tpRetISSQN 2 em natureza que não é T1 (T5, T6 ou T7). Ficam fora do total, com
-    # aviso, para o contador conferir. Não são somadas em silêncio.
+    # Efetivadas com tpRetISSQN 2 numa natureza FORA de NATUREZAS_COM_ISS_RETIDO. Hoje vazio por
+    # construção (a efetivação recusa esse caso), e mantido porque a API lê este campo. Se
+    # aparecer, fica visível e de fora do total, nunca somado nem sumido em silêncio.
     fora_do_total: tuple[EscrituracaoTomada, ...]
     canceladas: tuple[EscrituracaoTomada, ...]
     avisos: tuple[tuple[EscrituracaoTomada, AvisoTomada], ...]
@@ -184,20 +210,21 @@ def _vencimento_do_retido(municipio: str | None, ano: int, mes: int):
 def iss_retido_a_recolher(empresa, ano: int, mes: int) -> IssRetidoAReceber:
     """ISS retido a recolher pelo cliente TOMADOR, por município, no mês de `dCompet` (HI-94).
 
-    Soma o vISSQN das escriturações efetivadas de natureza T1 (ISS retido pelo cliente).
-    Nota T1 sem vISSQN aparece em `sem_valor`, nunca como zero. Vencimento: regra do município
-    (Palmas: dia 15 do mês seguinte, RCTM Anexo I). Município sem regra: "não parametrizado".
+    Soma o vISSQN de toda escrituração efetivada com tpRetISSQN 2, qualquer que seja a natureza
+    de NATUREZAS_COM_ISS_RETIDO (T1, T5, T6 ou T7). Nota retida sem vISSQN aparece em `sem_valor`,
+    nunca como zero. Vencimento: regra do município (Palmas: dia 15 do mês seguinte, RCTM Anexo
+    I). Município sem regra: "não parametrizado". Tomada de MEI com retenção recebe aviso.
     """
     iss_municipal._validar_competencia(ano, mes)
     primeiro, ultimo = iss_municipal._primeiro_e_ultimo(ano, mes)
     validas, canceladas = _efetivadas(
         empresa, data_competencia__gte=primeiro, data_competencia__lte=ultimo
     )
-    retidas = [e for e in validas if e.natureza == NaturezaTomada.TOMADO_ISS_RETIDO_PELO_CLIENTE]
+    retidas = [
+        e for e in validas if e.tp_ret_issqn == "2" and e.natureza in NATUREZAS_COM_ISS_RETIDO
+    ]
     fora = [
-        e
-        for e in validas
-        if e.tp_ret_issqn == "2" and e.natureza != NaturezaTomada.TOMADO_ISS_RETIDO_PELO_CLIENTE
+        e for e in validas if e.tp_ret_issqn == "2" and e.natureza not in NATUREZAS_COM_ISS_RETIDO
     ]
 
     por_municipio: dict[str | None, list[EscrituracaoTomada]] = {}
@@ -222,6 +249,21 @@ def iss_retido_a_recolher(empresa, ano: int, mes: int) -> IssRetidoAReceber:
 
     regimes: dict = {}
     avisos = list(_avisos_das_notas(empresa, retidas + fora, regimes))
+    # MEI em regra não sofre retenção de ISS (LC 123, art. 18-A, ver FUNDAMENTO_AVISO_MEI). O valor
+    # destacado ENTRA no total, porque é o que a nota diz. O aviso só pede conferência.
+    for escrituracao in retidas:
+        if escrituracao.natureza == NaturezaTomada.TOMADO_DE_MEI:
+            avisos.append(
+                (
+                    escrituracao,
+                    AvisoTomada(
+                        "MEI_ISS_RETIDO",
+                        "MEI não sofre retenção de ISS em regra — conferir. A nota traz "
+                        "tpRetISSQN 2 e entra no total do ISS retido.",
+                        FUNDAMENTO_AVISO_MEI,
+                    ),
+                )
+            )
     # Cliente em Palmas, com ISS devido no local do tomador (T3): CNES e RANFS (RCTM arts.
     # 218 a 222). Informativo, sem cálculo: a aplicação a NFS-e nacional não está determinada.
     for escrituracao in validas:

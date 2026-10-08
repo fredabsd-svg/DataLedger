@@ -88,13 +88,16 @@ from apps.fiscal import iss_municipal as servico_iss
 from apps.fiscal import pre_das as servico_pre_das
 from apps.fiscal import rbt12 as apuracao
 from apps.fiscal import receita as servico_receita
+from apps.fiscal import retencoes as servico_retencoes
 from apps.fiscal import simples_tabelas as tabelas
+from apps.fiscal import tomadas as servico_tomadas
 from apps.fiscal.models import (
     AliquotaIssMunicipal,
     AtividadeEmpresa,
     DocumentoFiscal,
     EnquadramentoAtividade,
     EscrituracaoFiscal,
+    EscrituracaoTomada,
     EstadoConfirmacaoMes,
     EstadoEscrituracao,
     EstadoFolhaFatorR,
@@ -104,6 +107,7 @@ from apps.fiscal.models import (
     LoteDeRecepcao,
     MercadoReceita,
     NaturezaOperacao,
+    NaturezaTomada,
     OpcaoRegimeCaixaSimples,
     OrigemReceitaInformada,
     PapelDocumento,
@@ -127,6 +131,7 @@ from apps.fiscal.services import (
     receber_envio,
     situacao_do_documento,
 )
+from apps.fiscal.tomadas_campos import campos_tomada_do_documento
 from apps.fiscal.uploads import LimiteDeTamanhoUploadHandler
 
 # Tamanho de página das duas listas desta etapa (envios e documentos). Não é
@@ -3969,3 +3974,709 @@ def iss_regras_municipio(request):
         "url_aliquotas": _url_aliquotas(),
     }
     return render(request, "fiscal/iss_regras_municipio.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# DL-078 (frente B): telas dos SERVIÇOS TOMADOS — escriturar, ISS retido a recolher, retenções
+# federais e data de pagamento.
+#
+# Toda regra (natureza e recusas, avisos A1 a A8, totais, vencimento, competência) vem de
+# `apps.fiscal.tomadas` e `apps.fiscal.retencoes`. Aqui há isolamento (404), permissão no servidor,
+# formatação pt-BR e montagem da resposta. Recusa do serviço vira MENSAGEM na própria tela, com
+# status 200 e nada gravado (mesmo critério da DL-072).
+# ---------------------------------------------------------------------------
+
+_MENSAGEM_SEM_CONSULTA_DAS_TOMADAS = "Seu papel não permite consultar as notas tomadas."
+_TEXTO_DE_CONFERENCIA_DO_RETIDO = (
+    "Conferência para a guia do ISS retido — o DataLedger não gera DAM nem transmite."
+)
+_TEXTO_DE_CONFERENCIA_DAS_RETENCOES = (
+    "Conferência das retenções federais destacadas nas notas — o DataLedger não gera guia, não "
+    "transmite EFD-Reinf nem DCTFWeb, e não decide se a retenção era devida."
+)
+
+# Texto de APRESENTAÇÃO do catálogo (HI-93): explica cada natureza com o que o próprio código faz
+# com ela. Não cria regra: a regra mora em `apps.fiscal.tomadas` (sugestão e recusas).
+_DESCRICAO_DA_NATUREZA_TOMADA = {
+    NaturezaTomada.TOMADO_ISS_RETIDO_PELO_CLIENTE: (
+        "O cliente tomador reteve o ISS. Exige tpRetISSQN 2 no XML. Entra no ISS retido a recolher."
+    ),
+    NaturezaTomada.TOMADO_SEM_RETENCAO: (
+        "O ISS é do prestador, sem retenção. Exige tpRetISSQN 1 no XML. Não entra no ISS retido."
+    ),
+    NaturezaTomada.TOMADO_PRESTADOR_OUTRO_MUNICIPIO: (
+        "Prestador de outro município, com ISS devido no local do tomador e sem retenção "
+        "destacada. Exige tpRetISSQN 1 no XML. Em Palmas, pede conferência de CNES e RANFS."
+    ),
+    NaturezaTomada.TOMADO_DE_MEI: (
+        "Prestador MEI. Se o XML trouxer tpRetISSQN 2, a nota entra no ISS retido com aviso para "
+        "conferir."
+    ),
+    NaturezaTomada.TOMADO_DE_SIMPLES: (
+        "Prestador ME/EPP do Simples Nacional. Com tpRetISSQN 2, a nota entra no ISS retido."
+    ),
+    NaturezaTomada.TOMADO_DE_PESSOA_FISICA: (
+        "Prestador pessoa física. Com tpRetISSQN 2, a nota entra no ISS retido."
+    ),
+}
+
+# Por que a natureza foi SUGERIDA: o sinal do XML que `sugerir_natureza` leu (ordem da consulta,
+# item 1). Só apresentação; se a ordem das regras mudar, este texto acompanha.
+_PORQUE_DA_SUGESTAO_TOMADA = {
+    NaturezaTomada.TOMADO_ISS_RETIDO_PELO_CLIENTE: (
+        "o XML traz tpRetISSQN 2 (ISS retido pelo tomador)."
+    ),
+    NaturezaTomada.TOMADO_DE_MEI: "o XML traz opSimpNac 2 (MEI), e não traz tpRetISSQN 2.",
+    NaturezaTomada.TOMADO_DE_SIMPLES: (
+        "o XML traz opSimpNac 3 (ME/EPP do Simples), e não traz tpRetISSQN 2."
+    ),
+    NaturezaTomada.TOMADO_DE_PESSOA_FISICA: (
+        "o prestador é pessoa física (CPF), sem opSimpNac 2 ou 3 e sem tpRetISSQN 2."
+    ),
+    NaturezaTomada.TOMADO_PRESTADOR_OUTRO_MUNICIPIO: (
+        "o XML traz tpRetISSQN 1 e o município de incidência é diferente do município da prestação."
+    ),
+    NaturezaTomada.TOMADO_SEM_RETENCAO: "o XML traz tpRetISSQN 1, sem outro sinal de natureza.",
+}
+
+_CONTRATO_ESCRITURAR_TOMADA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "natureza", "acao"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na escrituração da nota tomada",
+)
+_CONTRATO_ESTORNAR_TOMADA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no estorno da escrituração da nota tomada",
+)
+_CONTRATO_DATA_PAGAMENTO_TOMADA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "data_pagamento", "motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na data de pagamento da nota tomada",
+)
+_ACAO_DATA_PAGAMENTO_TOMADA = "escrituracao_tomada.data_pagamento_informada"
+
+
+def _escrituracao_tomada_da_empresa(request, empresa, escrituracao_id):
+    # Escrituração de OUTRA empresa, ou de outro escritório, é 404: não confirma que o ID existe.
+    return get_object_or_404(
+        EscrituracaoTomada.objects.select_related("vinculo__documento", "empresa"),
+        pk=escrituracao_id,
+        empresa=empresa,
+        empresa__escritorio=request.escritorio,
+    )
+
+
+def _municipio_da_tomada(documento):
+    # O código de incidência vem do XML guardado (cLocIncid). Ausente fica None: "sem município".
+    return campos_tomada_do_documento(documento).c_loc_incid
+
+
+def _numero_da_nota(documento):
+    return documento.numero or documento.identificador
+
+
+def _data_iso_na_tela(texto_iso):
+    if not texto_iso:
+        return "—"
+    return datetime.fromisoformat(texto_iso).strftime("%d/%m/%Y")
+
+
+def _natureza_da_tomada_na_tela(nota):
+    """`(rotulo, origem)` da coluna Natureza. Com escrituração, mostra a GRAVADA; sem ela, a
+    SUGERIDA pelo XML, dizendo que nada foi escriturado (mesmo critério da DL-072, auditoria A6)."""
+    if nota.escrituracao is not None:
+        origem = (
+            "Escriturada"
+            if nota.escrituracao.estado == EstadoEscrituracao.EFETIVADA
+            else "Rascunho, não efetivada"
+        )
+        return nota.escrituracao.get_natureza_display(), origem
+    if nota.natureza_sugerida is None:
+        return ROTULO_SEM_SUGESTAO, "Sem sugestão do XML"
+    return NaturezaTomada(nota.natureza_sugerida).label, "Sugerida pelo XML, não escriturada"
+
+
+def _acao_da_tomada(nota, empresa, pode_escriturar):
+    """Ação da linha: `{"rotulo", "url"}` ou None. Quem só consulta não vê botão de escriturar."""
+    if not pode_escriturar:
+        return None
+    if nota.situacao in _SITUACOES_QUE_ESCRITURAM:
+        rotulo = "Continuar escrituração" if nota.escrituracao else "Escriturar"
+    elif nota.escrituracao is not None and nota.situacao in _SITUACOES_COM_ESCRITURACAO_PARA_VER:
+        rotulo = "Ver escrituração"
+    else:
+        return None
+    return {
+        "rotulo": rotulo,
+        "url": reverse("fiscal_web:tomada_escriturar", args=[empresa.pk, nota.vinculo.pk]),
+    }
+
+
+def _linha_da_tomada(nota, empresa, pode_escriturar, municipio, nomes):
+    documento = nota.documento
+    natureza, origem = _natureza_da_tomada_na_tela(nota)
+    return {
+        "numero": _numero_da_nota(documento),
+        "emissao": _data_na_tela(nota.data_emissao) or "—",
+        "competencia": documento.d_competencia.strftime("%m/%Y")
+        if documento.d_competencia
+        else "—",
+        "prestador": _tomador_texto(documento.prestador_nome, documento.prestador_documento),
+        "municipio": _rotulo_do_municipio(municipio, nomes),
+        "v_serv_ptbr": _valor_ptbr(documento.v_serv),
+        "natureza": natureza,
+        "origem_natureza": origem,
+        "situacao": _ROTULO_DE_SITUACAO.get(nota.situacao, nota.situacao),
+        "acao": _acao_da_tomada(nota, empresa, pode_escriturar),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tela: serviços tomados do mês — arquétipo A (tabela de consulta)
+# ---------------------------------------------------------------------------
+
+
+@login_required
+@require_safe
+def tomadas_lista(request):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_DAS_TOMADAS)
+
+    empresa, competencia, erro = _filtros_de_escrituracao(request)
+    pode_escriturar = _pode_escriturar(request)
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, empresa, competencia),
+        "mostrar_ano": True,
+        "mostrar_mes": True,
+        "pode_escriturar": pode_escriturar,
+        "pagina": None,
+        "querystring_sem_pagina": _querystring_sem_pagina(request),
+    }
+    if erro:
+        messages.error(request, erro)
+        return render(request, "fiscal/tomadas_lista.html", contexto, status=400)
+    if empresa is None:
+        return render(request, "fiscal/tomadas_lista.html", contexto)
+
+    ano, mes = competencia
+    notas = servico_tomadas.notas_tomadas(empresa, ano, mes)
+    pagina = Paginator(notas, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
+    municipios = {n.vinculo.pk: _municipio_da_tomada(n.documento) for n in pagina.object_list}
+    nomes = _nomes_dos_municipios(municipios.values())
+    a_escriturar = sum(1 for n in notas if n.situacao in _SITUACOES_QUE_ESCRITURAM)
+    contexto.update(
+        {
+            "mes_rotulo": _mes_por_extenso(ano, mes),
+            "ano": ano,
+            "mes": mes,
+            "pagina": pagina,
+            "linhas": [
+                _linha_da_tomada(n, empresa, pode_escriturar, municipios[n.vinculo.pk], nomes)
+                for n in pagina.object_list
+            ],
+            "total_notas": len(notas),
+            "total_a_escriturar": a_escriturar,
+            "url_iss_retido": _url_com_filtro(
+                "fiscal_web:iss_retido_a_recolher", empresa, ano=ano, mes=mes
+            ),
+        }
+    )
+    return render(request, "fiscal/tomadas_lista.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# Tela: escriturar uma nota tomada — arquétipo B (formulário de documento)
+# ---------------------------------------------------------------------------
+
+
+def _recusa_da_natureza_escolhida(documento, natureza):
+    """Motivo, em texto, pelo qual a natureza ESCOLHIDA não pode ser efetivada nesta nota, ou None.
+
+    A regra (T1 exige tpRetISSQN 2; T2 e T3 exigem tpRetISSQN 1) mora em
+    `apps.fiscal.tomadas._recusa_de_natureza`. A tela a consulta só para decidir se o botão
+    Efetivar aparece habilitado; o servidor recusa de novo na efetivação, de qualquer forma.
+    """
+    if natureza not in NaturezaTomada.values:
+        return servico_tomadas.MENSAGEM_NATUREZA_FORA_DO_CATALOGO
+    return servico_tomadas._recusa_de_natureza(natureza, campos_tomada_do_documento(documento))
+
+
+def _estado_dos_botoes(nota, documento, natureza):
+    """`(pode_rascunho, motivo_rascunho, pode_efetivar, motivo_efetivar)`. O motivo é texto e vai
+    na tela ao lado do botão desabilitado (direção de arte §2.B: nunca o botão sumindo)."""
+    sem_natureza = "Escolha a natureza da operação antes de salvar ou efetivar."
+    if not natureza:
+        return False, sem_natureza, False, sem_natureza
+    if nota.bloqueio:
+        return False, nota.bloqueio, False, nota.bloqueio
+    recusa = _recusa_da_natureza_escolhida(documento, natureza)
+    return True, "", recusa is None, recusa or ""
+
+
+def _tela_de_escriturar_tomada(request, empresa, vinculo, *, natureza=None, status=200):
+    documento = vinculo.documento
+    # ISS, IRRF e CSRF destacados NÃO são campos do DocumentoFiscal: vêm do XML guardado.
+    campos = campos_tomada_do_documento(documento)
+    nota = servico_tomadas.nota_tomada_do_vinculo(empresa, vinculo)
+    escrituracao = nota.escrituracao if nota is not None else None
+    sugerida = nota.natureza_sugerida if nota is not None else None
+    if natureza is None:
+        # Primeira vez: a natureza já gravada, ou a SUGERIDA pelo XML, pré-selecionada e nunca
+        # gravada. Sem sugestão, nada vem pré-selecionado.
+        natureza = escrituracao.natureza if escrituracao is not None else (sugerida or "")
+    contexto = {
+        "empresa": empresa,
+        "vinculo": vinculo,
+        "documento": documento,
+        "nota": nota,
+        "escrituracao": escrituracao,
+        "natureza_selecionada": natureza,
+        "catalogo": [
+            (valor, rotulo, _DESCRICAO_DA_NATUREZA_TOMADA.get(valor, ""))
+            for valor, rotulo in NaturezaTomada.choices
+        ],
+        "tem_sugestao": sugerida is not None,
+        "natureza_sugerida_rotulo": (
+            NaturezaTomada(sugerida).label if sugerida is not None else ROTULO_SEM_SUGESTAO
+        ),
+        "porque_sugestao": _PORQUE_DA_SUGESTAO_TOMADA.get(sugerida, ""),
+        "situacao_rotulo": (
+            _ROTULO_DE_SITUACAO.get(nota.situacao, nota.situacao) if nota is not None else None
+        ),
+        "pode_formulario": nota is not None and nota.situacao in _SITUACOES_QUE_ESCRITURAM,
+        "efetivada": nota is not None and nota.situacao == servico_escrituracao.SITUACAO_EFETIVADA,
+        "v_serv_ptbr": _valor_ptbr(documento.v_serv),
+        "v_liq_ptbr": _valor_ptbr(documento.v_liq),
+        "iss_ptbr": _valor_ptbr(campos.v_iss_qn),
+        "municipio_rotulo": _rotulo_do_municipio(
+            _municipio_da_tomada(documento),
+            _nomes_dos_municipios([_municipio_da_tomada(documento)]),
+        ),
+        "irrf_ptbr": _valor_ptbr(campos.v_ret_irrf),
+        "csrf_ptbr": _valor_ptbr(campos.v_ret_csll),
+        "retencao": DESCRICAO_TP_RET_ISSQN.get(documento.tp_ret_issqn, documento.tp_ret_issqn),
+        "avisos": nota.avisos if nota is not None else (),
+        "url_lista": _url_com_filtro(
+            "fiscal_web:tomadas_lista",
+            empresa,
+            ano=documento.d_competencia.year,
+            mes=documento.d_competencia.month,
+        ),
+        "pode_pagamento": nota is not None and escrituracao is not None,
+        "url_pagamento": (
+            reverse(
+                "fiscal_web:tomada_data_pagamento",
+                args=[empresa.pk, escrituracao.pk],
+            )
+            if escrituracao is not None
+            else ""
+        ),
+        "url_estornar": (
+            reverse("fiscal_web:tomada_estornar", args=[empresa.pk, escrituracao.pk])
+            if escrituracao is not None
+            else ""
+        ),
+    }
+    if nota is not None and nota.situacao in _SITUACOES_QUE_ESCRITURAM:
+        (
+            contexto["pode_rascunho"],
+            contexto["motivo_rascunho"],
+            contexto["pode_efetivar"],
+            contexto["motivo_efetivar"],
+        ) = _estado_dos_botoes(nota, documento, natureza)
+    return render(request, "fiscal/tomada_escriturar.html", contexto, status=status)
+
+
+def _escriturar_tomada_post(request, empresa, vinculo):
+    natureza = request.POST.get("natureza", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_ESCRITURAR_TOMADA)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_escriturar_tomada(request, empresa, vinculo, natureza=natureza, status=400)
+
+    acao = request.POST.get("acao", "")
+    if acao not in _ACOES_DO_FORMULARIO_DE_ESCRITURAR:
+        messages.error(
+            request, "Ação desconhecida. Escolha 'Salvar rascunho' ou 'Efetivar escrituração'."
+        )
+        return _tela_de_escriturar_tomada(request, empresa, vinculo, natureza=natureza, status=400)
+
+    try:
+        if acao == "rascunho":
+            servico_tomadas.salvar_rascunho(
+                vinculo, natureza, usuario=request.user, request=request
+            )
+            messages.success(
+                request, "Rascunho salvo. A nota continua a escriturar até você efetivar."
+            )
+            return redirect(
+                "fiscal_web:tomada_escriturar", empresa_id=empresa.pk, vinculo_id=vinculo.pk
+            )
+        escrituracao = servico_tomadas.efetivar_escrituracao_tomada(
+            vinculo, natureza, usuario=request.user, request=request
+        )
+    except servico_escrituracao.EscrituracaoErro as exc:
+        # Recusa do serviço (natureza incompatível com o XML, nota cancelada, papel errado...):
+        # mensagem na tela, status 200, nada gravado, e a natureza digitada continua lá.
+        messages.error(request, exc.mensagem)
+        return _tela_de_escriturar_tomada(request, empresa, vinculo, natureza=natureza, status=200)
+
+    if escrituracao.criada_agora:
+        messages.success(request, "Nota tomada escriturada com a natureza confirmada.")
+    else:
+        messages.info(
+            request, "Esta nota já estava escriturada com esta natureza. Nada foi alterado."
+        )
+    return redirect("fiscal_web:tomada_escriturar", empresa_id=empresa.pk, vinculo_id=vinculo.pk)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def tomada_escriturar(request, empresa_id, vinculo_id):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao_de_escriturar(request)
+    empresa = _empresa_escopada(request, empresa_id)
+    vinculo = _vinculo_da_empresa(request, empresa, vinculo_id)
+    if request.method == "POST":
+        return _escriturar_tomada_post(request, empresa, vinculo)
+    return _tela_de_escriturar_tomada(request, empresa, vinculo)
+
+
+# ---------------------------------------------------------------------------
+# Telas: estornar e informar a data de pagamento de uma escrituração de tomada
+# ---------------------------------------------------------------------------
+
+
+def _tela_de_estornar_tomada(request, empresa, escrituracao, *, motivo, status=200):
+    documento = escrituracao.vinculo.documento
+    contexto = {
+        "empresa": empresa,
+        "escrituracao": escrituracao,
+        "documento": documento,
+        "efetivada": escrituracao.estado == EstadoEscrituracao.EFETIVADA,
+        "natureza_rotulo": escrituracao.get_natureza_display(),
+        "estado_rotulo": escrituracao.get_estado_display(),
+        "motivo": motivo,
+        "motivo_maximo": servico_tomadas.MOTIVO_MAXIMO,
+        "url_detalhe": reverse(
+            "fiscal_web:tomada_escriturar", args=[empresa.pk, escrituracao.vinculo_id]
+        ),
+    }
+    return render(request, "fiscal/tomada_estornar.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def tomada_estornar(request, empresa_id, escrituracao_id):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao_de_escriturar(request)
+    empresa = _empresa_escopada(request, empresa_id)
+    escrituracao = _escrituracao_tomada_da_empresa(request, empresa, escrituracao_id)
+    if request.method == "GET":
+        return _tela_de_estornar_tomada(request, empresa, escrituracao, motivo="")
+
+    motivo = request.POST.get("motivo", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_ESTORNAR_TOMADA)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_estornar_tomada(request, empresa, escrituracao, motivo=motivo, status=400)
+
+    try:
+        servico_tomadas.estornar_escrituracao_tomada(
+            escrituracao, motivo, usuario=request.user, request=request
+        )
+    except servico_escrituracao.EscrituracaoErro as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_estornar_tomada(request, empresa, escrituracao, motivo=motivo, status=200)
+
+    messages.success(
+        request, "Escrituração estornada. A nota voltou para a lista de serviços tomados."
+    )
+    return redirect(
+        "fiscal_web:tomada_escriturar",
+        empresa_id=empresa.pk,
+        vinculo_id=escrituracao.vinculo_id,
+    )
+
+
+def _trilha_do_pagamento(request, escrituracao):
+    """Trilha da data de pagamento: quem informou, quando, a data anterior e a nova, e o motivo.
+    Filtrada pelo escritório ativo, como a trilha da DL-072: `objeto_id` sozinho não basta."""
+    registros = (
+        RegistroAuditoria.objects.filter(
+            escritorio=request.escritorio,
+            objeto_tipo="EscrituracaoTomada",
+            objeto_id=str(escrituracao.pk),
+            acao=_ACAO_DATA_PAGAMENTO_TOMADA,
+        )
+        .select_related("usuario")
+        .order_by("criado_em", "id")
+    )
+    trilha = []
+    for registro in registros:
+        detalhes = registro.detalhes or {}
+        antes = detalhes.get("antes") or {}
+        depois = detalhes.get("depois") or {}
+        trilha.append(
+            {
+                "quando": timezone.localtime(registro.criado_em).strftime("%d/%m/%Y %H:%M"),
+                "usuario": registro.usuario.get_username() if registro.usuario else "—",
+                "antes": _data_iso_na_tela(antes.get("data_pagamento")),
+                "depois": _data_iso_na_tela(depois.get("data_pagamento")),
+                "motivo": depois.get("motivo_pagamento", ""),
+            }
+        )
+    return trilha
+
+
+def _tela_de_data_pagamento(
+    request, empresa, escrituracao, *, data_digitada="", motivo="", status=200
+):
+    documento = escrituracao.vinculo.documento
+    contexto = {
+        "empresa": empresa,
+        "escrituracao": escrituracao,
+        "documento": documento,
+        "efetivada": escrituracao.estado == EstadoEscrituracao.EFETIVADA,
+        "natureza_rotulo": escrituracao.get_natureza_display(),
+        "estado_rotulo": escrituracao.get_estado_display(),
+        "irrf_ptbr": _valor_ptbr(escrituracao.v_ret_irrf),
+        "csrf_ptbr": _valor_ptbr(escrituracao.v_ret_csll),
+        "data_pagamento_atual": _data_na_tela(escrituracao.data_pagamento) or "Não informada",
+        "data_digitada": data_digitada or _data_na_tela(escrituracao.data_pagamento),
+        "motivo": motivo,
+        "motivo_maximo": servico_tomadas.MOTIVO_MAXIMO,
+        "trilha": _trilha_do_pagamento(request, escrituracao),
+        "url_detalhe": reverse(
+            "fiscal_web:tomada_escriturar", args=[empresa.pk, escrituracao.vinculo_id]
+        ),
+    }
+    return render(request, "fiscal/tomada_data_pagamento.html", contexto, status=status)
+
+
+def _data_pagamento_post(request, empresa, escrituracao):
+    data_bruta = request.POST.get("data_pagamento", "").strip()
+    motivo = request.POST.get("motivo", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_DATA_PAGAMENTO_TOMADA)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_data_pagamento(
+            request, empresa, escrituracao, data_digitada=data_bruta, motivo=motivo, status=400
+        )
+
+    data = _data_do_formulario(data_bruta)
+    if data is None:
+        messages.error(request, "Data de pagamento inválida: informe dd/mm/aaaa. Nada foi gravado.")
+        return _tela_de_data_pagamento(
+            request, empresa, escrituracao, data_digitada=data_bruta, motivo=motivo, status=400
+        )
+
+    try:
+        atualizada = servico_tomadas.informar_data_pagamento(
+            escrituracao, data, motivo, usuario=request.user, request=request
+        )
+    except servico_escrituracao.EscrituracaoErro as exc:
+        # Motivo vazio ou longo, ou nota não efetivada: mensagem na tela, nada gravado.
+        messages.error(request, exc.mensagem)
+        return _tela_de_data_pagamento(
+            request, empresa, escrituracao, data_digitada=data_bruta, motivo=motivo, status=200
+        )
+
+    if atualizada.criada_agora:
+        messages.success(
+            request,
+            "Data de pagamento informada. O IRRF e a CSRF desta nota passam para o grupo "
+            "dessa data.",
+        )
+    else:
+        messages.info(request, "A data de pagamento já era esta. Nada foi alterado.")
+    return redirect(
+        "fiscal_web:tomada_data_pagamento",
+        empresa_id=empresa.pk,
+        escrituracao_id=escrituracao.pk,
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def tomada_data_pagamento(request, empresa_id, escrituracao_id):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao_de_escriturar(request)
+    empresa = _empresa_escopada(request, empresa_id)
+    escrituracao = _escrituracao_tomada_da_empresa(request, empresa, escrituracao_id)
+    if request.method == "POST":
+        return _data_pagamento_post(request, empresa, escrituracao)
+    return _tela_de_data_pagamento(request, empresa, escrituracao)
+
+
+# ---------------------------------------------------------------------------
+# Telas de totais: ISS retido a recolher (HI-94) e retenções federais (HI-95, HI-96)
+# ---------------------------------------------------------------------------
+
+
+def _nota_tomada_na_tela(escrituracao):
+    documento = escrituracao.vinculo.documento
+    return {
+        "numero": _numero_da_nota(documento),
+        "competencia": (
+            escrituracao.data_competencia.strftime("%m/%Y")
+            if escrituracao.data_competencia
+            else "—"
+        ),
+        "emissao": _data_na_tela(escrituracao.data_emissao) or "—",
+        "prestador": _tomador_texto(documento.prestador_nome, documento.prestador_documento),
+        "natureza": escrituracao.get_natureza_display(),
+        "valor_servico": _valor_ptbr(escrituracao.valor_servico),
+        "iss": _valor_ptbr(escrituracao.v_iss_qn),
+        "inss": _valor_ptbr(escrituracao.v_ret_cp),
+        "irrf": _valor_ptbr(escrituracao.v_ret_irrf),
+        "csrf": _valor_ptbr(escrituracao.v_ret_csll),
+        "pagamento": _data_na_tela(escrituracao.data_pagamento) or "—",
+    }
+
+
+def _aviso_tomada_na_tela(escrituracao, aviso):
+    return {
+        "nota": _numero_da_nota(escrituracao.vinculo.documento),
+        "codigo": aviso.codigo,
+        "texto": aviso.texto,
+        "fundamento": aviso.fundamento,
+    }
+
+
+def _grupo_do_retido_na_tela(grupo, nomes):
+    return {
+        "municipio": _rotulo_do_municipio(grupo.municipio, nomes),
+        "total": _dinheiro_ptbr(grupo.total),
+        "notas": [_nota_tomada_na_tela(e) for e in grupo.notas],
+        "sem_valor": [_nota_tomada_na_tela(e) for e in grupo.sem_valor],
+        "vencimento": grupo.vencimento_texto,
+        "regra_dia_nao_util": grupo.regra_dia_nao_util,
+    }
+
+
+def _recusa_de_consulta_das_tomadas(request):
+    """Resposta de recusa das telas de consulta de tomadas (sem escritório ou sem permissão)."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_DAS_TOMADAS)
+    return None
+
+
+@login_required
+@require_safe
+def iss_retido_a_recolher(request):
+    """ISS retido a recolher pelo tomador, por município, no mês de dCompet (HI-94). Consulta."""
+    resposta = _recusa_de_consulta_das_tomadas(request)
+    if resposta is not None:
+        return resposta
+
+    empresa, competencia, erro = _filtros_de_escrituracao(request)
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, empresa, competencia),
+        "mostrar_ano": True,
+        "mostrar_mes": True,
+        "pode_escriturar": _pode_escriturar(request),
+        "texto_de_conferencia": _TEXTO_DE_CONFERENCIA_DO_RETIDO,
+        "titulo": "ISS retido a recolher",
+    }
+    if erro:
+        messages.error(request, erro)
+        return render(request, "fiscal/iss_retido_a_recolher.html", contexto, status=400)
+    if empresa is None:
+        return render(request, "fiscal/iss_retido_a_recolher.html", contexto)
+
+    ano, mes = competencia
+    resultado = servico_retencoes.iss_retido_a_recolher(empresa, ano, mes)
+    nomes = _nomes_dos_municipios([g.municipio for g in resultado.grupos])
+    contexto.update(
+        mes_rotulo=_mes_por_extenso(ano, mes),
+        grupos=[_grupo_do_retido_na_tela(g, nomes) for g in resultado.grupos],
+        fora_do_total=[_nota_tomada_na_tela(e) for e in resultado.fora_do_total],
+        canceladas=[_nota_tomada_na_tela(e) for e in resultado.canceladas],
+        avisos=[_aviso_tomada_na_tela(e, a) for e, a in resultado.avisos],
+        url_escriturar=_url_com_filtro("fiscal_web:tomadas_lista", empresa, ano=ano, mes=mes),
+        url_retencoes=_url_com_filtro("fiscal_web:retencoes_federais", empresa, ano=ano, mes=mes),
+    )
+    return render(request, "fiscal/iss_retido_a_recolher.html", contexto)
+
+
+def _pendente_na_tela(escrituracao, empresa, pode_escriturar):
+    linha = _nota_tomada_na_tela(escrituracao)
+    linha["url_pagamento"] = (
+        reverse("fiscal_web:tomada_data_pagamento", args=[empresa.pk, escrituracao.pk])
+        if pode_escriturar
+        else ""
+    )
+    return linha
+
+
+def _pagamentos_na_tela(grupos):
+    return [
+        {
+            "data": _data_na_tela(grupo.data_pagamento),
+            "total": _dinheiro_ptbr(grupo.total),
+            "quantidade": len(grupo.notas),
+            "notas": ", ".join(_numero_da_nota(e.vinculo.documento) for e in grupo.notas),
+        }
+        for grupo in grupos
+    ]
+
+
+@login_required
+@require_safe
+def retencoes_federais(request):
+    """Retenções federais destacadas: CSRF, IRRF e INSS, cada uma com a sua competência (HI-95,
+    HI-96). Só lê o que a nota destaca; não recalcula nem decide se a retenção era devida."""
+    resposta = _recusa_de_consulta_das_tomadas(request)
+    if resposta is not None:
+        return resposta
+
+    empresa, competencia, erro = _filtros_de_escrituracao(request)
+    pode_escriturar = _pode_escriturar(request)
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, empresa, competencia),
+        "mostrar_ano": True,
+        "mostrar_mes": True,
+        "pode_escriturar": pode_escriturar,
+        "texto_de_conferencia": _TEXTO_DE_CONFERENCIA_DAS_RETENCOES,
+        "titulo": "Retenções federais",
+    }
+    if erro:
+        messages.error(request, erro)
+        return render(request, "fiscal/retencoes_federais.html", contexto, status=400)
+    if empresa is None:
+        return render(request, "fiscal/retencoes_federais.html", contexto)
+
+    ano, mes = competencia
+    resultado = servico_retencoes.retencoes_federais(empresa, ano, mes)
+    contexto.update(
+        mes_rotulo=_mes_por_extenso(ano, mes),
+        csrf_total=_dinheiro_ptbr(resultado.csrf_total),
+        irrf_total=_dinheiro_ptbr(resultado.irrf_total),
+        inss_total=_dinheiro_ptbr(resultado.inss_total),
+        inss_vencimento_texto=resultado.inss_vencimento_texto,
+        csrf_pagamentos=_pagamentos_na_tela(resultado.csrf_por_pagamento),
+        irrf_pagamentos=_pagamentos_na_tela(resultado.irrf_por_pagamento),
+        inss_notas=[_nota_tomada_na_tela(e) for e in resultado.inss_notas],
+        pendentes=[
+            _pendente_na_tela(e, empresa, pode_escriturar) for e in resultado.pendentes_de_pagamento
+        ],
+        canceladas=[_nota_tomada_na_tela(e) for e in resultado.canceladas],
+        avisos=[_aviso_tomada_na_tela(e, a) for e, a in resultado.avisos],
+        url_retido=_url_com_filtro("fiscal_web:iss_retido_a_recolher", empresa, ano=ano, mes=mes),
+    )
+    return render(request, "fiscal/retencoes_federais.html", contexto)

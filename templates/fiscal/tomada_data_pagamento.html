@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block titulo %}Data de pagamento — nota {{ documento.numero|default:documento.identificador }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% comment %}
+DL-078 (frente B), arquétipo B (formulário de documento). A data de pagamento é o único campo que
+muda depois de efetivada (HI-96): ela agrupa o IRRF e a CSRF. Sem ela, a retenção fica "pendente de
+data de pagamento", e nunca é presumida. Cada alteração fica na trilha, com a data anterior, a nova
+e o motivo.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Data de pagamento da nota {{ documento.numero|default:documento.identificador }}</h1>{% endblock %}
+
+{% block content %}
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Natureza da operação</dt>
+            <dd>{{ natureza_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Competência (dCompet)</dt>
+            <dd>{{ escrituracao.data_competencia|date:"m/Y" }}</dd>
+        </div>
+        <div>
+            <dt>IRRF retido (vRetIRRF)</dt>
+            <dd class="valor-monetario">{{ irrf_ptbr }}</dd>
+        </div>
+        <div>
+            <dt>CSRF retida, PIS + COFINS + CSLL (vRetCSLL)</dt>
+            <dd class="valor-monetario">{{ csrf_ptbr }}</dd>
+        </div>
+        <div>
+            <dt>Data de pagamento informada</dt>
+            <dd>{{ data_pagamento_atual }}</dd>
+        </div>
+    </dl>
+
+    <p>
+        <a class="botao botao--secundario" href="{{ url_detalhe }}">‹ Voltar para a nota</a>
+    </p>
+
+    {% if efetivada %}
+        <div class="painel-etapa">
+            <h2>O que vai acontecer</h2>
+            <p>
+                A data informada passa a ser a data de pagamento desta nota. O IRRF e a CSRF dela entram no
+                grupo dessa data, e saem de "pendente de data de pagamento". Para corrigir, informe outra data
+                com um motivo: a data anterior fica na trilha.
+            </p>
+        </div>
+
+        <form method="post" action="{% url 'fiscal_web:tomada_data_pagamento' empresa.id escrituracao.id %}" class="formulario">
+            {% csrf_token %}
+            <div class="campo">
+                <label for="id_data_pagamento">Data de pagamento (dd/mm/aaaa)</label>
+                <input type="text" id="id_data_pagamento" name="data_pagamento" value="{{ data_digitada }}"
+                       inputmode="numeric" maxlength="10" required aria-describedby="id_data_ajuda">
+                <p class="texto-apoio" id="id_data_ajuda">
+                    Dia em que o valor foi pago ou creditado ao prestador. Não é a data de emissão.
+                </p>
+            </div>
+            <div class="campo">
+                <label for="id_motivo">Motivo da data de pagamento</label>
+                <textarea id="id_motivo" name="motivo" required rows="3" maxlength="{{ motivo_maximo }}"
+                          aria-describedby="id_motivo_ajuda">{{ motivo }}</textarea>
+                <p class="texto-apoio" id="id_motivo_ajuda">
+                    Obrigatório. Fica na trilha desta nota, com até {{ motivo_maximo }} caracteres.
+                </p>
+            </div>
+            <button type="submit" class="botao botao--primario">Informar data de pagamento</button>
+        </form>
+    {% else %}
+        <p class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> a data de pagamento só é informada em escrituração efetivada. Esta está "{{ estado_rotulo }}".
+        </p>
+    {% endif %}
+
+    <h2>Trilha da data de pagamento</h2>
+    {% if trilha %}
+        <table class="tabela-dados">
+            <caption>Quem informou a data de pagamento desta nota, quando, a data anterior, a nova e o motivo</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Quando</th>
+                    <th scope="col">Quem informou</th>
+                    <th scope="col">Data anterior</th>
+                    <th scope="col">Data nova</th>
+                    <th scope="col">Motivo</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in trilha %}
+                    <tr>
+                        <th scope="row">{{ item.quando }}</th>
+                        <td>{{ item.usuario }}</td>
+                        <td>{{ item.antes }}</td>
+                        <td>{{ item.depois }}</td>
+                        <td>{{ item.motivo }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="texto-apoio">Nenhuma data de pagamento foi informada para esta nota.</p>
+    {% endif %}
+{% endblock %}

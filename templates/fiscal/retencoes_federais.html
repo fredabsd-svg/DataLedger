@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+
+{% block titulo %}{{ titulo }}{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada and mes_rotulo %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Competência</span>
+            <strong>{{ mes_rotulo }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-078 (frente B), arquétipo A (tabela de consulta). Retenções federais DESTACADAS nas notas tomadas
+(HI-95, HI-96). Cada tributo tem a sua competência: INSS pelo mês de emissão, e IRRF e CSRF pela data
+de pagamento informada. Nada é recalculado aqui, e nenhuma retenção é presumida como paga.
+{% endcomment %}
+{% block titulo_pagina %}<h1>{{ titulo }}</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        O que as notas tomadas destacam em retenção federal: CSRF (PIS, COFINS e CSLL), IRRF e contribuição
+        previdenciária (INSS). Esta tela só lê o destacado: não diz se a retenção era devida.
+    </p>
+    <p class="mensagem mensagem-info" role="status">
+        <strong>{{ texto_de_conferencia }}</strong>
+    </p>
+
+    {% include "fiscal/_filtro_simples.html" %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver as retenções federais.</strong></p>
+            <p class="estado-vazio__descricao">Os totais são sempre de uma empresa e de uma competência.</p>
+        </div>
+    {% elif mes_rotulo %}
+        <p class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_retido }}">ISS retido a recolher</a>
+        </p>
+
+        <h2>Totais por tributo</h2>
+        <table class="tabela-dados">
+            <caption>Retenções federais destacadas, por tributo, com a competência que cada um usa</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Tributo</th>
+                    <th scope="col">Total (R$)</th>
+                    <th scope="col">Competência usada</th>
+                    <th scope="col">Observação</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <th scope="row">CSRF retida (PIS + COFINS + CSLL)</th>
+                    <td class="valor-monetario">{{ csrf_total }}</td>
+                    <td>Data de pagamento informada, no mês</td>
+                    <td>Sem data de pagamento, a retenção fica pendente (abaixo)</td>
+                </tr>
+                <tr>
+                    <th scope="row">IRRF retido</th>
+                    <td class="valor-monetario">{{ irrf_total }}</td>
+                    <td>Data de pagamento informada, no mês</td>
+                    <td>Sem data de pagamento, a retenção fica pendente (abaixo)</td>
+                </tr>
+                <tr>
+                    <th scope="row">Contribuição previdenciária retida (INSS)</th>
+                    <td class="valor-monetario">{{ inss_total }}</td>
+                    <td>Mês de emissão da nota</td>
+                    <td>Vencimento informativo: {{ inss_vencimento_texto }}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>CSRF por data de pagamento</h2>
+        {% if csrf_pagamentos %}
+            <table class="tabela-dados">
+                <caption>CSRF retida, agrupada pela data de pagamento informada no mês</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Data de pagamento</th>
+                        <th scope="col">Total (R$)</th>
+                        <th scope="col">Quantidade de notas</th>
+                        <th scope="col">Notas</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for grupo in csrf_pagamentos %}
+                        <tr>
+                            <th scope="row">{{ grupo.data }}</th>
+                            <td class="valor-monetario">{{ grupo.total }}</td>
+                            <td class="valor-monetario">{{ grupo.quantidade }}</td>
+                            <td>{{ grupo.notas }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="texto-apoio">Nenhuma CSRF com data de pagamento informada no mês.</p>
+        {% endif %}
+
+        <h2>IRRF por data de pagamento</h2>
+        {% if irrf_pagamentos %}
+            <table class="tabela-dados">
+                <caption>IRRF retido, agrupado pela data de pagamento informada no mês</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Data de pagamento</th>
+                        <th scope="col">Total (R$)</th>
+                        <th scope="col">Quantidade de notas</th>
+                        <th scope="col">Notas</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for grupo in irrf_pagamentos %}
+                        <tr>
+                            <th scope="row">{{ grupo.data }}</th>
+                            <td class="valor-monetario">{{ grupo.total }}</td>
+                            <td class="valor-monetario">{{ grupo.quantidade }}</td>
+                            <td>{{ grupo.notas }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="texto-apoio">Nenhum IRRF com data de pagamento informada no mês.</p>
+        {% endif %}
+
+        <h2>Pendente de data de pagamento</h2>
+        <p class="texto-apoio">
+            IRRF ou CSRF retido, de nota com competência no mês, e sem data de pagamento. Sem a data, a
+            retenção não entra nos totais por data acima, e nunca é presumida como paga.
+        </p>
+        {% if pendentes %}
+            <table class="tabela-dados">
+                <caption>Notas com IRRF ou CSRF retidos, à espera da data de pagamento</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Nota</th>
+                        <th scope="col">Competência</th>
+                        <th scope="col">Prestador</th>
+                        <th scope="col">IRRF (R$)</th>
+                        <th scope="col">CSRF (R$)</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for nota in pendentes %}
+                        <tr>
+                            <th scope="row">{{ nota.numero }}</th>
+                            <td>{{ nota.competencia }}</td>
+                            <td class="valor-quebravel">{{ nota.prestador }}</td>
+                            <td class="valor-monetario">{{ nota.irrf }}</td>
+                            <td class="valor-monetario">{{ nota.csrf }}</td>
+                            <td>
+                                {% if nota.url_pagamento %}
+                                    <a class="botao botao--secundario botao--pequeno" href="{{ nota.url_pagamento }}">Informar data de pagamento</a>
+                                {% else %}
+                                    <span class="texto-apoio">Só quem escritura informa a data</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="texto-apoio">Nenhuma retenção pendente de data de pagamento na competência.</p>
+        {% endif %}
+
+        <h2>INSS retido, pelas notas emitidas no mês</h2>
+        {% if inss_notas %}
+            <table class="tabela-dados">
+                <caption>Contribuição previdenciária retida (vRetCP), nota a nota, pelo mês de emissão</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Nota</th>
+                        <th scope="col">Emissão</th>
+                        <th scope="col">Prestador</th>
+                        <th scope="col">INSS retido (R$)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for nota in inss_notas %}
+                        <tr>
+                            <th scope="row">{{ nota.numero }}</th>
+                            <td>{{ nota.emissao }}</td>
+                            <td class="valor-quebravel">{{ nota.prestador }}</td>
+                            <td class="valor-monetario">{{ nota.inss }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="texto-apoio">Nenhuma nota emitida no mês com contribuição previdenciária retida.</p>
+        {% endif %}
+
+        {% if canceladas %}
+            <h2>Canceladas depois de escrituradas</h2>
+            <p class="texto-apoio">Fora dos totais acima. O estorno não é automático: estorne a escrituração, com motivo.</p>
+            <table class="tabela-dados">
+                <caption>Notas canceladas depois de escrituradas, à parte dos totais</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Nota</th>
+                        <th scope="col">Competência</th>
+                        <th scope="col">IRRF (R$)</th>
+                        <th scope="col">CSRF (R$)</th>
+                        <th scope="col">INSS (R$)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for nota in canceladas %}
+                        <tr>
+                            <th scope="row">{{ nota.numero }}</th>
+                            <td>{{ nota.competencia }}</td>
+                            <td class="valor-monetario">{{ nota.irrf }}</td>
+                            <td class="valor-monetario">{{ nota.csrf }}</td>
+                            <td class="valor-monetario">{{ nota.inss }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+
+        {% if avisos %}
+            <h2>Avisos</h2>
+            <table class="tabela-dados">
+                <caption>Avisos das retenções federais, com o dispositivo de cada um</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Nota</th>
+                        <th scope="col">Código</th>
+                        <th scope="col">Aviso</th>
+                        <th scope="col">Dispositivo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for aviso in avisos %}
+                        <tr>
+                            <th scope="row">{{ aviso.nota }}</th>
+                            <td>{{ aviso.codigo }}</td>
+                            <td>{{ aviso.texto }}</td>
+                            <td class="texto-apoio">{{ aviso.fundamento }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    {% endif %}
+{% endblock %}

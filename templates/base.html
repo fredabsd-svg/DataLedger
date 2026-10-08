@@ -946,6 +946,36 @@
                                                     </li>
                                                 </ul>
                                             </div>
+                                            {% comment %}
+                                            DL-078 (frente B): serviços tomados. Mesma permissão de consulta; escriturar e
+                                            estornar exigem papel que escritura, e o servidor decide em cada tela.
+                                            {% endcomment %}
+                                            <div class="menu-grupo">
+                                                <p class="menu-grupo__rotulo" id="grupo-servicos-tomados">Serviços tomados</p>
+                                                <ul aria-labelledby="grupo-servicos-tomados">
+                                                    <li>
+                                                        {% if pagina_atual == "tomadas_lista" %}
+                                                            <span class="item-atual" aria-current="page">Escriturar tomadas</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:tomadas_lista' %}">Escriturar tomadas</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "iss_retido_a_recolher" %}
+                                                            <span class="item-atual" aria-current="page">ISS retido a recolher</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:iss_retido_a_recolher' %}">ISS retido a recolher</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "retencoes_federais" %}
+                                                            <span class="item-atual" aria-current="page">Retenções federais</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:retencoes_federais' %}">Retenções federais</a>
+                                                        {% endif %}
+                                                    </li>
+                                                </ul>
+                                            </div>
                                         {% endwith %}
                                     </div>
                                 </details>

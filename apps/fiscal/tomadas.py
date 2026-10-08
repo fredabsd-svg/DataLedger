@@ -19,9 +19,9 @@ HI-93 a HI-96 em docs/projeto/requisitos.md. Decisões que o código não explic
     RECUSA, não aviso. A tarefa pedia "aviso forte, decida e justifique": esta é a decisão.
   * T2 e T3 (sem retenção) só com tpRetISSQN 1. Com tpRetISSQN 2 a nota teria retenção e
     ficaria fora do total de ISS a recolher, o que esconderia uma obrigação do tomador.
-- T5, T6 e T7 aceitam qualquer tpRetISSQN. Se o XML diz 2 (retido pelo tomador) nessas
-  naturezas, a nota NÃO entra no total de ISS a recolher (que soma só T1) e aparece em
-  "fora do total — conferir" (ver `apps.fiscal.retencoes`). Nada some em silêncio.
+- T5, T6 e T7 aceitam qualquer tpRetISSQN. Com tpRetISSQN 2 (retido pelo tomador), a nota
+  ENTRA no total de ISS a recolher, como T1 (item 0 da DL-078 frente B; ver
+  `apps.fiscal.retencoes`): a retenção não depende do tipo do prestador. T5 (MEI) ganha aviso.
 - Os valores são COPIADOS do documento e do XML guardado no ato de efetivar. Ausência
   (vISSQN, vRetCP etc.) fica NULA, nunca zero.
 - A data de pagamento é o ÚNICO campo que muda depois de efetivada (HI-96). Ela só existe

@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block titulo %}Escriturar nota tomada {{ documento.numero|default:documento.identificador }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% comment %}
+DL-078 (frente B), arquétipo B (formulário de documento, direção de arte §2.B). A pergunta de
+verdade aparece ANTES de gravar: o que a efetivação registra, por que a natureza foi sugerida, e o
+motivo de cada botão desabilitado. A sugestão não grava nada; quem confirma é o contador.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Escriturar nota tomada nº {{ documento.numero|default:"sem número" }}</h1>{% endblock %}
+
+{% block content %}
+    <p>
+        <a class="botao botao--secundario" href="{{ url_lista }}">‹ Voltar para os serviços tomados</a>
+    </p>
+
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Identificador (Id)</dt>
+            <dd>{{ documento.identificador }}</dd>
+        </div>
+        <div>
+            <dt>Emissão (dia do dhEmi)</dt>
+            <dd>{{ nota.data_emissao|date:"d/m/Y"|default:"—" }}</dd>
+        </div>
+        <div>
+            <dt>Competência (dCompet)</dt>
+            <dd>{{ documento.d_competencia|date:"m/Y" }}</dd>
+        </div>
+        <div>
+            <dt>Prestador no documento</dt>
+            <dd>{{ documento.prestador_nome|default:documento.prestador_documento }}</dd>
+        </div>
+        <div>
+            <dt>Município de incidência (cLocIncid)</dt>
+            <dd>{{ municipio_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Valor do serviço (vServ)</dt>
+            <dd class="valor-monetario">{{ v_serv_ptbr }}</dd>
+        </div>
+        <div>
+            <dt>Valor líquido (vLiq)</dt>
+            <dd class="valor-monetario">{{ v_liq_ptbr }}</dd>
+        </div>
+        <div>
+            <dt>ISS destacado (vISSQN)</dt>
+            <dd class="valor-monetario">{{ iss_ptbr }}</dd>
+        </div>
+        <div>
+            <dt>Retenção do ISS (tpRetISSQN)</dt>
+            <dd>{{ retencao }}</dd>
+        </div>
+        <div>
+            <dt>Situação</dt>
+            <dd>{{ situacao_rotulo|default:"—" }}</dd>
+        </div>
+    </dl>
+
+    {% if nota %}
+        {% if nota.competencia_difere_da_emissao %}
+            <p class="mensagem mensagem-warning" role="status">
+                <strong>Atenção:</strong>
+                a competência ({{ documento.d_competencia|date:"m/Y" }}) é diferente do mês de emissão
+                ({{ nota.data_emissao|date:"m/Y" }}). A escrituração segue a competência.
+            </p>
+        {% endif %}
+
+        {% if tem_sugestao %}
+            <p class="mensagem mensagem-info" role="status">
+                <strong>Sugestão do XML: {{ natureza_sugerida_rotulo }}.</strong>
+                Porque {{ porque_sugestao }} A sugestão não é a escrituração: quem confirma a natureza é você.
+            </p>
+        {% elif pode_formulario %}
+            <p class="mensagem mensagem-warning" role="status">
+                <strong>Sem sugestão:</strong> o XML não permite sugerir uma natureza. Escolha a que se
+                aplica a esta nota.
+            </p>
+        {% endif %}
+
+        {% if avisos %}
+            <h2>Avisos desta nota</h2>
+            <p class="texto-apoio">Avisos de conferência. Nenhum deles bloqueia a escrituração.</p>
+            <table class="tabela-dados">
+                <caption>Avisos da nota, com o dispositivo de cada um</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Código</th>
+                        <th scope="col">Aviso</th>
+                        <th scope="col">Dispositivo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for aviso in avisos %}
+                        <tr>
+                            <th scope="row">{{ aviso.codigo }}</th>
+                            <td>{{ aviso.texto }}</td>
+                            <td class="texto-apoio">{{ aviso.fundamento }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+
+        {% if pode_formulario %}
+            <div class="painel-etapa">
+                <h2>O que vai acontecer</h2>
+                <p>
+                    <strong>Salvar rascunho</strong> guarda a natureza escolhida, sem efetivar. A nota
+                    continua "a escriturar" e nada entra no ISS retido nem nas retenções federais.
+                </p>
+                <p>
+                    <strong>Efetivar escrituração</strong> grava a natureza, a data de emissão, os valores
+                    copiados da nota e o que o XML destaca, na hora. Depois de efetivada, a escrituração
+                    só muda por estorno, com motivo registrado.
+                </p>
+            </div>
+
+            <h2>Naturezas da operação</h2>
+            <dl class="lista-de-definicao">
+                {% for valor, rotulo, descricao in catalogo %}
+                    <div>
+                        <dt>{{ rotulo }}</dt>
+                        <dd>{{ descricao }}</dd>
+                    </div>
+                {% endfor %}
+            </dl>
+
+            <form method="post" action="{% url 'fiscal_web:tomada_escriturar' empresa.id vinculo.id %}" class="formulario">
+                {% csrf_token %}
+                <div class="campo">
+                    <label for="id_natureza">Natureza da operação</label>
+                    <select id="id_natureza" name="natureza" required>
+                        {% if not natureza_selecionada %}
+                            {% comment %}Sem natureza marcada, a primeira opção é um aviso, não uma natureza: o `required` impede enviar sem escolher.{% endcomment %}
+                            <option value="" selected>Escolha a natureza da operação</option>
+                        {% endif %}
+                        {% for valor, rotulo, descricao in catalogo %}
+                            <option value="{{ valor }}"{% if valor == natureza_selecionada %} selected{% endif %}>{{ rotulo }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="acoes-formulario">
+                    {% if pode_rascunho %}
+                        <button type="submit" name="acao" value="rascunho" class="botao botao--secundario">Salvar rascunho</button>
+                    {% else %}
+                        <button type="submit" name="acao" value="rascunho" class="botao botao--secundario" disabled aria-describedby="id_rascunho_motivo">Salvar rascunho</button>
+                    {% endif %}
+                    {% if pode_efetivar %}
+                        <button type="submit" name="acao" value="efetivar" class="botao botao--primario">Efetivar escrituração</button>
+                    {% else %}
+                        <button type="submit" name="acao" value="efetivar" class="botao botao--primario" disabled aria-describedby="id_efetivar_motivo">Efetivar escrituração</button>
+                    {% endif %}
+                </div>
+                {% if not pode_rascunho %}
+                    <p class="texto-apoio" id="id_rascunho_motivo">Salvar rascunho indisponível: {{ motivo_rascunho }}</p>
+                {% endif %}
+                {% if not pode_efetivar %}
+                    <p class="texto-apoio" id="id_efetivar_motivo">Efetivar indisponível: {{ motivo_efetivar }}</p>
+                {% endif %}
+            </form>
+        {% elif nota.situacao == "cancelada" %}
+            <p class="mensagem mensagem-error" role="alert">
+                <strong>Erro:</strong> nota cancelada não pode ser escriturada. Ela continua na lista só para conferência.
+            </p>
+        {% elif efetivada %}
+            <p class="mensagem mensagem-info" role="status">
+                <strong>Informação:</strong> esta nota já está escriturada com a natureza
+                "{{ escrituracao.get_natureza_display }}". Para mudar a natureza, estorne a escrituração.
+            </p>
+            <p class="acoes-formulario">
+                {% if pode_pagamento %}
+                    <a class="botao botao--secundario" href="{{ url_pagamento }}">Informar data de pagamento</a>
+                    <a class="botao botao--secundario" href="{{ url_estornar }}">Estornar escrituração</a>
+                {% endif %}
+            </p>
+        {% elif nota.situacao == "cancelada_depois_de_escriturada" %}
+            <p class="mensagem mensagem-error" role="alert">
+                <strong>Erro:</strong> a nota foi cancelada depois de escriturada. O estorno não é automático:
+                estorne a escrituração, com motivo, para ela sair do total.
+            </p>
+            {% if pode_pagamento %}
+                <p class="acoes-formulario">
+                    <a class="botao botao--secundario" href="{{ url_estornar }}">Estornar escrituração</a>
+                </p>
+            {% endif %}
+        {% endif %}
+    {% else %}
+        <div class="painel-etapa">
+            <h2>Esta nota não entra na escrituração de tomadas desta empresa</h2>
+            <p>
+                Só entram notas em que a empresa é tomadora. Nota prestada é escriturada na escrituração
+                de prestadas, e não tem o que efetivar aqui.
+            </p>
+        </div>
+    {% endif %}
+{% endblock %}

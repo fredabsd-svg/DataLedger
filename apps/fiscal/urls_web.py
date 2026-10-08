@@ -44,6 +44,7 @@ from apps.fiscal.views_web import (
     iss_regime_novo,
     iss_regimes,
     iss_regras_municipio,
+    iss_retido_a_recolher,
     iss_retido_sofrido,
     notas_a_escriturar,
     pre_das,
@@ -56,6 +57,11 @@ from apps.fiscal.views_web import (
     recepcao,
     regime_caixa,
     relatorio_envio,
+    retencoes_federais,
+    tomada_data_pagamento,
+    tomada_escriturar,
+    tomada_estornar,
+    tomadas_lista,
 )
 
 app_name = "fiscal_web"
@@ -198,4 +204,23 @@ urlpatterns = [
         name="iss_regime_editar",
     ),
     path("iss/regras-municipio/", iss_regras_municipio, name="iss_regras_municipio"),
+    # DL-078 (frente B): serviços TOMADOS. Escriturar, ISS retido a recolher e retenções federais.
+    path("tomadas/", tomadas_lista, name="tomadas_lista"),
+    path("tomadas/iss-retido/", iss_retido_a_recolher, name="iss_retido_a_recolher"),
+    path("tomadas/retencoes-federais/", retencoes_federais, name="retencoes_federais"),
+    path(
+        "tomadas/<int:empresa_id>/<int:vinculo_id>/",
+        tomada_escriturar,
+        name="tomada_escriturar",
+    ),
+    path(
+        "tomadas/<int:empresa_id>/escrituracoes/<int:escrituracao_id>/estornar/",
+        tomada_estornar,
+        name="tomada_estornar",
+    ),
+    path(
+        "tomadas/<int:empresa_id>/escrituracoes/<int:escrituracao_id>/data-pagamento/",
+        tomada_data_pagamento,
+        name="tomada_data_pagamento",
+    ),
 ]

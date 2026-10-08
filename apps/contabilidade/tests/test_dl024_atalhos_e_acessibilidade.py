@@ -1216,6 +1216,34 @@ NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE = {
     "fiscal_web:iss_regras_municipio": "test_tela_iss_regras_municipio_e_acessivel",
 }
 
+# DL-078, frente B (apps/fiscal/tests/test_dl078_telas.py): os serviços TOMADOS: escriturar,
+# estornar, data de pagamento, ISS retido a recolher e retenções federais. Ficam AQUI pelo
+# mesmo motivo das de DL-076: as rotas precisam de ids do cenário (empresa, vínculo,
+# escrituração). As três ações (escriturar, estornar e informar a data) são POST e respondem
+# com a própria tela quando recusam.
+NOMES_DE_TELA_DOS_SERVICOS_TOMADOS = {
+    "fiscal_web:tomadas_lista": (
+        "test_tela_tomadas_lista_e_acessivel, test_tela_tomadas_lista_sem_empresa_pede_a_escolha"
+    ),
+    "fiscal_web:tomada_escriturar": (
+        "test_tela_escriturar_tomada_e_acessivel, test_efetivar_tomada_pela_tela, "
+        "test_natureza_incompativel_nao_grava_e_desabilita_efetivar"
+    ),
+    "fiscal_web:tomada_estornar": (
+        "test_tela_estornar_tomada_e_acessivel, test_estornar_tomada_pela_tela_exige_motivo"
+    ),
+    "fiscal_web:tomada_data_pagamento": (
+        "test_tela_data_pagamento_e_acessivel, test_informar_data_pagamento_pela_tela"
+    ),
+    "fiscal_web:iss_retido_a_recolher": (
+        "test_tela_iss_retido_a_recolher_e_acessivel, test_fluxo_por_natureza_chega_ao_iss_retido"
+    ),
+    "fiscal_web:retencoes_federais": (
+        "test_tela_retencoes_federais_e_acessivel, "
+        "test_data_de_pagamento_move_irrf_e_csrf_do_pendente_para_o_grupo"
+    ),
+}
+
 # DL-046, fatia 1 (especialista-frontend): as SEIS telas HTML de
 # `apps.livro_caixa.views_web` — mesmo papel de `NOMES_DE_TELA_FISCAL_
 # FORA_DA_CONTABILIDADE`, LOCAL a este arquivo pelo MESMO motivo declarado
@@ -1353,6 +1381,7 @@ def test_toda_rota_do_produto_esta_coberta_ou_excluida():
         | set(NOMES_DE_TELA_DA_EXPORTACAO_DE_LANCAMENTOS.values())
         | set(NOMES_DE_TELA_DA_IMPORTACAO_DE_LANCAMENTOS.values())
         | set(NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE)
+        | set(NOMES_DE_TELA_DOS_SERVICOS_TOMADOS)
         | set(NOMES_DE_TELA_LIVRO_CAIXA_FORA_DA_CONTABILIDADE)
     )
     excluidas = set(EXCLUSOES_NOMEADAS_DE_TELA)
