@@ -46,6 +46,7 @@ from apps.fiscal.models import (
     PapelDocumento,
     VinculoDocumentoEmpresa,
 )
+from apps.fiscal.receita import marcar_a_retificar_por_estorno, travar_empresa
 from apps.fiscal.services import documentos_do_escritorio, situacao_do_documento
 
 # tpRetISSQN 2 (retido pelo tomador) e 3 (retido pelo intermediário) são o
@@ -778,6 +779,10 @@ def estornar_escrituracao(
             f"O motivo do estorno tem no máximo {MOTIVO_MAXIMO} caracteres."
         )
 
+    # DL-074: a EMPRESA é travada ANTES da escrituração. Ordem de travas do módulo
+    # `apps.fiscal.receita`: confirmação do mês e estorno não se intercalam, e o
+    # gancho de "a retificar" enxerga a confirmação que já foi gravada.
+    empresa = travar_empresa(escrituracao.empresa)
     travada = (
         EscrituracaoFiscal.objects.select_for_update(of=("self",))
         .select_related("empresa__escritorio")
@@ -813,5 +818,17 @@ def estornar_escrituracao(
             "antes": antes,
             "depois": _snapshot(travada),
         },
+    )
+    # DL-074 (critério 6): estornar de mês CONFIRMADO reabre a confirmação e marca o
+    # mês "a retificar" (Res. CGSN 140 art. 18). Só o mês de `dCompet` é tocado. O
+    # mês de origem é o da competência, não o do estorno.
+    competencia = travada.data_competencia
+    marcar_a_retificar_por_estorno(
+        empresa,
+        competencia.year,
+        competencia.month,
+        usuario,
+        origem=f"escrituração nº {travada.pk}",
+        request=request,
     )
     return travada

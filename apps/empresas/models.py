@@ -1,6 +1,7 @@
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.functions import Upper
+from django.utils import timezone
 
 from apps.empresas.fields import CNPJModelField, CPFModelField
 from apps.empresas.validators import (
@@ -74,6 +75,17 @@ _CAEPF_TEM_FORMATO_VALIDO = models.Q(caepf__regex=r"^[0-9]{14}$")
 # `apps.empresas.validators.validar_codigo_ocupacao`, chamado por
 # `full_clean()`/serializer — mesma divisão de camadas do CAEPF acima).
 _CODIGO_OCUPACAO_TEM_FORMATO_VALIDO = models.Q(codigo_ocupacao__regex=r"^[0-9]{3}$")
+
+
+def validar_data_abertura_nao_futura(valor):
+    """DL-074 (HI-65): a data de abertura no CNPJ é um fato já ocorrido.
+
+    Data futura não é abertura; deixá-la passar faria o RBT12 contar meses
+    que a empresa ainda não tinha. A comparação usa o dia de Brasília
+    (`timezone.localdate`), e não o UTC, para não recusar a abertura de hoje.
+    """
+    if valor is not None and valor > timezone.localdate():
+        raise ValidationError("A data de abertura no CNPJ não pode ser futura.")
 
 
 class TipoInscricao(models.TextChoices):
@@ -282,6 +294,20 @@ class Empresa(models.Model):
             "Texto que sai no cabeçalho do relatório de demonstração "
             "(NBC TG 26 item 51e). Default segue a política monetária "
             "ABNT NBR 5891 (DE-010)."
+        ),
+    )
+    # DL-074 (HI-65): início de atividade do Simples é a DATA DE ABERTURA
+    # CONSTANTE DO CNPJ (Res. CGSN 140 art. 2º, V; Manual do PGDAS-D 8.3) —
+    # nunca a data da opção. Opcional no banco: a apuração do RBT12 é que a
+    # exige, e recusa com mensagem nomeada quando falta (apps.fiscal.rbt12).
+    data_abertura_cnpj = models.DateField(
+        "data de abertura no CNPJ",
+        null=True,
+        blank=True,
+        validators=[validar_data_abertura_nao_futura],
+        help_text=(
+            "Data de abertura constante do CNPJ. Obrigatória para apurar o RBT12 "
+            "do Simples Nacional (DL-074)."
         ),
     )
     ativo = models.BooleanField("ativo", default=True)
