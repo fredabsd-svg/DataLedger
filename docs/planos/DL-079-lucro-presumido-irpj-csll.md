@@ -113,6 +113,26 @@ rateado e deduz a diferença no último; caso I (`ExcAnual = 0`) recalcula sem
 acréscimo e deduz a diferença no último. Cada linha da memória é arredondada
 a centavos (`ROUND_HALF_UP`) (HI-100).
 
+## Decisões tomadas na implementação
+
+- **Medida judicial e o ajuste do 4º trimestre:** a dedução dos casos I e II
+  só soma os trimestres anteriores **sem** medida judicial ativa para o
+  tributo; com medida, a parcela da LC 224 não foi recolhida (ficou suspensa
+  ou depositada) e devolvê-la no 4º trimestre seria contá-la duas vezes. A
+  memória do fechamento mostra esses trimestres como "fora da dedução".
+- **Mês de início de atividade no adicional** (HI-108): o mês da abertura
+  conta inteiro em "meses do período". O RIR/2018, art. 624, e a IN 1.700,
+  art. 29, § 1º, falam em "número de meses do período de apuração" sem regra
+  de fração (lidos em 08/10/2026).
+- **CSLL retida com `tpRetPisCofins` 8 e `vPis`/`vCofins` preenchidos**: "a
+  classificar", não o `vRetCSLL` — a combinação é ambígua (consulta, item 6).
+- **Resíduo do rateio no caso II**: vai para o último trimestre com
+  excedente, para a soma fechar ao centavo (escolha de produto, HI-100).
+- **Encerramento de atividade** não tem campo no cadastro: o 4º trimestre é
+  sempre o fechamento do ano; encerramento fica fora do primeiro corte.
+- **Recusa zera o cálculo:** com recusa nomeada, os tributos saem sem número
+  parcial.
+
 ## Critérios de aceite
 
 1. O exemplo oficial do P&R (receita de R$ 1.500.000 de comércio no

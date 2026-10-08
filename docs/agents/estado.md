@@ -305,9 +305,12 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    tomados; não bloqueia).
 
 8. **[DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) — Lucro
-   Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224: frente A em
-   desenvolvimento** na cópia isolada `dl079`, sobre a DL-078 corrigida
-   (`5400e69`), porque reaproveita o leitor de retenções da NFS-e.
+   Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224: frente A
+   entregue (`f392346`, cópia isolada `dl079` sobre a DL-078 corrigida;
+   suíte do desenvolvedor 7.741 aprovados, 1 reprovado de ambiente, 53
+   pulados; os oito mutantes do critério 10 morrem); frente B (telas e a
+   dedução do 4º trimestre sem os trimestres com medida judicial) em
+   desenvolvimento.** HI-108 registrada.
    [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-presumido.md)
    com o texto oficial lido no Planalto e no P&R da RFB: o acréscimo
    multiplica o percentual por 1,10; IRPJ desde o 1º trimestre de 2026 e
