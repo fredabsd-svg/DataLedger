@@ -35,10 +35,12 @@ from apps.core.requisicao import (
 from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.fiscal import escrituracao as servico
 from apps.fiscal import folha_fator_r as folha_servico
+from apps.fiscal import iss_municipal as iss_servico
 from apps.fiscal import pre_das as pre_das_servico
 from apps.fiscal import rbt12 as apuracao
 from apps.fiscal import receita as receita_servico
 from apps.fiscal.models import (
+    AliquotaIssMunicipal,
     AtividadeEmpresa,
     EnquadramentoAtividade,
     EscrituracaoFiscal,
@@ -47,6 +49,9 @@ from apps.fiscal.models import (
     NaturezaOperacao,
     OrigemReceitaInformada,
     ReceitaInformada,
+    RegimeIss,
+    RegimeIssEmpresa,
+    RegraIssMunicipio,
     SituacaoIssReceitaInformada,
     VinculoDocumentoEmpresa,
 )
@@ -1102,3 +1107,382 @@ class EstornarFolhaView(EmpresaEscopadaMixin, APIView):
         except folha_servico.FolhaErro as exc:
             return _resposta_de_conflito(exc)
         return Response(FolhaSerializer(estornada).data, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# DL-076 (frente A): ISS por município — alíquota por escritório (HI-82), regime por
+# empresa e exercício (HI-84), regra do município (HI-83, só leitura) e as três
+# apurações e relatórios (HI-82, HI-85, HI-86). Regra de negócio fica em
+# apps.fiscal.iss_municipal; aqui: autorização, isolamento, entrada e tradução de erro.
+#
+# Autorização: ler é `PodeConsultarFiscal` (exclui CLIENTE); escrever é
+# `PodeEscriturarFiscal`. Alíquota é do ESCRITÓRIO ATIVO (`request.escritorio`), e
+# qualquer id de outro escritório responde 404. Regime e apurações são por empresa, com
+# `EmpresaEscopadaMixin`.
+# ---------------------------------------------------------------------------
+
+CONTRATO_ALIQUOTA_ISS = ContratoDeRequisicao(
+    campos={
+        "municipio_ibge",
+        "subitem",
+        "percentual",
+        "fonte",
+        "inicio_vigencia",
+        "fim_vigencia",
+    },
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no cadastro da alíquota do ISS",
+)
+CONTRATO_REGIME_ISS = ContratoDeRequisicao(
+    campos={"exercicio", "regime", "municipio_ibge"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no regime do ISS da empresa",
+)
+
+
+class AliquotaIssSerializer(serializers.ModelSerializer):
+    """Saída. `percentual` sai como texto com 4 casas (sem float)."""
+
+    class Meta:
+        model = AliquotaIssMunicipal
+        fields = [
+            "id",
+            "municipio_ibge",
+            "subitem",
+            "percentual",
+            "fonte",
+            "inicio_vigencia",
+            "fim_vigencia",
+        ]
+        read_only_fields = fields
+
+
+class AliquotaIssEntradaSerializer(serializers.Serializer):
+    municipio_ibge = serializers.CharField(max_length=7, trim_whitespace=True)
+    subitem = serializers.CharField(max_length=5, trim_whitespace=True)
+    # Até 4 casas, na mesma escala da coluna. A regra de 2% a 5% é do serviço, que recusa
+    # com a mensagem da LC 116, não do serializer.
+    percentual = serializers.DecimalField(max_digits=7, decimal_places=4)
+    fonte = serializers.CharField(max_length=1000, trim_whitespace=True)
+    inicio_vigencia = serializers.DateField()
+    fim_vigencia = serializers.DateField(required=False, allow_null=True)
+
+
+class RegimeIssSerializer(serializers.ModelSerializer):
+    regime_descricao = serializers.CharField(source="get_regime_display", read_only=True)
+
+    class Meta:
+        model = RegimeIssEmpresa
+        fields = ["id", "exercicio", "regime", "regime_descricao", "municipio_ibge"]
+        read_only_fields = fields
+
+
+class RegimeIssEntradaSerializer(serializers.Serializer):
+    exercicio = serializers.IntegerField()
+    regime = serializers.ChoiceField(choices=RegimeIss.choices)
+    municipio_ibge = serializers.CharField(max_length=7, trim_whitespace=True)
+
+
+class RegraIssSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RegraIssMunicipio
+        fields = [
+            "id",
+            "municipio_ibge",
+            "nome",
+            "dia_vencimento_proprio",
+            "dia_vencimento_retido",
+            "regra_dia_nao_util",
+            "fonte",
+            "inicio_vigencia",
+            "fim_vigencia",
+        ]
+        read_only_fields = fields
+
+
+def _aviso_iss_payload(aviso) -> dict:
+    return {"codigo": aviso.codigo, "mensagem": aviso.mensagem, "dispositivo": aviso.dispositivo}
+
+
+def _data_iso(valor):
+    return valor.isoformat() if valor is not None else None
+
+
+def _texto_decimal(valor):
+    return str(valor) if valor is not None else None
+
+
+def _nota_apurada_payload(nota) -> dict:
+    return {
+        "identificador": nota.identificador,
+        "numero": nota.numero,
+        "data_competencia": _data_iso(nota.data_competencia),
+        "c_loc_incid": nota.c_loc_incid,
+        "subitem": nota.subitem,
+        "v_bc": _texto_decimal(nota.v_bc),
+        "v_iss_qn": _texto_decimal(nota.v_iss_qn),
+        "aliquota_cadastrada": _texto_decimal(nota.aliquota_cadastrada),
+        "esperado": _texto_decimal(nota.esperado),
+        "diferenca": _texto_decimal(nota.diferenca),
+        "conferida": nota.conferida,
+        "avisos": list(nota.avisos),
+    }
+
+
+def _nota_relatorio_payload(nota) -> dict:
+    return {
+        "identificador": nota.identificador,
+        "numero": nota.numero,
+        "data_competencia": _data_iso(nota.data_competencia),
+        "cancelada": nota.cancelada,
+        "tomador_documento": nota.tomador_documento,
+        "tomador_nome": nota.tomador_nome,
+        "c_loc_incid": nota.c_loc_incid,
+        "subitem": nota.subitem,
+        "v_bc": _texto_decimal(nota.v_bc),
+        "p_aliq_aplic": _texto_decimal(nota.p_aliq_aplic),
+        "v_iss_qn": _texto_decimal(nota.v_iss_qn),
+        "tp_ret_issqn": nota.tp_ret_issqn,
+        "ausentes": list(nota.ausentes),
+    }
+
+
+def _grupo_payload(grupo) -> dict:
+    return {
+        "municipio_ibge": grupo.municipio_ibge,
+        "total": str(grupo.total),
+        "incompletas": list(grupo.incompletas),
+        "vencimento_retido": _data_iso(grupo.vencimento_retido),
+        "aviso": grupo.aviso,
+    }
+
+
+def _apuracao_iss_payload(resultado: iss_servico.ApuracaoIss) -> dict:
+    return {
+        "ano": resultado.ano,
+        "mes": resultado.mes,
+        "municipio_ibge": resultado.municipio_ibge,
+        "nome_municipio": resultado.nome_municipio,
+        "regime": resultado.regime,
+        "total": str(resultado.total),
+        "vencimento_proprio": _data_iso(resultado.vencimento_proprio),
+        "vencimento_retido": _data_iso(resultado.vencimento_retido),
+        "regra_dia_nao_util": resultado.regra_dia_nao_util,
+        "aviso_multa": resultado.aviso_multa,
+        "notas": [_nota_apurada_payload(n) for n in resultado.notas],
+        "pendencias": [_nota_apurada_payload(n) for n in resultado.pendencias],
+        "avisos": [_aviso_iss_payload(a) for a in resultado.avisos],
+        "memoria": [
+            {
+                "ordem": passo.ordem,
+                "descricao": passo.descricao,
+                "valor": passo.valor,
+                "dispositivo": passo.dispositivo,
+            }
+            for passo in resultado.memoria
+        ],
+    }
+
+
+class AliquotasIssView(APIView):
+    """GET — aliquotas do ISS do escritório ativo (opcional `municipio`)."""
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
+
+    def get(self, request):
+        aliquotas = AliquotaIssMunicipal.objects.filter(escritorio=request.escritorio)
+        if "municipio" in request.query_params:
+            aliquotas = aliquotas.filter(municipio_ibge=request.query_params["municipio"])
+        aliquotas = aliquotas.order_by("municipio_ibge", "subitem", "inicio_vigencia", "id")
+        return Response(AliquotaIssSerializer(aliquotas, many=True).data)
+
+
+class CadastrarAliquotaIssView(APIView):
+    """POST — cadastra alíquota do escritório. Recusa fora de 2% a 5% (exceção com aviso)."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def post(self, request):
+        _recusar_dado_nao_contratado(request, CONTRATO_ALIQUOTA_ISS)
+        entrada = AliquotaIssEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        try:
+            aliquota, avisos = iss_servico.cadastrar_aliquota(
+                request.escritorio,
+                dict(entrada.validated_data),
+                usuario=request.user,
+                request=request,
+            )
+        except iss_servico.EntradaInvalidaIss as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except iss_servico.IssConflito as exc:
+            return _resposta_de_conflito(exc)
+        return Response(
+            {
+                **AliquotaIssSerializer(aliquota).data,
+                "avisos": [_aviso_iss_payload(a) for a in avisos],
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AliquotaIssDetalheView(APIView):
+    """PATCH — altera a alíquota (inclusive o fim da vigência, que a encerra). Sem exclusão."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def patch(self, request, aliquota_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_ALIQUOTA_ISS)
+        aliquota = get_object_or_404(
+            AliquotaIssMunicipal, pk=aliquota_id, escritorio=request.escritorio
+        )
+        entrada = AliquotaIssEntradaSerializer(data=request.data, partial=True)
+        entrada.is_valid(raise_exception=True)
+        try:
+            alterada, avisos = iss_servico.alterar_aliquota(
+                aliquota,
+                dict(entrada.validated_data),
+                usuario=request.user,
+                request=request,
+            )
+        except iss_servico.EntradaInvalidaIss as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except iss_servico.IssConflito as exc:
+            return _resposta_de_conflito(exc)
+        return Response(
+            {
+                **AliquotaIssSerializer(alterada).data,
+                "avisos": [_aviso_iss_payload(a) for a in avisos],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class RegrasIssMunicipioView(APIView):
+    """GET — regras do ISS por município (leitura; o cadastro não tem rota de API)."""
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
+
+    def get(self, request):
+        regras = RegraIssMunicipio.objects.all()
+        if "municipio" in request.query_params:
+            regras = regras.filter(municipio_ibge=request.query_params["municipio"])
+        return Response(
+            RegraIssSerializer(regras.order_by("municipio_ibge", "inicio_vigencia"), many=True).data
+        )
+
+
+class RegimesIssView(EmpresaEscopadaMixin, APIView):
+    """GET — regimes do ISS da empresa, por exercício."""
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        regimes = RegimeIssEmpresa.objects.filter(empresa=empresa).order_by("exercicio", "id")
+        return Response(RegimeIssSerializer(regimes, many=True).data)
+
+
+class CadastrarRegimeIssView(EmpresaEscopadaMixin, APIView):
+    """POST — regime do ISS da empresa no exercício (um por exercício)."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def post(self, request, empresa_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_REGIME_ISS)
+        empresa = self.get_empresa()
+        entrada = RegimeIssEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        try:
+            regime = iss_servico.cadastrar_regime(
+                empresa, dict(entrada.validated_data), usuario=request.user, request=request
+            )
+        except iss_servico.EntradaInvalidaIss as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except iss_servico.IssConflito as exc:
+            return _resposta_de_conflito(exc)
+        return Response(RegimeIssSerializer(regime).data, status=status.HTTP_201_CREATED)
+
+
+class RegimeIssDetalheView(EmpresaEscopadaMixin, APIView):
+    """PATCH — altera o regime do ISS da empresa no exercício."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def patch(self, request, empresa_id, regime_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_REGIME_ISS)
+        empresa = self.get_empresa()
+        regime = get_object_or_404(RegimeIssEmpresa, pk=regime_id, empresa=empresa)
+        entrada = RegimeIssEntradaSerializer(data=request.data, partial=True)
+        entrada.is_valid(raise_exception=True)
+        try:
+            alterado = iss_servico.alterar_regime(
+                regime, dict(entrada.validated_data), usuario=request.user, request=request
+            )
+        except iss_servico.EntradaInvalidaIss as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except iss_servico.IssConflito as exc:
+            return _resposta_de_conflito(exc)
+        return Response(RegimeIssSerializer(alterado).data, status=status.HTTP_200_OK)
+
+
+class ApuracaoIssView(EmpresaEscopadaMixin, APIView):
+    """GET — ISS próprio do mês (`ano`, `mes`). 409 com TODOS os bloqueios quando não sai."""
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        ano, mes = _ano_e_mes_da_consulta(request)
+        try:
+            resultado = iss_servico.apuracao_iss_proprio(empresa, ano, mes)
+        except iss_servico.IssRecusado as exc:
+            return Response(
+                {
+                    "detail": str(exc),
+                    "bloqueios": [_bloqueio_payload(b) for b in exc.bloqueios],
+                    "notas": [_nota_relatorio_payload(n) for n in exc.notas],
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(_apuracao_iss_payload(resultado))
+
+
+class RetidoSofridoIssView(EmpresaEscopadaMixin, APIView):
+    """GET — ISS retido sofrido do mês (HI-86), para empresa de qualquer regime."""
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        ano, mes = _ano_e_mes_da_consulta(request)
+        relatorio = iss_servico.relatorio_iss_retido_sofrido(empresa, ano, mes)
+        return Response(
+            {
+                "ano": relatorio.ano,
+                "mes": relatorio.mes,
+                "notas": [_nota_relatorio_payload(n) for n in relatorio.notas],
+                "grupos": [_grupo_payload(g) for g in relatorio.grupos],
+                "avisos": [_aviso_iss_payload(a) for a in relatorio.avisos],
+            }
+        )
+
+
+class OutrosMunicipiosIssView(EmpresaEscopadaMixin, APIView):
+    """GET — ISS devido a outros municípios do mês (HI-85), sem cálculo."""
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        ano, mes = _ano_e_mes_da_consulta(request)
+        relatorio = iss_servico.relatorio_iss_outros_municipios(empresa, ano, mes)
+        return Response(
+            {
+                "ano": relatorio.ano,
+                "mes": relatorio.mes,
+                "notas": [_nota_relatorio_payload(n) for n in relatorio.notas],
+                "grupos": [_grupo_payload(g) for g in relatorio.grupos],
+                "avisos": [_aviso_iss_payload(a) for a in relatorio.avisos],
+            }
+        )

@@ -7,9 +7,14 @@ e papel autorizado; o detalhe de cada permissão está em `apps.fiscal.api`.
 from django.urls import path
 
 from apps.fiscal.api import (
+    AliquotaIssDetalheView,
+    AliquotasIssView,
+    ApuracaoIssView,
     AtividadeDetalheView,
     AtividadesView,
+    CadastrarAliquotaIssView,
     CadastrarAtividadeView,
+    CadastrarRegimeIssView,
     ConferenciaView,
     ConfirmarFolhaView,
     ConfirmarMesView,
@@ -21,12 +26,17 @@ from apps.fiscal.api import (
     FolhasFatorRView,
     LancarFolhaView,
     NotasPrestadasView,
+    OutrosMunicipiosIssView,
     PreDasView,
     Rbt12View,
     ReabrirMesView,
     ReceitaDoMesView,
     ReceitasInformadasView,
     RegimeCaixaView,
+    RegimeIssDetalheView,
+    RegimesIssView,
+    RegrasIssMunicipioView,
+    RetidoSofridoIssView,
 )
 
 app_name = "fiscal_api"
@@ -133,5 +143,57 @@ urlpatterns = [
         "empresas/<int:empresa_id>/folhas-fator-r/<int:folha_id>/estornar/",
         EstornarFolhaView.as_view(),
         name="estornar_folha",
+    ),
+    # DL-076 (frente A): ISS por município. Alíquota é do escritório ativo; regime e
+    # apurações são por empresa.
+    path(
+        "iss/aliquotas/",
+        AliquotasIssView.as_view(),
+        name="aliquotas_iss",
+    ),
+    path(
+        "iss/aliquotas/nova/",
+        CadastrarAliquotaIssView.as_view(),
+        name="cadastrar_aliquota_iss",
+    ),
+    path(
+        "iss/aliquotas/<int:aliquota_id>/",
+        AliquotaIssDetalheView.as_view(),
+        name="aliquota_iss",
+    ),
+    path(
+        "iss/regras-municipio/",
+        RegrasIssMunicipioView.as_view(),
+        name="regras_iss_municipio",
+    ),
+    path(
+        "empresas/<int:empresa_id>/iss/regimes/",
+        RegimesIssView.as_view(),
+        name="regimes_iss",
+    ),
+    path(
+        "empresas/<int:empresa_id>/iss/regimes/nova/",
+        CadastrarRegimeIssView.as_view(),
+        name="cadastrar_regime_iss",
+    ),
+    path(
+        "empresas/<int:empresa_id>/iss/regimes/<int:regime_id>/",
+        RegimeIssDetalheView.as_view(),
+        name="regime_iss",
+    ),
+    path(
+        "empresas/<int:empresa_id>/iss/apuracao/",
+        ApuracaoIssView.as_view(),
+        name="apuracao_iss",
+    ),
+    path(
+        "empresas/<int:empresa_id>/iss/retido-sofrido/",
+        RetidoSofridoIssView.as_view(),
+        name="retido_sofrido_iss",
+    ),
+    path(
+        "empresas/<int:empresa_id>/iss/outros-municipios/",
+        OutrosMunicipiosIssView.as_view(),
+        name="outros_municipios_iss",
     ),
 ]
