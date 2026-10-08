@@ -223,6 +223,12 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    alíquotas, regime, apuração, relatórios, API) e B (11 telas), em Haiku;
    suíte completa sobre a DL-075 corrigida: 6.232 aprovados, 1 reprovado
    (ambiente), 53 pulados.
+   [Auditoria rodada 1](../auditorias/2026-10-08-dl-076-rodada-1.md):
+   **APROVADA COM RESSALVAS** — campos conferidos contra o XSD oficial,
+   tabela do art. 3º contra o Planalto, 63 de 90 mutantes mortos. Correção
+   única em andamento: A1 (500 com percentual mal digitado), A2 (nota não
+   escriturada some sem aviso — vira aviso forte, HI-89), A3, A4 e A5
+   (testes de isolamento), e A6 a A12.
    [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-iss-palmas.md):
    a tabela de alíquotas vigente de Palmas **não foi achada** (LC 300/2014
    inacessível); a alíquota vira dado informado pelo escritório e o produto
