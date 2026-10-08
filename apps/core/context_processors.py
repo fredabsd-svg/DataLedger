@@ -111,6 +111,18 @@ ROTULOS_DE_TELA = {
     ("fiscal_web", "folhas_fator_r"): "Folha para o fator r",
     ("fiscal_web", "folha_nova"): "Lançar folha",
     ("fiscal_web", "folha_estornar"): "Estornar folha",
+    # DL-076 (frente B): ISS por município — apuração, relatórios, alíquotas, regime e regras.
+    ("fiscal_web", "iss_apuracao"): "ISS próprio (apuração)",
+    ("fiscal_web", "iss_retido_sofrido"): "ISS retido sofrido",
+    ("fiscal_web", "iss_outros_municipios"): "ISS devido a outros municípios",
+    ("fiscal_web", "iss_aliquotas"): "Alíquotas do ISS",
+    ("fiscal_web", "iss_aliquota_nova"): "Nova alíquota do ISS",
+    ("fiscal_web", "iss_aliquota_editar"): "Alterar alíquota do ISS",
+    ("fiscal_web", "iss_aliquota_encerrar"): "Encerrar vigência da alíquota",
+    ("fiscal_web", "iss_regimes"): "Regime do ISS",
+    ("fiscal_web", "iss_regime_novo"): "Novo regime do ISS",
+    ("fiscal_web", "iss_regime_editar"): "Alterar regime do ISS",
+    ("fiscal_web", "iss_regras_municipio"): "Regras do ISS por município",
     # DL-073: conformidade IBS/CBS das NFS-e recebidas (modo aviso).
     ("fiscal_web", "conformidade_ibscbs"): "Conformidade IBS/CBS",
     ("tenancy", "bootstrap-primeiro-acesso"): "Criar escritório",

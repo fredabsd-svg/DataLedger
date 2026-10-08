@@ -997,6 +997,22 @@ def _dados_fiscal(request, escopo):
                 ),
             }
         )
+        # DL-076 (frente B): apuração do ISS próprio do município. Mesma permissão de consulta; a
+        # tela pede UMA empresa, e sem ela a própria tela pede a escolha.
+        atalhos.append(
+            {
+                "rotulo": "ISS do município (apuração)",
+                "url": reverse("fiscal_web:iss_apuracao")
+                + "?"
+                + urlencode(
+                    {
+                        "ano": escopo.ano,
+                        "mes": escopo.mes,
+                        **({"empresa": empresas[0].pk} if len(empresas) == 1 else {}),
+                    }
+                ),
+            }
+        )
     return {
         "fontes": fontes,
         "kpis": kpis,

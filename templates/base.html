@@ -902,6 +902,50 @@
                                                     </li>
                                                 </ul>
                                             </div>
+                                            {% comment %}
+                                            DL-076 (frente B): ISS por município. Mesma permissão de consulta do grupo do
+                                            Fiscal; o servidor decide cada ação (cadastrar, alterar, encerrar) na própria tela.
+                                            {% endcomment %}
+                                            <div class="menu-grupo">
+                                                <p class="menu-grupo__rotulo" id="grupo-iss-municipal">ISS municipal</p>
+                                                <ul aria-labelledby="grupo-iss-municipal">
+                                                    <li>
+                                                        {% if pagina_atual == "iss_apuracao" %}
+                                                            <span class="item-atual" aria-current="page">Apuração</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:iss_apuracao' %}">Apuração</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "iss_retido_sofrido" %}
+                                                            <span class="item-atual" aria-current="page">Retido sofrido</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:iss_retido_sofrido' %}">Retido sofrido</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "iss_outros_municipios" %}
+                                                            <span class="item-atual" aria-current="page">Outros municípios</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:iss_outros_municipios' %}">Outros municípios</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "iss_aliquotas" %}
+                                                            <span class="item-atual" aria-current="page">Alíquotas</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:iss_aliquotas' %}">Alíquotas</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "iss_regimes" %}
+                                                            <span class="item-atual" aria-current="page">Regime</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:iss_regimes' %}">Regime</a>
+                                                        {% endif %}
+                                                    </li>
+                                                </ul>
+                                            </div>
                                         {% endwith %}
                                     </div>
                                 </details>

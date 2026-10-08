@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block titulo %}Encerrar vigência da alíquota do ISS{% endblock %}
+
+{% comment %}
+DL-076 (frente B), arquétipo E (confirmação): diz o que vai acontecer e o que continua no histórico
+antes de gravar. Encerrar é alterar o fim da vigência, pela mesma regra do serviço (inclusive a
+checagem de sobreposição e de fim anterior ao início). Não há exclusão.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Encerrar vigência da alíquota do ISS</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa">
+        <h2>O que vai acontecer</h2>
+        <p>
+            A alíquota vale até a data informada, inclusive. Depois dela, a apuração deixa de usá-la para as competências seguintes.
+        </p>
+        <p class="texto-apoio">
+            O registro fica no histórico, com a trilha da alteração: não há exclusão. Para uma alíquota nova, cadastre outra com início na nova vigência.
+        </p>
+    </div>
+
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Município (IBGE)</dt>
+            <dd>{{ aliquota.municipio }}</dd>
+        </div>
+        <div>
+            <dt>Subitem</dt>
+            <dd>{{ aliquota.subitem }}</dd>
+        </div>
+        <div>
+            <dt>Alíquota</dt>
+            <dd class="valor-monetario">{{ aliquota.percentual }}</dd>
+        </div>
+        <div>
+            <dt>Vigência atual</dt>
+            <dd>{{ aliquota.vigencia }}</dd>
+        </div>
+        <div>
+            <dt>Fonte</dt>
+            <dd class="texto-apoio">{{ aliquota.fonte }}</dd>
+        </div>
+    </dl>
+
+    <form method="post" action="{{ url_envio }}" class="formulario">
+        {% csrf_token %}
+        <div class="campo">
+            <label for="id_fim">Fim da vigência</label>
+            <input type="text" id="id_fim" name="fim" value="{{ fim_digitado }}" required inputmode="numeric"
+                   maxlength="10" aria-describedby="id_fim_ajuda">
+            <p class="texto-apoio" id="id_fim_ajuda">Em dd/mm/aaaa. A alíquota vale até este dia, inclusive.</p>
+        </div>
+        <div class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+            <button type="submit" class="botao botao--perigoso">Encerrar vigência</button>
+        </div>
+    </form>
+{% endblock %}

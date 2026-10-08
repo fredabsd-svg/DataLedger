@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block titulo %}Regime do ISS{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-076 (frente B), arquétipo A (tabela de consulta) com cadastro à parte. O regime do ISS é por
+empresa e exercício (HI-84): alíquota, fixo de autônomo ou fixo de sociedade de profissionais, e o
+município do estabelecimento. Sem regime no exercício, a apuração recusa.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Regime do ISS</h1>{% endblock %}
+
+{% block content %}
+    <p class="mensagem mensagem-info" role="status">
+        <strong>Regime por exercício.</strong> {{ texto_do_regime }}
+    </p>
+
+    {% include "fiscal/_filtro_simples.html" %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver o regime do ISS.</strong></p>
+            <p class="estado-vazio__descricao">O regime é sempre de uma empresa, por exercício.</p>
+        </div>
+    {% else %}
+        <div class="acoes-formulario">
+            {% if pode_escriturar %}
+                <a class="botao botao--primario" href="{{ url_novo }}">Cadastrar regime do exercício</a>
+            {% else %}
+                <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao">Cadastrar regime do exercício</button>
+                <p class="texto-apoio" id="ajuda_sem_permissao">{{ mensagem_sem_permissao }}</p>
+            {% endif %}
+        </div>
+
+        {% if linhas %}
+            <table class="tabela-dados">
+                <caption>Regime do ISS da empresa, por exercício, com o município do estabelecimento</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Exercício</th>
+                        <th scope="col">Regime</th>
+                        <th scope="col">Município do estabelecimento</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in linhas %}
+                        <tr>
+                            <th scope="row">{{ linha.exercicio }}</th>
+                            <td>{{ linha.regime }}</td>
+                            <td>{{ linha.municipio }}</td>
+                            <td>
+                                <div class="acoes-de-linha">
+                                    {% if linha.pode_editar %}
+                                        <a class="botao botao--secundario botao--pequeno" href="{{ linha.url_editar }}">Alterar</a>
+                                    {% else %}
+                                        <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Alterar</button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo"><strong>Nenhum regime do ISS cadastrado para esta empresa.</strong></p>
+                <p class="estado-vazio__descricao">Sem regime no exercício, a apuração do ISS próprio recusa e diz o que falta. O produto não presume regime nem município.</p>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}

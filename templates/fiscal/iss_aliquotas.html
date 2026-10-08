@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block titulo %}Alíquotas do ISS do escritório{% endblock %}
+
+{% comment %}
+DL-076 (frente B), arquétipo A (tabela de consulta) com cadastro à parte (arquétipo B). A alíquota é
+informada pelo ESCRITÓRIO, com vigência, fonte e autor (HI-82): o produto não tem tabela de alíquotas
+de município. A faixa de 2% a 5% e a exceção do § 1º do art. 8º-A são lidas do serviço e aparecem
+aqui como texto, com o dispositivo. Esta lista é do escritório ativo: nunca mostra alíquota de outro.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Alíquotas do ISS do escritório</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa">
+        <h2>Como a alíquota entra no cálculo</h2>
+        <p>
+            A alíquota vale no mês inteiro coberto pela vigência. Se uma alíquota muda no meio do mês, a apuração recusa e diz qual
+            subitem precisa de uma alíquota que cubra o mês. Só pode haver uma alíquota por município e subitem em cada data.
+        </p>
+        <p class="texto-apoio">{{ faixa }}</p>
+    </div>
+
+    <form method="get" action="{{ request.path }}" class="formulario-periodo formulario-periodo--rotulo-acima">
+        <div class="campo">
+            <label for="id_municipio">Código IBGE do município (opcional)</label>
+            <input type="text" id="id_municipio" name="municipio" value="{{ municipio_filtro }}" inputmode="numeric" maxlength="7" aria-describedby="id_municipio_ajuda">
+        </div>
+        <button type="submit">Filtrar</button>
+        <p class="texto-apoio" id="id_municipio_ajuda">Sete dígitos. Palmas é 1721000. Em branco, mostra as alíquotas de todos os municípios do escritório.</p>
+    </form>
+
+    <div class="acoes-formulario">
+        {% if pode_escriturar %}
+            <a class="botao botao--primario" href="{{ url_nova }}">Cadastrar alíquota</a>
+        {% else %}
+            <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao">Cadastrar alíquota</button>
+            <p class="texto-apoio" id="ajuda_sem_permissao">{{ mensagem_sem_permissao }}</p>
+        {% endif %}
+        <a class="botao botao--secundario" href="{{ url_regras }}">Regras do ISS por município</a>
+    </div>
+
+    {% if linhas %}
+        <table class="tabela-dados">
+            <caption>Alíquotas do escritório por município e subitem, com vigência, fonte e autor</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Município (IBGE)</th>
+                    <th scope="col">Subitem</th>
+                    <th scope="col">Alíquota</th>
+                    <th scope="col">Vigência</th>
+                    <th scope="col">Fonte</th>
+                    <th scope="col">Cadastrada por</th>
+                    <th scope="col">Alterada por</th>
+                    <th scope="col">Ação</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for linha in linhas %}
+                    <tr>
+                        <td>{{ linha.municipio }}</td>
+                        <td>{{ linha.subitem }}</td>
+                        <td class="valor-monetario">{{ linha.percentual }}</td>
+                        <td>{{ linha.vigencia }}</td>
+                        <td class="texto-apoio">{{ linha.fonte }}</td>
+                        <td>{{ linha.cadastrada_por }}</td>
+                        <td>{{ linha.alterada_por }}</td>
+                        <td>
+                            <div class="acoes-de-linha">
+                                {% if linha.pode_editar %}
+                                    <a class="botao botao--secundario botao--pequeno" href="{{ linha.url_editar }}">Alterar</a>
+                                    {% if linha.url_encerrar %}
+                                        <a class="botao botao--perigoso botao--pequeno" href="{{ linha.url_encerrar }}">Encerrar vigência</a>
+                                    {% endif %}
+                                {% else %}
+                                    <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Alterar</button>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Nenhuma alíquota cadastrada{% if municipio_filtro %} para o município {{ municipio_filtro }}{% endif %}.</strong></p>
+            <p class="estado-vazio__descricao">
+                Sem alíquota vigente para o subitem, a apuração do ISS recusa e diz qual subitem falta.
+            </p>
+        </div>
+    {% endif %}
+{% endblock %}

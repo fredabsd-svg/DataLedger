@@ -1342,3 +1342,247 @@ class FolhaFatorR(models.Model):
                 "pelo estorno."
             )
         return super().delete(*args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# DL-076 (frente A): ISS por município, começando por Palmas (HI-82 a HI-86).
+#
+# Três tabelas de CONFIGURAÇÃO. Nenhuma guarda o resultado da apuração: o total do
+# ISS é calculado sob demanda, a partir das notas escrituradas, como o pré-DAS.
+#
+# - RegraIssMunicipio: regra LEGAL do município (dias de vencimento, regra do dia não
+#   útil, dispositivo). É GLOBAL, sem escritório: a norma é a mesma para todos os
+#   escritórios, e uma regra por escritório abriria a divergência entre eles sobre
+#   um dado que não é escolha de ninguém. Quem grava é a migração 0006 (Palmas) e o
+#   serviço `cadastrar_regra_municipio`, sem rota de cliente.
+# - AliquotaIssMunicipal: alíquota por município e subitem, INFORMADA pelo escritório
+#   (HI-82). O produto não traz percentual de município algum: a tabela vigente de
+#   Palmas não foi achada (consulta de 08/10/2026, item 1).
+# - RegimeIssEmpresa: regime do ISS da empresa no exercício (HI-84) e município do
+#   estabelecimento, que é o local de incidência da apuração própria.
+#
+# Alteração e encerramento de alíquota e de regime são feitos com trilha (antes e
+# depois). Não há exclusão: a vigência se encerra.
+# ---------------------------------------------------------------------------
+
+
+class RegimeIss(models.TextChoices):
+    """Regime do ISS da empresa no exercício (HI-84).
+
+    Fixos (autônomo e sociedade de profissionais) não têm apuração por alíquota: o
+    produto identifica e recusa a apuração, listando as notas para conferência.
+    """
+
+    ALIQUOTA = "aliquota", "Alíquota (apuração por nota)"
+    FIXO_AUTONOMO = "fixo_autonomo", "Fixo de autônomo"
+    FIXO_SOCIEDADE_PROFISSIONAIS = (
+        "fixo_sociedade_profissionais",
+        "Fixo de sociedade de profissionais",
+    )
+
+
+class RegraIssMunicipio(models.Model):
+    """Regra do ISS de um município, com vigência e fonte (HI-83).
+
+    Palmas (IBGE 1721000): dia 10 (próprio) e dia 15 (retido), dia não útil → primeiro
+    dia útil seguinte, Decreto 1.667/2018, art. 86 § 3º e Anexo I (cópia de legisweb,
+    consultada em 08/10/2026). O dia é limitado a 1..28: nenhum dia de vencimento
+    de município depende de mês curto, e o produto não calcula feriado.
+    """
+
+    municipio_ibge = models.CharField("código IBGE do município", max_length=7)
+    nome = models.CharField("município", max_length=120)
+    dia_vencimento_proprio = models.PositiveSmallIntegerField(
+        "dia do vencimento do ISS próprio (mês seguinte)"
+    )
+    dia_vencimento_retido = models.PositiveSmallIntegerField(
+        "dia do vencimento do ISS retido (mês seguinte)"
+    )
+    regra_dia_nao_util = models.TextField("regra do dia não útil")
+    fonte = models.TextField("dispositivo e fonte")
+    inicio_vigencia = models.DateField("início da vigência")
+    fim_vigencia = models.DateField("fim da vigência", null=True, blank=True)
+    criada_em = models.DateTimeField("criada em", auto_now_add=True)
+    criada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="criada por",
+    )
+
+    class Meta:
+        verbose_name = "regra do ISS por município"
+        verbose_name_plural = "regras do ISS por município"
+        ordering = ["municipio_ibge", "inicio_vigencia", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(municipio_ibge__regex=r"^[0-9]{7}$"),
+                name="regra_iss_codigo_ibge",
+            ),
+            models.CheckConstraint(
+                condition=Q(dia_vencimento_proprio__gte=1, dia_vencimento_proprio__lte=28)
+                & Q(dia_vencimento_retido__gte=1, dia_vencimento_retido__lte=28),
+                name="regra_iss_dias_entre_1_e_28",
+            ),
+            models.CheckConstraint(
+                condition=Q(fim_vigencia__isnull=True) | Q(fim_vigencia__gte=F("inicio_vigencia")),
+                name="regra_iss_fim_depois_do_inicio",
+            ),
+            models.CheckConstraint(
+                condition=~Q(fonte=""),
+                name="regra_iss_fonte_preenchida",
+            ),
+            models.UniqueConstraint(
+                fields=["municipio_ibge", "inicio_vigencia"],
+                name="regra_iss_unica_por_inicio",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Regra do ISS — {self.nome} ({self.municipio_ibge})"
+
+
+class AliquotaIssMunicipal(models.Model):
+    """Alíquota do ISS por município e subitem, informada pelo escritório (HI-82).
+
+    Por escritório: é dado que o escritório conhece (a alíquota que o município aplica
+    aos clientes dele), e o isolamento vale também para ela. O subitem é "II.SS" da
+    lista da LC 116 (o código de tributação nacional de 6 dígitos, cTribNac, tem
+    item(2)+subitem(2)+desdobro(2)). O percentual é em pontos (5 = 5%), com 4 casas.
+
+    O limite de 2% a 5% (LC 116, art. 8º, II, e art. 8º-A) é conferido pelo serviço, na
+    entrada, e também pelo banco (teto e piso, CHECK abaixo), para o caso de o ORM ser usado
+    direto. A exceção do § 1º do art. 8º-A (subitens 7.02, 7.05 e 16.01 abaixo de 2%) entra
+    com aviso no serviço; o banco a deixa passar pela mesma lista.
+    """
+
+    escritorio = models.ForeignKey(
+        Escritorio,
+        on_delete=models.PROTECT,
+        related_name="aliquotas_iss_municipal",
+        verbose_name="escritório",
+    )
+    municipio_ibge = models.CharField("código IBGE do município", max_length=7)
+    subitem = models.CharField("subitem da LC 116 (II.SS)", max_length=5)
+    percentual = models.DecimalField("alíquota (%)", max_digits=5, decimal_places=4)
+    fonte = models.TextField("fonte (dispositivo, documento e data de consulta)")
+    inicio_vigencia = models.DateField("início da vigência")
+    fim_vigencia = models.DateField("fim da vigência", null=True, blank=True)
+    criada_em = models.DateTimeField("criada em", auto_now_add=True)
+    criada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="criada por",
+    )
+    alterada_em = models.DateTimeField("alterada em", auto_now=True)
+    alterada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="alterada por",
+    )
+
+    class Meta:
+        verbose_name = "alíquota do ISS por município"
+        verbose_name_plural = "alíquotas do ISS por município"
+        ordering = ["escritorio_id", "municipio_ibge", "subitem", "inicio_vigencia", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(municipio_ibge__regex=r"^[0-9]{7}$"),
+                name="aliquota_iss_codigo_ibge",
+            ),
+            # Item 01 a 40 da lista da LC 116; subitem 01 a 99.
+            models.CheckConstraint(
+                condition=Q(subitem__regex=r"^(0[1-9]|[12][0-9]|3[0-9]|40)\.(0[1-9]|[1-9][0-9])$"),
+                name="aliquota_iss_subitem_valido",
+            ),
+            models.CheckConstraint(
+                condition=Q(percentual__gt=0) & Q(percentual__lte=5),
+                name="aliquota_iss_percentual_ate_5",
+            ),
+            # Piso de 2% (art. 8º-A), salvo a exceção do § 1º para estes subitens (A9 da DL-076).
+            models.CheckConstraint(
+                condition=Q(percentual__gte=2) | Q(subitem__in=["07.02", "07.05", "16.01"]),
+                name="aliquota_iss_piso_2_salvo_excecao",
+            ),
+            models.CheckConstraint(
+                condition=~Q(fonte=""),
+                name="aliquota_iss_fonte_preenchida",
+            ),
+            models.CheckConstraint(
+                condition=Q(fim_vigencia__isnull=True) | Q(fim_vigencia__gte=F("inicio_vigencia")),
+                name="aliquota_iss_fim_depois_do_inicio",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Alíquota ISS {self.subitem} — {self.percentual}% (município {self.municipio_ibge})"
+
+
+class RegimeIssEmpresa(models.Model):
+    """Regime do ISS da empresa em um exercício, e município do estabelecimento (HI-84).
+
+    Uma linha por empresa e exercício. Sem linha, a apuração própria recusa: o produto
+    não presume regime nem município. Empresa do Simples não tem apuração aqui (o ISS
+    dela está no pré-DAS, DL-075), e o regime fica registrado mesmo assim.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="regimes_iss",
+        verbose_name="empresa",
+    )
+    exercicio = models.PositiveSmallIntegerField("exercício (ano-calendário)")
+    regime = models.CharField("regime do ISS", max_length=32, choices=RegimeIss.choices)
+    municipio_ibge = models.CharField("código IBGE do município do estabelecimento", max_length=7)
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="criado por",
+    )
+    alterado_em = models.DateTimeField("alterado em", auto_now=True)
+    alterado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="alterado por",
+    )
+
+    class Meta:
+        verbose_name = "regime do ISS da empresa"
+        verbose_name_plural = "regimes do ISS das empresas"
+        ordering = ["empresa_id", "exercicio", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["empresa", "exercicio"],
+                name="regime_iss_unico_por_empresa_exercicio",
+            ),
+            models.CheckConstraint(
+                condition=Q(exercicio__gte=2000, exercicio__lte=2999),
+                name="regime_iss_exercicio_valido",
+            ),
+            models.CheckConstraint(
+                condition=Q(regime__in=RegimeIss.values),
+                name="regime_iss_regime_valido",
+            ),
+            models.CheckConstraint(
+                condition=Q(municipio_ibge__regex=r"^[0-9]{7}$"),
+                name="regime_iss_codigo_ibge",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"Regime do ISS {self.exercicio} — empresa {self.empresa_id} "
+            f"({self.get_regime_display()})"
+        )

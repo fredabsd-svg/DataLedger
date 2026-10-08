@@ -84,11 +84,13 @@ from apps.core.requisicao import (
 from apps.empresas.models import Empresa
 from apps.fiscal import escrituracao as servico_escrituracao
 from apps.fiscal import folha_fator_r as servico_folha
+from apps.fiscal import iss_municipal as servico_iss
 from apps.fiscal import pre_das as servico_pre_das
 from apps.fiscal import rbt12 as apuracao
 from apps.fiscal import receita as servico_receita
 from apps.fiscal import simples_tabelas as tabelas
 from apps.fiscal.models import (
+    AliquotaIssMunicipal,
     AtividadeEmpresa,
     DocumentoFiscal,
     EnquadramentoAtividade,
@@ -106,6 +108,9 @@ from apps.fiscal.models import (
     OrigemReceitaInformada,
     PapelDocumento,
     ReceitaInformada,
+    RegimeIss,
+    RegimeIssEmpresa,
+    RegraIssMunicipio,
     SituacaoIssReceitaInformada,
     VinculoDocumentoEmpresa,
 )
@@ -2238,6 +2243,11 @@ def _data_na_tela(data) -> str:
     return data.strftime("%d/%m/%Y") if data is not None else ""
 
 
+def _vencimento_na_tela(data) -> str:
+    """Data nominal do vencimento na tela (A7): a regra mora em `iss_municipal.data_nominal_br`."""
+    return servico_iss.data_nominal_br(data)
+
+
 # ---------------------------------------------------------------------------
 # URLs e filtros das telas do Simples
 # ---------------------------------------------------------------------------
@@ -3052,3 +3062,910 @@ def folha_estornar(request, empresa_id, folha_id):
         "lance outra folha se for o caso.",
     )
     return redirect(_url_folhas(empresa, folha.ano))
+
+
+# ---------------------------------------------------------------------------
+# DL-076 (frente B): ISS por município — apuração do ISS próprio, ISS retido sofrido, ISS
+# devido a outros municípios, alíquotas do escritório, regime por empresa e regras (só leitura).
+#
+# CONFERÊNCIA, nunca guia (DL-076, item 5): a apuração mostra o que `apps.fiscal.iss_municipal`
+# calcula e confere, com a memória e o dispositivo de cada passo. Nenhuma tela gera nem transmite
+# guia. A regra fica no serviço; aqui há autorização, isolamento, leitura da entrada, formatação
+# pt-BR e tradução de recusa (mesmo critério da API, `apps/fiscal/api.py`, seção DL-076).
+#
+# Leitura: `papel_pode_consultar_documentos`. Escrita (alíquota e regime): `papel_pode_escriturar_
+# fiscal`, recusada no SERVIDOR também no POST. A alíquota é do ESCRITÓRIO ATIVO (id de outro
+# escritório: 404). Regime e apurações são da EMPRESA (id de outra empresa, mesmo do escritório:
+# 404). Sem empresa escolhida, a tela de uma empresa pede a escolha e não apura nada.
+# ---------------------------------------------------------------------------
+
+_MENSAGEM_SEM_CONSULTA_DO_ISS = "Seu papel não permite consultar o ISS municipal."
+_MENSAGEM_SEM_PERMISSAO_DO_ISS = (
+    "Seu papel consulta o ISS municipal, mas não cadastra nem altera alíquota ou regime: "
+    "peça a um administrador ou gestor do escritório."
+)
+_TEXTO_DE_CONFERENCIA_DO_ISS = (
+    "Conferência para emissão da guia no portal do município — o DataLedger não gera guia nem "
+    "transmite."
+)
+# Faixa e exceção são lidas do serviço (constante pública), não redigidas aqui: se a lista de
+# subitens da exceção mudar, a tela acompanha.
+_TEXTO_DA_FAIXA_DA_ALIQUOTA = (
+    "Faixa de 2% a 5% (LC 116/2003, art. 8º, II, e art. 8º-A). Os subitens "
+    f"{', '.join(sorted(servico_iss.SUBITENS_EXCECAO_DO_MINIMO))} podem ficar abaixo de 2% pela "
+    "exceção do § 1º do art. 8º-A da LC 116: entram com aviso, não são recusados."
+)
+_TEXTO_DO_REGIME_DO_ISS = (
+    "Regime por exercício: por alíquota (apuração nota a nota), fixo de autônomo ou fixo de "
+    "sociedade de profissionais. O fixo não tem apuração por alíquota: a apuração recusa e lista "
+    "as notas para conferência. Empresa do Simples Nacional não tem apuração aqui: o ISS dela "
+    "sai no pré-DAS."
+)
+_TEXTO_DAS_REGRAS_DO_MUNICIPIO = (
+    "Somente leitura. A regra do município (vencimento, regra do dia não útil e fonte) é dado "
+    "legal com vigência; não há tela para cadastrá-la nesta versão."
+)
+_PADRAO_IBGE = re.compile(r"[0-9]{7}")
+# Valor monetário escrito pelo serviço na memória (`str(Decimal)`, com ponto e duas casas).
+_PADRAO_DINHEIRO_NA_MEMORIA = re.compile(r"-?[0-9]+\.[0-9]{2}")
+# Recusas do serviço que se resolvem em outra tela, com o município ou a competência já
+# conhecidos pela própria apuração.
+_CODIGOS_DO_REGIME_DO_ISS = frozenset({"regime_iss_ausente", "regime_fixo"})
+_CODIGOS_DA_REGRA_DO_MUNICIPIO = frozenset(
+    {"regra_municipio_ausente", "regra_municipio_fora_de_vigencia", "regra_municipio_sobreposta"}
+)
+_CAMPOS_DO_FORMULARIO_DA_ALIQUOTA = (
+    "municipio_ibge",
+    "subitem",
+    "percentual",
+    "fonte",
+    "inicio",
+    "fim",
+)
+_CAMPOS_DO_FORMULARIO_DO_REGIME = ("exercicio", "regime", "municipio_ibge")
+
+_CONTRATO_ALIQUOTA_ISS = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", *_CAMPOS_DO_FORMULARIO_DA_ALIQUOTA},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no cadastro da alíquota do ISS",
+)
+_CONTRATO_ENCERRAR_ALIQUOTA_ISS = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "fim"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no encerramento da vigência da alíquota do ISS",
+)
+_CONTRATO_REGIME_ISS_TELA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", *_CAMPOS_DO_FORMULARIO_DO_REGIME},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no regime do ISS da empresa",
+)
+
+# Textos das duas telas de relatório. Um só template serve às duas; o que muda é o rótulo da
+# coluna de valor e se há vencimento do retido (que só existe no retido sofrido).
+_TEXTOS_DO_RELATORIO_MUNICIPAL = {
+    "retido": {
+        "titulo": "ISS retido sofrido",
+        "descricao": (
+            "Notas em que o tomador retém o ISS (tpRetISSQN 2 ou 3). O valor retido não entra "
+            "no ISS a recolher do prestador: quem recolhe é o tomador, no município de incidência. "
+            "O vencimento aqui é informativo."
+        ),
+        "coluna_valor": "ISS retido (R$)",
+        "mostrar_vencimento": True,
+        "sem_notas": "Nenhuma nota com ISS retido sofrido na competência.",
+    },
+    "outros": {
+        "titulo": "ISS devido a outros municípios",
+        "descricao": (
+            "Notas de ISS devido em município de incidência diferente do estabelecimento. Os "
+            "valores são os da própria nota: nada é calculado aqui."
+        ),
+        "coluna_valor": "ISS da nota (R$)",
+        "mostrar_vencimento": False,
+        "sem_notas": "Nenhuma nota de ISS devido a outro município na competência.",
+    },
+}
+
+
+def _aliquota_ptbr(valor) -> str:
+    """Alíquota em pontos (5 = 5%) com 4 casas, como a conferência a guarda: '5,0000%'.
+    Só exibição: a comparação com o vISSQN é feita pelo serviço, com precisão total."""
+    if valor is None:
+        return "—"
+    return f"{_decimal_ptbr(valor, 4)}%"
+
+
+def _valor_da_memoria_na_tela(texto: str) -> str:
+    """Só o valor monetário escrito pelo serviço (`1234.56`) vira pt-BR. Datas, códigos e textos
+    seguem como estão: a regex não pega dispositivo como 'Decreto 1.667/2018' (não tem duas casas
+    depois do ponto)."""
+    if _PADRAO_DINHEIRO_NA_MEMORIA.fullmatch(texto):
+        return _dinheiro_ptbr(Decimal(texto))
+    return texto
+
+
+def _vigencia_na_tela(inicio, fim) -> str:
+    if fim is None:
+        return f"desde {_data_na_tela(inicio)}, em aberto"
+    return f"{_data_na_tela(inicio)} a {_data_na_tela(fim)}"
+
+
+def _nome_de_usuario(usuario) -> str:
+    return usuario.get_username() if usuario is not None else "—"
+
+
+def _tomador_texto(nome: str, documento: str) -> str:
+    if nome and documento:
+        return f"{nome} ({documento})"
+    return nome or documento or "—"
+
+
+def _nomes_dos_municipios(codigos) -> dict[str, str]:
+    """Nome de cada município pela regra cadastrada (só para exibir). Código sem regra fica sem
+    nome, e a tela mostra o código cru: não inventa um nome."""
+    codigos = {codigo for codigo in codigos if codigo}
+    if not codigos:
+        return {}
+    nomes: dict[str, str] = {}
+    for regra in RegraIssMunicipio.objects.filter(municipio_ibge__in=codigos).order_by(
+        "inicio_vigencia", "id"
+    ):
+        nomes.setdefault(regra.municipio_ibge, regra.nome)
+    return nomes
+
+
+def _rotulo_do_municipio(codigo, nomes) -> str:
+    if not codigo:
+        return "Sem município de incidência"
+    nome = nomes.get(codigo)
+    return f"{nome} ({codigo})" if nome else f"Código {codigo} (sem regra cadastrada)"
+
+
+def _url_com_filtro(nome_da_rota, empresa, **consulta) -> str:
+    """Rota com a empresa (e o que mais houver) na querystring. As telas de UMA empresa levam a
+    empresa assim, e não no caminho, porque o filtro é o mesmo da consulta."""
+    return reverse(nome_da_rota) + "?" + urlencode({"empresa": empresa.pk, **consulta})
+
+
+def _url_aliquotas(municipio=None) -> str:
+    url = reverse("fiscal_web:iss_aliquotas")
+    return f"{url}?{urlencode({'municipio': municipio})}" if municipio else url
+
+
+def _url_nova_aliquota(municipio=None) -> str:
+    url = reverse("fiscal_web:iss_aliquota_nova")
+    return f"{url}?{urlencode({'municipio': municipio})}" if municipio else url
+
+
+def _municipio_do_regime(empresa, ano):
+    """Município do estabelecimento no exercício, ou None. Só para montar links de correção."""
+    regime = RegimeIssEmpresa.objects.filter(empresa=empresa, exercicio=ano).first()
+    return regime.municipio_ibge if regime is not None else None
+
+
+# ---------------------------------------------------------------------------
+# Apuração do ISS próprio (tela 1)
+# ---------------------------------------------------------------------------
+
+
+def _acao_do_bloqueio_iss(bloqueio, empresa, ano, mes, municipio):
+    """(rótulo, URL, texto) para resolver o bloqueio. Sem caminho na tela, rótulo e URL vêm None
+    e o texto diz o porquê: a tela não inventa um caminho que não existe."""
+    codigo = bloqueio.codigo
+    if codigo in _CODIGOS_DO_REGIME_DO_ISS:
+        return (
+            "Ver ou cadastrar o regime do ISS",
+            _url_com_filtro("fiscal_web:iss_regimes", empresa),
+            "",
+        )
+    if codigo == "subitem_sem_aliquota_vigente":
+        # A mensagem do bloqueio nomeia o subitem; o link já leva o município do estabelecimento.
+        return "Cadastrar a alíquota do subitem", _url_nova_aliquota(municipio), ""
+    if codigo == "aliquota_sobreposta":
+        return "Ver as alíquotas do município", _url_aliquotas(municipio), ""
+    if codigo in _CODIGOS_DA_REGRA_DO_MUNICIPIO:
+        return (
+            "Ver as regras cadastradas",
+            reverse("fiscal_web:iss_regras_municipio"),
+            "A regra do município não tem tela de cadastro nesta versão: é dado legal, fora de "
+            "rota de API.",
+        )
+    if codigo == "nota_sem_campo_de_iss":
+        return (
+            "Ver os documentos da competência",
+            _url_com_filtro("fiscal_web:documentos_lista", empresa, ano=ano, mes=mes),
+            "",
+        )
+    if codigo in ("nota_cancelada_escriturada", "nota_retida_com_natureza_devida"):
+        return (
+            "Corrigir a escrituração",
+            _url_com_filtro("fiscal_web:notas_a_escriturar", empresa, ano=ano, mes=mes),
+            "",
+        )
+    if codigo == "empresa_no_simples":
+        return (
+            "Ver o pré-DAS do Simples",
+            _url_com_filtro("fiscal_web:pre_das", empresa, ano=ano, mes=mes),
+            "",
+        )
+    return None, None, "Não há ação nesta tela para este bloqueio."
+
+
+def _bloqueio_iss_na_tela(bloqueio, empresa, ano, mes, municipio) -> dict:
+    rotulo, url, texto = _acao_do_bloqueio_iss(bloqueio, empresa, ano, mes, municipio)
+    return {
+        "mensagem": bloqueio.mensagem,
+        "dispositivo": bloqueio.dispositivo,
+        "acao": rotulo,
+        "url": url,
+        "sem_acao": texto,
+    }
+
+
+def _aviso_na_tela(aviso) -> dict:
+    return {"mensagem": aviso.mensagem, "dispositivo": aviso.dispositivo}
+
+
+def _nota_apurada_na_tela(nota) -> dict:
+    # Tomador e alíquota aplicada vêm da apuração (A6): a tela não relê o XML da nota.
+    tomador = _tomador_texto(nota.tomador_nome, nota.tomador_documento)
+    # Esperado e diferença saem com 4 casas: com 2, uma diferença de centavos (a que a tolerância
+    # de R$ 0,01 decide) ficaria escondida atrás do arredondamento de exibição.
+    return {
+        "numero": nota.numero,
+        "tomador": tomador,
+        "subitem": nota.subitem,
+        "base": _dinheiro_ptbr(nota.v_bc),
+        "aliquota_nota": _aliquota_ptbr(nota.p_aliq_aplic),
+        "iss": _dinheiro_ptbr(nota.v_iss_qn),
+        "aliquota_cadastrada": _aliquota_ptbr(nota.aliquota_cadastrada),
+        "esperado": _decimal_ptbr(nota.esperado, 4),
+        "diferenca": _decimal_ptbr(nota.diferenca, 4),
+        "conferida": nota.conferida,
+        "situacao": (
+            "Conferida"
+            if nota.conferida
+            else "Pendência: o ISS da nota difere de base × alíquota cadastrada além de "
+            f"R$ {_dinheiro_ptbr(servico_iss.TOLERANCIA)}"
+        ),
+        "avisos": list(nota.avisos),
+    }
+
+
+def _memoria_na_tela(memoria) -> list[dict]:
+    return [
+        {
+            "ordem": passo.ordem,
+            "descricao": passo.descricao,
+            "valor": _valor_da_memoria_na_tela(passo.valor),
+            "dispositivo": passo.dispositivo,
+        }
+        for passo in memoria
+    ]
+
+
+def _bloco_da_apuracao(empresa, resultado) -> dict:
+    notas = [_nota_apurada_na_tela(n) for n in resultado.notas]
+    # HI-89 (A2): o aviso de notas não escrituradas tem tela própria (destaque e link). Os demais
+    # avisos seguem na lista comum, e este não aparece duas vezes.
+    pendentes_de_escrituracao = [
+        a for a in resultado.avisos if a.codigo == servico_iss.CODIGO_NOTAS_NAO_ESCRITURADAS
+    ]
+    return {
+        "total": _dinheiro_ptbr(resultado.total),
+        "municipio": f"{resultado.nome_municipio} ({resultado.municipio_ibge})",
+        "regime": RegimeIss(resultado.regime).label,
+        "vencimento_proprio": _vencimento_na_tela(resultado.vencimento_proprio),
+        "vencimento_retido": _vencimento_na_tela(resultado.vencimento_retido),
+        "regra_dia_nao_util": resultado.regra_dia_nao_util,
+        # O dispositivo da regra de vencimento é a constante que o próprio serviço usa no passo 2
+        # da memória: a tela cita a mesma fonte, sem reescrevê-la.
+        "dispositivo_do_vencimento": servico_iss.DISP_REGRA,
+        "aviso_multa": resultado.aviso_multa or "",
+        "notas": notas,
+        "pendencias": [n["numero"] for n in notas if not n["conferida"]],
+        "avisos": [
+            _aviso_na_tela(a)
+            for a in resultado.avisos
+            if a.codigo != servico_iss.CODIGO_NOTAS_NAO_ESCRITURADAS
+        ],
+        "escrituracao_pendente": (
+            _aviso_na_tela(pendentes_de_escrituracao[0]) if pendentes_de_escrituracao else None
+        ),
+        "memoria": _memoria_na_tela(resultado.memoria),
+    }
+
+
+def _nota_de_relatorio_na_tela(nota, nomes) -> dict:
+    ausentes = ", ".join(nota.ausentes)
+    return {
+        "numero": nota.numero,
+        "data": _data_na_tela(nota.data_competencia),
+        "situacao": "Cancelada depois de escriturada: fora do total" if nota.cancelada else "",
+        "tomador": _tomador_texto(nota.tomador_nome, nota.tomador_documento),
+        "municipio": _rotulo_do_municipio(nota.c_loc_incid, nomes),
+        "subitem": nota.subitem or "—",
+        "base": _dinheiro_ptbr(nota.v_bc),
+        "aliquota": _aliquota_ptbr(nota.p_aliq_aplic),
+        "valor": _dinheiro_ptbr(nota.v_iss_qn),
+        "retencao": DESCRICAO_TP_RET_ISSQN.get(nota.tp_ret_issqn, nota.tp_ret_issqn or "—"),
+        "ausentes": (
+            f"Campos ausentes ou ilegíveis (não se presume zero): {ausentes}" if ausentes else ""
+        ),
+    }
+
+
+def _contexto_da_apuracao(empresa, ano, mes) -> dict:
+    contexto = {
+        "mes_rotulo": _mes_por_extenso(ano, mes),
+        "url_aliquotas": _url_aliquotas(),
+        "url_regimes": _url_com_filtro("fiscal_web:iss_regimes", empresa),
+        "url_retido": _url_com_filtro("fiscal_web:iss_retido_sofrido", empresa, ano=ano, mes=mes),
+        "url_escriturar": _url_com_filtro(
+            "fiscal_web:notas_a_escriturar", empresa, ano=ano, mes=mes
+        ),
+        "url_outros": _url_com_filtro(
+            "fiscal_web:iss_outros_municipios", empresa, ano=ano, mes=mes
+        ),
+        "texto_de_conferencia": _TEXTO_DE_CONFERENCIA_DO_ISS,
+    }
+    try:
+        resultado = servico_iss.apuracao_iss_proprio(empresa, ano, mes)
+    except servico_iss.IssRecusado as exc:
+        municipio = _municipio_do_regime(empresa, ano)
+        nomes = _nomes_dos_municipios(nota.c_loc_incid for nota in exc.notas)
+        contexto.update(
+            recusado=True,
+            bloqueios=[
+                _bloqueio_iss_na_tela(b, empresa, ano, mes, municipio) for b in exc.bloqueios
+            ],
+            notas=[_nota_de_relatorio_na_tela(nota, nomes) for nota in exc.notas],
+        )
+        return contexto
+    contexto.update(recusado=False, **_bloco_da_apuracao(empresa, resultado))
+    return contexto
+
+
+@login_required
+@require_safe
+def iss_apuracao(request):
+    """Apuração do ISS próprio do mês (DL-076, item 5). Consulta: `papel_pode_consultar_documentos`.
+    Recusa do serviço é resposta 200 com a lista COMPLETA de bloqueios, nada gravado."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_DO_ISS)
+
+    empresa, competencia, erro = _filtros_de_escrituracao(request)
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, empresa, competencia),
+        "mostrar_ano": True,
+        "mostrar_mes": True,
+        "pode_escriturar": _pode_escriturar(request),
+    }
+    if erro:
+        messages.error(request, erro)
+        return render(request, "fiscal/iss_apuracao.html", contexto, status=400)
+    if empresa is None:
+        return render(request, "fiscal/iss_apuracao.html", contexto)
+
+    ano, mes = competencia
+    contexto.update(_contexto_da_apuracao(empresa, ano, mes))
+    return render(request, "fiscal/iss_apuracao.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# Relatórios: ISS retido sofrido (tela 2) e ISS devido a outros municípios (tela 3)
+# ---------------------------------------------------------------------------
+
+
+def _grupo_na_tela(grupo, nomes) -> dict:
+    return {
+        "municipio": _rotulo_do_municipio(grupo.municipio_ibge, nomes),
+        "total": _dinheiro_ptbr(grupo.total),
+        "incompletas": ", ".join(grupo.incompletas) or "—",
+        "vencimento_retido": _vencimento_na_tela(grupo.vencimento_retido) or "—",
+        "aviso": grupo.aviso or "",
+    }
+
+
+def _relatorio_municipal(request, tipo: str):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_DO_ISS)
+
+    empresa, competencia, erro = _filtros_de_escrituracao(request)
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, empresa, competencia),
+        **_TEXTOS_DO_RELATORIO_MUNICIPAL[tipo],
+        "mostrar_ano": True,
+        "mostrar_mes": True,
+        "pode_escriturar": _pode_escriturar(request),
+        "texto_de_conferencia": _TEXTO_DE_CONFERENCIA_DO_ISS,
+    }
+    if erro:
+        messages.error(request, erro)
+        return render(request, "fiscal/iss_relatorio.html", contexto, status=400)
+    if empresa is None:
+        return render(request, "fiscal/iss_relatorio.html", contexto)
+
+    ano, mes = competencia
+    if tipo == "retido":
+        relatorio = servico_iss.relatorio_iss_retido_sofrido(empresa, ano, mes)
+    else:
+        relatorio = servico_iss.relatorio_iss_outros_municipios(empresa, ano, mes)
+    nomes = _nomes_dos_municipios(
+        [n.c_loc_incid for n in relatorio.notas] + [g.municipio_ibge for g in relatorio.grupos]
+    )
+    contexto.update(
+        mes_rotulo=_mes_por_extenso(ano, mes),
+        notas=[_nota_de_relatorio_na_tela(n, nomes) for n in relatorio.notas],
+        grupos=[_grupo_na_tela(g, nomes) for g in relatorio.grupos],
+        avisos=[_aviso_na_tela(a) for a in relatorio.avisos],
+        url_apuracao=_url_com_filtro("fiscal_web:iss_apuracao", empresa, ano=ano, mes=mes),
+    )
+    return render(request, "fiscal/iss_relatorio.html", contexto)
+
+
+@login_required
+@require_safe
+def iss_retido_sofrido(request):
+    """ISS retido sofrido do mês (HI-86), para empresa de qualquer regime. Consulta."""
+    return _relatorio_municipal(request, "retido")
+
+
+@login_required
+@require_safe
+def iss_outros_municipios(request):
+    """ISS devido a outros municípios do mês (HI-85), sem cálculo. Consulta."""
+    return _relatorio_municipal(request, "outros")
+
+
+# ---------------------------------------------------------------------------
+# Alíquotas do escritório (tela 4): listar, cadastrar, alterar e encerrar a vigência
+# ---------------------------------------------------------------------------
+
+
+def _municipio_do_filtro(request):
+    """`(município, erro)` do filtro opcional da lista de alíquotas (código IBGE de 7 dígitos)."""
+    bruto = request.GET.get("municipio", "").strip()
+    if not bruto:
+        return None, None
+    if not _PADRAO_IBGE.fullmatch(bruto):
+        return None, "Município: informe o código IBGE com 7 dígitos."
+    return bruto, None
+
+
+def _linha_da_aliquota(aliquota, pode_escriturar) -> dict:
+    return {
+        "municipio": aliquota.municipio_ibge,
+        "subitem": aliquota.subitem,
+        "percentual": _aliquota_ptbr(aliquota.percentual),
+        "fonte": aliquota.fonte,
+        "vigencia": _vigencia_na_tela(aliquota.inicio_vigencia, aliquota.fim_vigencia),
+        "cadastrada_por": _nome_de_usuario(aliquota.criada_por),
+        "alterada_por": _nome_de_usuario(aliquota.alterada_por),
+        "pode_editar": pode_escriturar,
+        "url_editar": reverse("fiscal_web:iss_aliquota_editar", args=[aliquota.pk]),
+        "url_encerrar": (
+            reverse("fiscal_web:iss_aliquota_encerrar", args=[aliquota.pk])
+            if aliquota.fim_vigencia is None
+            else None
+        ),
+    }
+
+
+@login_required
+@require_safe
+def iss_aliquotas(request):
+    """Alíquotas do ISS do escritório, por município e subitem, com vigência, fonte e autor.
+    Consulta: `papel_pode_consultar_documentos`. Cadastro e alteração são telas próprias."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_DO_ISS)
+
+    municipio, erro = _municipio_do_filtro(request)
+    pode_escriturar = _pode_escriturar(request)
+    contexto = {
+        "municipio_filtro": request.GET.get("municipio", "").strip(),
+        "pode_escriturar": pode_escriturar,
+        "mensagem_sem_permissao": _MENSAGEM_SEM_PERMISSAO_DO_ISS,
+        "faixa": _TEXTO_DA_FAIXA_DA_ALIQUOTA,
+        "url_nova": _url_nova_aliquota(municipio),
+        "url_regras": reverse("fiscal_web:iss_regras_municipio"),
+    }
+    if erro:
+        messages.error(request, erro)
+        return render(request, "fiscal/iss_aliquotas.html", contexto, status=400)
+
+    consulta = AliquotaIssMunicipal.objects.filter(escritorio=request.escritorio).select_related(
+        "criada_por", "alterada_por"
+    )
+    if municipio:
+        consulta = consulta.filter(municipio_ibge=municipio)
+    contexto["linhas"] = [
+        _linha_da_aliquota(a, pode_escriturar)
+        for a in consulta.order_by("municipio_ibge", "subitem", "inicio_vigencia", "id")
+    ]
+    return render(request, "fiscal/iss_aliquotas.html", contexto)
+
+
+def _valores_da_aliquota(aliquota=None, *, municipio="") -> dict:
+    if aliquota is None:
+        return {
+            "municipio_ibge": municipio,
+            "subitem": "",
+            "percentual": "",
+            "fonte": "",
+            "inicio": "",
+            "fim": "",
+        }
+    return {
+        "municipio_ibge": aliquota.municipio_ibge,
+        "subitem": aliquota.subitem,
+        # Pt-BR, como o contador digita: a mesma vírgula de volta, sem `str()` do Decimal.
+        "percentual": _decimal_ptbr(aliquota.percentual, 4),
+        "fonte": aliquota.fonte,
+        "inicio": _data_na_tela(aliquota.inicio_vigencia),
+        "fim": _data_na_tela(aliquota.fim_vigencia),
+    }
+
+
+def _tela_da_aliquota(request, *, valores, aliquota=None, status=200):
+    if aliquota is None:
+        titulo = "Nova alíquota do ISS"
+        url_envio = reverse("fiscal_web:iss_aliquota_nova")
+    else:
+        titulo = "Alterar alíquota do ISS"
+        url_envio = reverse("fiscal_web:iss_aliquota_editar", args=[aliquota.pk])
+    contexto = {
+        "titulo": titulo,
+        "valores": valores,
+        "url_envio": url_envio,
+        "url_voltar": _url_aliquotas(),
+        "editando": aliquota is not None,
+        "faixa": _TEXTO_DA_FAIXA_DA_ALIQUOTA,
+        "municipio_maximo": 7,
+        "subitem_maximo": 5,
+        "fonte_maxima": 1000,
+    }
+    return render(request, "fiscal/iss_aliquota_form.html", contexto, status=status)
+
+
+def _percentual_do_formulario(bruto: str):
+    """Alíquota digitada em pt-BR ('5,0000' ou '5.0000') → Decimal. Nunca float: o que não for
+    número decimal sem sinal é recusado aqui, e o serviço cuida da faixa e das casas."""
+    if not bruto.strip():
+        raise servico_iss.EntradaInvalidaIss("Informe a alíquota em percentual (ex.: 5,00).")
+    # ValorAmbiguo é subclasse de ValorInvalidoNoFormulario, por isso vem primeiro. A classe-base
+    # cobre '5,00,0', '1.23,4' e similares, que antes subiam como 500 (A1 da auditoria DL-076).
+    try:
+        texto = _valor_do_formulario(bruto)
+    except ValorAmbiguo as exc:
+        # Mensagem do campo percentual, sem "reais" (A8): o texto do helper fala em reais.
+        raise servico_iss.EntradaInvalidaIss(
+            "Valor ambíguo na alíquota: sem vírgula, o ponto é lido como separador de milhar. "
+            "Escreva a alíquota com vírgula para as casas decimais (ex.: 5,00 para 5%)."
+        ) from exc
+    except ValorInvalidoNoFormulario as exc:
+        raise servico_iss.EntradaInvalidaIss(
+            "Alíquota inválida: use um número com no máximo uma vírgula para as casas decimais "
+            "(ex.: 5,00)."
+        ) from exc
+    if not _so_digitos_com_ponto_decimal(texto):
+        raise servico_iss.EntradaInvalidaIss(
+            "A alíquota aceita só números, com vírgula para as casas decimais (ex.: 5,00)."
+        )
+    return Decimal(texto)
+
+
+def _dados_da_aliquota_do_formulario(valores) -> dict:
+    """Converte o formulário no dicionário do serviço. Recusa com mensagem, sem gravar."""
+    inicio = _data_do_formulario(valores["inicio"])
+    if inicio is None:
+        raise servico_iss.EntradaInvalidaIss(
+            "O início da vigência é uma data inválida: use dd/mm/aaaa."
+        )
+    fim = None
+    if valores["fim"].strip():
+        fim = _data_do_formulario(valores["fim"])
+        if fim is None:
+            raise servico_iss.EntradaInvalidaIss(
+                "O fim da vigência é uma data inválida: use dd/mm/aaaa, ou deixe em branco para a "
+                "alíquota ficar em aberto."
+            )
+    return {
+        "municipio_ibge": valores["municipio_ibge"].strip(),
+        "subitem": valores["subitem"].strip(),
+        "percentual": _percentual_do_formulario(valores["percentual"]),
+        "fonte": valores["fonte"],
+        "inicio_vigencia": inicio,
+        "fim_vigencia": fim,
+    }
+
+
+def _salvar_aliquota_post(request, aliquota=None):
+    """Cadastra (aliquota None) ou altera. Recusa do serviço vira mensagem; nada gravado."""
+    valores = {campo: request.POST.get(campo, "") for campo in _CAMPOS_DO_FORMULARIO_DA_ALIQUOTA}
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_ALIQUOTA_ISS)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_da_aliquota(request, valores=valores, aliquota=aliquota, status=400)
+    try:
+        dados = _dados_da_aliquota_do_formulario(valores)
+        if aliquota is None:
+            objeto, avisos = servico_iss.cadastrar_aliquota(
+                request.escritorio, dados, usuario=request.user, request=request
+            )
+            sucesso = (
+                f"Alíquota de {objeto.subitem} cadastrada para o município {objeto.municipio_ibge}."
+            )
+        else:
+            objeto, avisos = servico_iss.alterar_aliquota(
+                aliquota, dados, usuario=request.user, request=request
+            )
+            sucesso = "Alíquota alterada."
+    except (servico_iss.EntradaInvalidaIss, servico_iss.IssConflito) as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_da_aliquota(request, valores=valores, aliquota=aliquota)
+    # Avisos (exceção do § 1º do art. 8º-A) não recusam: a alíquota entra, e o contador vê o aviso.
+    for aviso in avisos:
+        messages.warning(request, aviso.mensagem)
+    messages.success(request, sucesso)
+    return redirect(_url_aliquotas(objeto.municipio_ibge))
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def iss_aliquota_nova(request):
+    """GET: formulário de cadastro (município pode vir na querystring). POST: cadastra."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_PERMISSAO_DO_ISS)
+    if request.method == "GET":
+        municipio = request.GET.get("municipio", "").strip()
+        return _tela_da_aliquota(request, valores=_valores_da_aliquota(municipio=municipio))
+    return _salvar_aliquota_post(request)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def iss_aliquota_editar(request, aliquota_id):
+    """GET: formulário com o que está gravado. POST: altera (inclusive a vigência). Alíquota de
+    OUTRO escritório é 404: a consulta já filtra pelo escritório ativo."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_PERMISSAO_DO_ISS)
+    aliquota = get_object_or_404(
+        AliquotaIssMunicipal, pk=aliquota_id, escritorio=request.escritorio
+    )
+    if request.method == "GET":
+        return _tela_da_aliquota(request, valores=_valores_da_aliquota(aliquota), aliquota=aliquota)
+    return _salvar_aliquota_post(request, aliquota)
+
+
+def _tela_de_encerrar_aliquota(request, aliquota, *, fim_digitado="", status=200):
+    contexto = {
+        "aliquota": _linha_da_aliquota(aliquota, True),
+        "fim_digitado": fim_digitado,
+        "url_envio": reverse("fiscal_web:iss_aliquota_encerrar", args=[aliquota.pk]),
+        "url_voltar": _url_aliquotas(aliquota.municipio_ibge),
+    }
+    return render(request, "fiscal/iss_aliquota_encerrar.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def iss_aliquota_encerrar(request, aliquota_id):
+    """Encerra a vigência de uma alíquota em aberto: ela vale até a data informada, inclusive.
+    Não há exclusão: o registro fica no histórico, com a trilha da alteração."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_PERMISSAO_DO_ISS)
+    aliquota = get_object_or_404(
+        AliquotaIssMunicipal, pk=aliquota_id, escritorio=request.escritorio
+    )
+    if request.method == "GET":
+        return _tela_de_encerrar_aliquota(request, aliquota)
+
+    bruto = request.POST.get("fim", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_ENCERRAR_ALIQUOTA_ISS)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_encerrar_aliquota(request, aliquota, fim_digitado=bruto, status=400)
+    fim = _data_do_formulario(bruto)
+    if fim is None:
+        messages.error(
+            request,
+            "Informe o fim da vigência em dd/mm/aaaa: a alíquota vale até essa data, inclusive.",
+        )
+        return _tela_de_encerrar_aliquota(request, aliquota, fim_digitado=bruto)
+    try:
+        encerrada, _avisos = servico_iss.alterar_aliquota(
+            aliquota, {"fim_vigencia": fim}, usuario=request.user, request=request
+        )
+    except (servico_iss.EntradaInvalidaIss, servico_iss.IssConflito) as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_encerrar_aliquota(request, aliquota, fim_digitado=bruto)
+    messages.success(
+        request, f"Vigência encerrada em {_data_na_tela(fim)}. A alíquota fica no histórico."
+    )
+    return redirect(_url_aliquotas(encerrada.municipio_ibge))
+
+
+# ---------------------------------------------------------------------------
+# Regime do ISS por empresa e exercício (tela 5) e regras do município (tela 6, só leitura)
+# ---------------------------------------------------------------------------
+
+
+def _linha_do_regime(regime, empresa, pode_escriturar, nomes) -> dict:
+    return {
+        "exercicio": regime.exercicio,
+        "regime": regime.get_regime_display(),
+        "municipio": _rotulo_do_municipio(regime.municipio_ibge, nomes),
+        "pode_editar": pode_escriturar,
+        "url_editar": reverse("fiscal_web:iss_regime_editar", args=[empresa.pk, regime.pk]),
+    }
+
+
+@login_required
+@require_safe
+def iss_regimes(request):
+    """Regime do ISS da empresa, por exercício. Consulta: `papel_pode_consultar_documentos`."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_DO_ISS)
+
+    empresa, erro = _empresa_da_escrituracao(request)
+    pode_escriturar = _pode_escriturar(request)
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, empresa),
+        "mostrar_ano": False,
+        "mostrar_mes": False,
+        "pode_escriturar": pode_escriturar,
+        "mensagem_sem_permissao": _MENSAGEM_SEM_PERMISSAO_DO_ISS,
+        "texto_do_regime": _TEXTO_DO_REGIME_DO_ISS,
+    }
+    if erro:
+        messages.error(request, erro)
+        return render(request, "fiscal/iss_regimes.html", contexto, status=400)
+    if empresa is None:
+        return render(request, "fiscal/iss_regimes.html", contexto)
+
+    regimes = list(RegimeIssEmpresa.objects.filter(empresa=empresa).order_by("exercicio", "id"))
+    nomes = _nomes_dos_municipios(regime.municipio_ibge for regime in regimes)
+    contexto.update(
+        linhas=[_linha_do_regime(r, empresa, pode_escriturar, nomes) for r in regimes],
+        url_novo=reverse("fiscal_web:iss_regime_novo", args=[empresa.pk]),
+    )
+    return render(request, "fiscal/iss_regimes.html", contexto)
+
+
+def _valores_do_regime(regime=None) -> dict:
+    if regime is None:
+        return {
+            "exercicio": str(timezone.localdate().year),
+            "regime": "",
+            "municipio_ibge": "",
+        }
+    return {
+        "exercicio": str(regime.exercicio),
+        "regime": regime.regime,
+        "municipio_ibge": regime.municipio_ibge,
+    }
+
+
+def _tela_do_regime(request, empresa, *, valores, regime=None, status=200):
+    if regime is None:
+        titulo = "Novo regime do ISS"
+        url_envio = reverse("fiscal_web:iss_regime_novo", args=[empresa.pk])
+    else:
+        titulo = "Alterar regime do ISS"
+        url_envio = reverse("fiscal_web:iss_regime_editar", args=[empresa.pk, regime.pk])
+    contexto = {
+        "empresa": empresa,
+        "titulo": titulo,
+        "valores": valores,
+        "url_envio": url_envio,
+        "url_voltar": _url_com_filtro("fiscal_web:iss_regimes", empresa),
+        "opcoes_regime": RegimeIss.choices,
+        "editando": regime is not None,
+        "texto_do_regime": _TEXTO_DO_REGIME_DO_ISS,
+    }
+    return render(request, "fiscal/iss_regime_form.html", contexto, status=status)
+
+
+def _salvar_regime_post(request, empresa, regime=None):
+    """Cadastra (regime None) ou altera o regime do exercício. Recusa vira mensagem, sem gravar."""
+    valores = {campo: request.POST.get(campo, "") for campo in _CAMPOS_DO_FORMULARIO_DO_REGIME}
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_REGIME_ISS_TELA)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_do_regime(request, empresa, valores=valores, regime=regime, status=400)
+    exercicio = _inteiro_de_filtro(valores["exercicio"].strip())
+    if exercicio is None:
+        messages.error(request, "Informe o exercício com quatro dígitos (AAAA).")
+        return _tela_do_regime(request, empresa, valores=valores, regime=regime)
+    dados = {
+        "exercicio": exercicio,
+        "regime": valores["regime"].strip(),
+        "municipio_ibge": valores["municipio_ibge"].strip(),
+    }
+    try:
+        if regime is None:
+            servico_iss.cadastrar_regime(empresa, dados, usuario=request.user, request=request)
+            sucesso = f"Regime do ISS de {exercicio} cadastrado."
+        else:
+            servico_iss.alterar_regime(regime, dados, usuario=request.user, request=request)
+            sucesso = f"Regime do ISS de {exercicio} alterado."
+    except (servico_iss.EntradaInvalidaIss, servico_iss.IssConflito) as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_do_regime(request, empresa, valores=valores, regime=regime)
+    messages.success(request, sucesso)
+    return redirect(_url_com_filtro("fiscal_web:iss_regimes", empresa))
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def iss_regime_novo(request, empresa_id):
+    """GET: formulário do regime do exercício. POST: cadastra (um regime por exercício)."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_PERMISSAO_DO_ISS)
+    empresa = _empresa_escopada(request, empresa_id)
+    if request.method == "GET":
+        return _tela_do_regime(request, empresa, valores=_valores_do_regime())
+    return _salvar_regime_post(request, empresa)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def iss_regime_editar(request, empresa_id, regime_id):
+    """GET: formulário com o que está gravado. POST: altera. Regime de OUTRA empresa é 404."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_PERMISSAO_DO_ISS)
+    empresa = _empresa_escopada(request, empresa_id)
+    regime = get_object_or_404(RegimeIssEmpresa, pk=regime_id, empresa=empresa)
+    if request.method == "GET":
+        return _tela_do_regime(request, empresa, valores=_valores_do_regime(regime), regime=regime)
+    return _salvar_regime_post(request, empresa, regime)
+
+
+@login_required
+@require_safe
+def iss_regras_municipio(request):
+    """Regras do ISS por município (vencimento, dia não útil, fonte e vigência). Só leitura: a
+    regra é dado legal, e o cadastro dela não tem rota nem tela."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_DO_ISS)
+    regras = RegraIssMunicipio.objects.order_by("municipio_ibge", "inicio_vigencia", "id")
+    contexto = {
+        "linhas": [
+            {
+                "municipio": f"{regra.nome} ({regra.municipio_ibge})",
+                "dia_proprio": regra.dia_vencimento_proprio,
+                "dia_retido": regra.dia_vencimento_retido,
+                "regra_dia_nao_util": regra.regra_dia_nao_util,
+                "fonte": regra.fonte,
+                "vigencia": _vigencia_na_tela(regra.inicio_vigencia, regra.fim_vigencia),
+            }
+            for regra in regras
+        ],
+        "texto_das_regras": _TEXTO_DAS_REGRAS_DO_MUNICIPIO,
+        "url_aliquotas": _url_aliquotas(),
+    }
+    return render(request, "fiscal/iss_regras_municipio.html", contexto)

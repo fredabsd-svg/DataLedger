@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block titulo %}{{ titulo }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% comment %}
+DL-076 (frente B), arquétipo B (formulário de documento). A pergunta antes de gravar: qual é o regime
+do ISS desta empresa neste exercício, e em qual município fica o estabelecimento? Um regime por
+exercício: a alteração troca o existente, sem criar outro. Recusa mostra o motivo e não grava.
+{% endcomment %}
+{% block titulo_pagina %}<h1>{{ titulo }}</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa">
+        <h2>O que vai acontecer</h2>
+        <p>
+            O regime vale para o exercício informado. Sem ele, a apuração do ISS próprio recusa. O produto não presume o regime nem o município: quem informa é o escritório.
+        </p>
+        <p class="texto-apoio">{{ texto_do_regime }}</p>
+    </div>
+
+    <form method="post" action="{{ url_envio }}" class="formulario">
+        {% csrf_token %}
+        <div class="campo">
+            <label for="id_exercicio">Exercício (ano-calendário)</label>
+            <input type="text" id="id_exercicio" name="exercicio" value="{{ valores.exercicio }}" required
+                   inputmode="numeric" maxlength="4" aria-describedby="id_exercicio_ajuda">
+            <p class="texto-apoio" id="id_exercicio_ajuda">Quatro dígitos (AAAA). Um regime por exercício.</p>
+        </div>
+        <div class="campo">
+            <label for="id_regime">Regime do ISS</label>
+            <select id="id_regime" name="regime" required>
+                <option value=""{% if not valores.regime %} selected{% endif %}>Escolha o regime</option>
+                {% for valor, rotulo in opcoes_regime %}
+                    <option value="{{ valor }}"{% if valor == valores.regime %} selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_municipio_ibge">Código IBGE do município do estabelecimento</label>
+            <input type="text" id="id_municipio_ibge" name="municipio_ibge" value="{{ valores.municipio_ibge }}" required
+                   inputmode="numeric" maxlength="7" aria-describedby="id_municipio_ajuda">
+            <p class="texto-apoio" id="id_municipio_ajuda">Sete dígitos. É o município em que o ISS é devido pelo prestador, pelo estabelecimento.</p>
+        </div>
+        <div class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+            <button type="submit" class="botao botao--primario">{% if editando %}Salvar alteração{% else %}Cadastrar regime{% endif %}</button>
+        </div>
+    </form>
+{% endblock %}

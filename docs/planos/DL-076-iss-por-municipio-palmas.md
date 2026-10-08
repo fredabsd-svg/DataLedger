@@ -92,6 +92,18 @@ nenhum vem pronto), serviços tomados e ISS retido **pelo cliente tomador**
   inciso I (serviço vindo do exterior) não é por subitem e ficou fora, e o
   inciso XII foi associado ao 7.16 — **para revisão do contador**.
 
+- **Correção da auditoria** ([rodada 1](../auditorias/2026-10-08-dl-076-rodada-1.md),
+  [reconferência](../auditorias/2026-10-08-dl-076-reconferencia.md)): nota
+  recebida e não escriturada (ou em rascunho) na competência gera **aviso
+  forte** com a lista das notas (HI-89); nota de "outro município" com
+  incidência no próprio município gera aviso; o piso de 2% também fica no
+  banco (migração `fiscal 0007`); o vencimento sai como data nominal com o
+  dia da semana quando cai em fim de semana (HI-90); no **aviso** de base,
+  os termos opcionais ausentes do XSD (desconto incondicional, dedução,
+  benefício municipal, reembolso) contam como zero — no total e na
+  conferência, campo ausente continua sem virar zero; a apuração lê as
+  alíquotas uma vez por município, sem consulta por nota.
+
 ## Critérios de aceite
 
 1. Os campos de ISS lidos batem com o esquema oficial nas duas versões, com

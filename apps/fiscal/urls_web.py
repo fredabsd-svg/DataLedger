@@ -34,6 +34,17 @@ from apps.fiscal.views_web import (
     folha_estornar,
     folha_nova,
     folhas_fator_r,
+    iss_aliquota_editar,
+    iss_aliquota_encerrar,
+    iss_aliquota_nova,
+    iss_aliquotas,
+    iss_apuracao,
+    iss_outros_municipios,
+    iss_regime_editar,
+    iss_regime_novo,
+    iss_regimes,
+    iss_regras_municipio,
+    iss_retido_sofrido,
     notas_a_escriturar,
     pre_das,
     receita_do_mes,
@@ -161,4 +172,30 @@ urlpatterns = [
         folha_estornar,
         name="folha_estornar",
     ),
+    # DL-076 (frente B): ISS por município. A apuração e os relatórios levam a empresa na
+    # querystring (mesmo critério das telas do Simples); alíquota é do escritório ativo, e o
+    # regime leva a empresa no caminho, com o registro buscado DENTRO dela (404 fora).
+    path("iss/apuracao/", iss_apuracao, name="iss_apuracao"),
+    path("iss/retido-sofrido/", iss_retido_sofrido, name="iss_retido_sofrido"),
+    path("iss/outros-municipios/", iss_outros_municipios, name="iss_outros_municipios"),
+    path("iss/aliquotas/", iss_aliquotas, name="iss_aliquotas"),
+    path("iss/aliquotas/nova/", iss_aliquota_nova, name="iss_aliquota_nova"),
+    path("iss/aliquotas/<int:aliquota_id>/", iss_aliquota_editar, name="iss_aliquota_editar"),
+    path(
+        "iss/aliquotas/<int:aliquota_id>/encerrar/",
+        iss_aliquota_encerrar,
+        name="iss_aliquota_encerrar",
+    ),
+    path("iss/regimes/", iss_regimes, name="iss_regimes"),
+    path(
+        "iss/empresas/<int:empresa_id>/regimes/nova/",
+        iss_regime_novo,
+        name="iss_regime_novo",
+    ),
+    path(
+        "iss/empresas/<int:empresa_id>/regimes/<int:regime_id>/",
+        iss_regime_editar,
+        name="iss_regime_editar",
+    ),
+    path("iss/regras-municipio/", iss_regras_municipio, name="iss_regras_municipio"),
 ]

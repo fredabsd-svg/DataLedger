@@ -477,6 +477,27 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     "atividade_padrao_unica_em_aberto": "apps.fiscal.pre_das._inserir_atividade",
     "atividade_fim_depois_do_inicio": "apps.fiscal.pre_das._inserir_atividade",
     "atividade_enquadramento_valido": "apps.fiscal.pre_das._inserir_atividade",
+    # DL-076 (frente A): ISS por município. Os cadastros de alíquota e de regime recusam
+    # o dado ANTES do INSERT (serviços de apps.fiscal.iss_municipal). Estas restrições são o
+    # último barramento, e o savepoint de cada `_gravar_*` as traduz: dado fora da regra
+    # sai como 400, e unicidade ou vigência repetida como 409 (conflito de estado).
+    "aliquota_iss_codigo_ibge": "apps.fiscal.iss_municipal._gravar_aliquota",
+    "aliquota_iss_subitem_valido": "apps.fiscal.iss_municipal._gravar_aliquota",
+    "aliquota_iss_percentual_ate_5": "apps.fiscal.iss_municipal._gravar_aliquota",
+    "aliquota_iss_piso_2_salvo_excecao": "apps.fiscal.iss_municipal._gravar_aliquota",
+    "aliquota_iss_fonte_preenchida": "apps.fiscal.iss_municipal._gravar_aliquota",
+    "aliquota_iss_fim_depois_do_inicio": "apps.fiscal.iss_municipal._gravar_aliquota",
+    "regime_iss_unico_por_empresa_exercicio": "apps.fiscal.iss_municipal._gravar_regime",
+    "regime_iss_exercicio_valido": "apps.fiscal.iss_municipal._gravar_regime",
+    "regime_iss_regime_valido": "apps.fiscal.iss_municipal._gravar_regime",
+    "regime_iss_codigo_ibge": "apps.fiscal.iss_municipal._gravar_regime",
+    # Regra do município: só o serviço `cadastrar_regra_municipio` grava (sem rota de
+    # cliente); a semeadura de Palmas é da migração 0006, que não passa por esta tradução.
+    "regra_iss_codigo_ibge": "apps.fiscal.iss_municipal._gravar_regra",
+    "regra_iss_dias_entre_1_e_28": "apps.fiscal.iss_municipal._gravar_regra",
+    "regra_iss_fim_depois_do_inicio": "apps.fiscal.iss_municipal._gravar_regra",
+    "regra_iss_fonte_preenchida": "apps.fiscal.iss_municipal._gravar_regra",
+    "regra_iss_unica_por_inicio": "apps.fiscal.iss_municipal._gravar_regra",
 }
 
 # Terceira categoria, e ela é declaração de LIMITE, não de cobertura:
