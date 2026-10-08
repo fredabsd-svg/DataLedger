@@ -82,6 +82,28 @@ regra cadastrada, mostra "não parametrizado").
   CSRF são agrupados pela data de pagamento, sem data de vencimento
   calculada.
 
+## Decisões tomadas na correção (rodada 1)
+
+[Rodada 1](../auditorias/2026-10-08-dl-078-rodada-1.md): aprovada com
+ressalvas; correção única dos achados A1 a A7 e A9:
+
+- **Data de pagamento** (A1, HI-98): aceita só entre 366 dias antes da
+  emissão e hoje; antes da emissão gera aviso; a data pode ser limpa com
+  motivo e trilha, e a retenção volta a "pendente".
+- **Tela de escriturar** (A2): o motivo da recusa da nota (`tpEmit` 2 ou 3)
+  aparece antes de qualquer outro; sem natureza escolhida, os botões ficam
+  habilitados e o servidor recusa com mensagem.
+- **Testes** (A3, A4): INSS pela emissão com competência em outro mês;
+  T5/T6/T7 sem retenção fora do ISS retido; prestadora não vê a nota que
+  emitiu; não contaminação com os seis cálculos executando de fato.
+- **Avisos** (A5, A6): ambiguidade de PIS/Cofins só com valor positivo;
+  valores dos avisos em pt-BR.
+- **Dívida** (A7): recusa de natureza pública e sugestão devolvendo o motivo.
+- **Limite do banco** (A9): o gatilho não confere ISS e retenções contra o
+  XML no `INSERT` direto; declarado na migração.
+- **Sinal de prestador de outro município** (A8): mantido, registrado como
+  HI-99 para o Fred. Observações de uso (A10): BL-678.
+
 ## Critérios de aceite
 
 1. Campos lidos batem com o XSD nas duas versões, com o caminho citado;

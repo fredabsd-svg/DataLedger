@@ -281,7 +281,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 7. **[DL-078](../planos/DL-078-servicos-tomados-e-retencoes.md) — serviços
    tomados, ISS retido pelo cliente tomador e retenções federais:
    implementada fora da branch (cópia isolada `dl078`: frente A `2c56a36`,
-   frente B `62768c0`), em auditoria — rodada 1.** Frente A: campos do XML,
+   frente B `62768c0`); [rodada 1](../auditorias/2026-10-08-dl-078-rodada-1.md)
+   APROVADA COM RESSALVAS (A1 a A4 médios, A5 a A10 baixos), em correção
+   única.** HI-98, HI-99 e BL-678 registrados. Frente A: campos do XML,
    escrituração das tomadas (rascunho, efetivação, estorno, gatilhos de
    imutabilidade na migração `fiscal 0008`), ISS retido, retenções federais
    e API. Frente B: seis telas, menu "Serviços tomados" e o ISS retido
