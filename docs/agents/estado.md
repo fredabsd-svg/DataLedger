@@ -288,7 +288,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    [reconferência](../auditorias/2026-10-08-dl-078-reconferencia.md) APROVADA
    COM RESSALVAS (7.527 aprovados, 1 reprovado de ambiente, 53 pulados).
    R4 e R5 fechados com os testes do auditor (`6d18acc`); R2 declarado na
-   migração; R1 e R3 no BL-679. Em integração na branch e PR.** HI-98, HI-99 e BL-678 registrados. Frente A: campos do XML,
+   migração; R1 e R3 no BL-679. Suíte da branch integrada (`5c6673d`,
+   arquiteto, invocação única): 7.542 aprovados, 1 reprovado (ambiente), 53
+   pulados. PR #102 aberto, aguardando a CI.** HI-98, HI-99 e BL-678 registrados. Frente A: campos do XML,
    escrituração das tomadas (rascunho, efetivação, estorno, gatilhos de
    imutabilidade na migração `fiscal 0008`), ISS retido, retenções federais
    e API. Frente B: seis telas, menu "Serviços tomados" e o ISS retido
