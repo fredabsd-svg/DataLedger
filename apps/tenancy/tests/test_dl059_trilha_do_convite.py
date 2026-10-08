@@ -295,7 +295,7 @@ def test_primeiro_acesso_pela_tela_grava_o_ip(client):
 
     resposta = client.post(
         reverse("tenancy:bootstrap-primeiro-acesso"),
-        {"nome": "Escritório Primeiro 059", "cnpj": "55555555000159"},
+        {"nome": "Escritório Primeiro 059", "cnpj": "12345678000195"},
         REMOTE_ADDR=IP,
     )
 
