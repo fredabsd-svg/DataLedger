@@ -83,7 +83,7 @@ antes de gravar. Cada ação é um formulário próprio, com a confirmação exp
         </h2>
         <p>
             {% if efetivada %}
-                Efetivada: {{ importacao.quantidade_efetivados }} lançamentos gravados no Diário.
+                Efetivada: {{ texto_efetivados }} no Diário.
             {% elif descartada %}
                 Descartada: nada foi gravado.
             {% else %}
@@ -105,8 +105,12 @@ antes de gravar. Cada ação é um formulário próprio, com a confirmação exp
             <div><dt>Com erro</dt><dd class="valor-monetario">{{ contagens.com_erro }}</dd></div>
             <div><dt>Com aviso a aceitar</dt><dd class="valor-monetario">{{ contagens.com_aviso_a_aceitar }}</dd></div>
             <div><dt>Com aviso já aceito</dt><dd class="valor-monetario">{{ contagens.com_aviso_aceito }}</dd></div>
-            <div><dt>Soma dos débitos</dt><dd class="valor-monetario">{{ soma_debitos_ptbr }}</dd></div>
-            <div><dt>Soma dos créditos</dt><dd class="valor-monetario">{{ soma_creditos_ptbr }}</dd></div>
+            <div><dt>Soma dos débitos lidos</dt><dd class="valor-monetario">{{ soma_debitos_ptbr }}</dd></div>
+            <div><dt>Soma dos créditos lidos</dt><dd class="valor-monetario">{{ soma_creditos_ptbr }}</dd></div>
+            {% if efetivada %}
+                <div><dt>Soma dos débitos gravados no Diário</dt><dd class="valor-monetario">{{ soma_debitos_efetivados_ptbr }}</dd></div>
+                <div><dt>Soma dos créditos gravados no Diário</dt><dd class="valor-monetario">{{ soma_creditos_efetivados_ptbr }}</dd></div>
+            {% endif %}
             <div><dt>Débitos e créditos conferem</dt><dd>{% if conferem %}Sim{% else %}Não{% endif %}</dd></div>
             <div><dt>SHA-256 do arquivo</dt><dd class="valor-quebravel">{{ importacao.sha256 }}</dd></div>
         </dl>
@@ -115,6 +119,11 @@ antes de gravar. Cada ação é um formulário próprio, com a confirmação exp
     {% if ocorrencias_do_arquivo %}
         <div class="painel-etapa">
             <h2>Ocorrências do arquivo inteiro</h2>
+            {% if ocorrencias_do_arquivo_total > ocorrencias_do_arquivo_guardadas %}
+                <p class="texto-apoio">
+                    {{ ocorrencias_do_arquivo_total }} no total. Mostrando as primeiras {{ ocorrencias_do_arquivo_guardadas }}: os erros do arquivo vêm primeiro.
+                </p>
+            {% endif %}
             <ul>
                 {% for ocorrencia in ocorrencias_do_arquivo %}
                     <li>{{ ocorrencia.nivel }}: {{ ocorrencia.mensagem }}</li>
@@ -125,6 +134,18 @@ antes de gravar. Cada ação é um formulário próprio, com a confirmação exp
 
     {% if codigos_sem_conta %}
         {% include "contabilidade/_lancamentos_importacao_depara.html" %}
+    {% endif %}
+
+    {% if aceite_do_arquivo_pendente and pode_agir %}
+        <form method="post" action="{% url 'contabilidade_web:lancamentos_importacao_avisos' empresa.id importacao.id %}" class="formulario">
+            {% csrf_token %}
+            <input type="hidden" name="aceitar_arquivo" value="1">
+            <p class="texto-apoio">
+                O arquivo não declara a empresa. Confirme que ele é desta empresa: a efetivação, nas duas políticas, só
+                segue depois disso.
+            </p>
+            <button type="submit" class="botao botao--secundario">Confirmo que o arquivo é desta empresa</button>
+        </form>
     {% endif %}
 
     {% if pode_agir and contagens.com_aviso_a_aceitar %}

@@ -83,6 +83,20 @@ def _linha(*campos):
     return "|" + "|".join(campos) + "|"
 
 
+def _dica_do_texto(rotulo):
+    """O que o contador faz quando o texto não cabe (A6). Nunca manda editar o lançamento efetivado.
+
+    O histórico se resolve pela opção `normalizar_texto` (que troca só no arquivo). O código da
+    conta não é normalizado: ele se corrige no plano.
+    """
+    if rotulo == "HIST":
+        return (
+            " O lançamento efetivado não muda: marque a opção de normalizar o texto para "
+            "exportar com um equivalente."
+        )
+    return " O código não é normalizado: corrija-o no plano de contas."
+
+
 def _campo_texto(valor, rotulo, numero, ocorrencias, *, maximo):
     """Confere um campo C antes da escrita. Acrescenta erros; devolve True se cabe.
 
@@ -96,10 +110,15 @@ def _campo_texto(valor, rotulo, numero, ocorrencias, *, maximo):
         recusar(f"{rotulo} não pode ficar vazio (p. 150 para o HIST; p. 151 para COD_CTA).")
         return False
     if "|" in valor:
-        recusar(f"{rotulo} contém '|', que é o separador do leiaute (p. 52).")
+        recusar(
+            f"{rotulo} contém '|', que é o separador do leiaute (p. 52)." + _dica_do_texto(rotulo)
+        )
         return False
     if any(ord(caractere) < 32 for caractere in valor):
-        recusar(f"{rotulo} contém caractere de controle (00 a 31), não permitido (p. 53).")
+        recusar(
+            f"{rotulo} contém caractere de controle (00 a 31), não permitido (p. 53)."
+            + _dica_do_texto(rotulo)
+        )
         return False
     if len(valor) > maximo:
         recusar(f"{rotulo} tem {len(valor)} caracteres; o máximo é {maximo} (p. 53).")
@@ -110,8 +129,7 @@ def _campo_texto(valor, rotulo, numero, ocorrencias, *, maximo):
         except UnicodeEncodeError:
             recusar(
                 f"{rotulo} contém o caractere '{caractere}', que não existe em ISO-8859-1 "
-                "(p. 52). A exportação foi recusada; troque o caractere no cadastro ou no "
-                "histórico."
+                "(p. 52). A exportação foi recusada." + _dica_do_texto(rotulo)
             )
             return False
     return True

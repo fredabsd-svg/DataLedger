@@ -29,7 +29,7 @@ import calendar
 import hashlib
 import re
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -124,11 +124,24 @@ class ContaUsada:
 
 
 @dataclass(frozen=True)
+class TextoNormalizado:
+    """Lançamento cujo histórico foi trocado para caber em ISO-8859-1 (opção `normalizar_texto`).
+
+    `antes` e `depois` são o histórico do Diário e o que foi escrito no arquivo. O Diário não muda.
+    """
+
+    numero: int
+    antes: str
+    depois: str
+
+
+@dataclass(frozen=True)
 class RelatorioDeConferencia:
     """O que o contador confere antes de usar o arquivo, e o que a trilha guarda.
 
     `soma_debitos` e `soma_creditos` são dos lançamentos QUE ESTÃO no arquivo. Os omitidos
     ficam à parte, em `omitidos`, com os próprios totais de partida no lançamento.
+    `textos_normalizados` lista, um a um, os lançamentos do arquivo cujo histórico foi trocado.
     """
 
     formato: str
@@ -149,6 +162,8 @@ class RelatorioDeConferencia:
     autor: str
     gerado_em: datetime
     avisos: tuple[str, ...]
+    normalizar_texto: bool = False
+    textos_normalizados: tuple[TextoNormalizado, ...] = ()
 
     @property
     def quantidade_omitidos(self) -> int:
@@ -174,6 +189,8 @@ class RelatorioDeConferencia:
             "quantidade_meses": self.quantidade_meses,
             "sha256": self.sha256,
             "avisos": list(self.avisos),
+            "normalizar_texto": self.normalizar_texto,
+            "quantidade_textos_normalizados": len(self.textos_normalizados),
         }
 
 
@@ -210,7 +227,59 @@ def _meses(inicio, fim):
             mes, ano = 1, ano + 1
 
 
-def _validar_parametros(*, formato, data_inicial, data_final, incluir_saldos, omitir):
+# A6: equivalentes do texto que não cabe em ISO-8859-1, para a opção `normalizar_texto`. Só o que
+# tem equivalente claro é trocado; o resto que não cabe vira `?`. O lançamento efetivado não muda:
+# a troca é só no arquivo, e cada lançamento trocado sai listado no relatório de conferência.
+_EQUIVALENTES_DO_TEXTO = {
+    "–": "-",  # travessão curto (–)
+    "—": "-",  # travessão longo (—)
+    "−": "-",  # sinal de menos (−)
+    "‘": "'",  # aspas simples curvas
+    "’": "'",
+    "“": '"',  # aspas duplas curvas
+    "”": '"',
+    "…": "...",  # reticências (…)
+    "|": "?",  # separador do leiaute: o texto não pode carregá-lo
+}
+
+
+def normalizar_texto_latin1(texto):
+    """(texto normalizado, alterou?). Controle vira espaço; equivalente claro é trocado; o resto
+    que não cabe em ISO-8859-1 vira `?`. Nunca levanta exceção; o resultado é sempre codificável."""
+    saida = []
+    for caractere in texto:
+        if ord(caractere) < 32:
+            saida.append(" ")
+        elif caractere in _EQUIVALENTES_DO_TEXTO:
+            saida.append(_EQUIVALENTES_DO_TEXTO[caractere])
+        else:
+            try:
+                caractere.encode("iso-8859-1")
+            except UnicodeEncodeError:
+                saida.append("?")
+            else:
+                saida.append(caractere)
+    normalizado = "".join(saida)
+    return normalizado, normalizado != texto
+
+
+def _normalizar_textos(lancamentos):
+    """Lançamentos com o histórico normalizado, e o histórico original de cada um que mudou."""
+    normalizados = []
+    antes = {}
+    for lancamento in lancamentos:
+        novo, alterou = normalizar_texto_latin1(lancamento.historico)
+        if alterou:
+            antes[lancamento.numero] = lancamento.historico
+            normalizados.append(replace(lancamento, historico=novo))
+        else:
+            normalizados.append(lancamento)
+    return normalizados, antes
+
+
+def _validar_parametros(
+    *, formato, data_inicial, data_final, incluir_saldos, omitir, normalizar_texto=False
+):
     if formato not in FORMATOS_DE_EXPORTACAO_DE_LANCAMENTOS:
         raise ParametroInvalido(
             f"formato '{formato}' não existe para a exportação de lançamentos. Use: "
@@ -237,6 +306,11 @@ def _validar_parametros(*, formato, data_inicial, data_final, incluir_saldos, om
     if omitir and formato != FORMATO_REFERENCIA:
         raise ParametroInvalido(
             "omitir os não representáveis só existe no leiaute do sistema de referência."
+        )
+    if normalizar_texto and formato == FORMATO_PROPRIO:
+        raise ParametroInvalido(
+            "a normalização do texto só existe nos leiautes em ISO-8859-1 (ECD e sistema de "
+            "referência). O formato próprio é UTF-8 e não precisa dela."
         )
 
 
@@ -478,6 +552,7 @@ def exportar_lancamentos(
     data_final,
     incluir_saldos=False,
     omitir_nao_representaveis=False,
+    normalizar_texto=False,
     usuario=None,
     agora=None,
 ):
@@ -490,6 +565,9 @@ def exportar_lancamentos(
     - `incluir_saldos`: só na ECD, e só com meses inteiros (dia 1 até o último dia).
     - `omitir_nao_representaveis`: só no sistema de referência. Sem ele, qualquer lançamento
       com mais de um débito e mais de um crédito recusa a exportação inteira.
+    - `normalizar_texto`: ECD e referência. Troca, no ARQUIVO, o histórico que não cabe em
+      ISO-8859-1 (controle, travessão, aspas curvas, o resto por `?`). O Diário não muda, e cada
+      lançamento trocado sai no relatório. Desligada, a exportação recusa esse histórico.
     - `usuario` e `agora`: autor e instante do relatório. `agora=None` usa o relógio.
 
     Levanta `IntercambioRecusado` (com subclasses `ParametroInvalido` e
@@ -501,12 +579,16 @@ def exportar_lancamentos(
         data_final=data_final,
         incluir_saldos=incluir_saldos,
         omitir=omitir_nao_representaveis,
+        normalizar_texto=normalizar_texto,
     )
 
     contas = list(Conta.objects.filter(empresa=empresa).order_by("codigo"))
     contas_por_id = {conta.pk: conta for conta in contas}
     contas_por_codigo = {conta.codigo: conta for conta in contas}
     lancamentos = _carregar_lancamentos(empresa, data_inicial, data_final, contas_por_id)
+    antes_da_normalizacao = {}
+    if normalizar_texto:
+        lancamentos, antes_da_normalizacao = _normalizar_textos(lancamentos)
 
     if formato == FORMATO_ECD:
         _conferir_contas_da_ecd(lancamentos, contas, contas_por_codigo)
@@ -573,5 +655,15 @@ def exportar_lancamentos(
         autor=_autor(usuario),
         gerado_em=agora or timezone.now(),
         avisos=AVISOS_DE_EXPORTACAO_DE_LANCAMENTOS[formato],
+        normalizar_texto=normalizar_texto,
+        textos_normalizados=tuple(
+            TextoNormalizado(
+                numero=lanc.numero,
+                antes=antes_da_normalizacao[lanc.numero],
+                depois=lanc.historico,
+            )
+            for lanc in no_arquivo
+            if lanc.numero in antes_da_normalizacao
+        ),
     )
     return ArquivoDeLancamentos(conteudo=conteudo, relatorio=relatorio)

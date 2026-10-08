@@ -89,6 +89,19 @@ O aviso do leiaute da ECD diz que o arquivo NÃO é a ECD, e ele aparece em qual
             </p>
         </div>
 
+        <div class="campo campo-checkbox">
+            <label class="campo-checkbox__opcao">
+                <input type="checkbox" name="normalizar_texto" value="true"{% if valores.normalizar_texto %} checked{% endif %} aria-describedby="id_normalizar_ajuda">
+                Normalizar o texto que o leiaute não aceita (ECD e sistema de referência)
+            </label>
+            <p class="texto-apoio" id="id_normalizar_ajuda">
+                Sem marcar, um histórico com caractere de controle, travessão, aspas curvas ou letra fora de ISO-8859-1
+                recusa a exportação. Marcado, o arquivo recebe um equivalente (travessão vira hífen, aspas curvas viram
+                aspas retas, o que não tem equivalente vira ?). O lançamento no Diário não muda, e cada lançamento
+                trocado aparece na conferência, com o texto antes e depois.
+            </p>
+        </div>
+
         <button type="submit">Conferir o arquivo</button>
     </form>
 
@@ -122,6 +135,35 @@ O aviso do leiaute da ECD diz que o arquivo NÃO é a ECD, e ele aparece em qual
                     <p>{{ aviso }}</p>
                 </div>
             {% endfor %}
+
+            {% if relatorio.normalizar_texto %}
+                <p class="texto-apoio">
+                    Opção de normalizar o texto marcada: {{ relatorio.quantidade_textos_normalizados }}
+                    lançamento(s) do arquivo tiveram o histórico trocado. O Diário não muda.
+                </p>
+                {% if relatorio.textos_normalizados %}
+                    <h3>Históricos trocados no arquivo</h3>
+                    <table>
+                        <caption>Lançamentos cujo histórico foi trocado no arquivo</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Número</th>
+                                <th scope="col">Histórico no Diário</th>
+                                <th scope="col">Histórico no arquivo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for trocado in relatorio.textos_normalizados %}
+                                <tr>
+                                    <td>{{ trocado.numero }}</td>
+                                    <td>{{ trocado.antes }}</td>
+                                    <td>{{ trocado.depois }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% endif %}
+            {% endif %}
 
             {% if relatorio.omitidos %}
                 <h3>Lançamentos omitidos</h3>

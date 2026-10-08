@@ -104,6 +104,9 @@ def _reimportar_e_efetivar(destino, formato, conteudo, nome):
     assert importacao.quantidade_com_erro == 0, [
         o for linha in importacao.lancamentos.all() for o in linha.ocorrencias
     ]
+    if importacao.exige_aceite_do_arquivo:
+        # A11: o exportado sem 0000 (ECD) ou próprio pede o aceite do aviso antes de efetivar.
+        servico.aceitar_avisos(importacao, [], aceitar_arquivo=True)
     return servico.efetivar(importacao, politica=servico.TUDO_OU_NADA)
 
 

@@ -156,16 +156,22 @@ def _campo_escrevivel(valor, rotulo, numero, ocorrencias):
     if not valor:
         recusar(f"{rotulo} vazio.")
         return False
+    dica = (
+        " O lançamento efetivado não muda: marque a opção de normalizar o texto para exportar "
+        "com um equivalente."
+        if rotulo == "histórico"
+        else ""
+    )
     if SEPARADOR in valor:
-        recusar(f"{rotulo} contém '|', que é o separador do leiaute.")
+        recusar(f"{rotulo} contém '|', que é o separador do leiaute." + dica)
         return False
     if any(ord(caractere) < 32 for caractere in valor):
-        recusar(f"{rotulo} contém caractere de controle.")
+        recusar(f"{rotulo} contém caractere de controle." + dica)
         return False
     try:
         valor.encode("iso-8859-1")
     except UnicodeEncodeError:
-        recusar(f"{rotulo} contém caractere fora de ISO-8859-1. A exportação foi recusada.")
+        recusar(f"{rotulo} contém caractere fora de ISO-8859-1. A exportação foi recusada." + dica)
         return False
     return True
 

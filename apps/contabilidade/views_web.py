@@ -8265,7 +8265,14 @@ FORMATOS_DE_EXPORTACAO_DE_LANCAMENTOS_NA_TELA = {
     proprio.FORMATO: ("DataLedger: TXT próprio, com ponto e vírgula e cabeçalho", ""),
 }
 CAMPOS_DA_TELA_DE_LANCAMENTOS = frozenset(
-    {"formato", "inicio", "fim", "incluir_saldos", "omitir_nao_representaveis"}
+    {
+        "formato",
+        "inicio",
+        "fim",
+        "incluir_saldos",
+        "omitir_nao_representaveis",
+        "normalizar_texto",
+    }
 )
 CAMPOS_DO_DOWNLOAD_DE_LANCAMENTOS = CAMPOS_DA_TELA_DE_LANCAMENTOS | {"sha256"}
 MENSAGEM_CONFERENCIA_DESATUALIZADA = (
@@ -8285,6 +8292,7 @@ def _valores_da_exportacao_de_lancamentos(get):
         "fim": (get.get("fim") or "").strip(),
         "incluir_saldos": marcado("incluir_saldos"),
         "omitir_nao_representaveis": marcado("omitir_nao_representaveis"),
+        "normalizar_texto": marcado("normalizar_texto"),
     }
 
 
@@ -8299,6 +8307,7 @@ def _exportacao_de_lancamentos_pedida(empresa, valores, usuario):
         data_final=fim,
         incluir_saldos=valores["incluir_saldos"],
         omitir_nao_representaveis=valores["omitir_nao_representaveis"],
+        normalizar_texto=valores["normalizar_texto"],
         usuario=usuario,
     )
 
@@ -8310,6 +8319,8 @@ def _link_do_arquivo_de_lancamentos(empresa, valores, sha256):
         parametros["incluir_saldos"] = "true"
     if valores["omitir_nao_representaveis"]:
         parametros["omitir_nao_representaveis"] = "true"
+    if valores["normalizar_texto"]:
+        parametros["normalizar_texto"] = "true"
     parametros["sha256"] = sha256
     destino = reverse("contabilidade_web:lancamentos_exportar_arquivo", args=[empresa.id])
     return f"{destino}?{urlencode(parametros)}"
@@ -8332,6 +8343,9 @@ def _relatorio_para_tela(relatorio):
         "quantidade_meses": relatorio.quantidade_meses,
         "contas_usadas": relatorio.contas_usadas,
         "omitidos": relatorio.omitidos,
+        "normalizar_texto": relatorio.normalizar_texto,
+        "textos_normalizados": relatorio.textos_normalizados,
+        "quantidade_textos_normalizados": len(relatorio.textos_normalizados),
         "sha256": relatorio.sha256,
         "nome_do_arquivo": relatorio.nome_do_arquivo,
         "autor": relatorio.autor,
@@ -8577,7 +8591,7 @@ CONTRATO_DO_DEPARA_DA_IMPORTACAO = ContratoDeRequisicao(
     contexto="no de-para da importação",
 )
 CONTRATO_DOS_AVISOS_DA_IMPORTACAO = ContratoDeRequisicao(
-    campos=frozenset({"csrfmiddlewaretoken", "numeros", "todos"}),
+    campos=frozenset({"csrfmiddlewaretoken", "numeros", "todos", "aceitar_arquivo"}),
     contexto="no aceite de avisos",
 )
 CONTRATO_DA_RECONFERENCIA = ContratoDeRequisicao(
@@ -8670,6 +8684,8 @@ def _renderizar_formulario_de_importacao(
 # Tudo abaixo LÊ o que o serviço gravou. Nenhuma linha recalcula conferência.
 
 ROTULO_DO_NIVEL = {NIVEL_ERRO: "Erro", NIVEL_AVISO: "Aviso"}
+# Quantos erros do arquivo inteiro a tela lista no veredito de só os válidos (o total vem antes).
+LIMITE_DE_ERROS_DO_ARQUIVO_NA_TELA = 50
 ROTULO_DA_ORIGEM_DA_CONTA = {"codigo": "código do plano", "depara": "de-para"}
 
 
@@ -8695,14 +8711,16 @@ def _vereditos_da_efetivacao(importacao, contagens):
     APRESENTAÇÃO. `tudo_ou_nada` só é possível com ao menos um lançamento, sem erro do arquivo,
     sem erro de lançamento e sem aviso por aceitar: é a condição que o serviço aplica (ele recusa
     zero lançamento com a mesma mensagem). `so_validos` é possível com ao menos um lançamento
-    pronto. Sem lançamento nenhum, a tela não oferece botão de efetivar.
+    pronto e SEM erro do arquivo inteiro (A1): esse erro bloqueia as duas políticas, e a lista dele
+    vai no veredito. O aviso de empresa não declarada sem aceite também bloqueia as duas (A11).
+    Sem lançamento nenhum, a tela não oferece botão de efetivar.
     """
-    erros_do_arquivo = sum(1 for o in importacao.ocorrencias_do_arquivo if o["nivel"] == NIVEL_ERRO)
+    erros_do_arquivo = importacao.quantidade_erros_do_arquivo
+    erros_inteiros = importacao.quantidade_erros_do_arquivo_inteiro
+    aceite_pendente = importacao.exige_aceite_do_arquivo and not importacao.aceite_do_arquivo
     pendencias = []
     if erros_do_arquivo:
-        pendencias.append(
-            _contado(erros_do_arquivo, "erro do arquivo inteiro", "erros do arquivo inteiro")
-        )
+        pendencias.append(_contado(erros_do_arquivo, "erro do arquivo", "erros do arquivo"))
     if contagens["com_erro"]:
         pendencias.append(
             _contado(contagens["com_erro"], "lançamento com erro", "lançamentos com erro")
@@ -8711,6 +8729,8 @@ def _vereditos_da_efetivacao(importacao, contagens):
         pendencias.append(
             _contado(contagens["com_aviso_a_aceitar"], "aviso a aceitar", "avisos a aceitar")
         )
+    if aceite_pendente:
+        pendencias.append("o aviso de empresa não declarada precisa ser aceito")
     total = contagens["total"]
     prontos = contagens["prontos"]
     sem_lancamento = total == 0
@@ -8721,16 +8741,32 @@ def _vereditos_da_efetivacao(importacao, contagens):
         "pendencias": pendencias,
         "quantidade": total,
     }
+    pendencias_so_validos = []
+    if erros_inteiros:
+        pendencias_so_validos.append(
+            _contado(
+                erros_inteiros,
+                "erro do arquivo inteiro (impede as duas políticas)",
+                "erros do arquivo inteiro (impedem as duas políticas)",
+            )
+        )
+    if aceite_pendente:
+        pendencias_so_validos.append("o aviso de empresa não declarada precisa ser aceito")
     if sem_lancamento:
-        pendencias_so_validos = ["não há lançamento para efetivar"]
+        pendencias_so_validos.append("não há lançamento para efetivar")
     elif not prontos:
-        pendencias_so_validos = ["nenhum lançamento está pronto para efetivar"]
-    else:
-        pendencias_so_validos = []
+        pendencias_so_validos.append("nenhum lançamento está pronto para efetivar")
     so_validos = {
-        "pode": prontos > 0,
+        "pode": not pendencias_so_validos,
         "pendencias": pendencias_so_validos,
         "quantidade": prontos,
+        # Os erros do arquivo inteiro que impedem a política, para a tela listar (A1). A lista
+        # guardada prioriza esses erros, então o corte de 500 não os tira de cena.
+        "erros_do_arquivo": [
+            _ocorrencia_na_tela(o)
+            for o in importacao.ocorrencias_do_arquivo
+            if importacao_servico.erro_do_arquivo_inteiro(o)
+        ][:LIMITE_DE_ERROS_DO_ARQUIVO_NA_TELA],
     }
     return tudo, so_validos
 
@@ -8878,6 +8914,15 @@ def _contexto_da_conferencia(
         "ocorrencias_do_arquivo": [
             _ocorrencia_na_tela(o) for o in importacao.ocorrencias_do_arquivo
         ],
+        "ocorrencias_do_arquivo_total": importacao.quantidade_ocorrencias_do_arquivo,
+        "ocorrencias_do_arquivo_guardadas": len(importacao.ocorrencias_do_arquivo),
+        "aceite_do_arquivo_pendente": importacao.exige_aceite_do_arquivo
+        and not importacao.aceite_do_arquivo,
+        "texto_efetivados": _contado(
+            importacao.quantidade_efetivados, "lançamento gravado", "lançamentos gravados"
+        ),
+        "soma_debitos_efetivados_ptbr": _valor_ptbr(importacao.soma_debitos_efetivados),
+        "soma_creditos_efetivados_ptbr": _valor_ptbr(importacao.soma_creditos_efetivados),
         "codigos_sem_conta": codigos,
         "contas_analiticas": contas_analiticas,
         "filtros": FILTROS_DA_CONFERENCIA,
@@ -9228,13 +9273,14 @@ def lancamentos_importacao_avisos(request, empresa_id, importacao_id):
             erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
             status=400,
         )
+    aceitar_arquivo = bool(request.POST.get("aceitar_arquivo"))
     if request.POST.get("todos"):
         numeros = list(
             importacao.lancamentos.filter(tem_aviso=True, aceito_com_aviso=False).values_list(
                 "numero_origem", flat=True
             )
         )
-        if not numeros:
+        if not numeros and not aceitar_arquivo:
             if importacao.estado != EstadoImportacaoLancamentos.EM_CONFERENCIA:
                 # Fora da conferência a resposta é o estado, e não "nada a aceitar".
                 return _renderizar_conferencia(
@@ -9259,15 +9305,20 @@ def lancamentos_importacao_avisos(request, empresa_id, importacao_id):
         numeros = request.POST.getlist("numeros")
     try:
         quantidade = importacao_servico.aceitar_avisos(
-            importacao, numeros, usuario=request.user, request=request
+            importacao,
+            numeros,
+            aceitar_arquivo=aceitar_arquivo,
+            usuario=request.user,
+            request=request,
         )
     except _RECUSAS_DA_CONFERENCIA as exc:
         return _recusa_da_conferencia(request, empresa, importacao, exc)
-    messages.success(
-        request,
-        f"Avisos aceitos em {_contado(quantidade, 'lançamento', 'lançamentos')}. "
-        "Efetive quando a conferência estiver pronta.",
-    )
+    partes = []
+    if quantidade:
+        partes.append(f"Avisos aceitos em {_contado(quantidade, 'lançamento', 'lançamentos')}")
+    if aceitar_arquivo:
+        partes.append("aceite do arquivo registrado: ele é desta empresa")
+    messages.success(request, "; ".join(partes) + ". Efetive quando a conferência estiver pronta.")
     return _redirecionar_para_conferencia(empresa, importacao)
 
 

@@ -313,6 +313,16 @@ def test_efetivar_tudo_ou_nada_com_erro_responde_400_com_ocorrencias_e_nada_grav
     assert LancamentoContabil.objects.filter(empresa=cenario["empresa"]).count() == 0
 
 
+def _aceitar_o_arquivo(client, empresa, importacao_id):
+    """A11: o arquivo sem empresa declarada só é efetivado depois do aceite do aviso do arquivo."""
+    resposta = client.post(
+        _url("lancamentos-importacao-avisos", empresa, importacao_id),
+        data=json.dumps({"numeros": [], "aceitar_arquivo": True}),
+        content_type="application/json",
+    )
+    assert resposta.status_code == 200, resposta.content
+
+
 def test_efetivar_so_validos_efetiva_o_que_presta(client, cenario):
     _entrar(client, "analista-imp")
     importacao_id = _enviar(
@@ -323,6 +333,7 @@ def test_efetivar_so_validos_efetiva_o_que_presta(client, cenario):
         "2;2026-03-11;Ruim;2.1;C;90.00",
     ).json()["id"]
 
+    _aceitar_o_arquivo(client, cenario["empresa"], importacao_id)
     resposta = client.post(
         _url("lancamentos-importacao-efetivar", cenario["empresa"], importacao_id),
         data=json.dumps({"politica": "so_validos"}),
@@ -341,6 +352,7 @@ def test_efetivar_duas_vezes_responde_409_e_nao_duplica(client, cenario):
     _entrar(client, "analista-imp")
     importacao_id = _enviar(client, cenario["empresa"], *_lancamento(1)).json()["id"]
     url = _url("lancamentos-importacao-efetivar", cenario["empresa"], importacao_id)
+    _aceitar_o_arquivo(client, cenario["empresa"], importacao_id)
 
     primeira = client.post(url, data="{}", content_type="application/json")
     segunda = client.post(url, data="{}", content_type="application/json")

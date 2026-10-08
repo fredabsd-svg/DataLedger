@@ -2930,6 +2930,7 @@ CAMPOS_QUERYSTRING_EXPORTACAO_LANCAMENTOS = frozenset(
         "fim",
         "incluir_saldos",
         "omitir_nao_representaveis",
+        "normalizar_texto",
         "sha256",
     }
 )
@@ -2978,6 +2979,7 @@ class LancamentosExportacaoView(EmpresaEscopadaContabilMixin, APIView):
             raise DRFValidationError({"data": [str(exc)]}) from exc
         incluir_saldos = _booleano_da_querystring(parametros, "incluir_saldos")
         omitir = _booleano_da_querystring(parametros, "omitir_nao_representaveis")
+        normalizar = _booleano_da_querystring(parametros, "normalizar_texto")
         sha_conferido = (parametros.get("sha256") or "").strip().lower() or None
 
         try:
@@ -2988,6 +2990,7 @@ class LancamentosExportacaoView(EmpresaEscopadaContabilMixin, APIView):
                 data_final=fim,
                 incluir_saldos=incluir_saldos,
                 omitir_nao_representaveis=omitir,
+                normalizar_texto=normalizar,
                 usuario=request.user,
             )
         except IntercambioRecusado as exc:
@@ -3018,6 +3021,7 @@ class LancamentosExportacaoView(EmpresaEscopadaContabilMixin, APIView):
         resposta["X-DataLedger-Soma-Debitos"] = str(relatorio.soma_debitos)
         resposta["X-DataLedger-Soma-Creditos"] = str(relatorio.soma_creditos)
         resposta["X-DataLedger-Omitidos"] = str(relatorio.quantidade_omitidos)
+        resposta["X-DataLedger-Textos-Normalizados"] = str(len(relatorio.textos_normalizados))
         if relatorio.avisos:
             resposta["X-DataLedger-Avisos"] = "; ".join(relatorio.avisos)
         return resposta
@@ -3042,7 +3046,7 @@ CONTRATO_POST_EFETIVAR_LANCAMENTOS = ContratoDeRequisicao(
     campos={"politica"}, contexto="na efetivação de lançamentos"
 )
 CONTRATO_POST_AVISOS_LANCAMENTOS = ContratoDeRequisicao(
-    campos={"numeros"}, contexto="no aceite de avisos"
+    campos={"numeros", "aceitar_arquivo"}, contexto="no aceite de avisos"
 )
 CONTRATO_POST_DESCARTE_LANCAMENTOS = ContratoDeRequisicao(
     campos={"motivo"}, contexto="no descarte da importação"
@@ -3078,8 +3082,14 @@ def _resposta_da_recusa(exc):
     return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-def _importacao_como_dict(importacao):
-    return {
+def _importacao_como_dict(importacao, *, com_ocorrencias=True):
+    """A importação como a API a devolve. As ocorrências do arquivo ficam FORA da lista (A8).
+
+    `ocorrencias_do_arquivo` traz no máximo 500 itens; `quantidade_ocorrencias_do_arquivo`, o total.
+    A lista de importações (`com_ocorrencias=False`) não as traz: uma importação com 190.000 linhas
+    inválidas faria a resposta da lista ter dezenas de MB.
+    """
+    dados = {
         "id": importacao.pk,
         "formato": importacao.formato,
         "nome_arquivo": importacao.nome_arquivo,
@@ -3093,12 +3103,21 @@ def _importacao_como_dict(importacao):
         "quantidade_nao_efetivados": importacao.quantidade_nao_efetivados,
         "soma_debitos": str(importacao.soma_debitos),
         "soma_creditos": str(importacao.soma_creditos),
-        "ocorrencias_do_arquivo": importacao.ocorrencias_do_arquivo,
+        "soma_debitos_efetivados": str(importacao.soma_debitos_efetivados),
+        "soma_creditos_efetivados": str(importacao.soma_creditos_efetivados),
+        "quantidade_ocorrencias_do_arquivo": importacao.quantidade_ocorrencias_do_arquivo,
+        "quantidade_erros_do_arquivo": importacao.quantidade_erros_do_arquivo,
+        "quantidade_erros_do_arquivo_inteiro": importacao.quantidade_erros_do_arquivo_inteiro,
+        "exige_aceite_do_arquivo": importacao.exige_aceite_do_arquivo,
+        "aceite_do_arquivo": importacao.aceite_do_arquivo,
         "criado_em": importacao.criado_em.isoformat(),
         "efetivada_em": importacao.efetivada_em.isoformat() if importacao.efetivada_em else None,
         "descartada_em": importacao.descartada_em.isoformat() if importacao.descartada_em else None,
         "motivo_do_descarte": importacao.motivo_do_descarte,
     }
+    if com_ocorrencias:
+        dados["ocorrencias_do_arquivo"] = importacao.ocorrencias_do_arquivo
+    return dados
 
 
 def _lancamento_importado_como_dict(lancamento):
@@ -3138,7 +3157,9 @@ class ImportacaoLancamentosListarEnviarView(EmpresaEscopadaContabilMixin, APIVie
     def get(self, request, *args, **kwargs):
         empresa = self.get_empresa()
         importacoes = importacao_lancamentos.listar_importacoes(empresa)[:200]
-        return Response({"importacoes": [_importacao_como_dict(i) for i in importacoes]})
+        return Response(
+            {"importacoes": [_importacao_como_dict(i, com_ocorrencias=False) for i in importacoes]}
+        )
 
     def post(self, request, *args, **kwargs):
         _recusar_dado_nao_contratado(request, CONTRATO_POST_RECEBER_LANCAMENTOS)
@@ -3247,12 +3268,19 @@ class ImportacaoLancamentosAvisosView(_AcaoSobreImportacaoView):
     def post(self, request, importacao_id, *args, **kwargs):
         _recusar_dado_nao_contratado(request, CONTRATO_POST_AVISOS_LANCAMENTOS)
         importacao = self._importacao(importacao_id)
-        numeros = request.data.get("numeros")
+        numeros = request.data.get("numeros", [])
         if not isinstance(numeros, list):
             raise DRFValidationError({"numeros": ["envie a lista de números de lançamento."]})
+        aceitar_arquivo = request.data.get("aceitar_arquivo", False)
+        if not isinstance(aceitar_arquivo, bool):
+            raise DRFValidationError({"aceitar_arquivo": ["use true ou false."]})
         try:
             quantidade = importacao_lancamentos.aceitar_avisos(
-                importacao, numeros, usuario=request.user, request=request
+                importacao,
+                numeros,
+                aceitar_arquivo=aceitar_arquivo,
+                usuario=request.user,
+                request=request,
             )
         except IntercambioRecusado as exc:
             return _resposta_da_recusa(exc)

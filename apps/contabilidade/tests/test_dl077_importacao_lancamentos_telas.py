@@ -351,6 +351,23 @@ def _foto_do_que_grava(empresa):
     )
 
 
+def _aceitar_o_arquivo_se_preciso(client, empresa, importacao):
+    """A11: arquivo sem empresa declarada pede o aceite do aviso do arquivo antes de efetivar.
+
+    Dá o passo que o contador dá na tela (o formulário de aceite da conferência).
+    """
+    importacao.refresh_from_db()
+    if importacao.exige_aceite_do_arquivo and not importacao.aceite_do_arquivo:
+        resposta = _agir(
+            client,
+            empresa,
+            importacao,
+            "lancamentos_importacao_avisos",
+            {"aceitar_arquivo": "1"},
+        )
+        assert resposta.status_code == 302, resposta.content.decode()
+
+
 def _efetivar_com_so_validos(client, empresa, importacao):
     return _agir(
         client,
@@ -430,6 +447,7 @@ def test_fluxo_completo_por_formato_do_envio_ao_diario(
     assert apos_aviso.context["contagens"]["com_aviso_a_aceitar"] == 0
     assert apos_aviso.context["contagens"]["prontos"] == 3
 
+    _aceitar_o_arquivo_se_preciso(client, empresa, importacao)
     efetivacao = _agir(client, empresa, importacao, "lancamentos_importacao_efetivar")
     assert efetivacao.status_code == 302, efetivacao.content.decode()
 
@@ -525,6 +543,7 @@ def test_efetivar_tudo_com_erro_e_recusado_e_nada_e_gravado(client, cenario):
     _entrar(client, "gestor-telas")
     antes = _foto_do_que_grava(empresa)
 
+    _aceitar_o_arquivo_se_preciso(client, empresa, importacao)
     resposta = _agir(client, empresa, importacao, "lancamentos_importacao_efetivar")
 
     html = resposta.content.decode()
@@ -539,6 +558,7 @@ def test_so_validos_grava_so_os_validos_e_lista_o_que_ficou_de_fora(client, cena
     empresa = cenario["empresa"]
     importacao = _importacao_de_proprio(empresa)
     _entrar(client, "gestor-telas")
+    _aceitar_o_arquivo_se_preciso(client, empresa, importacao)
 
     resposta = _efetivar_com_so_validos(client, empresa, importacao)
 
@@ -563,6 +583,7 @@ def test_botao_de_efetivar_tudo_nao_aparece_habilitado_com_erro_pendente(client,
     empresa = cenario["empresa"]
     importacao = _importacao_de_proprio(empresa)
     _entrar(client, "gestor-telas")
+    _aceitar_o_arquivo_se_preciso(client, empresa, importacao)
 
     html = _conferencia(client, empresa, importacao).content.decode()
 
@@ -584,6 +605,7 @@ def test_botao_de_efetivar_tudo_aparece_quando_a_politica_e_possivel(client, cen
         {"codigo_origem": "9.9", "conta": "4.1"},
     )
     _agir(client, empresa, importacao, "lancamentos_importacao_avisos", {"numeros": ["2"]})
+    _aceitar_o_arquivo_se_preciso(client, empresa, importacao)
 
     html = _conferencia(client, empresa, importacao).content.decode()
 
@@ -761,6 +783,7 @@ def test_importacao_fora_da_conferencia_nao_aceita_mais_acao_nenhuma(client, cen
         )
         servico.reconferir(importacao, usuario=None)
         servico.aceitar_avisos(importacao, ["2"], usuario=None)
+        servico.aceitar_avisos(importacao, [], aceitar_arquivo=True, usuario=None)
         servico.efetivar(importacao, politica="tudo_ou_nada", usuario=None)
     else:
         servico.descartar(importacao, motivo="Teste", usuario=None)
@@ -868,6 +891,7 @@ def test_quem_escritura_efetiva_a_importacao(client, cenario, usuario):
     empresa = cenario["empresa"]
     importacao = _importacao_de_proprio(empresa)
     _entrar(client, usuario)
+    _aceitar_o_arquivo_se_preciso(client, empresa, importacao)
 
     resposta = _efetivar_com_so_validos(client, empresa, importacao)
 

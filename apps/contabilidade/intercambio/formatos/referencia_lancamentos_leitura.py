@@ -410,12 +410,20 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
     lotes = []
     lote_atual = None
     documento_visto = False
+    sem_barras_nas_pontas = False
 
     for numero, bruta in enumerate(texto.split("\n"), start=1):
         linha = bruta.rstrip("\r")
         if not linha.strip():
             continue
-        if not (len(linha) >= 2 and linha.startswith("|") and linha.endswith("|")):
+        # A10 (HI-91, item 2): a forma sem barras nas pontas é aceita, com UM aviso por arquivo,
+        # como no leitor do plano. A forma com as duas barras é a canônica e não gera aviso. Uma
+        # ponta só, ou linha sem nenhum '|', continua sendo erro: não há o que ler com segurança.
+        # Sem barra inicial, a linha é lida como está: um '|' no fim é separador de campo vazio
+        # (ex.: `6100|...|Compra|||`), não barra de fechamento.
+        com_barras = len(linha) >= 2 and linha.startswith("|") and linha.endswith("|")
+        sem_barras = "|" in linha and not linha.startswith("|")
+        if not (com_barras or sem_barras):
             ocorrencias.append(
                 Ocorrencia(
                     numero,
@@ -427,8 +435,10 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
             )
             lote_atual = None
             continue
+        if sem_barras:
+            sem_barras_nas_pontas = True
 
-        campos = linha[1:-1].split("|")
+        campos = (linha[1:-1] if com_barras else linha).split("|")
         reg = campos[0].strip()
 
         if reg == REG_DOCUMENTO:
@@ -476,6 +486,16 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
     for lote in lotes:
         resultado.lancamentos.extend(_lancamentos_do_lote(lote, ocorrencias))
 
+    if sem_barras_nas_pontas:
+        ocorrencias.append(
+            Ocorrencia(
+                0,
+                "formato",
+                NIVEL_AVISO,
+                "o arquivo traz linhas sem '|' no início e no fim: o leitor aceitou a forma sem "
+                "barras. Confira o arquivo.",
+            )
+        )
     resultado.ocorrencias = sorted(ocorrencias, key=lambda o: (o.linha, o.campo))
     resultado.registros_ignorados = dict(sorted(ignorados.items()))
     return resultado

@@ -73,7 +73,18 @@ def _receber(empresa, *linhas, formato="proprio", nome="lancamentos.txt"):
     )
 
 
+def _aceitar_o_arquivo_se_preciso(importacao):
+    """A11: arquivo sem empresa declarada (próprio, ECD sem 0000, Excel) pede o aceite do aviso.
+
+    Este helper dá o passo que o contador dá na tela. Os testes de A11 não o usam: chamam o
+    serviço direto, para ver a recusa sem aceite.
+    """
+    if importacao.exige_aceite_do_arquivo and not importacao.aceite_do_arquivo:
+        servico.aceitar_avisos(importacao, [], aceitar_arquivo=True)
+
+
 def _efetivar(importacao, politica=servico.TUDO_OU_NADA):
+    _aceitar_o_arquivo_se_preciso(importacao)
     return servico.efetivar(importacao, politica=politica, usuario=None)
 
 

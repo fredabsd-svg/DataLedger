@@ -2863,7 +2863,30 @@ class ImportacaoLancamentos(models.Model):
         "soma dos créditos", max_digits=18, decimal_places=2, default=Decimal("0.00")
     )
     # Ocorrências que não pertencem a um lançamento (erro de arquivo, aviso de codificação...).
+    # GUARDADAS NO MÁXIMO 500, priorizando o erro do arquivo inteiro (DL-077 A8). Os totais abaixo
+    # são calculados sobre a lista INTEIRA no recebimento: é com eles que a efetivação decide o
+    # bloqueio, para que um corte da lista nunca esconda um erro.
     ocorrencias_do_arquivo = models.JSONField("ocorrências do arquivo", default=list, blank=True)
+    quantidade_ocorrencias_do_arquivo = models.PositiveIntegerField(
+        "ocorrências do arquivo (total)", default=0
+    )
+    quantidade_erros_do_arquivo = models.PositiveIntegerField("erros do arquivo (total)", default=0)
+    quantidade_erros_do_arquivo_inteiro = models.PositiveIntegerField(
+        "erros do arquivo inteiro", default=0
+    )
+    # Aviso "o arquivo não declara a empresa": exige o aceite do contador antes de efetivar, nas
+    # duas políticas (DL-077 A11). `aceite_do_arquivo` é o aceite; só vale enquanto o aviso existe.
+    exige_aceite_do_arquivo = models.BooleanField("exige aceite do arquivo", default=False)
+    aceite_do_arquivo = models.BooleanField("aviso do arquivo aceito", default=False)
+    # Soma dos lançamentos EFETIVADOS (gravados no Diário). `soma_debitos`/`soma_creditos` são as
+    # LIDAS do arquivo: as duas podem divergir quando a política só-válidos deixa lançamentos de
+    # fora (DL-077 A7).
+    soma_debitos_efetivados = models.DecimalField(
+        "soma dos débitos efetivados", max_digits=18, decimal_places=2, default=Decimal("0.00")
+    )
+    soma_creditos_efetivados = models.DecimalField(
+        "soma dos créditos efetivados", max_digits=18, decimal_places=2, default=Decimal("0.00")
+    )
     criado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,

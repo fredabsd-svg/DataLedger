@@ -20,6 +20,8 @@ reconfere e recusa de novo antes de gravar.
             Os lançamentos efetivados estão no Diário e não podem ser alterados, só estornados.
             Política usada: {{ politica_rotulo|default:"—" }}. Efetivados: {{ importacao.quantidade_efetivados }}.
             Ficaram de fora: {{ importacao.quantidade_nao_efetivados }}.
+            Gravado no Diário: débitos {{ soma_debitos_efetivados_ptbr }}, créditos {{ soma_creditos_efetivados_ptbr }}.
+            Lido do arquivo: débitos {{ soma_debitos_ptbr }}, créditos {{ soma_creditos_ptbr }}.
             {% if importacao.efetivada_por %}Efetivada por {{ importacao.efetivada_por.get_username }}{% endif %}
             {% if importacao.efetivada_em %}em {{ importacao.efetivada_em|date:"d/m/Y H:i" }}{% endif %}.
         </p>
@@ -115,6 +117,14 @@ reconfere e recusa de novo antes de gravar.
         {% else %}
             <div class="mensagem mensagem-warning">
                 <p><strong>Não é possível efetivar só os válidos:</strong> {{ so_validos.pendencias|join:"; " }}.</p>
+                {% if so_validos.erros_do_arquivo %}
+                    <p>Erros do arquivo inteiro, que impedem as duas políticas:</p>
+                    <ul>
+                        {% for erro in so_validos.erros_do_arquivo %}
+                            <li>{{ erro.campo }}: {{ erro.mensagem }}</li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
             </div>
             {% if pode_agir and contagens.total %}
                 <button type="button" class="botao botao--secundario" disabled aria-disabled="true">Efetivar só os válidos (indisponível)</button>
