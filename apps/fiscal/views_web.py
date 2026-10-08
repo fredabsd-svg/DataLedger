@@ -1442,7 +1442,15 @@ def _url_do_mes(empresa, ano, mes):
 _PADRAO_DE_MILHAR_SEM_VIRGULA = re.compile(r"\.\d{3}(?!\d)")
 
 
-class ValorAmbiguo(ValueError):
+# Milhar bem formado: grupos de três dígitos separados por ponto ('1.234', '12.345.678').
+_PADRAO_DE_MILHAR_BEM_FORMADO = re.compile(r"\d{1,3}(?:\.\d{3})+")
+
+
+class ValorInvalidoNoFormulario(ValueError):
+    """Valor digitado que o formulário não aceita: a tela mostra a mensagem e não grava (A4)."""
+
+
+class ValorAmbiguo(ValorInvalidoNoFormulario):
     """Valor digitado sem vírgula com ponto de milhar: a tela pede a vírgula (A4)."""
 
 
@@ -1450,16 +1458,30 @@ def _valor_do_formulario(bruto: str) -> str:
     """Valor digitado pelo contador, em pt-BR ('1.234,56') ou com ponto ('1234.56').
 
     Com vírgula, o ponto é separador de milhar e a vírgula é o decimal ('1.000,50' vira
-    '1000.50'). Sem vírgula, o texto segue como está ('1500' e '1500.5'), exceto quando há
-    ponto seguido de exatamente três dígitos: '10.000' pode ser dez mil ou dez centavos, e
-    o sistema não adivinha. Nesse caso levanta `ValorAmbiguo` pedindo a vírgula (A4).
+    '1000.50'). O ponto de milhar só vale entre grupos de três dígitos: '1.23,4' é recusado
+    (`ValorInvalidoNoFormulario`), e não lido como 123,40 (A4 da auditoria DL-075). Vírgula
+    decimal só uma vez.
+
+    Sem vírgula, o texto segue como está ('1500' e '1500.5'), exceto quando há ponto seguido
+    de exatamente três dígitos: '10.000' pode ser dez mil ou dez centavos, e o sistema não
+    adivinha. Nesse caso levanta `ValorAmbiguo` pedindo a vírgula.
 
     Não vira número aqui: o serviço recusa o que não for decimal positivo de até duas
     casas, e nunca aceita float.
     """
     texto = bruto.strip()
     if "," in texto:
-        return texto.replace(".", "").replace(",", ".")
+        inteiro, _, decimal = texto.partition(",")
+        if "," in decimal:
+            raise ValorInvalidoNoFormulario(
+                "Valor inválido: use uma só vírgula, para os centavos (ex.: 1.234,56)."
+            )
+        if "." in inteiro and not _PADRAO_DE_MILHAR_BEM_FORMADO.fullmatch(inteiro):
+            raise ValorInvalidoNoFormulario(
+                f"Valor inválido: {texto}. O ponto só separa grupos de três dígitos, como em "
+                "1.234,56. Confira o valor."
+            )
+        return f"{inteiro.replace('.', '')}.{decimal}"
     if _PADRAO_DE_MILHAR_SEM_VIRGULA.search(texto):
         raise ValorAmbiguo(
             "Valor ambíguo: sem vírgula, o ponto é lido como separador de milhar. Se o valor é "
@@ -1833,7 +1855,7 @@ def _lancar_receita_post(request, empresa):
 
     try:
         valor = _valor_do_formulario(valores["valor"])
-    except ValorAmbiguo as exc:
+    except ValorInvalidoNoFormulario as exc:
         messages.error(request, str(exc))
         return _tela_de_lancar_receita(request, empresa, valores=valores, status=200)
     if not _so_digitos_com_ponto_decimal(valor):
@@ -2059,7 +2081,9 @@ _MENSAGEM_SEM_PERMISSAO_DO_SIMPLES = (
 _PRECISAO_DE_EXIBICAO = 60
 # Ponto decimal de um número dentro de um texto da memória. O dispositivo NÃO passa aqui:
 # ele cita itens como "8.2.1", que não são números.
-_PADRAO_PONTO_DECIMAL = re.compile(r"(?<=\d)\.(?=\d)")
+# Ponto decimal (percentuais e textos com ponto), ou dinheiro já em pt-BR ('500.000,00'), que
+# a memória do pré-DAS produz com ponto de milhar. O dinheiro fica como está.
+_PADRAO_PONTO_DECIMAL = re.compile(r"\d{1,3}(?:\.\d{3})+,\d{2}|(?<=\d)\.(?=\d)")
 _TRIBUTOS_NA_ORDEM = (
     tabelas.IRPJ,
     tabelas.CSLL,
@@ -2191,8 +2215,12 @@ def _percentual_ptbr(fracao) -> str:
 
 
 def _texto_da_memoria_em_ptbr(texto: str) -> str:
-    """Números de um texto da memória, com vírgula decimal. Só o que é número."""
-    return _PADRAO_PONTO_DECIMAL.sub(",", texto)
+    """Números de um texto da memória, com vírgula decimal. Só o que é número.
+
+    O dinheiro (já pt-BR, com milhar) passa sem mudança; o ponto decimal de percentuais vira
+    vírgula.
+    """
+    return _PADRAO_PONTO_DECIMAL.sub(lambda m: m.group(0) if "," in m.group(0) else ",", texto)
 
 
 def _data_do_formulario(texto: str):
@@ -2751,19 +2779,22 @@ def _pendentes_da_folha_em_texto(pendentes) -> str:
     )
 
 
-def _linha_do_fs12(empresa, ano, mes) -> dict:
-    """FS12 do PA (art. 22 da Res. CGSN 140, pela janela do RBT12) e a folha confirmada do mês."""
-    lancada = servico_folha.folha_ativa(empresa, ano, mes)
+def _linha_do_fs12(ano, mes, lancada, resultado) -> dict:
+    """FS12 do PA (art. 22 da Res. CGSN 140, pela janela do RBT12) e a folha confirmada do mês.
+
+    `lancada` é a folha não estornada do mês (ou None) e `resultado` é o FS12 do mês, já
+    calculado em lote por `servico_folha.fs12_do_ano` (A9 da auditoria DL-075: sem consulta
+    por mês aqui). `resultado` pode ser a recusa `ApuracaoRecusada` do mês.
+    """
     folha_do_mes = (
         _dinheiro_ptbr(lancada.total)
         if lancada is not None and lancada.estado == EstadoFolhaFatorR.CONFIRMADA
         else "—"
     )
     linha = {"competencia": _mes_por_extenso(ano, mes), "folha_do_mes": folha_do_mes}
-    try:
-        fs = servico_folha.fs12(empresa, ano, mes)
-    except apuracao.ApuracaoRecusada as exc:
-        return {**linha, "fs12": "Não calculado", "regra": "—", "situacao": exc.mensagem}
+    if isinstance(resultado, apuracao.ApuracaoRecusada):
+        return {**linha, "fs12": "Não calculado", "regra": "—", "situacao": resultado.mensagem}
+    fs = resultado
     if fs.valor is None:
         return {
             **linha,
@@ -2817,10 +2848,19 @@ def folhas_fator_r(request):
     if empresa is None:
         return render(request, "fiscal/folhas_fator_r.html", contexto)
 
-    folhas = FolhaFatorR.objects.filter(empresa=empresa, ano=ano).order_by("mes", "id")
+    folhas = list(FolhaFatorR.objects.filter(empresa=empresa, ano=ano).order_by("mes", "id"))
+    # A9 (auditoria DL-075): o FS12 dos 12 meses sai de uma leitura só (folhas e períodos),
+    # e não de uma consulta por mês, que fazia 176 consultas na página.
+    ativa_por_mes = {
+        folha.mes: folha for folha in folhas if folha.estado != EstadoFolhaFatorR.ESTORNADA
+    }
+    fs12_por_mes = servico_folha.fs12_do_ano(empresa, ano)
     contexto.update(
         folhas=[_linha_da_folha(folha, empresa, pode_escriturar) for folha in folhas],
-        meses_fs12=[_linha_do_fs12(empresa, ano, mes) for mes in range(1, 13)],
+        meses_fs12=[
+            _linha_do_fs12(ano, mes, ativa_por_mes.get(mes), fs12_por_mes[mes])
+            for mes in range(1, 13)
+        ],
         url_nova=reverse("fiscal_web:folha_nova", args=[empresa.pk])
         + "?"
         + urlencode({"ano": ano}),
@@ -2876,7 +2916,13 @@ def _lancar_folha_post(request, empresa):
     componentes = {}
     for nome in FolhaFatorR.COMPONENTES:
         rotulo = _ROTULO_DO_COMPONENTE[nome]
-        bruto = _valor_do_formulario(valores[nome])
+        try:
+            bruto = _valor_do_formulario(valores[nome])
+        except ValorInvalidoNoFormulario as exc:
+            # A4 (auditoria DL-075): "10.000" dava 500 nesta tela. Agora mostra a mensagem,
+            # com status 200 como na receita, e não grava nada.
+            messages.error(request, f"{rotulo}: {exc}")
+            return _tela_de_lancar_folha(request, empresa, valores=valores)
         if not bruto:
             messages.error(
                 request,

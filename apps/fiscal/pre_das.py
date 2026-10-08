@@ -73,7 +73,9 @@ from apps.fiscal import receita as receita_servico
 from apps.fiscal import simples_tabelas as tabelas
 from apps.fiscal.models import (
     AtividadeEmpresa,
+    ConfirmacaoReceitaMensal,
     EnquadramentoAtividade,
+    EstadoConfirmacaoMes,
     MercadoReceita,
     NaturezaOperacao,
     SituacaoIssReceitaInformada,
@@ -143,6 +145,13 @@ DISPOSITIVO_DO_ENQUADRAMENTO = {
     EnquadramentoAtividade.ANEXO_IV: DISP_ANEXO_IV,
 }
 
+# Rótulo do enquadramento na lista de atividades da mensagem (A5).
+_ROTULO_DO_ANEXO = {
+    EnquadramentoAtividade.ANEXO_III: "Anexo III",
+    EnquadramentoAtividade.ANEXO_III_OU_V_FATOR_R: "Anexo III ou V, pelo fator r",
+    EnquadramentoAtividade.ANEXO_IV: "Anexo IV",
+}
+
 # Segmentos da receita (HI-68). Um segmento é uma natureza, agrupada por tratamento.
 SEG_NORMAL = "normal"
 SEG_RETIDO = "iss_retido"
@@ -196,6 +205,13 @@ LIMITE_DO_PRIMEIRO_CORTE = tabelas.anexo("III").faixa(5).limite_superior
 LIMITE_DO_FATOR_R = Decimal("0.28")
 _PRECISAO = 60
 _CENTAVO = Decimal("0.01")
+
+# A10.3 (auditoria DL-075): a situação do mês aparece em texto para o contador, e não pelo código.
+_SITUACAO_LEGIVEL = {
+    receita_servico.SITUACAO_CONFIRMADO: "confirmado",
+    receita_servico.SITUACAO_NAO_CONFIRMADO: "não confirmado",
+    receita_servico.SITUACAO_A_RETIFICAR: "a retificar",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -385,6 +401,18 @@ def _fmt(valor: Decimal, casas: int = 12) -> str:
     return format(valor, f".{casas}f")
 
 
+def _dinheiro(valor: Decimal) -> str:
+    """Dinheiro na memória: 2 casas, ROUND_HALF_UP, pt-BR ('500.000,00'). Só exibição.
+
+    A10.3 (auditoria DL-075): a memória mostrava dinheiro com 12 casas. Percentuais continuam
+    com a precisão de `_fmt`, que é a que o cálculo usa para conferir.
+    """
+    with localcontext() as contexto:
+        contexto.prec = _PRECISAO
+        quantizado = Decimal(valor).quantize(_CENTAVO, rounding=ROUND_HALF_UP)
+    return f"{quantizado:,.2f}".replace(",", "\0").replace(".", ",").replace("\0", ".")
+
+
 # ---------------------------------------------------------------------------
 # Atividades: cadastro com vigência (DL-075, item 2)
 # ---------------------------------------------------------------------------
@@ -453,6 +481,13 @@ def _validar_atividade(dados: dict, atual: AtividadeEmpresa | None) -> dict:
     inicio, fim = base["inicio"], base["fim"]
     if not isinstance(inicio, date):
         raise EntradaInvalidaAtividade("Informe o início da vigência (AAAA-MM-DD).")
+    # A11 (auditoria DL-075): a vigência das tabelas cadastradas começa em 01/01/2018. Uma data
+    # anterior (ex.: 0001-01-01, aceita pelo calendário) não tem tabela nem limite para o mês.
+    if inicio < tabelas.VIGENCIA_INICIO:
+        raise EntradaInvalidaAtividade(
+            "O início da vigência não pode ser anterior a 01/01/2018: é o início da vigência "
+            "das tabelas cadastradas (01/01/2018 a 31/12/2026)."
+        )
     if fim is not None and not isinstance(fim, date):
         raise EntradaInvalidaAtividade("O fim da vigência tem de ser uma data (AAAA-MM-DD).")
     if fim is not None and fim < inicio:
@@ -525,6 +560,50 @@ def cadastrar_atividade(empresa: Empresa, dados: dict, usuario, request=None) ->
     return atividade
 
 
+def _meses_confirmados(empresa: Empresa) -> list[tuple[int, int]]:
+    """Meses com receita CONFIRMADA da empresa, do mais antigo ao mais recente."""
+    return sorted(
+        ConfirmacaoReceitaMensal.objects.filter(
+            empresa=empresa, estado=EstadoConfirmacaoMes.CONFIRMADA
+        ).values_list("ano", "mes")
+    )
+
+
+def _mes_cruza_vigencia(ano: int, mes: int, inicio: date, fim: date | None) -> bool:
+    """A vigência toca algum dia do mês. Cobertura parcial conta: o pré-DAS do mês muda."""
+    primeiro = date(ano, mes, 1)
+    ultimo = date(ano, mes, _ultimo_dia(ano, mes))
+    return inicio <= ultimo and (fim is None or fim >= primeiro)
+
+
+def _recusar_mudanca_em_mes_confirmado(
+    empresa: Empresa,
+    antes: tuple[date, date | None],
+    depois: tuple[date, date | None] | None,
+    *,
+    muda_calculo: bool,
+    acao: str,
+) -> None:
+    """Recusa a mudança de atividade que altera o pré-DAS de mês com receita confirmada (A6).
+
+    Mês confirmado não muda de anexo: se a atividade cobre um mês confirmado e a mudança
+    altera o cálculo dele, a operação é recusada, nomeando o mês. `muda_calculo`: troca de
+    enquadramento ou de padrão, que afeta todo mês que a atividade cobre (antes ou depois).
+    Sem isso, só a diferença de cobertura conta: encerrar a vigência para o futuro, depois
+    dos meses confirmados, continua permitido.
+    """
+    for ano, mes in _meses_confirmados(empresa):
+        cobre_antes = _mes_cruza_vigencia(ano, mes, *antes)
+        cobre_depois = depois is not None and _mes_cruza_vigencia(ano, mes, *depois)
+        afetado = (cobre_antes or cobre_depois) if muda_calculo else (cobre_antes != cobre_depois)
+        if afetado:
+            raise AtividadeConflito(
+                f"{acao} mudaria o pré-DAS do mês confirmado {_mes_rotulo(ano, mes)}. Mês "
+                "confirmado não muda: encerre a vigência desta atividade e cadastre uma nova "
+                "a partir do mês aberto."
+            )
+
+
 @transaction.atomic
 def alterar_atividade(
     atividade: AtividadeEmpresa, dados: dict, usuario, request=None
@@ -536,6 +615,31 @@ def alterar_atividade(
     antes = _snapshot_atividade(atual)
     valores = _validar_atividade(dados, atual)
     _checar_padrao(travada, valores, excluir_pk=atual.pk)
+    troca_enquadramento = valores["enquadramento"] != atual.enquadramento
+    troca_padrao = valores["padrao"] != atual.padrao
+    if (
+        troca_enquadramento
+        or troca_padrao
+        or (valores["inicio"], valores["fim"])
+        != (
+            atual.inicio,
+            atual.fim,
+        )
+    ):
+        acao = (
+            "A mudança de enquadramento"
+            if troca_enquadramento
+            else "A troca de atividade padrão"
+            if troca_padrao
+            else "A mudança de vigência"
+        )
+        _recusar_mudanca_em_mes_confirmado(
+            travada,
+            (atual.inicio, atual.fim),
+            (valores["inicio"], valores["fim"]),
+            muda_calculo=troca_enquadramento or troca_padrao,
+            acao=acao,
+        )
     for nome, valor in valores.items():
         setattr(atual, nome, valor)
     _inserir_atividade(atual)
@@ -561,6 +665,13 @@ def excluir_atividade(atividade: AtividadeEmpresa, usuario, request=None) -> Non
         pk=atividade.pk, empresa=travada
     )
     antes = _snapshot_atividade(atual)
+    _recusar_mudanca_em_mes_confirmado(
+        travada,
+        (atual.inicio, atual.fim),
+        None,
+        muda_calculo=True,
+        acao="A exclusão",
+    )
     try:
         atual.delete()
     except ProtectedError as exc:
@@ -577,15 +688,26 @@ def excluir_atividade(atividade: AtividadeEmpresa, usuario, request=None) -> Non
     )
 
 
-def atividade_padrao_do_mes(empresa: Empresa, ano: int, mes: int):
-    """(atividade padrão, bloqueio). Exatamente uma, cobrindo o mês inteiro, ou bloqueio."""
+def _vigentes_no_mes(empresa: Empresa, ano: int, mes: int, *, so_padrao: bool):
+    """Atividades cuja vigência toca o mês (qualquer dia). `so_padrao` filtra a padrão."""
     primeiro = date(ano, mes, 1)
     ultimo = date(ano, mes, _ultimo_dia(ano, mes))
-    candidatas = list(
-        AtividadeEmpresa.objects.filter(empresa=empresa, padrao=True, inicio__lte=ultimo).filter(
-            Q(fim__isnull=True) | Q(fim__gte=primeiro)
-        )
+    consulta = AtividadeEmpresa.objects.filter(empresa=empresa, inicio__lte=ultimo).filter(
+        Q(fim__isnull=True) | Q(fim__gte=primeiro)
     )
+    if so_padrao:
+        consulta = consulta.filter(padrao=True)
+    return list(consulta)
+
+
+def atividades_vigentes_no_mes(empresa: Empresa, ano: int, mes: int):
+    """Todas as atividades vigentes no mês, padrão ou não (A5, DL-075): ordem do cadastro."""
+    return _vigentes_no_mes(empresa, ano, mes, so_padrao=False)
+
+
+def atividade_padrao_do_mes(empresa: Empresa, ano: int, mes: int):
+    """(atividade padrão, bloqueio). Exatamente uma, cobrindo o mês inteiro, ou bloqueio."""
+    candidatas = _vigentes_no_mes(empresa, ano, mes, so_padrao=True)
     rotulo = f"{mes:02d}/{ano}"
     if not candidatas:
         return None, Bloqueio(
@@ -595,9 +717,19 @@ def atividade_padrao_do_mes(empresa: Empresa, ano: int, mes: int):
             "LC 123/2006, art. 18, §§ 5º-B a 5º-M (enquadramento por atividade)",
         )
     if len(candidatas) > 1:
+        # Duas padrões no mesmo mês só ocorrem na TROCA: a vigência de uma termina no meio do
+        # mês e a da outra começa ali. O pré-DAS não divide o mês; a mensagem diz o que fazer.
+        # "Mantenha só uma" é para o caso em que as duas cobrem o mês inteiro.
+        if all(atividade.cobre_o_mes(ano, mes) for atividade in candidatas):
+            return None, Bloqueio(
+                "atividades_padrao_sobrepostas",
+                f"Há mais de uma atividade padrão vigente em {rotulo}. Mantenha só uma.",
+                "HI-68",
+            )
         return None, Bloqueio(
             "atividades_padrao_sobrepostas",
-            f"Há mais de uma atividade padrão vigente em {rotulo}. Mantenha só uma.",
+            f"Mudança de atividade padrão no meio de {rotulo}: o pré-DAS não divide o mês — "
+            "ajuste a vigência para o 1º dia.",
             "HI-68",
         )
     atividade = candidatas[0]
@@ -691,7 +823,8 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
             Bloqueio(
                 "mes_nao_confirmado",
                 f"A receita de {_mes_rotulo(ano, mes)} não está confirmada completa "
-                f"(situação: {situacao}). Confirme o mês antes do pré-DAS.",
+                f"(situação: {_SITUACAO_LEGIVEL.get(situacao, situacao)}). "
+                "Confirme o mês antes do pré-DAS.",
                 DISP_MES_CONFIRMADO,
             )
         )
@@ -723,13 +856,29 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
         )
     if rbt is not None:
         for aviso in rbt.avisos:
-            if aviso.codigo.startswith(
+            # A7 (auditoria DL-075): PA anterior à vigência dos limites cadastrados. Sem o
+            # sublimite, o pré-DAS não confere o excesso e não pode calcular o ISS (HI-70).
+            if aviso.codigo == "limites_nao_cadastrados":
+                bloqueios.append(
+                    Bloqueio(
+                        "limites_nao_cadastrados",
+                        f"Os limites e o sublimite de {ano} não estão cadastrados: o pré-DAS "
+                        "não confere o sublimite e não calcula (HI-70).",
+                        aviso.dispositivo,
+                    )
+                )
+            elif aviso.codigo.startswith(
                 ("limite_excedido", "sublimite_excedido", "limites_nao_apurados")
             ):
+                # A10.1: o sufixo do primeiro corte só vale para o excesso. O aviso de limite
+                # não apurado já diz o motivo (mês não confirmado) e não é corte.
+                texto = aviso.mensagem
+                if not aviso.codigo.startswith("limites_nao_apurados"):
+                    texto += " Fora do primeiro corte do pré-DAS (HI-68; HI-70)."
                 bloqueios.append(
                     Bloqueio(
                         "excesso_de_limite_ou_sublimite",
-                        f"{aviso.mensagem} Fora do primeiro corte do pré-DAS (HI-68; HI-70).",
+                        texto,
                         aviso.dispositivo,
                     )
                 )
@@ -739,6 +888,25 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
     if bloqueio_padrao is not None:
         bloqueios.append(bloqueio_padrao)
     lancamentos = receita_servico.lancamentos_do_mes(empresa, ano, mes)
+    # A5 (auditoria DL-075, decisão do arquiteto): a escrituração não diz a qual atividade cada
+    # nota pertence. Com mais de uma atividade vigente e nota efetivada no mês, o pré-DAS
+    # recusa, em vez de mandar todas as notas para a padrão sem aviso. A receita informada com
+    # atividade explícita não entra aqui: ela já traz a atividade.
+    vigentes = atividades_vigentes_no_mes(empresa, ano, mes)
+    if len(vigentes) > 1 and lancamentos.documento_por_natureza:
+        lista = ", ".join(
+            f"{atividade.descricao} ({_ROTULO_DO_ANEXO[atividade.enquadramento]})"
+            for atividade in vigentes
+        )
+        bloqueios.append(
+            Bloqueio(
+                "notas_sem_atividade_definida",
+                f"A empresa tem mais de uma atividade vigente em {_mes_rotulo(ano, mes)} ({lista}) "
+                "e as notas do mês não dizem a qual pertencem: o pré-DAS não escolhe o anexo por "
+                "você. Atividade por nota ainda não existe (BL-670).",
+                "HI-68; LC 123/2006, art. 18, §§ 5º-B a 5º-M",
+            )
+        )
 
     ids = {linha.atividade_id for linha in lancamentos.informados if linha.atividade_id}
     atividades = {a.pk: a for a in AtividadeEmpresa.objects.filter(empresa=empresa, pk__in=ids)}
@@ -866,13 +1034,15 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
         if mercado in rbt_por_mercado:
             passo.add(
                 f"RBT12 do mercado {mercado} (regra {rbt.regra})",
-                _fmt(rbt_por_mercado[mercado]),
+                _dinheiro(rbt_por_mercado[mercado]),
                 DISP_RBT12,
             )
     if fator is not None:
-        passo.add("FS12 (folha dos 12 meses)", _fmt(fator.fs12), DISP_FS12)
+        passo.add("FS12 (folha dos 12 meses)", _dinheiro(fator.fs12), DISP_FS12)
         passo.add(
-            "RBT12 conjunto (interno + externo)", _fmt(fator.rbt12_conjunto), DISP_RBT12_CONJUNTO
+            "RBT12 conjunto (interno + externo)",
+            _dinheiro(fator.rbt12_conjunto),
+            DISP_RBT12_CONJUNTO,
         )
         passo.add(
             "Fator r = FS12 / RBT12 conjunto, truncado em 2 casas",
@@ -903,13 +1073,13 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
             " | ".join(DISPOSITIVO_DO_ENQUADRAMENTO[e] for e in enquadrados),
         )
         passo.add(
-            f"{rotulo}: faixa {faixa.numero} (RBT12 até {faixa.limite_superior})",
+            f"{rotulo}: faixa {faixa.numero} (RBT12 até {_dinheiro(faixa.limite_superior)})",
             f"faixa {faixa.numero}",
             anexo.dispositivo,
         )
         passo.add(f"{rotulo}: alíquota nominal", _fmt(faixa.aliquota_nominal, 6), anexo.dispositivo)
         passo.add(
-            f"{rotulo}: parcela a deduzir", f"{faixa.parcela_a_deduzir:.2f}", anexo.dispositivo
+            f"{rotulo}: parcela a deduzir", _dinheiro(faixa.parcela_a_deduzir), anexo.dispositivo
         )
         passo.add(f"{rotulo}: alíquota efetiva", _fmt(efetiva), DISP_ALIQUOTA_EFETIVA)
         passo.add(
@@ -953,9 +1123,9 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
                 total_segmento += valor
                 total_por_tributo[tributo] = total_por_tributo.get(tributo, Decimal("0.00")) + valor
                 passo.add(
-                    f"{rotulo}, {segmento}: {tributo} = {receita} × {_fmt(percentual)}"
+                    f"{rotulo}, {segmento}: {tributo} = {_dinheiro(receita)} × {_fmt(percentual)}"
                     + (" (desconsiderado)" if desconsiderado else ""),
-                    f"{valor:.2f}",
+                    _dinheiro(valor),
                     _DISP_DO_SEGMENTO[segmento],
                 )
             segmentos.append(
@@ -967,7 +1137,7 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
                 )
             )
             total_anexo += total_segmento
-        passo.add(f"{rotulo}: subtotal", f"{total_anexo:.2f}", DISP_VALOR)
+        passo.add(f"{rotulo}: subtotal", _dinheiro(total_anexo), DISP_VALOR)
         total += total_anexo
         anexos.append(
             AnexoApurado(
@@ -987,7 +1157,7 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
             )
         )
 
-    passo.add("Total do pré-DAS", f"{total:.2f}", DISP_VALOR)
+    passo.add("Total do pré-DAS", _dinheiro(total), DISP_VALOR)
     return PreDas(
         empresa_id=empresa.pk,
         ano=ano,

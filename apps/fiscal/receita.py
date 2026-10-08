@@ -382,11 +382,20 @@ def _valor_positivo(valor) -> Decimal:
         raise EntradaInvalidaReceita(
             "Valor em ponto flutuante não é aceito; informe o valor em texto."
         )
+    # A11 (auditoria DL-075): notação científica ("1E+3", "1e3") é recusada aqui, e não só na
+    # tela. O serviço a aceitaria como 1000,00, e a forma digitada não é o valor pretendido.
+    if "e" in str(valor).lower():
+        raise EntradaInvalidaReceita(
+            "Notação científica não é aceita no valor: informe o valor por extenso, como "
+            "1000,00 ou 1.000,00."
+        )
     try:
         decimal = Decimal(str(valor))
     except (InvalidOperation, ValueError, TypeError) as exc:
         raise EntradaInvalidaReceita("Valor inválido.") from exc
-    if not decimal.is_finite() or decimal <= 0:
+    if not decimal.is_finite():
+        raise EntradaInvalidaReceita("Valor inválido: não é um número finito.")
+    if decimal <= 0:
         raise EntradaInvalidaReceita("O valor da receita informada tem de ser maior que zero.")
     # Conferido SEM normalize(): normalize() apaga zeros à direita, e então "10.000" (dez mil,
     # ou dez centavos com ponto decimal) passava como 10,00 (R1 da reconferência da DL-074).
@@ -864,6 +873,14 @@ def confirmar_receita_informada(receita: ReceitaInformada, usuario, request=None
     if atual.estado != EstadoReceitaInformada.RASCUNHO:
         raise ReceitaErro(
             f"Só receita em rascunho pode ser confirmada; esta está '{atual.get_estado_display()}'."
+        )
+    # A8 (auditoria DL-075): rascunho interno sem situação do ISS (anterior à HI-80) não
+    # pode virar confirmada. Confirmada é imutável: depois, o pré-DAS só a recusaria, e o
+    # mês ficaria sem saída sem estorno. Recusa aqui, antes de travar o mês.
+    if atual.mercado == MercadoReceita.INTERNO and not atual.situacao_iss:
+        raise EntradaInvalidaReceita(
+            f"A receita nº {atual.pk} é do mercado interno e não tem a situação do ISS (HI-80): "
+            "não pode ser confirmada. Lance a receita de novo, informando a situação do ISS."
         )
     confirmacao = confirmacao_do_mes(travada, atual.ano, atual.mes, travar=True)
     if confirmacao is not None and confirmacao.estado == EstadoConfirmacaoMes.CONFIRMADA:

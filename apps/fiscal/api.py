@@ -396,13 +396,34 @@ class ReceitaInformadaSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class ValorMonetarioEntrada(serializers.DecimalField):
+    """Valor monetário de entrada (A11 da auditoria DL-075).
+
+    Aceita texto ou inteiro. Recusa número JSON com ponto flutuante: ele chega como binário,
+    e 0.1 não é 0,1. Recusa também notação científica ("1E+3"), que o DRF aceitaria como
+    1000,00. A regra de casas e de sinal continua no `DecimalField` e no serviço.
+    """
+
+    def to_internal_value(self, data):
+        if isinstance(data, float):
+            raise serializers.ValidationError(
+                "Valor em ponto flutuante não é aceito: envie o valor como texto, "
+                'por exemplo "1234.56".'
+            )
+        if isinstance(data, str) and "e" in data.lower():
+            raise serializers.ValidationError(
+                'Notação científica não é aceita: envie o valor por extenso, por exemplo "1000.00".'
+            )
+        return super().to_internal_value(data)
+
+
 class ReceitaInformadaEntradaSerializer(serializers.Serializer):
     ano = serializers.IntegerField(
         min_value=receita_servico.ANO_MINIMO, max_value=receita_servico.ANO_MAXIMO
     )
     mes = serializers.IntegerField(min_value=1, max_value=12)
     mercado = serializers.ChoiceField(choices=MercadoReceita.choices)
-    valor = serializers.DecimalField(max_digits=17, decimal_places=2, min_value=Decimal("0.01"))
+    valor = ValorMonetarioEntrada(max_digits=17, decimal_places=2, min_value=Decimal("0.01"))
     origem = serializers.ChoiceField(choices=OrigemReceitaInformada.choices)
     motivo = serializers.CharField(max_length=receita_servico.MOTIVO_MAXIMO, trim_whitespace=True)
     documento_suporte = serializers.CharField(
@@ -629,6 +650,10 @@ class ConfirmarReceitaInformadaView(EmpresaEscopadaMixin, APIView):
             confirmada = receita_servico.confirmar_receita_informada(
                 receita, usuario=request.user, request=request
             )
+        except receita_servico.EntradaInvalidaReceita as exc:
+            # A8 (auditoria DL-075): receita interna sem situação do ISS é dado inválido para
+            # confirmar, e não conflito de estado: 400, com a mensagem nomeada.
+            raise DRFValidationError(exc.mensagem) from exc
         except receita_servico.ReceitaErro as exc:
             return _resposta_de_conflito(exc)
         return Response(ReceitaInformadaSerializer(confirmada).data, status=status.HTTP_200_OK)
@@ -806,21 +831,15 @@ class FolhaEntradaSerializer(serializers.Serializer):
         min_value=receita_servico.ANO_MINIMO, max_value=receita_servico.ANO_MAXIMO
     )
     mes = serializers.IntegerField(min_value=1, max_value=12)
-    remuneracao_empregados_avulsos = serializers.DecimalField(
+    remuneracao_empregados_avulsos = ValorMonetarioEntrada(
         max_digits=17, decimal_places=2, min_value=Decimal("0")
     )
-    pro_labore_autonomos = serializers.DecimalField(
+    pro_labore_autonomos = ValorMonetarioEntrada(
         max_digits=17, decimal_places=2, min_value=Decimal("0")
     )
-    decimo_terceiro = serializers.DecimalField(
-        max_digits=17, decimal_places=2, min_value=Decimal("0")
-    )
-    cpp_recolhida = serializers.DecimalField(
-        max_digits=17, decimal_places=2, min_value=Decimal("0")
-    )
-    fgts_recolhido = serializers.DecimalField(
-        max_digits=17, decimal_places=2, min_value=Decimal("0")
-    )
+    decimo_terceiro = ValorMonetarioEntrada(max_digits=17, decimal_places=2, min_value=Decimal("0"))
+    cpp_recolhida = ValorMonetarioEntrada(max_digits=17, decimal_places=2, min_value=Decimal("0"))
+    fgts_recolhido = ValorMonetarioEntrada(max_digits=17, decimal_places=2, min_value=Decimal("0"))
     documento_suporte = serializers.CharField(
         max_length=folha_servico.DOCUMENTO_SUPORTE_MAXIMO, trim_whitespace=True
     )

@@ -232,13 +232,48 @@ def _ultimo_dia(ano: int, mes: int) -> date:
     return date.fromordinal(date(proximo[0], proximo[1], 1).toordinal() - 1)
 
 
-def _periodo_do_simples(empresa: Empresa, ano: int, mes: int):
+def periodos_do_simples(empresa: Empresa) -> list:
+    """Todos os períodos do Simples da empresa, do mais recente ao mais antigo.
+
+    Lê uma vez para o lote do FS12 do ano (A9 da auditoria DL-075): `_escolher_periodo`
+    aplica a mesma regra de `_periodo_do_simples`, em memória, sem consultar por mês.
+    """
+    return list(
+        HistoricoRegimeTributario.objects.filter(
+            empresa=empresa, regime=RegimeTributario.SIMPLES_NACIONAL
+        ).order_by("-vigencia_inicio", "-id")
+    )
+
+
+def _escolher_periodo(periodos: list, primeiro: date, ultimo: date):
+    """Mesma escolha de `_periodo_do_simples`, sobre a lista lida por `periodos_do_simples`.
+
+    Primeiro o período em aberto que começa até o fim do mês; se não houver, o período
+    fechado que toca o mês. Os dois critérios são os da consulta ao banco, na mesma ordem.
+    """
+    for periodo in periodos:
+        if periodo.vigencia_fim is None and periodo.vigencia_inicio <= ultimo:
+            return periodo
+    for periodo in periodos:
+        if (
+            periodo.vigencia_fim is not None
+            and periodo.vigencia_inicio <= ultimo
+            and periodo.vigencia_fim >= primeiro
+        ):
+            return periodo
+    return None
+
+
+def _periodo_do_simples(empresa: Empresa, ano: int, mes: int, periodos: list | None = None):
     """Período do Simples que toca algum dia do PA, ou None.
 
     Vale qualquer dia do mês, porque o PGDAS-D apura o mês inteiro. O ano da opção
-    é o `vigencia_inicio` deste período.
+    é o `vigencia_inicio` deste período. Com `periodos` (de `periodos_do_simples`), a
+    escolha é feita em memória, sem consulta.
     """
     primeiro, ultimo = date(ano, mes, 1), _ultimo_dia(ano, mes)
+    if periodos is not None:
+        return _escolher_periodo(periodos, primeiro, ultimo)
     return (
         HistoricoRegimeTributario.objects.filter(
             empresa=empresa,
@@ -438,7 +473,7 @@ def _avisos_de_receita_antes_da_abertura(
     return avisos
 
 
-def _contexto_da_apuracao(empresa: Empresa, ano: int, mes: int):
+def _contexto_da_apuracao(empresa: Empresa, ano: int, mes: int, periodos: list | None = None):
     """(data de abertura, período do Simples) do PA, ou recusa nomeada.
 
     Recusa com `ApuracaoRecusada`: ano 2027 ou depois, sem data de abertura, PA
@@ -467,7 +502,7 @@ def _contexto_da_apuracao(empresa: Empresa, ano: int, mes: int):
             f"A competência {_mm_aaaa(ano, mes)} é anterior à abertura no CNPJ "
             f"({abertura.strftime('%d/%m/%Y')})."
         )
-    periodo = _periodo_do_simples(empresa, ano, mes)
+    periodo = _periodo_do_simples(empresa, ano, mes, periodos)
     if periodo is None:
         raise ApuracaoRecusada(
             f"Não há período do Simples Nacional que alcance {_mm_aaaa(ano, mes)}: o RBT12 "
@@ -503,13 +538,16 @@ class JanelaDaApuracao:
     ano_opcao: int
 
 
-def janela_da_apuracao(empresa: Empresa, ano: int, mes: int) -> JanelaDaApuracao:
+def janela_da_apuracao(
+    empresa: Empresa, ano: int, mes: int, periodos: list | None = None
+) -> JanelaDaApuracao:
     """Regra e janela de meses do PA, exposta para o FS12 do fator r (DL-075).
 
     Não lê receita nem confirmação: só calendário e período do Simples. Recusa
-    como `rbt12()` (`ApuracaoRecusada`).
+    como `rbt12()` (`ApuracaoRecusada`). `periodos` (de `periodos_do_simples`) evita a
+    consulta de período quando a janela é calculada para vários meses (A9).
     """
-    abertura, periodo = _contexto_da_apuracao(empresa, ano, mes)
+    abertura, periodo = _contexto_da_apuracao(empresa, ano, mes, periodos)
     ano_opcao = periodo.vigencia_inicio.year
     regra, indices = _regra_e_janela(ano, mes, abertura, ano_opcao)
     return JanelaDaApuracao(

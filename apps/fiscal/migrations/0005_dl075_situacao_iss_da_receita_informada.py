@@ -19,7 +19,12 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("empresas", "0016_dl074_data_abertura_cnpj"),
+        # 0007 e não a última de `empresas`, pela mesma razão da migração 0003 (DL-074):
+        # há testes que revertem `empresas` para 0007..0011. Depender da última (0016)
+        # faria esses testes desfazerem ESTA migração e não a reaplicarem, e os testes
+        # seguintes perderiam a coluna `situacao_iss`. Esta migração só altera
+        # `fiscal_receitainformada`, que já existe desde a migração 0003.
+        ("empresas", "0007_bl54_cnpj_check_constraint_formato"),
         ("fiscal", "0004_dl075_pre_das_atividades_e_folha"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

@@ -70,13 +70,22 @@ def _valor_nao_negativo(valor, nome: str) -> Decimal:
     """Componente da folha: decimal >= 0, até 2 casas. Recusa `float` (DE-010)."""
     if isinstance(valor, float):
         raise EntradaInvalidaFolha(f"{nome}: valor em ponto flutuante não é aceito.")
+    # A11 (auditoria DL-075): notação científica e não finitos são recusados, como na receita.
+    if "e" in str(valor).lower():
+        raise EntradaInvalidaFolha(
+            f"{nome}: notação científica não é aceita; informe o valor por extenso."
+        )
     try:
         decimal = Decimal(str(valor))
     except (InvalidOperation, ValueError, TypeError) as exc:
         raise EntradaInvalidaFolha(f"{nome}: valor inválido.") from exc
-    if not decimal.is_finite() or decimal < 0:
+    if not decimal.is_finite():
+        raise EntradaInvalidaFolha(f"{nome}: valor inválido, não é um número finito.")
+    if decimal < 0:
         raise EntradaInvalidaFolha(f"{nome}: o valor não pode ser negativo.")
-    if decimal.normalize().as_tuple().exponent < -2:
+    # Sem normalize(): ele apaga zeros à direita, e "10.000" passaria como 10,00 (mesmo erro
+    # corrigido na receita informada, DL-074 R1).
+    if decimal.as_tuple().exponent < -2:
         raise EntradaInvalidaFolha(f"{nome}: aceita no máximo duas casas decimais.")
     if decimal >= Decimal("1000000000000000"):
         raise EntradaInvalidaFolha(f"{nome}: excede o limite de 15 dígitos inteiros.")
@@ -267,9 +276,46 @@ class Fs12:
     pendentes: tuple[tuple[int, int, str], ...]
 
 
+def _folhas_ativas_do_ano(empresa: Empresa, ano: int) -> dict[tuple[int, int], FolhaFatorR]:
+    """Folha NÃO estornada de cada mês de `ano - 1` e `ano`, em uma consulta.
+
+    Cobre toda janela de PA de `ano` (a janela do art. 22 vai até 12 meses antes do PA, e
+    o PA mais antigo de `ano` é janeiro). A unicidade do lançamento ativo por mês
+    (`folha_mes_unica_ativa_por_empresa`) garante no máximo uma folha por mês.
+    """
+    folhas = FolhaFatorR.objects.filter(empresa=empresa, ano__in=(ano - 1, ano)).exclude(
+        estado=EstadoFolhaFatorR.ESTORNADA
+    )
+    return {(folha.ano, folha.mes): folha for folha in folhas}
+
+
 def fs12(empresa: Empresa, ano: int, mes: int) -> Fs12:
     """FS12 do PA pela mesma janela do RBT12 (DL-075, item 3). Recusa como o RBT12."""
     janela = apuracao.janela_da_apuracao(empresa, ano, mes)
+    return _fs12_da_janela(janela, _folhas_ativas_do_ano(empresa, ano))
+
+
+def fs12_do_ano(empresa: Empresa, ano: int) -> dict[int, Fs12 | apuracao.ApuracaoRecusada]:
+    """FS12 dos 12 meses de `ano`, em duas consultas fixas (A9 da auditoria DL-075).
+
+    Mesmo resultado de `fs12` mês a mês, mas sem consultar folha nem período por mês. Um
+    mês que o RBT12 recusa aparece como `ApuracaoRecusada` (a tela mostra a mensagem).
+    """
+    periodos = apuracao.periodos_do_simples(empresa)
+    folhas = _folhas_ativas_do_ano(empresa, ano)
+    resultado: dict[int, Fs12 | apuracao.ApuracaoRecusada] = {}
+    for mes in range(1, 13):
+        try:
+            janela = apuracao.janela_da_apuracao(empresa, ano, mes, periodos=periodos)
+        except apuracao.ApuracaoRecusada as exc:
+            resultado[mes] = exc
+            continue
+        resultado[mes] = _fs12_da_janela(janela, folhas)
+    return resultado
+
+
+def _fs12_da_janela(janela, folhas: dict[tuple[int, int], FolhaFatorR]) -> Fs12:
+    """FS12 da janela, com as folhas do ano já lidas. Regra única de `fs12` e `fs12_do_ano`."""
     abertura = (janela.abertura.year, janela.abertura.month)
     soma = ZERO
     contados = 0
@@ -279,7 +325,7 @@ def fs12(empresa: Empresa, ano: int, mes: int) -> Fs12:
             # Antes da abertura: zero, sem exigir folha (mesmo critério do RBT12).
             continue
         contados += 1
-        lancamento = folha_ativa(empresa, ano_m, mes_m)
+        lancamento = folhas.get((ano_m, mes_m))
         if lancamento is None or lancamento.estado != EstadoFolhaFatorR.CONFIRMADA:
             situacao = lancamento.estado if lancamento is not None else SITUACAO_SEM_LANCAMENTO
             pendentes.append((ano_m, mes_m, situacao))
