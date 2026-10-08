@@ -89,6 +89,13 @@ Fred nesta sessão, fora do repositório.
 | RC-159 | Confirmado | Fred, 07/10/2026, respondendo à PE-76: *"a trilha deve ser preservada"*. A exclusão de um escritório, inclusive por pedido de exclusão pela LGPD, **não apaga** a trilha de auditoria dele. A fatia 3 da [DL-069](../planos/DL-069-travas-no-banco.md) pode recusar no banco todo DELETE na trilha, sem exceção. Fica para o desenho da fatia 3 como a trilha continua **identificável** depois que o escritório some: hoje o vínculo vira `escritorio_id=NULL`. |
 | PE-77 | Pendência — **bloqueia a fatia 3 da DL-069** | Existe prazo de retenção da trilha de auditoria? Nada no repositório fixa prazo. Decisão do Fred, com base normativa se houver. |
 
+## Melhorias com equipe multiagente — DL-070
+
+| ID | Categoria | Requisito e origem |
+| --- | --- | --- |
+| RC-160 | Confirmado | Fred, 08/10/2026: *"Atue como uma equipe multi-agente para analisar e melhorar o meu repositório"*, com orquestrador em Opus (mapear, planejar, dividir, atribuir, coordenar), **desenvolvedores em Haiku** em paralelo e **auditor em Sonnet** revisando boas práticas, segurança, desempenho e cobertura de testes antes da aprovação final. Diverge da RC-143 só quanto ao modelo de implementação; a ordem mais recente prevalece (AGENTS.md §0). O arquiteto restringiu o escopo da etapa ao nível 2 e 3 por causa disso — ver [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md). |
+| HI-53 | Hipótese de processo | A RC-160 vale **para esta etapa**. Se o Fred quiser Haiku como padrão de implementação daqui em diante, inclusive em nível 1, a RC-143 precisa ser revista por ele. |
+
 ## Legenda
 
 | Estado | Significado |
