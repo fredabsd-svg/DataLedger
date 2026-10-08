@@ -94,6 +94,7 @@ Fred nesta sessão, fora do repositório.
 | ID | Categoria | Requisito e origem |
 | --- | --- | --- |
 | RC-160 | Confirmado | Fred, 08/10/2026: *"Atue como uma equipe multi-agente para analisar e melhorar o meu repositório"*, com orquestrador em Opus (mapear, planejar, dividir, atribuir, coordenar), **desenvolvedores em Haiku** em paralelo e **auditor em Sonnet** revisando boas práticas, segurança, desempenho e cobertura de testes antes da aprovação final. Diverge da RC-143 só quanto ao modelo de implementação; a ordem mais recente prevalece (AGENTS.md §0). O arquiteto restringiu o escopo da etapa ao nível 2 e 3 por causa disso — ver [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md). |
+| RC-161 | Confirmado | Fred, 08/10/2026: *"Próxima etapa"*, dito logo depois de o arquiteto perguntar *"Posso abrir o PR para a `main`?"* ao fim da DL-070. O arquiteto **interpretou** como autorização para o próximo passo do ciclo do AGENTS.md §5 — abrir o PR #94 e levar a CI ao verde —, não como autorização de merge, que continua com o Fred. Se ele quis dizer outra etapa da fila, a ordem dele prevalece. |
 | HI-53 | Hipótese de processo | A RC-160 vale **para esta etapa**. Se o Fred quiser Haiku como padrão de implementação daqui em diante, inclusive em nível 1, a RC-143 precisa ser revista por ele. |
 
 ## Legenda

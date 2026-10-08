@@ -147,9 +147,11 @@ que não existe mais no remoto (medido em 07/10/2026), e não foi integrada — 
 ## Próximo passo
 
 **AGORA, em 08/10/2026: [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md)
-— melhorias do repositório com equipe multiagente, em revisão** na branch
-`ccr-bf4b4a55-hpqgbp`, enviada ao remoto; **sem PR aberto e sem merge** — o
-próximo passo é o Fred autorizar o PR para a `main`. Ordem do Fred (RC-160):
+— melhorias do repositório com equipe multiagente, em revisão** pelo
+[PR #94](https://github.com/fredabsd-svg/DataLedger/pull/94), branch
+`ccr-bf4b4a55-hpqgbp` → `main`, aberto em 08/10/2026 depois de o Fred dizer
+*"Próxima etapa"* à pergunta sobre o PR (RC-161). **Sem merge.** O próximo
+passo é a CI verde no último commit e o merge pelo Fred. Ordem do Fred (RC-160):
 orquestrador em Opus, desenvolvedores em Haiku em paralelo, auditor em Sonnet.
 
 O que entrou:
@@ -182,8 +184,8 @@ PostgreSQL 16 local, sobre `25fe182`, medida pelo auditor):** `ruff check` e
 `makemigrations --check` sem mudança; `pytest` completo **5.021 aprovados, 1
 reprovado, 53 pulados**. A reprovação é a conhecida de ambiente
 (`test_versao_minima_python.py`, que exige Python 3.14). Antes da DL-070,
-sobre `79ff2e5`: 4.987/1/53. **A CI (Python 3.14) não rodou** — só roda com
-o PR.
+sobre `79ff2e5`: 4.987/1/53. A CI (Python 3.14) roda no
+PR #94.
 
 **Achado de processo desta etapa:** as cópias isoladas criadas pela
 ferramenta de agentes (`isolation: worktree`) partiram de `d5cc6bf`, quatro
