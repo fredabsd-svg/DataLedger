@@ -61,6 +61,27 @@ retenções de pessoa física; crédito de PIS/Cofins no Lucro Real; guias e
 obrigações acessórias; vencimento do ISS retido nos outros 51 municípios (sem
 regra cadastrada, mostra "não parametrizado").
 
+## Decisões tomadas na implementação
+
+- **Natureza × retenção:** a natureza diz o tipo da operação e do
+  prestador; a retenção vem do `tpRetISSQN`. "ISS retido pelo cliente"
+  exige retenção no XML e "sem retenção" e "prestador de outro município"
+  exigem ausência dela (recusa na efetivação). MEI, Simples e pessoa física
+  aceitam os dois casos, e com retenção entram no total do ISS retido
+  (HI-94); MEI com retenção gera aviso.
+- **Nota emitida pelo tomador** (`tpEmit` 2 ou 3) é recusada no primeiro
+  corte: o XSD mostra que o tipo 2 cobre importação **e** outros motivos de
+  emissão pelo tomador (`cMotivoEmisTI`), e o tratamento de cada um ainda não
+  foi decidido (HI-97).
+- **Data de pagamento** só em tomada efetivada, com motivo e trilha; o banco
+  permite alterar só esse grupo de colunas depois da efetivação.
+- **Prestador de outro município** é identificado por `cLocIncid` diferente
+  do local da prestação, sem a lista de subitens do art. 3º da LC 116; o
+  aviso de CNES/RANFS vale para incidência em Palmas.
+- **INSS** vence no dia 20 nominal do mês seguinte ao da emissão; IRRF e
+  CSRF são agrupados pela data de pagamento, sem data de vencimento
+  calculada.
+
 ## Critérios de aceite
 
 1. Campos lidos batem com o XSD nas duas versões, com o caminho citado;
