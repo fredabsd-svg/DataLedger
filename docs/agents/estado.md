@@ -194,7 +194,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    [Auditoria rodada 1](../auditorias/2026-10-08-dl-074-rodada-1.md):
    **REPROVADA** — A1 (bloqueador: RBT12 de empresa nova errado na virada do
    ano, para menos) e A2 (alta: `PATCH` da data de abertura dava 500), mais
-   A3 a A9. Correção única em andamento; HI-76 e HI-77. É o controle
+   A3 a A9. Correção única feita (`644f488`, Haiku; rótulo do § 3º na tela
+   ajustado à HI-76 em `71f371d`); HI-76 e HI-77. **Reconferência em
+   andamento** sobre `71f371d` — última rodada do §3.1. É o controle
    funcionando: o erro seria silencioso no DAS.
 4. **DL-075 — pré-DAS do Simples:
    em desenvolvimento** em cópia isolada (`/home/user/wt-dl075`). Tabelas oficiais dos
