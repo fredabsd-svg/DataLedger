@@ -848,8 +848,10 @@ class ConfirmacaoReceitaMensal(models.Model):
 
     `valor_confirmado_interno`/`_externo` são o total do mês NO INSTANTE da
     confirmação. Comparado com o total atual, mostra se a receita mudou depois
-    (por exemplo, uma escrituração efetivada no mês confirmado, que não passa
-    pelo estorno). Mudou → o mês é "a retificar" e não entra no RBT12.
+    por um caminho que não passou pelos ganchos de serviço (estorno e efetivação
+    em mês confirmado reabrem a confirmação com trilha — `marcar_a_retificar` em
+    `apps/fiscal/receita.py`). Mudou → o mês é "a retificar" e não entra no
+    RBT12: é a segunda camada, para o que escapar dos ganchos.
     """
 
     empresa = models.ForeignKey(

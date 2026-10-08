@@ -61,6 +61,26 @@ por lei do ente; fora da lista da LC 116. Cada natureza diz o **mercado**
 o extrato do PGDAS-D (etapa própria); regime de caixa além do bloqueio
 explicado; receitas de 2027 em diante com as regras da Res. CGSN 190/2026.
 
+## Decisões tomadas na implementação
+
+- **Início de uso do sistema** = mês do cadastro da empresa (HI-73).
+- **Receita das notas** = `vServ` (HI-74).
+- **Efetivar em mês confirmado** reabre a confirmação com trilha, como o
+  estorno (HI-75); o total guardado no ato é a segunda camada.
+- **Regime de caixa** é uma tabela própria por ano (`OpcaoRegimeCaixaSimples`),
+  recusada a partir de 2027 no serviço e no banco.
+- **Limites** são dado com valor, dispositivo, fonte, início e fim de vigência
+  (`apps/fiscal/rbt12.py`), só os de 2026; apurar 2027 é recusado citando a
+  Res. CGSN 190/2026.
+- **RBT12** com média não exata guarda a precisão (sem arredondar a centavos);
+  a tela mostra duas casas e avisa quando há casas escondidas.
+- **Não modelados:** teto de ME (R$ 360 mil); art. 3º § 3º (limite
+  proporcional para a opção com abertura no ano anterior); UF do sublimite
+  (a Portaria 54/2025 vale para todas em 2026); a faixa de 20% do sublimite
+  cita o art. 81 por analogia (hipótese).
+- **Tela de edição de empresa não existe** (BL-666): a data de abertura de
+  empresa já cadastrada só entra pela API.
+
 ## Regras de engenharia
 
 `Decimal` sem arredondar RBT12; confirmação e receita informada imutáveis

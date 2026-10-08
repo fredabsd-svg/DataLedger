@@ -221,20 +221,22 @@ def test_mes_reaberto_a_mao_nao_e_a_retificar_mas_nao_confirma(empresa, usuario_
     assert resultado.pendentes_da_janela == ((2026, 5, "nao_confirmado"),)
 
 
-def test_escrituracao_efetivada_em_mes_confirmado_deixa_o_mes_a_retificar_sem_gancho(
+def test_escrituracao_efetivada_em_mes_confirmado_reabre_o_mes_e_marca_a_retificar(
     empresa, escritorio_a, usuario_gestor_a
 ):
-    # A efetivação não passa pelo gancho do estorno. A proteção é o total guardado no ato:
-    # o total mudou, e o mês deixa de estar confirmado de fato.
+    # Desenho mudado pela frente B da DL-074, por decisão do arquiteto: a efetivação em
+    # mês confirmado passa pelo MESMO gancho do estorno — reabre a confirmação e a marca
+    # "a retificar", com trilha, na mesma transação. Antes, a proteção era só o total
+    # guardado no ato, e a linha de confirmação continuava "confirmada" sem trilha.
     servico.confirmar_mes(empresa, 2026, 5, usuario_gestor_a)
     escriturar(
         escritorio_a, empresa, usuario_gestor_a, sufixo=305, competencia=(2026, 5), valor="90"
     )
 
     assert servico.situacao_do_mes(empresa, 2026, 5) == "a_retificar"
-    assert ConfirmacaoReceitaMensal.objects.get(empresa=empresa, ano=2026, mes=5).estado == (
-        EstadoConfirmacaoMes.CONFIRMADA
-    )
+    confirmacao = ConfirmacaoReceitaMensal.objects.get(empresa=empresa, ano=2026, mes=5)
+    assert confirmacao.estado == EstadoConfirmacaoMes.REABERTA
+    assert confirmacao.a_retificar is True
 
 
 def test_gancho_nao_mexe_em_mes_ja_reaberto_alem_de_marcar_a_retificar(
