@@ -102,6 +102,15 @@ ROTULOS_DE_TELA = {
     ("fiscal_web", "receita_informada_estornar"): "Estornar receita informada",
     ("fiscal_web", "receita_mes_reabrir"): "Reabrir receita do mês",
     ("fiscal_web", "regime_caixa"): "Regime de caixa (Simples)",
+    # DL-075 (frente B): pré-DAS para conferência, atividades e folha para o fator r.
+    ("fiscal_web", "pre_das"): "Pré-DAS do Simples",
+    ("fiscal_web", "atividades"): "Atividades do Simples",
+    ("fiscal_web", "atividade_nova"): "Nova atividade",
+    ("fiscal_web", "atividade_editar"): "Alterar atividade",
+    ("fiscal_web", "atividade_encerrar"): "Encerrar atividade",
+    ("fiscal_web", "folhas_fator_r"): "Folha para o fator r",
+    ("fiscal_web", "folha_nova"): "Lançar folha",
+    ("fiscal_web", "folha_estornar"): "Estornar folha",
     # DL-073: conformidade IBS/CBS das NFS-e recebidas (modo aviso).
     ("fiscal_web", "conformidade_ibscbs"): "Conformidade IBS/CBS",
     ("tenancy", "bootstrap-primeiro-acesso"): "Criar escritório",

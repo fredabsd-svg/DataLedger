@@ -19,6 +19,7 @@ from apps.fiscal.models import (
     MercadoReceita,
     NaturezaOperacao,
     OrigemReceitaInformada,
+    SituacaoIssReceitaInformada,
 )
 from apps.fiscal.tests.test_dl074_suporte import (
     NATUREZA_EXPORTACAO,
@@ -38,6 +39,8 @@ EXTERNO = MercadoReceita.EXTERNO
 def _lancar(
     empresa, usuario, mercado, valor, *, ano=2026, mes=5, origem="outras_receitas_atividade"
 ):
+    # HI-80: o interno leva situação do ISS (exigida); a exportação não leva.
+    situacao = SituacaoIssReceitaInformada.PROPRIO_MUNICIPIO if mercado == INTERNO else None
     return servico.lancar_receita_informada(
         empresa,
         ano,
@@ -48,6 +51,7 @@ def _lancar(
         "Motivo sintético.",
         "Suporte sintético.",
         usuario,
+        situacao_iss=situacao,
     )
 
 
@@ -188,6 +192,7 @@ def test_motivo_e_documento_de_suporte_sao_obrigatorios(empresa_a, usuario_gesto
             argumentos["motivo"],
             argumentos["documento_suporte"],
             usuario_gestor_a,
+            situacao_iss="proprio_municipio",
         )
 
 
@@ -198,7 +203,16 @@ def test_mercado_e_origem_fora_do_catalogo_sao_recusados(empresa_a, usuario_gest
         )
     with pytest.raises(servico.EntradaInvalidaReceita, match="Origem fora do catálogo"):
         servico.lancar_receita_informada(
-            empresa_a, 2026, 5, INTERNO, "10", "palpite", "M.", "S.", usuario_gestor_a
+            empresa_a,
+            2026,
+            5,
+            INTERNO,
+            "10",
+            "palpite",
+            "M.",
+            "S.",
+            usuario_gestor_a,
+            situacao_iss="proprio_municipio",
         )
 
 

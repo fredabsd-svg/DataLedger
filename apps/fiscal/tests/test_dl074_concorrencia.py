@@ -158,6 +158,7 @@ def test_confirmar_receita_e_confirmar_mes_ao_mesmo_tempo_sao_consistentes(
             "Motivo sintético.",
             "Suporte sintético.",
             usuario_gestor_a,
+            situacao_iss="proprio_municipio",
         )
 
         resultados = _em_paralelo(

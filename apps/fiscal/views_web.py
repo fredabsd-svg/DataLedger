@@ -59,7 +59,8 @@ que guarda a duplicação.
 from __future__ import annotations
 
 import re
-from decimal import Decimal
+from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal, localcontext
 from urllib.parse import urlencode
 
 from django.contrib import messages
@@ -82,15 +83,22 @@ from apps.core.requisicao import (
 )
 from apps.empresas.models import Empresa
 from apps.fiscal import escrituracao as servico_escrituracao
+from apps.fiscal import folha_fator_r as servico_folha
+from apps.fiscal import pre_das as servico_pre_das
 from apps.fiscal import rbt12 as apuracao
 from apps.fiscal import receita as servico_receita
+from apps.fiscal import simples_tabelas as tabelas
 from apps.fiscal.models import (
+    AtividadeEmpresa,
     DocumentoFiscal,
+    EnquadramentoAtividade,
     EscrituracaoFiscal,
     EstadoConfirmacaoMes,
     EstadoEscrituracao,
+    EstadoFolhaFatorR,
     EstadoReceitaInformada,
     EventoFiscal,
+    FolhaFatorR,
     LoteDeRecepcao,
     MercadoReceita,
     NaturezaOperacao,
@@ -98,6 +106,7 @@ from apps.fiscal.models import (
     OrigemReceitaInformada,
     PapelDocumento,
     ReceitaInformada,
+    SituacaoIssReceitaInformada,
     VinculoDocumentoEmpresa,
 )
 from apps.fiscal.permissoes import (
@@ -1403,6 +1412,7 @@ _CONTRATO_RECEITA_INFORMADA = ContratoDeRequisicao(
         "origem",
         "motivo",
         "documento_suporte",
+        "situacao_iss",
         "acao",
     },
     cabecalhos_ignorados=("Idempotency-Key",),
@@ -1432,7 +1442,15 @@ def _url_do_mes(empresa, ano, mes):
 _PADRAO_DE_MILHAR_SEM_VIRGULA = re.compile(r"\.\d{3}(?!\d)")
 
 
-class ValorAmbiguo(ValueError):
+# Milhar bem formado: grupos de três dígitos separados por ponto ('1.234', '12.345.678').
+_PADRAO_DE_MILHAR_BEM_FORMADO = re.compile(r"\d{1,3}(?:\.\d{3})+")
+
+
+class ValorInvalidoNoFormulario(ValueError):
+    """Valor digitado que o formulário não aceita: a tela mostra a mensagem e não grava (A4)."""
+
+
+class ValorAmbiguo(ValorInvalidoNoFormulario):
     """Valor digitado sem vírgula com ponto de milhar: a tela pede a vírgula (A4)."""
 
 
@@ -1440,16 +1458,30 @@ def _valor_do_formulario(bruto: str) -> str:
     """Valor digitado pelo contador, em pt-BR ('1.234,56') ou com ponto ('1234.56').
 
     Com vírgula, o ponto é separador de milhar e a vírgula é o decimal ('1.000,50' vira
-    '1000.50'). Sem vírgula, o texto segue como está ('1500' e '1500.5'), exceto quando há
-    ponto seguido de exatamente três dígitos: '10.000' pode ser dez mil ou dez centavos, e
-    o sistema não adivinha. Nesse caso levanta `ValorAmbiguo` pedindo a vírgula (A4).
+    '1000.50'). O ponto de milhar só vale entre grupos de três dígitos: '1.23,4' é recusado
+    (`ValorInvalidoNoFormulario`), e não lido como 123,40 (A4 da auditoria DL-075). Vírgula
+    decimal só uma vez.
+
+    Sem vírgula, o texto segue como está ('1500' e '1500.5'), exceto quando há ponto seguido
+    de exatamente três dígitos: '10.000' pode ser dez mil ou dez centavos, e o sistema não
+    adivinha. Nesse caso levanta `ValorAmbiguo` pedindo a vírgula.
 
     Não vira número aqui: o serviço recusa o que não for decimal positivo de até duas
     casas, e nunca aceita float.
     """
     texto = bruto.strip()
     if "," in texto:
-        return texto.replace(".", "").replace(",", ".")
+        inteiro, _, decimal = texto.partition(",")
+        if "," in decimal:
+            raise ValorInvalidoNoFormulario(
+                "Valor inválido: use uma só vírgula, para os centavos (ex.: 1.234,56)."
+            )
+        if "." in inteiro and not _PADRAO_DE_MILHAR_BEM_FORMADO.fullmatch(inteiro):
+            raise ValorInvalidoNoFormulario(
+                f"Valor inválido: {texto}. O ponto só separa grupos de três dígitos, como em "
+                "1.234,56. Confira o valor."
+            )
+        return f"{inteiro.replace('.', '')}.{decimal}"
     if _PADRAO_DE_MILHAR_SEM_VIRGULA.search(texto):
         raise ValorAmbiguo(
             "Valor ambíguo: sem vírgula, o ponto é lido como separador de milhar. Se o valor é "
@@ -1642,6 +1674,8 @@ def _contexto_do_mes(empresa, ano, mes, pode_escriturar):
         "url_confirmar": reverse("fiscal_web:receita_mes_confirmar", args=[empresa.pk, ano, mes]),
         "url_reabrir": reverse("fiscal_web:receita_mes_reabrir", args=[empresa.pk, ano, mes]),
         "url_regime_caixa": reverse("fiscal_web:regime_caixa", args=[empresa.pk]),
+        # DL-075 (frente B): o pré-DAS do mesmo mês, para conferência (classe 1).
+        "url_pre_das": _url_do_pre_das(empresa, ano, mes),
         "recusa_do_rbt12": recusa_do_rbt12,
         "rbt12": rbt12,
     }
@@ -1763,6 +1797,8 @@ def _valores_do_lancamento(request):
         "mercado": MercadoReceita.INTERNO,
         "valor": "",
         "origem": "",
+        # HI-80: sem valor padrão. O contador escolhe; "próprio município" não é presumido.
+        "situacao_iss": "",
         "motivo": "",
         "documento_suporte": "",
     }
@@ -1776,6 +1812,7 @@ def _tela_de_lancar_receita(request, empresa, *, valores, status=200):
         "opcoes_mes": _MESES_DO_ANO,
         "opcoes_mercado": MercadoReceita.choices,
         "opcoes_origem": OrigemReceitaInformada.choices,
+        "opcoes_situacao_iss": SituacaoIssReceitaInformada.choices,
         "inicio_de_uso_rotulo": _mes_por_extenso(inicio_ano, inicio_mes),
         "motivo_maximo": servico_receita.MOTIVO_MAXIMO,
         "suporte_maximo": servico_receita.DOCUMENTO_SUPORTE_MAXIMO,
@@ -1787,7 +1824,17 @@ def _tela_de_lancar_receita(request, empresa, *, valores, status=200):
 
 
 def _lancar_receita_post(request, empresa):
-    campos = ("ano", "mes", "mercado", "valor", "origem", "motivo", "documento_suporte", "acao")
+    campos = (
+        "ano",
+        "mes",
+        "mercado",
+        "valor",
+        "origem",
+        "situacao_iss",
+        "motivo",
+        "documento_suporte",
+        "acao",
+    )
     valores = {campo: request.POST.get(campo, "") for campo in campos}
     try:
         recusar_dado_nao_contratado(request, _CONTRATO_RECEITA_INFORMADA)
@@ -1808,7 +1855,7 @@ def _lancar_receita_post(request, empresa):
 
     try:
         valor = _valor_do_formulario(valores["valor"])
-    except ValorAmbiguo as exc:
+    except ValorInvalidoNoFormulario as exc:
         messages.error(request, str(exc))
         return _tela_de_lancar_receita(request, empresa, valores=valores, status=200)
     if not _so_digitos_com_ponto_decimal(valor):
@@ -1836,6 +1883,7 @@ def _lancar_receita_post(request, empresa):
                 valores["documento_suporte"],
                 usuario=request.user,
                 request=request,
+                situacao_iss=valores["situacao_iss"],
             )
             if valores["acao"] == "confirmar":
                 servico_receita.confirmar_receita_informada(
@@ -2007,3 +2055,1000 @@ def regime_caixa(request, empresa_id):
         f"Opção pelo regime de caixa registrada para {ano}. Ela é irretratável no ano.",
     )
     return redirect("fiscal_web:regime_caixa", empresa_id=empresa.pk)
+
+
+# ---------------------------------------------------------------------------
+# DL-075 (frente B): pré-DAS, atividades e folha para o fator r.
+#
+# CONFERÊNCIA (classe 1 de docs/projeto/personalizacao-de-relatorio.md): o pré-DAS calcula
+# para o contador conferir contra o PGDAS-D. Nenhuma tela gera nem transmite DAS, e nenhuma
+# calcula alíquota. A regra fica em `apps.fiscal.pre_das` e `apps.fiscal.folha_fator_r`;
+# aqui há autorização, isolamento, leitura da entrada, formatação pt-BR e tradução de erro
+# (mesmo critério da API, apps/fiscal/api.py).
+#
+# Uma tela de UMA empresa não lista as outras empresas do escritório (direção de arte §8.1):
+# a lista de empresas só aparece quando nenhuma foi escolhida.
+# ---------------------------------------------------------------------------
+
+_AVISO_DO_PRE_DAS = (
+    "Pré-apuração para conferência contra o PGDAS-D. Esta tela não gera nem transmite DAS, "
+    "não substitui o aplicativo oficial e não é documento oficial."
+)
+_MENSAGEM_SEM_PERMISSAO_DO_SIMPLES = (
+    "Seu papel consulta o Simples Nacional, mas não cadastra, altera, lança nem estorna: "
+    "peça a um administrador ou gestor do escritório."
+)
+_PRECISAO_DE_EXIBICAO = 60
+# Ponto decimal de um número dentro de um texto da memória. O dispositivo NÃO passa aqui:
+# ele cita itens como "8.2.1", que não são números.
+# Ponto decimal (percentuais e textos com ponto), ou dinheiro já em pt-BR ('500.000,00'), que
+# a memória do pré-DAS produz com ponto de milhar. O dinheiro fica como está.
+_PADRAO_PONTO_DECIMAL = re.compile(r"\d{1,3}(?:\.\d{3})+,\d{2}|(?<=\d)\.(?=\d)")
+_TRIBUTOS_NA_ORDEM = (
+    tabelas.IRPJ,
+    tabelas.CSLL,
+    tabelas.COFINS,
+    tabelas.PIS,
+    tabelas.CPP,
+    tabelas.ISS,
+    tabelas.ICMS,
+    tabelas.IPI,
+)
+_ROTULO_DO_TRIBUTO = {
+    tabelas.IRPJ: "IRPJ",
+    tabelas.CSLL: "CSLL",
+    tabelas.COFINS: "Cofins",
+    tabelas.PIS: "PIS/Pasep",
+    tabelas.CPP: "CPP",
+    tabelas.ISS: "ISS",
+    tabelas.ICMS: "ICMS",
+    tabelas.IPI: "IPI",
+}
+_ROTULO_DO_SEGMENTO = {
+    servico_pre_das.SEG_NORMAL: "Receita normal (ISS devido pelo prestador)",
+    servico_pre_das.SEG_RETIDO: "Receita com ISS retido (o percentual do ISS é desconsiderado)",
+    servico_pre_das.SEG_OUTRO_MUNICIPIO: (
+        "Receita com ISS devido a outro município (sem divisão por município)"
+    ),
+    servico_pre_das.SEG_EXPORTACAO: "Exportação de serviço (sem PIS, Cofins e ISS)",
+}
+# Códigos de bloqueio que se resolvem cadastrando ou corrigindo a atividade da empresa.
+_CODIGOS_DE_ATIVIDADE = frozenset(
+    {
+        "sem_atividade_padrao",
+        "atividades_padrao_sobrepostas",
+        "atividade_padrao_muda_no_mes",
+        "atividade_informada_fora_da_vigencia",
+    }
+)
+_ROTULO_DA_SITUACAO_DA_FOLHA = {
+    servico_folha.SITUACAO_SEM_LANCAMENTO: "sem folha lançada",
+    EstadoFolhaFatorR.RASCUNHO: "rascunho, não confirmada",
+    EstadoFolhaFatorR.CONFIRMADA: "confirmada",
+    EstadoFolhaFatorR.ESTORNADA: "estornada",
+}
+_ROTULO_DO_COMPONENTE = {
+    "remuneracao_empregados_avulsos": "Remuneração base INSS: empregados e avulsos",
+    "pro_labore_autonomos": "Pró-labore e autônomos",
+    "decimo_terceiro": "13º salário (na competência da incidência)",
+    "cpp_recolhida": "CPP recolhida (inclusive a do DAS)",
+    "fgts_recolhido": "FGTS recolhido",
+}
+_ENQUADRAMENTOS_NA_TELA = [
+    {
+        "valor": valor,
+        "rotulo": rotulo,
+        "dispositivo": servico_pre_das.DISPOSITIVO_DO_ENQUADRAMENTO[valor],
+    }
+    for valor, rotulo in EnquadramentoAtividade.choices
+]
+
+# Contratos das superfícies de escrita (apps.core.requisicao, BL-196). Cada view de POST
+# desta seção chama `recusar_dado_nao_contratado` com um destes.
+_CONTRATO_DA_ATIVIDADE = ContratoDeRequisicao(
+    campos={
+        "csrfmiddlewaretoken",
+        "descricao",
+        "codigo_subitem",
+        "enquadramento",
+        "inicio",
+        "fim",
+        "padrao",
+    },
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no cadastro da atividade",
+)
+_CONTRATO_ENCERRAR_ATIVIDADE = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "fim"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no encerramento da atividade",
+)
+_CONTRATO_DA_FOLHA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "ano", "mes", "documento_suporte", *FolhaFatorR.COMPONENTES},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no lançamento da folha",
+)
+_CONTRATO_SEM_CAMPOS_DA_FOLHA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na confirmação da folha",
+)
+_CONTRATO_MOTIVO_DA_FOLHA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no estorno da folha",
+)
+
+
+# ---------------------------------------------------------------------------
+# Formatação de apresentação. Só exibição: nenhum cálculo passa por estas funções.
+# ---------------------------------------------------------------------------
+
+
+def _decimal_ptbr(valor, casas: int) -> str:
+    """`Decimal` → texto pt-BR com `casas` decimais ('.' de milhar, ',' decimal).
+
+    Arredonda SÓ para exibir (ROUND_HALF_UP). Nunca recebe `float` (AGENTS.md §10).
+    """
+    if valor is None:
+        return "—"
+    with localcontext() as contexto:
+        contexto.prec = _PRECISAO_DE_EXIBICAO
+        quantizado = Decimal(valor).quantize(Decimal(1).scaleb(-casas), rounding=ROUND_HALF_UP)
+    inteiro, _, fracao = f"{quantizado:f}".partition(".")
+    return f"{_milhar_ptbr(inteiro)},{fracao}" if fracao else _milhar_ptbr(inteiro)
+
+
+def _dinheiro_ptbr(valor) -> str:
+    return _decimal_ptbr(valor, 2)
+
+
+def _percentual_ptbr(fracao) -> str:
+    """Fração (0,0808) → percentual com 4 casas ('8,0800%'). A alíquota efetiva usa esta
+    forma; o cálculo usa a precisão total, sem arredondar (LC 123, art. 18, § 1º-A)."""
+    if fracao is None:
+        return "—"
+    with localcontext() as contexto:
+        contexto.prec = _PRECISAO_DE_EXIBICAO
+        percentual = Decimal(fracao) * 100
+    return f"{_decimal_ptbr(percentual, 4)}%"
+
+
+def _texto_da_memoria_em_ptbr(texto: str) -> str:
+    """Números de um texto da memória, com vírgula decimal. Só o que é número.
+
+    O dinheiro (já pt-BR, com milhar) passa sem mudança; o ponto decimal de percentuais vira
+    vírgula.
+    """
+    return _PADRAO_PONTO_DECIMAL.sub(lambda m: m.group(0) if "," in m.group(0) else ",", texto)
+
+
+def _data_do_formulario(texto: str):
+    """Data digitada em dd/mm/aaaa → `date`, ou None se for inválida."""
+    texto = texto.strip()
+    if not texto.isascii() or len(texto) != 10 or texto[2] != "/" or texto[5] != "/":
+        return None
+    try:
+        return datetime.strptime(texto, "%d/%m/%Y").date()
+    except ValueError:
+        return None
+
+
+def _data_na_tela(data) -> str:
+    return data.strftime("%d/%m/%Y") if data is not None else ""
+
+
+# ---------------------------------------------------------------------------
+# URLs e filtros das telas do Simples
+# ---------------------------------------------------------------------------
+
+
+def _url_do_pre_das(empresa, ano, mes):
+    return _url_da_competencia(reverse("fiscal_web:pre_das"), empresa, ano, mes)
+
+
+def _url_atividades(empresa):
+    return reverse("fiscal_web:atividades") + "?" + urlencode({"empresa": empresa.pk})
+
+
+def _url_folhas(empresa, ano):
+    return (
+        reverse("fiscal_web:folhas_fator_r") + "?" + urlencode({"empresa": empresa.pk, "ano": ano})
+    )
+
+
+def _contexto_do_filtro_de_empresa(request, empresa, competencia=None):
+    """Valores do filtro das telas do Simples. A lista de empresas só existe SEM empresa
+    escolhida; com uma escolhida, o filtro mostra só ela (direção de arte §8.1)."""
+    ano = request.GET.get("ano", "").strip()
+    mes = request.GET.get("mes", "").strip()
+    if competencia is not None and not ano and not mes:
+        ano, mes = str(competencia[0]), f"{competencia[1]:02d}"
+    return {
+        "empresa_selecionada": empresa,
+        "empresas_do_escritorio": (
+            None
+            if empresa is not None
+            else Empresa.objects.filter(escritorio=request.escritorio).order_by("razao_social")
+        ),
+        "ano_filtro": ano,
+        "mes_filtro": mes,
+        "url_trocar_empresa": reverse("empresas:lista"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Pré-DAS do mês (tela 1)
+# ---------------------------------------------------------------------------
+
+
+def _acao_do_bloqueio(bloqueio, empresa, ano, mes):
+    """`(rótulo, URL, texto)` para resolver o bloqueio. Sem caminho na tela, rótulo e URL
+    vêm vazios e o texto diz o porquê: a tela não inventa um caminho que não existe."""
+    codigo = bloqueio.codigo
+    if codigo in ("mes_nao_confirmado", "rbt12_nao_apuravel"):
+        return "Abrir a receita do mês", _url_do_mes(empresa, ano, mes), ""
+    if codigo == "rbt12_recusado":
+        if "data de abertura" in bloqueio.mensagem:
+            return (
+                None,
+                None,
+                "Não há tela para informar a data de abertura no CNPJ: ela fica no cadastro da "
+                "empresa (API de empresas). Esta tela não altera cadastro.",
+            )
+        return "Abrir a receita do mês", _url_do_mes(empresa, ano, mes), ""
+    if codigo == "regime_de_caixa":
+        return (
+            "Ver a opção pelo regime de caixa",
+            reverse("fiscal_web:regime_caixa", args=[empresa.pk]),
+            "",
+        )
+    if codigo in _CODIGOS_DE_ATIVIDADE:
+        return "Cadastrar ou corrigir as atividades", _url_atividades(empresa), ""
+    if codigo == "folha_nao_confirmada":
+        return "Lançar e confirmar a folha", _url_folhas(empresa, ano), ""
+    return (
+        None,
+        None,
+        "Não há ação nesta tela: a regra vem do primeiro corte do pré-DAS (HI-68) ou da "
+        "tabela de vigência.",
+    )
+
+
+def _bloqueio_na_tela(bloqueio, empresa, ano, mes) -> dict:
+    rotulo, url, texto = _acao_do_bloqueio(bloqueio, empresa, ano, mes)
+    return {
+        "mensagem": bloqueio.mensagem,
+        "dispositivo": bloqueio.dispositivo,
+        "acao": rotulo,
+        "url": url,
+        "sem_acao": texto,
+    }
+
+
+def _diferenca_na_tela(diferenca, tributo) -> str:
+    """Diferença centesimal (§ 1º-B, II). Quase sempre ~10^-60: mostra a ordem de grandeza."""
+    if abs(diferenca) < Decimal("0.000000000001"):
+        texto = "menor que 0,000000000001 em módulo (precisão total; a memória traz o valor)"
+    else:
+        texto = _decimal_ptbr(diferenca, 12)
+    return f"{texto}, ao tributo {_ROTULO_DO_TRIBUTO.get(tributo, tributo)}"
+
+
+def _segmento_na_tela(segmento) -> dict:
+    return {
+        "rotulo": _ROTULO_DO_SEGMENTO[segmento.segmento],
+        "receita": _dinheiro_ptbr(segmento.receita),
+        "total": _dinheiro_ptbr(segmento.total),
+        "linhas": [
+            {
+                "tributo": _ROTULO_DO_TRIBUTO.get(linha.tributo, linha.tributo),
+                "percentual": _percentual_ptbr(linha.percentual),
+                "valor": _dinheiro_ptbr(linha.valor),
+                "situacao": "Desconsiderado: valor zero" if linha.desconsiderado else "Incide",
+            }
+            for linha in segmento.linhas
+        ],
+    }
+
+
+def _anexo_na_tela(anexo) -> dict:
+    return {
+        "rotulo": f"{_ROTULO_DO_MERCADO[anexo.mercado]}: Anexo {anexo.anexo}",
+        "faixa": anexo.faixa,
+        "rbt12": _dinheiro_ptbr(anexo.rbt12),
+        "limite_superior": _dinheiro_ptbr(anexo.limite_superior),
+        "aliquota_nominal": _percentual_ptbr(anexo.aliquota_nominal),
+        "parcela_a_deduzir": _dinheiro_ptbr(anexo.parcela_a_deduzir),
+        "aliquota_efetiva": _percentual_ptbr(anexo.aliquota_efetiva),
+        "teto_iss": (
+            "Sim: ISS fixado em 5% e os federais redistribuídos (§ 1º-B; nota do anexo)"
+            if anexo.teto_iss_aplicado
+            else "Não"
+        ),
+        "diferenca": _diferenca_na_tela(anexo.diferenca, anexo.tributo_da_diferenca),
+        "total": _dinheiro_ptbr(anexo.total),
+        "segmentos": [_segmento_na_tela(segmento) for segmento in anexo.segmentos],
+    }
+
+
+def _fator_r_na_tela(fator):
+    if fator is None:
+        return None
+    return {
+        "fs12": _dinheiro_ptbr(fator.fs12),
+        "rbt12_conjunto": _dinheiro_ptbr(fator.rbt12_conjunto),
+        "valor": _decimal_ptbr(fator.valor, 2),
+        "regra_zero": fator.regra_zero,
+    }
+
+
+def _bloco_do_pre_das(resultado) -> dict:
+    """Tudo que a tela mostra do pré-DAS apurado. Os números exatos ficam no resultado."""
+    por_tributo = dict(resultado.total_por_tributo)
+    tributos = [
+        {
+            "rotulo": _ROTULO_DO_TRIBUTO.get(tributo, tributo),
+            "valor": _dinheiro_ptbr(por_tributo[tributo]),
+        }
+        for tributo in _TRIBUTOS_NA_ORDEM
+        if tributo in por_tributo
+    ]
+    return {
+        "total": _dinheiro_ptbr(resultado.total),
+        "rbt12_por_mercado": [
+            {"rotulo": _ROTULO_DO_MERCADO[mercado], "valor": _dinheiro_ptbr(valor)}
+            for mercado, valor in resultado.rbt12.items()
+        ],
+        "fator_r": _fator_r_na_tela(resultado.fator_r),
+        "anexos": [_anexo_na_tela(anexo) for anexo in resultado.anexos],
+        "tributos": tributos,
+        "segregacao": [
+            {
+                "mercado": _ROTULO_DO_MERCADO[anexo.mercado],
+                "anexo": anexo.anexo,
+                "segmento": _ROTULO_DO_SEGMENTO[segmento.segmento],
+                "receita": _dinheiro_ptbr(segmento.receita),
+                "tributos": _dinheiro_ptbr(segmento.total),
+            }
+            for anexo in resultado.anexos
+            for segmento in anexo.segmentos
+        ],
+        "memoria": [
+            {
+                "ordem": passo.ordem,
+                "descricao": _texto_da_memoria_em_ptbr(passo.descricao),
+                "valor": _texto_da_memoria_em_ptbr(passo.valor),
+                "dispositivo": passo.dispositivo,
+            }
+            for passo in resultado.memoria
+        ],
+    }
+
+
+def _contexto_do_pre_das(empresa, ano, mes) -> dict:
+    """Pré-DAS do mês: calcula pelo serviço e traduz a recusa em lista de bloqueios."""
+    contexto = {
+        "mes_rotulo": _mes_por_extenso(ano, mes),
+        "url_receita": _url_do_mes(empresa, ano, mes),
+        "url_atividades": _url_atividades(empresa),
+        "url_folhas": _url_folhas(empresa, ano),
+    }
+    try:
+        resultado = servico_pre_das.pre_das(empresa, ano, mes)
+    except servico_pre_das.PreDasRecusado as exc:
+        contexto.update(
+            recusado=True,
+            bloqueios=[_bloqueio_na_tela(b, empresa, ano, mes) for b in exc.bloqueios],
+        )
+        return contexto
+    except servico_receita.ReceitaErro as exc:
+        contexto.update(recusado=False, erro_competencia=exc.mensagem)
+        return contexto
+    contexto.update(recusado=False, erro_competencia="", **_bloco_do_pre_das(resultado))
+    return contexto
+
+
+@login_required
+@require_safe
+def pre_das(request):
+    """Pré-DAS do mês por empresa (arquétipo D, conferência). Consulta: `papel_pode_consultar_
+    documentos`. Recusa do cálculo é resposta 200 com a lista de bloqueios, nada gravado."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite consultar o pré-DAS do Simples Nacional."
+        )
+
+    empresa, competencia, erro = _filtros_de_escrituracao(request)
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, empresa, competencia),
+        "mostrar_ano": True,
+        "mostrar_mes": True,
+        "aviso_do_pre_das": _AVISO_DO_PRE_DAS,
+        "pode_escriturar": _pode_escriturar(request),
+    }
+    if erro:
+        messages.error(request, erro)
+        return render(request, "fiscal/pre_das.html", contexto, status=400)
+    if empresa is None:
+        return render(request, "fiscal/pre_das.html", contexto)
+
+    ano, mes = competencia
+    contexto.update(_contexto_do_pre_das(empresa, ano, mes))
+    return render(request, "fiscal/pre_das.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# Atividades da empresa (tela 2)
+# ---------------------------------------------------------------------------
+
+
+def _dados_da_atividade_na_tela(atividade) -> dict:
+    return {
+        "descricao": atividade.descricao,
+        "codigo_subitem": atividade.codigo_subitem or "—",
+        "enquadramento": atividade.get_enquadramento_display(),
+        "dispositivo": servico_pre_das.DISPOSITIVO_DO_ENQUADRAMENTO[atividade.enquadramento],
+        "inicio": _data_na_tela(atividade.inicio),
+        "fim": _data_na_tela(atividade.fim) if atividade.fim else "em aberto",
+        "padrao": "Sim" if atividade.padrao else "Não",
+    }
+
+
+def _linha_da_atividade(atividade, empresa, pode_escriturar) -> dict:
+    linha = {
+        **_dados_da_atividade_na_tela(atividade),
+        "pode_editar": pode_escriturar,
+        "url_editar": reverse("fiscal_web:atividade_editar", args=[empresa.pk, atividade.pk]),
+        "url_encerrar": None,
+    }
+    if atividade.fim is None:
+        linha["url_encerrar"] = reverse(
+            "fiscal_web:atividade_encerrar", args=[empresa.pk, atividade.pk]
+        )
+    return linha
+
+
+@login_required
+@require_safe
+def atividades(request):
+    """Atividades da empresa com vigência e enquadramento. Consulta: `papel_pode_consultar_
+    documentos`. Cadastro e alteração são telas próprias, com a empresa no caminho."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite consultar as atividades do Simples Nacional."
+        )
+
+    empresa, erro = _empresa_da_escrituracao(request)
+    pode_escriturar = _pode_escriturar(request)
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, empresa),
+        "pode_escriturar": pode_escriturar,
+        "mensagem_sem_permissao": _MENSAGEM_SEM_PERMISSAO_DO_SIMPLES,
+        "catalogo": _ENQUADRAMENTOS_NA_TELA,
+    }
+    if erro:
+        messages.error(request, erro)
+        return render(request, "fiscal/atividades.html", contexto, status=400)
+    if empresa is None:
+        return render(request, "fiscal/atividades.html", contexto)
+
+    lista = AtividadeEmpresa.objects.filter(empresa=empresa).order_by("inicio", "id")
+    contexto.update(
+        atividades=[_linha_da_atividade(a, empresa, pode_escriturar) for a in lista],
+        url_nova=reverse("fiscal_web:atividade_nova", args=[empresa.pk]),
+    )
+    return render(request, "fiscal/atividades.html", contexto)
+
+
+def _valores_da_atividade(atividade=None) -> dict:
+    """Valores do formulário. Com `atividade`, preenche com o que está gravado."""
+    if atividade is None:
+        return {
+            "descricao": "",
+            "codigo_subitem": "",
+            "enquadramento": "",
+            "inicio": "",
+            "fim": "",
+            "padrao": False,
+        }
+    return {
+        "descricao": atividade.descricao,
+        "codigo_subitem": atividade.codigo_subitem,
+        "enquadramento": atividade.enquadramento,
+        "inicio": _data_na_tela(atividade.inicio),
+        "fim": _data_na_tela(atividade.fim),
+        "padrao": atividade.padrao,
+    }
+
+
+def _tela_da_atividade(request, empresa, *, valores, atividade=None, status=200):
+    if atividade is None:
+        titulo = "Nova atividade"
+        url_envio = reverse("fiscal_web:atividade_nova", args=[empresa.pk])
+    else:
+        titulo = "Alterar atividade"
+        url_envio = reverse("fiscal_web:atividade_editar", args=[empresa.pk, atividade.pk])
+    contexto = {
+        "empresa": empresa,
+        "titulo": titulo,
+        "valores": valores,
+        "url_envio": url_envio,
+        "url_voltar": _url_atividades(empresa),
+        "opcoes_enquadramento": EnquadramentoAtividade.choices,
+        "catalogo": _ENQUADRAMENTOS_NA_TELA,
+        "descricao_maxima": 200,
+        "codigo_maximo": 20,
+        "editando": atividade is not None,
+    }
+    return render(request, "fiscal/atividade_form.html", contexto, status=status)
+
+
+def _dados_da_atividade_do_formulario(valores) -> dict:
+    """Converte o formulário no dicionário do serviço. Recusa com mensagem, sem gravar."""
+    if valores["enquadramento"] not in EnquadramentoAtividade.values:
+        raise servico_pre_das.EntradaInvalidaAtividade(
+            "Escolha o enquadramento da atividade no catálogo."
+        )
+    if not valores["inicio"].strip():
+        raise servico_pre_das.EntradaInvalidaAtividade("Informe o início da vigência (dd/mm/aaaa).")
+    inicio = _data_do_formulario(valores["inicio"])
+    if inicio is None:
+        raise servico_pre_das.EntradaInvalidaAtividade(
+            "O início da vigência é uma data inválida: use dd/mm/aaaa."
+        )
+    fim = None
+    if valores["fim"].strip():
+        fim = _data_do_formulario(valores["fim"])
+        if fim is None:
+            raise servico_pre_das.EntradaInvalidaAtividade(
+                "O fim da vigência é uma data inválida: use dd/mm/aaaa, ou deixe em branco "
+                "para a atividade ficar em aberto."
+            )
+    return {
+        "descricao": valores["descricao"],
+        "codigo_subitem": valores["codigo_subitem"],
+        "enquadramento": valores["enquadramento"],
+        "inicio": inicio,
+        "fim": fim,
+        "padrao": valores["padrao"],
+    }
+
+
+def _salvar_atividade_post(request, empresa, atividade=None):
+    """Cadastra (atividade None) ou altera. Recusa do serviço vira mensagem; nada gravado."""
+    campos = ("descricao", "codigo_subitem", "enquadramento", "inicio", "fim")
+    valores = {campo: request.POST.get(campo, "") for campo in campos}
+    # O checkbox envia "1" quando marcado e não envia nada quando não; qualquer outro valor é "não".
+    valores["padrao"] = request.POST.get("padrao", "") == "1"
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_DA_ATIVIDADE)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_da_atividade(
+            request, empresa, valores=valores, atividade=atividade, status=400
+        )
+    try:
+        dados = _dados_da_atividade_do_formulario(valores)
+        if atividade is None:
+            servico_pre_das.cadastrar_atividade(
+                empresa, dados, usuario=request.user, request=request
+            )
+        else:
+            servico_pre_das.alterar_atividade(
+                atividade, dados, usuario=request.user, request=request
+            )
+    except (servico_pre_das.EntradaInvalidaAtividade, servico_pre_das.AtividadeConflito) as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_da_atividade(request, empresa, valores=valores, atividade=atividade)
+    messages.success(
+        request,
+        "Atividade cadastrada." if atividade is None else "Atividade alterada.",
+    )
+    return redirect(_url_atividades(empresa))
+
+
+def _atividade_da_empresa(empresa, atividade_id):
+    # Atividade de outra empresa, mesmo do mesmo escritório, é 404 (isolamento).
+    return get_object_or_404(AtividadeEmpresa, pk=atividade_id, empresa=empresa)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def atividade_nova(request, empresa_id):
+    """GET: formulário de cadastro. POST: cadastra (enquadramento e vigência, com trilha)."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_PERMISSAO_DO_SIMPLES)
+    empresa = _empresa_escopada(request, empresa_id)
+    if request.method == "GET":
+        return _tela_da_atividade(request, empresa, valores=_valores_da_atividade())
+    return _salvar_atividade_post(request, empresa)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def atividade_editar(request, empresa_id, atividade_id):
+    """GET: formulário com o que está gravado. POST: altera (vigência, padrão, enquadramento)."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_PERMISSAO_DO_SIMPLES)
+    empresa = _empresa_escopada(request, empresa_id)
+    atividade = _atividade_da_empresa(empresa, atividade_id)
+    if request.method == "GET":
+        return _tela_da_atividade(
+            request, empresa, valores=_valores_da_atividade(atividade), atividade=atividade
+        )
+    return _salvar_atividade_post(request, empresa, atividade)
+
+
+def _tela_de_encerrar_atividade(request, empresa, atividade, *, fim_digitado="", status=200):
+    contexto = {
+        "empresa": empresa,
+        "atividade": _dados_da_atividade_na_tela(atividade),
+        "ja_encerrada": atividade.fim is not None,
+        "fim_digitado": fim_digitado,
+        "url_envio": reverse("fiscal_web:atividade_encerrar", args=[empresa.pk, atividade.pk]),
+        "url_voltar": _url_atividades(empresa),
+    }
+    return render(request, "fiscal/atividade_encerrar.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def atividade_encerrar(request, empresa_id, atividade_id):
+    """Encerra a vigência de uma atividade em aberto, com data de fim (dd/mm/aaaa)."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_PERMISSAO_DO_SIMPLES)
+    empresa = _empresa_escopada(request, empresa_id)
+    atividade = _atividade_da_empresa(empresa, atividade_id)
+    if request.method == "GET":
+        return _tela_de_encerrar_atividade(request, empresa, atividade)
+
+    fim_bruto = request.POST.get("fim", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_ENCERRAR_ATIVIDADE)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_encerrar_atividade(
+            request, empresa, atividade, fim_digitado=fim_bruto, status=400
+        )
+    fim = _data_do_formulario(fim_bruto) if fim_bruto.strip() else None
+    if fim is None:
+        messages.error(request, "Informe o fim da vigência em dd/mm/aaaa.")
+        return _tela_de_encerrar_atividade(request, empresa, atividade, fim_digitado=fim_bruto)
+    if atividade.fim is not None:
+        messages.error(
+            request,
+            f"Esta atividade já tem fim de vigência em {_data_na_tela(atividade.fim)}. "
+            "Para outra data, altere a atividade.",
+        )
+        return _tela_de_encerrar_atividade(request, empresa, atividade, fim_digitado=fim_bruto)
+    try:
+        servico_pre_das.alterar_atividade(
+            atividade, {"fim": fim}, usuario=request.user, request=request
+        )
+    except (servico_pre_das.EntradaInvalidaAtividade, servico_pre_das.AtividadeConflito) as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_encerrar_atividade(request, empresa, atividade, fim_digitado=fim_bruto)
+    messages.success(request, f"Atividade encerrada em {_data_na_tela(fim)}.")
+    return redirect(_url_atividades(empresa))
+
+
+# ---------------------------------------------------------------------------
+# Folha para o fator r (tela 3)
+# ---------------------------------------------------------------------------
+
+
+def _linha_da_folha(folha, empresa, pode_escriturar) -> dict:
+    """Uma folha: componentes, total e as ações que o estado permite (ou bloqueia, com motivo)."""
+    rascunho = folha.estado == EstadoFolhaFatorR.RASCUNHO
+    confirmada = folha.estado == EstadoFolhaFatorR.CONFIRMADA
+    if not pode_escriturar:
+        confirmar = "bloqueado" if rascunho else ""
+        estornar = "bloqueado" if confirmada else ""
+    else:
+        confirmar = "ativo" if rascunho else ""
+        estornar = "ativo" if confirmada else ""
+    return {
+        "competencia": f"{folha.mes:02d}/{folha.ano}",
+        "estado": folha.get_estado_display(),
+        "valores": [_dinheiro_ptbr(getattr(folha, nome)) for nome in FolhaFatorR.COMPONENTES],
+        "total": _dinheiro_ptbr(folha.total),
+        "documento": folha.documento_suporte,
+        "motivo_estorno": folha.motivo_estorno,
+        "confirmar": confirmar,
+        "estornar": estornar,
+        "url_confirmar": reverse("fiscal_web:folha_confirmar", args=[empresa.pk, folha.pk]),
+        "url_estornar": reverse("fiscal_web:folha_estornar", args=[empresa.pk, folha.pk]),
+    }
+
+
+def _pendentes_da_folha_em_texto(pendentes) -> str:
+    return "; ".join(
+        f"{mes:02d}/{ano} ({_ROTULO_DA_SITUACAO_DA_FOLHA.get(situacao, situacao)})"
+        for ano, mes, situacao in pendentes
+    )
+
+
+def _linha_do_fs12(ano, mes, lancada, resultado) -> dict:
+    """FS12 do PA (art. 22 da Res. CGSN 140, pela janela do RBT12) e a folha confirmada do mês.
+
+    `lancada` é a folha não estornada do mês (ou None) e `resultado` é o FS12 do mês, já
+    calculado em lote por `servico_folha.fs12_do_ano` (A9 da auditoria DL-075: sem consulta
+    por mês aqui). `resultado` pode ser a recusa `ApuracaoRecusada` do mês.
+    """
+    folha_do_mes = (
+        _dinheiro_ptbr(lancada.total)
+        if lancada is not None and lancada.estado == EstadoFolhaFatorR.CONFIRMADA
+        else "—"
+    )
+    linha = {"competencia": _mes_por_extenso(ano, mes), "folha_do_mes": folha_do_mes}
+    if isinstance(resultado, apuracao.ApuracaoRecusada):
+        return {**linha, "fs12": "Não calculado", "regra": "—", "situacao": resultado.mensagem}
+    fs = resultado
+    if fs.valor is None:
+        return {
+            **linha,
+            "fs12": "Não calculado",
+            "regra": fs.regra,
+            "situacao": "Faltam confirmar: " + _pendentes_da_folha_em_texto(fs.pendentes),
+        }
+    return {
+        **linha,
+        "fs12": _dinheiro_ptbr(fs.valor),
+        "regra": fs.regra,
+        "situacao": "Calculado com as folhas confirmadas da janela",
+    }
+
+
+@login_required
+@require_safe
+def folhas_fator_r(request):
+    """Folhas da empresa no ano, e o FS12 de cada mês. Consulta: `papel_pode_consultar_
+    documentos`. Lançar, confirmar e estornar são telas próprias."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite consultar a folha para o fator r."
+        )
+
+    empresa, erro = _empresa_da_escrituracao(request)
+    ano_bruto = request.GET.get("ano", "").strip()
+    hoje = timezone.localdate()
+    ano = _inteiro_de_filtro(ano_bruto) if ano_bruto else hoje.year
+    if ano is None or not (2000 <= ano <= 2100):
+        erro = erro or "Ano inválido: informe o ano com quatro dígitos (AAAA)."
+        ano = hoje.year
+    pode_escriturar = _pode_escriturar(request)
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, empresa),
+        "ano": ano,
+        "ano_filtro": str(ano),
+        "mostrar_ano": True,
+        "pode_escriturar": pode_escriturar,
+        "mensagem_sem_permissao": _MENSAGEM_SEM_PERMISSAO_DO_SIMPLES,
+        "componentes": [
+            {"nome": nome, "rotulo": _ROTULO_DO_COMPONENTE[nome]}
+            for nome in FolhaFatorR.COMPONENTES
+        ],
+    }
+    if erro:
+        messages.error(request, erro)
+        return render(request, "fiscal/folhas_fator_r.html", contexto, status=400)
+    if empresa is None:
+        return render(request, "fiscal/folhas_fator_r.html", contexto)
+
+    folhas = list(FolhaFatorR.objects.filter(empresa=empresa, ano=ano).order_by("mes", "id"))
+    # A9 (auditoria DL-075): o FS12 dos 12 meses sai de uma leitura só (folhas e períodos),
+    # e não de uma consulta por mês, que fazia 176 consultas na página.
+    ativa_por_mes = {
+        folha.mes: folha for folha in folhas if folha.estado != EstadoFolhaFatorR.ESTORNADA
+    }
+    fs12_por_mes = servico_folha.fs12_do_ano(empresa, ano)
+    contexto.update(
+        folhas=[_linha_da_folha(folha, empresa, pode_escriturar) for folha in folhas],
+        meses_fs12=[
+            _linha_do_fs12(ano, mes, ativa_por_mes.get(mes), fs12_por_mes[mes])
+            for mes in range(1, 13)
+        ],
+        url_nova=reverse("fiscal_web:folha_nova", args=[empresa.pk])
+        + "?"
+        + urlencode({"ano": ano}),
+    )
+    return render(request, "fiscal/folhas_fator_r.html", contexto)
+
+
+def _valores_da_folha(request) -> dict:
+    """Valores iniciais do lançamento: a competência pedida, ou a corrente."""
+    hoje = timezone.localdate()
+    ano = _inteiro_de_filtro(request.GET.get("ano", "").strip())
+    mes = _inteiro_de_filtro(request.GET.get("mes", "").strip())
+    valores = {
+        "ano": str(ano) if ano is not None else str(hoje.year),
+        "mes": f"{mes:02d}" if mes is not None and 1 <= mes <= 12 else f"{hoje.month:02d}",
+        "documento_suporte": "",
+    }
+    valores.update({nome: "" for nome in FolhaFatorR.COMPONENTES})
+    return valores
+
+
+def _tela_de_lancar_folha(request, empresa, *, valores, status=200):
+    contexto = {
+        "empresa": empresa,
+        "valores": valores,
+        "opcoes_mes": _MESES_DO_ANO,
+        "componentes": [
+            {"nome": nome, "rotulo": _ROTULO_DO_COMPONENTE[nome], "valor": valores[nome]}
+            for nome in FolhaFatorR.COMPONENTES
+        ],
+        "suporte_maximo": servico_folha.DOCUMENTO_SUPORTE_MAXIMO,
+        "url_envio": reverse("fiscal_web:folha_nova", args=[empresa.pk]),
+        "url_voltar": _url_folhas(empresa, valores["ano"]),
+    }
+    return render(request, "fiscal/folha_form.html", contexto, status=status)
+
+
+def _lancar_folha_post(request, empresa):
+    campos = ("ano", "mes", "documento_suporte", *FolhaFatorR.COMPONENTES)
+    valores = {campo: request.POST.get(campo, "") for campo in campos}
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_DA_FOLHA)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_lancar_folha(request, empresa, valores=valores, status=400)
+
+    ano = _inteiro_de_filtro(valores["ano"].strip())
+    mes = _inteiro_de_filtro(valores["mes"].strip())
+    if ano is None or mes is None or not 1 <= mes <= 12:
+        messages.error(request, "Informe o ano e o mês da competência, com números.")
+        return _tela_de_lancar_folha(request, empresa, valores=valores)
+
+    componentes = {}
+    for nome in FolhaFatorR.COMPONENTES:
+        rotulo = _ROTULO_DO_COMPONENTE[nome]
+        try:
+            bruto = _valor_do_formulario(valores[nome])
+        except ValorInvalidoNoFormulario as exc:
+            # A4 (auditoria DL-075): "10.000" dava 500 nesta tela. Agora mostra a mensagem,
+            # com status 200 como na receita, e não grava nada.
+            messages.error(request, f"{rotulo}: {exc}")
+            return _tela_de_lancar_folha(request, empresa, valores=valores)
+        if not bruto:
+            messages.error(
+                request,
+                f"Informe {rotulo.lower()}. Use 0,00 se não houve: não há folha zero por omissão.",
+            )
+            return _tela_de_lancar_folha(request, empresa, valores=valores)
+        if not _so_digitos_com_ponto_decimal(bruto):
+            # Notação científica e sinal não são valor digitado. O serviço aceitaria "1e3".
+            messages.error(
+                request,
+                f"{rotulo}: valor inválido. Use só números, com vírgula ou ponto para os "
+                "centavos (ex.: 1.234,56).",
+            )
+            return _tela_de_lancar_folha(request, empresa, valores=valores)
+        componentes[nome] = bruto
+
+    try:
+        servico_folha.lancar_folha(
+            empresa,
+            ano,
+            mes,
+            componentes,
+            valores["documento_suporte"],
+            usuario=request.user,
+            request=request,
+        )
+    except (servico_folha.FolhaErro, servico_receita.ReceitaErro) as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_lancar_folha(request, empresa, valores=valores)
+    messages.success(
+        request,
+        f"Folha de {mes:02d}/{ano} lançada em rascunho. Ela não entra no FS12 até ser confirmada.",
+    )
+    return redirect(_url_folhas(empresa, ano))
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def folha_nova(request, empresa_id):
+    """GET: formulário com os cinco componentes. POST: lança a folha do mês em rascunho."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_PERMISSAO_DO_SIMPLES)
+    empresa = _empresa_escopada(request, empresa_id)
+    if request.method == "GET":
+        return _tela_de_lancar_folha(request, empresa, valores=_valores_da_folha(request))
+    return _lancar_folha_post(request, empresa)
+
+
+def _folha_da_empresa(empresa, folha_id):
+    # Folha de outra empresa, mesmo do mesmo escritório, é 404 (isolamento).
+    return get_object_or_404(FolhaFatorR, pk=folha_id, empresa=empresa)
+
+
+@login_required
+@require_http_methods(["POST"])
+def folha_confirmar(request, empresa_id, folha_id):
+    """POST — rascunho → confirmada. A partir daqui a folha entra no FS12 e não muda."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_PERMISSAO_DO_SIMPLES)
+    empresa = _empresa_escopada(request, empresa_id)
+    folha = _folha_da_empresa(empresa, folha_id)
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_SEM_CAMPOS_DA_FOLHA)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return redirect(_url_folhas(empresa, folha.ano))
+    try:
+        servico_folha.confirmar_folha(folha, usuario=request.user, request=request)
+    except servico_folha.FolhaErro as exc:
+        messages.error(request, exc.mensagem)
+    else:
+        messages.success(
+            request,
+            f"Folha de {folha.mes:02d}/{folha.ano} confirmada. Ela entra no FS12 e não pode mais "
+            "ser alterada: para corrigir, estorne com motivo.",
+        )
+    return redirect(_url_folhas(empresa, folha.ano))
+
+
+def _tela_de_estornar_folha(request, empresa, folha, *, motivo, status=200):
+    contexto = {
+        "empresa": empresa,
+        "competencia": f"{folha.mes:02d}/{folha.ano}",
+        "estado": folha.get_estado_display(),
+        "total": _dinheiro_ptbr(folha.total),
+        "documento": folha.documento_suporte,
+        "confirmada": folha.estado == EstadoFolhaFatorR.CONFIRMADA,
+        "motivo": motivo,
+        "motivo_maximo": servico_folha.MOTIVO_MAXIMO,
+        "url_envio": reverse("fiscal_web:folha_estornar", args=[empresa.pk, folha.pk]),
+        "url_voltar": _url_folhas(empresa, folha.ano),
+    }
+    return render(request, "fiscal/folha_estornar.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def folha_estornar(request, empresa_id, folha_id):
+    """GET: confirmação com o motivo. POST: confirmada → estornada (motivo obrigatório)."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_PERMISSAO_DO_SIMPLES)
+    empresa = _empresa_escopada(request, empresa_id)
+    folha = _folha_da_empresa(empresa, folha_id)
+    if request.method == "GET":
+        return _tela_de_estornar_folha(request, empresa, folha, motivo="")
+
+    motivo = request.POST.get("motivo", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_MOTIVO_DA_FOLHA)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_estornar_folha(request, empresa, folha, motivo=motivo, status=400)
+    try:
+        servico_folha.estornar_folha(folha, motivo, usuario=request.user, request=request)
+    except servico_folha.FolhaErro as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_estornar_folha(request, empresa, folha, motivo=motivo)
+    messages.success(
+        request,
+        f"Folha de {folha.mes:02d}/{folha.ano} estornada. Ela saiu do FS12; para o mês, "
+        "lance outra folha se for o caso.",
+    )
+    return redirect(_url_folhas(empresa, folha.ano))

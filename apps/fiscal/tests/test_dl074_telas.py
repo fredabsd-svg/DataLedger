@@ -124,6 +124,7 @@ def _lancamento_valido(**sobrescritas):
         "ano": "2024",
         "mes": "03",
         "mercado": "interno",
+        "situacao_iss": "proprio_municipio",
         "valor": "100,00",
         "origem": ORIGEM_OUTRAS,
         "motivo": "Lançamento sintético de teste.",
@@ -489,6 +490,7 @@ def test_confirmar_receita_informada_pela_tela(client, escritorio_a, empresa, us
         "Lançamento sintético de teste.",
         "Extrato sintético de teste.",
         usuario_gestor_a,
+        situacao_iss="proprio_municipio",
     )
     _logar(client, usuario_gestor_a)
 
@@ -570,6 +572,7 @@ def test_paralegal_consulta_e_nao_escreve(client, paralegal_a, empresa, usuario_
         "Lançamento sintético de teste.",
         "Extrato sintético de teste.",
         usuario_gestor_a,
+        situacao_iss="proprio_municipio",
     )
     _logar(client, paralegal_a)
 
@@ -665,6 +668,7 @@ def test_receita_de_outra_empresa_do_mesmo_escritorio_recebe_404(
         "Lançamento sintético de teste.",
         "Extrato sintético de teste.",
         usuario_gestor_a,
+        situacao_iss="proprio_municipio",
     )
     _logar(client, usuario_gestor_a)
 

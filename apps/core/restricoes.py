@@ -171,6 +171,17 @@ MENSAGENS_DE_RESTRICAO = {
         "Colunas do ato (confirmação e estorno) fora de sincronia com o estado da "
         "receita informada."
     ),
+    # DL-075 (HI-80): situação do ISS. O serviço recusa antes de gravar (mensagem nomeada);
+    # estas restrições são a última barreira. A regra "interno exige situação" NÃO está
+    # aqui: linhas anteriores à migração 0005 não a cumprem, e o pré-DAS a trata.
+    "receita_informada_situacao_iss_valida": (
+        "Situação do ISS da receita informada fora do catálogo (próprio município, outro "
+        "município ou retido)."
+    ),
+    "receita_informada_iss_so_no_interno": (
+        "Receita informada de exportação com situação do ISS: a exportação não tem essa "
+        "situação. Deixe o campo em branco."
+    ),
     "confirmacao_mes_valido": (
         "Confirmação de receita mensal com competência fora de 1970-2999 ou mês fora de 1 a 12."
     ),
@@ -333,6 +344,11 @@ MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
         "Confirmação de receita mensal não se altera diretamente. Para retificar o mês, "
         "reabra com motivo; o estorno de escrituração ou receita reabre o mês sozinho."
     ),
+    # DL-075 (frente A), gatilho da migração fiscal 0004 (folha para o fator r).
+    "folha_imutavel_depois_de_confirmada": (
+        "Folha confirmada não se altera nem se exclui. A correção é o estorno, com motivo, "
+        "e um novo lançamento do mês."
+    ),
 }
 
 
@@ -454,6 +470,13 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     # apps.fiscal.receita (savepoint por INSERT, mesmo molde de `_inserir_escrituracao`).
     "confirmacao_mes_unica_por_empresa": "apps.fiscal.receita._inserir",
     "opcao_caixa_unica_por_ano": "apps.fiscal.receita._inserir",
+    # DL-075 (frente A): folha, um lançamento ativo por mês → 409 (conflito de estado).
+    "folha_mes_unica_ativa_por_empresa": "apps.fiscal.folha_fator_r._inserir",
+    # DL-075 (frente A): atividades. A padrão em aberto e a vigência/enquadramento
+    # inválidos saem como 409 e 400, pelo mesmo `_inserir_atividade`.
+    "atividade_padrao_unica_em_aberto": "apps.fiscal.pre_das._inserir_atividade",
+    "atividade_fim_depois_do_inicio": "apps.fiscal.pre_das._inserir_atividade",
+    "atividade_enquadramento_valido": "apps.fiscal.pre_das._inserir_atividade",
 }
 
 # Terceira categoria, e ela é declaração de LIMITE, não de cobertura:
@@ -928,6 +951,31 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "Os serviços preenchem as colunas no mesmo UPDATE/INSERT que muda o "
         "estado; nenhuma rota recebe esses campos do cliente."
     ),
+    # DL-075 (frente A): folha. O serviço `lancar_folha` valida mês, valores e suporte
+    # ANTES do INSERT (EntradaInvalidaFolha, 400); o estado e as colunas do ato só
+    # mudam pelos serviços de confirmar e estornar.
+    "folha_mes_valido": (
+        "Mês e ano fora da faixa da competência. `lancar_folha` valida com "
+        "`validar_competencia` e o serializer limita ano e mês antes do INSERT."
+    ),
+    "folha_valores_nao_negativos": (
+        "Componente da folha negativo. `_valor_nao_negativo` recusa antes do INSERT "
+        "(400, com o nome do componente); o serializer também limita o mínimo a zero."
+    ),
+    "folha_campos_obrigatorios": (
+        "Documento de suporte vazio. `lancar_folha` recusa o texto vazio antes do INSERT "
+        "(400); a rota nunca grava folha sem a fonte declarada."
+    ),
+    "folha_estado_valido": (
+        "Estado da folha fora de rascunho, confirmada e estornada. Só os serviços de "
+        "apps.fiscal.folha_fator_r gravam o estado; a API não recebe esse campo."
+    ),
+    "folha_campos_coerentes_com_o_estado": (
+        "Colunas do ato (confirmação e estorno) fora de sincronia com o estado. Os "
+        "serviços preenchem as colunas no mesmo UPDATE que muda o estado."
+    ),
+    # DL-075 (frente A): o padrão e a vigência de atividade têm caminho de cliente
+    # (cadastro) e são traduzidos em `RESTRICOES_TRADUZIDAS_FORA_DO_MAPA`.
 }
 
 

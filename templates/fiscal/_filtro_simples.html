@@ -1,0 +1,48 @@
+{% comment %}
+Filtro das telas do Simples Nacional (DL-075, frente B). GET, sem JavaScript, rótulo acima de
+cada campo. Com empresa escolhida, mostra SÓ ela e o caminho para trocar (direção de arte §8.1:
+uma tela de uma empresa não lista as outras). Sem empresa, mostra a escolha.
+
+Variáveis: `empresa_selecionada`, `empresas_do_escritorio` (só sem empresa), `ano_filtro`,
+`mes_filtro`, `url_trocar_empresa`. Com `mostrar_ano` e `mostrar_mes` (verdadeiros) mostra os
+campos de competência.
+{% endcomment %}
+<form method="get" action="{{ request.path }}" class="formulario-periodo formulario-periodo--rotulo-acima">
+    {% if empresa_selecionada %}
+        <input type="hidden" name="empresa" value="{{ empresa_selecionada.pk }}">
+        <p>
+            <strong>Empresa:</strong> {{ empresa_selecionada.razao_social }}
+            <a href="{{ url_trocar_empresa }}">Trocar de empresa</a>
+        </p>
+    {% else %}
+        <div class="campo">
+            <label for="id_empresa">Empresa</label>
+            <select id="id_empresa" name="empresa">
+                <option value="">Escolha uma empresa</option>
+                {% for empresa in empresas_do_escritorio %}
+                    <option value="{{ empresa.pk }}">{{ empresa.razao_social }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    {% endif %}
+    {% if mostrar_ano %}
+        <div class="campo">
+            <label for="id_ano">Ano</label>
+            <input type="text" id="id_ano" name="ano" value="{{ ano_filtro }}" inputmode="numeric" maxlength="4"{% if mostrar_mes %}
+                   aria-describedby="id_competencia_ajuda"{% endif %}>
+        </div>
+    {% endif %}
+    {% if mostrar_mes %}
+        <div class="campo">
+            <label for="id_mes">Mês</label>
+            <input type="text" id="id_mes" name="mes" value="{{ mes_filtro }}" inputmode="numeric" maxlength="2"
+                   aria-describedby="id_competencia_ajuda">
+        </div>
+    {% endif %}
+    <button type="submit">Consultar</button>
+    {% if mostrar_mes %}
+        <p class="texto-apoio" id="id_competencia_ajuda">
+            Competência: ano (AAAA) e mês (1 a 12), juntos. Sem eles, a tela usa o mês corrente.
+        </p>
+    {% endif %}
+</form>

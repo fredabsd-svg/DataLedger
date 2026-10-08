@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block titulo %}Lançar folha para o fator r — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Folha para o fator r</a></li>
+            <li aria-current="page">Lançar folha</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para a folha</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-075 (frente B), arquétipo B (formulário de documento, direção de arte §2.B). A pergunta
+antes de gravar: a folha entra no FS12? Lançada, ela fica em RASCUNHO e não entra no FS12;
+só a confirmação a torna válida. Os cinco componentes são obrigatórios: não há folha zero por
+omissão (HI-69).
+{% endcomment %}
+{% block titulo_pagina %}<h1>Lançar folha para o fator r</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa">
+        <h2>O que vai acontecer</h2>
+        <p>
+            <strong>Lançar</strong> guarda a folha do mês em rascunho. Ela não entra no FS12.
+            Depois, na lista da folha, ela pode ser confirmada: aí entra no FS12 e não muda mais.
+        </p>
+        <p class="texto-apoio">
+            Remuneração, pró-labore, 13º, CPP e FGTS são os valores efetivamente pagos ou recolhidos no mês.
+            Aluguéis e lucros ficam fora. Use 0,00 quando um componente não houve.
+        </p>
+    </div>
+
+    <form method="post" action="{{ url_envio }}" class="formulario">
+        {% csrf_token %}
+        <div class="campo">
+            <label for="id_ano">Ano da competência</label>
+            <input type="text" id="id_ano" name="ano" value="{{ valores.ano }}" inputmode="numeric" maxlength="4" required>
+        </div>
+        <div class="campo">
+            <label for="id_mes">Mês da competência</label>
+            <select id="id_mes" name="mes" required>
+                {% for valor, rotulo in opcoes_mes %}
+                    <option value="{{ valor }}"{% if valor == valores.mes %} selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% for componente in componentes %}
+            <div class="campo">
+                <label for="id_{{ componente.nome }}">{{ componente.rotulo }} (R$)</label>
+                <input type="text" id="id_{{ componente.nome }}" name="{{ componente.nome }}" value="{{ componente.valor }}"
+                       inputmode="decimal" required aria-describedby="ajuda_{{ componente.nome }}">
+                <p class="texto-apoio" id="ajuda_{{ componente.nome }}">
+                    Em reais, com até duas casas decimais. Ex.: 1.234,56. Use 0,00 se não houve.
+                </p>
+            </div>
+        {% endfor %}
+        <div class="campo">
+            <label for="id_documento_suporte">Documento de suporte</label>
+            <input type="text" id="id_documento_suporte" name="documento_suporte" value="{{ valores.documento_suporte }}"
+                   required maxlength="{{ suporte_maximo }}" aria-describedby="id_suporte_ajuda">
+            <p class="texto-apoio" id="id_suporte_ajuda">
+                Obrigatório. A fonte da folha, por exemplo "GFIP/eSocial 03/2026; guias da CPP e do FGTS".
+            </p>
+        </div>
+        <div class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+            <button type="submit" class="botao botao--primario">Lançar folha em rascunho</button>
+        </div>
+    </form>
+{% endblock %}

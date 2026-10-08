@@ -113,7 +113,16 @@ def test_receita_informada_nao_entra_em_mes_ja_confirmado(empresa, usuario_gesto
     # Mudaria o total de um mês declarado completo, sem o ato de reabertura com motivo.
     servico.confirmar_mes(empresa, 2026, 5, usuario_gestor_a)
     receita = servico.lancar_receita_informada(
-        empresa, 2026, 5, INTERNO, "100", "ajuste", "Motivo.", "Suporte.", usuario_gestor_a
+        empresa,
+        2026,
+        5,
+        INTERNO,
+        "100",
+        "ajuste",
+        "Motivo.",
+        "Suporte.",
+        usuario_gestor_a,
+        situacao_iss="proprio_municipio",
     )
 
     with pytest.raises(servico.ReceitaErro, match="já está confirmada"):

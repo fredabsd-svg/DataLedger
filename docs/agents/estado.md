@@ -139,7 +139,9 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) | A marcação manual da DMPL respeita o período fechado (BL-655) | Integrada (PR #95, squash `389aafe`) — auditoria e reconferência aprovadas com ressalvas; BL-656 a BL-659 abertos |
 | [DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) | Fiscal F1: escrituração das NFS-e prestadas (natureza, competência, estorno, conferência) | Integrada (PR #96, squash `8f36cd4`) — auditoria e reconferência aprovadas com ressalvas |
 | [DL-073](../planos/DL-073-validador-ibscbs.md) | Fiscal: validador de conformidade IBS/CBS das NFS-e recebidas (modo aviso, HI-61) | Integrada (PR #96, squash `8f36cd4`) — auditoria e reconferência aprovadas com ressalvas |
-| [DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) | Fiscal: receita mensal, receita informada, confirmação e RBT12 do Simples por mercado | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) | Fiscal: receita mensal, receita informada, confirmação e RBT12 do Simples por mercado | Integrada (PR #97, squash `ebc40a3`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
+| [DL-075](../planos/DL-075-pre-das-do-simples.md) | Fiscal: pré-DAS do Simples para prestadores de serviço (Anexos I a V como dado, fator r, teto do ISS, segregação) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-076](../planos/DL-076-iss-por-municipio-palmas.md) | Fiscal: ISS por município, começando por Palmas (alíquota informada, conferência por nota, apuração fora do Simples, retido sofrido, outros municípios) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -190,32 +192,64 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    aprovadas com ressalvas; R1, R2, R4 e R5 corrigidos depois. Abertos:
    BL-660 a BL-666.
 3. **[DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) — receita
-   mensal, confirmação e RBT12 do Simples por mercado: em correção.**
-   [Auditoria rodada 1](../auditorias/2026-10-08-dl-074-rodada-1.md):
-   **REPROVADA** — A1 (bloqueador: RBT12 de empresa nova errado na virada do
-   ano, para menos) e A2 (alta: `PATCH` da data de abertura dava 500), mais
-   A3 a A9. Correção única feita (`644f488`, Haiku; rótulo do § 3º na tela
-   ajustado à HI-76 em `71f371d`); HI-76 e HI-77.
-   [Reconferência](../auditorias/2026-10-08-dl-074-reconferencia.md) sobre
-   `71f371d`: **APROVADA COM RESSALVAS** — A1 e A2 fechados por execução, com
-   contas à mão; ciclo do §3.1 encerrado. Ressalvas R1 (média: "10,000" na
-   tela virava R$ 10,00) a R5 **corrigidas** em `6670121` (Haiku), com testes
-   que derrubam os mutantes apontados, sem nova rodada, como na DL-072; R6
-   (commit intermediário com teste vermelho) só registrada. HI-76 conferida e
-   HI-77 **ajustada** pelo contador-senior
-   ([consulta](../projeto/consultas/2026-10-08-contador-senior-hi76-hi77.md));
-   PE-78 aberta (alíquota no § 5º; não bloqueia). **Próximo: PR, CI e merge.**
-4. **DL-075 — pré-DAS do Simples:
-   em desenvolvimento** em cópia isolada (`/home/user/wt-dl075`). Tabelas oficiais dos
-   Anexos I a V vigentes em 2026 pesquisadas no Planalto e no Manual do
-   PGDAS-D, com quatro exemplos numéricos oficiais para casos de referência:
-   [consultas/](../projeto/consultas/2026-10-08-tabelas-simples-2026.md).
+   mensal, confirmação e RBT12 do Simples por mercado: INTEGRADA** pelo
+   [PR #97](https://github.com/fredabsd-svg/DataLedger/pull/97), squash
+   `ebc40a3`, em 08/10/2026, com os quatro checks verdes; merge feito pelo
+   arquiteto sob a RC-164. Ciclo do §3.1:
+   [rodada 1](../auditorias/2026-10-08-dl-074-rodada-1.md) **REPROVADA** (A1
+   bloqueador: RBT12 de empresa nova errado na virada do ano, para menos; A2
+   alta: `PATCH` da data de abertura dava 500), correção única e
+   [reconferência](../auditorias/2026-10-08-dl-074-reconferencia.md)
+   **APROVADA COM RESSALVAS**; R1 a R5 corrigidas depois, com testes que
+   derrubam os mutantes apontados. HI-76 conferida e HI-77 **ajustada** pelo
+   contador-senior
+   ([consulta](../projeto/consultas/2026-10-08-contador-senior-hi76-hi77.md)).
+   Abertos: PE-78 (não bloqueia), BL-666, BL-669.
+4. **[DL-075](../planos/DL-075-pre-das-do-simples.md) — pré-DAS do Simples:
+   implementada, em auditoria.** Frentes A (tabelas dos Anexos I a V como
+   dado, atividades, folha do fator r, cálculo, API), B (telas) e C (situação
+   do ISS na receita informada, HI-80; regras da
+   [consulta do pré-DAS](../projeto/consultas/2026-10-08-contador-senior-pre-das.md),
+   HI-78 a HI-81), todas em Haiku. Os exemplos 2, 4 e 5 do Manual do PGDAS-D
+   batem centavo a centavo. A frente C achou e corrigiu um defeito da
+   própria etapa: receita informada de exportação era cobrada de PIS, Cofins
+   e ISS. [Auditoria rodada 1](../auditorias/2026-10-08-dl-075-rodada-1.md):
+   **REPROVADA** por A1 (alta: a migração `fiscal 0005` dependia de
+   `empresas 0016` e deixava 4 testes vermelhos na suíte completa — a
+   frente C rodou a suíte **em fatias**, e a interação não apareceu). O
+   cálculo confere: tabelas idênticas ao Planalto por script, exemplos 2, 4
+   e 5 centavo a centavo, 41 de 50 mutantes mortos pela suíte. Achados A2 a
+   A11 (lacunas de isolamento por teste, notas sempre na atividade padrão,
+   atividade alterável sob mês confirmado, entrada "10.000" na folha dava
+   500). Correção única feita (`147a6a9`, Haiku): A1 a A11, com 51 testes
+   novos e os mutantes M10 a M13, M38 e M45 mortos; suíte completa numa
+   única invocação com só a reprovação de ambiente. Decisão do arquiteto no
+   A5: com mais de uma atividade vigente e nota no mês, o pré-DAS **bloqueia**
+   (atividade por nota é o BL-670).
+   [Reconferência](../auditorias/2026-10-08-dl-075-reconferencia.md):
+   **APROVADA COM RESSALVAS** — A1 a A9 e A11 fechados por execução, 47 dos
+   50 mutantes da rodada 1 mortos (3 equivalentes); ciclo do §3.1
+   encerrado. Ressalvas R1, R2, R3 e R5 **corrigidas** em `78b49f2` (Haiku),
+   com 40 testes e os mutantes apontados mortos; R4 (documentação) pelo
+   arquiteto. Suíte completa: 6.013 aprovados, 1 reprovado (ambiente), 53
+   pulados. **Próximo: PR, CI e merge (autorizado pelo Fred quando a CI
+   ficar verde).**
+5. **[DL-076](../planos/DL-076-iss-por-municipio-palmas.md) — ISS por
+   município, começando por Palmas: planejada, em desenvolvimento.**
+   [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-iss-palmas.md):
+   a tabela de alíquotas vigente de Palmas **não foi achada** (LC 300/2014
+   inacessível); a alíquota vira dado informado pelo escritório e o produto
+   confere o ISS de cada nota (HI-82 a HI-86). **PE-79 para o Fred:** as
+   alíquotas que o WebISS aplica aos clientes dele, a LC 300/2014 e a UFIP
+   2026 — não bloqueia o código.
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
-PostgreSQL 16 local, sobre `71f371d`, medida na reconferência da DL-074):**
-`pytest` completo **5.691 aprovados, 1 reprovado, 53 pulados**; a reprovação é a
-conhecida de ambiente (`test_versao_minima_python.py`, exige Python 3.14).
-`ruff`, `check` e `makemigrations --check` limpos (409 arquivos).
+PostgreSQL 16 local, sobre `4f42117`, medida na reconferência da DL-075):**
+`pytest` completo **5.973 aprovados, 1 reprovado, 53 pulados**, numa única
+invocação; a reprovação é a conhecida de ambiente
+(`test_versao_minima_python.py`, exige Python 3.14). `ruff`, `check` e
+`makemigrations --check` limpos (427 arquivos). Lição da DL-075: a suíte
+**em fatias** esconde interação entre migrações — só vale a invocação única.
 
 **Também achado em 08/10/2026:** o diagnóstico da DFC fatia 2 levantou, no
 texto oficial do CPC 03 (R2), Rev. 24, que a norma **não define "classe"** de

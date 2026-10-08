@@ -85,6 +85,19 @@ em que a empresa começou a usar o sistema, e a tela diz qual é esse mês.
             </select>
         </div>
         <div class="campo">
+            <label for="id_situacao_iss">Situação do ISS</label>
+            <select id="id_situacao_iss" name="situacao_iss" aria-describedby="id_situacao_iss_ajuda">
+                <option value=""{% if not valores.situacao_iss %} selected{% endif %}>Escolha a situação do ISS</option>
+                {% for valor, rotulo in opcoes_situacao_iss %}
+                    <option value="{{ valor }}"{% if valor == valores.situacao_iss %} selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+            <p class="texto-apoio" id="id_situacao_iss_ajuda">
+                Obrigatória no mercado interno: escolha a situação que consta na nota municipal. Na exportação, deixe
+                em branco, porque a exportação não tem situação de ISS. Não há valor padrão.
+            </p>
+        </div>
+        <div class="campo">
             <label for="id_motivo">Motivo do lançamento</label>
             <textarea id="id_motivo" name="motivo" required rows="3" maxlength="{{ motivo_maximo }}"
                       aria-describedby="id_motivo_ajuda">{{ valores.motivo }}</textarea>

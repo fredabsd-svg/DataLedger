@@ -33,6 +33,7 @@ from apps.fiscal.models import (
     NaturezaOperacao,
     PapelDocumento,
     ReceitaInformada,
+    SituacaoIssReceitaInformada,
     VinculoDocumentoEmpresa,
 )
 from apps.fiscal.tests.test_dl074_suporte import (
@@ -72,6 +73,7 @@ def _lancamento_valido(**sobrescritas):
         "ano": "2024",
         "mes": "03",
         "mercado": "interno",
+        "situacao_iss": "proprio_municipio",
         "valor": "100,00",
         "origem": ORIGEM_OUTRAS,
         "motivo": "Lançamento sintético de teste.",
@@ -126,6 +128,10 @@ def _lancar(empresa, usuario, **variacao):
         "documento_suporte": "NF 123 sintética",
     }
     campos.update(variacao)
+    # HI-80: o interno leva situação do ISS (exigida); a exportação não leva.
+    situacao = (
+        SituacaoIssReceitaInformada.PROPRIO_MUNICIPIO if campos["mercado"] == INTERNO else None
+    )
     return servico.lancar_receita_informada(
         empresa,
         campos["ano"],
@@ -136,6 +142,7 @@ def _lancar(empresa, usuario, **variacao):
         "Lançamento sintético de teste.",
         campos["documento_suporte"],
         usuario,
+        situacao_iss=situacao,
     )
 
 
@@ -201,6 +208,7 @@ def test_a3_api_segundo_post_identico_e_409_e_nada_grava(client, empresa, usuari
         "ano": 2024,
         "mes": 3,
         "mercado": "interno",
+        "situacao_iss": "proprio_municipio",
         "valor": "1500.00",
         "origem": ORIGEM_OUTRAS,
         "motivo": "Lançamento sintético de teste.",

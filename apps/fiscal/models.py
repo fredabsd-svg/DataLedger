@@ -23,10 +23,14 @@ Nenhum destes modelos é registrado em `apps/fiscal/admin.py` — não existe
 esse arquivo de propósito.
 """
 
+import calendar
+from datetime import date
+from decimal import Decimal
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q
 
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio
@@ -667,6 +671,21 @@ class EstadoReceitaInformada(models.TextChoices):
     ESTORNADA = "estornada", "Estornada"
 
 
+class SituacaoIssReceitaInformada(models.TextChoices):
+    """Situação do ISS de uma receita informada de serviço no mercado INTERNO (HI-80).
+
+    Obrigatória no mercado interno e proibida na exportação. Sem ela o pré-DAS não
+    sabe se o ISS é do DAS, de outro município ou retido, e a regra não presume:
+    presumir "próprio município" duplica o ISS retido ou o destina ao ente errado
+    (LC 123, art. 18, § 4º-A; Res. CGSN 140, art. 25, § 9º; consulta de 08/10/2026,
+    item 4). Os valores são o catálogo do PGDAS-D (Manual, itens 6.5 e 6.6).
+    """
+
+    PROPRIO_MUNICIPIO = "proprio_municipio", "ISS devido ao próprio município"
+    OUTRO_MUNICIPIO = "outro_municipio", "ISS devido a outro município"
+    RETIDO = "retido", "ISS retido ou substituído pelo tomador"
+
+
 class EstadoConfirmacaoMes(models.TextChoices):
     CONFIRMADA = "confirmada", "Confirmada"
     # Reaberta: o mês voltou a não estar completo. `a_retificar=True` quando a
@@ -758,6 +777,29 @@ class ReceitaInformada(models.Model):
         verbose_name="estornada por",
     )
     motivo_estorno = models.CharField("motivo do estorno", max_length=500, blank=True, default="")
+    # DL-075 (HI-68): atividade que a receita descreve. Opcional; sem ela, vale a
+    # atividade padrão vigente no mês (apps.fiscal.pre_das). Não muda o RBT12 nem
+    # o total do mês: só o anexo em que o pré-DAS aplica a receita.
+    atividade = models.ForeignKey(
+        "AtividadeEmpresa",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="receitas_informadas",
+        verbose_name="atividade",
+    )
+    # DL-075 (HI-80): situação do ISS. Obrigatória no mercado interno e NULA na exportação,
+    # imposta pelo serviço (`apps.fiscal.receita.lancar_receita_informada`) e pelas duas
+    # restrições abaixo. `null=True` porque a migração 0005 não reescreve linhas antigas:
+    # uma receita interna confirmada sem situação é recusada pelo pré-DAS, nomeada, e o
+    # estorno com novo lançamento é o caminho (a receita confirmada é imutável).
+    situacao_iss = models.CharField(
+        "situação do ISS",
+        max_length=20,
+        choices=SituacaoIssReceitaInformada.choices,
+        null=True,
+        blank=True,
+    )
 
     class Meta:
         verbose_name = "receita informada"
@@ -782,6 +824,17 @@ class ReceitaInformada(models.Model):
             models.CheckConstraint(
                 condition=~Q(motivo="") & ~Q(documento_suporte=""),
                 name="receita_informada_campos_obrigatorios",
+            ),
+            # HI-80: a situação do ISS, quando há, é do catálogo fechado; e a exportação não
+            # tem situação de ISS (o PGDAS-D não oferece essa opção na atividade de exportação).
+            models.CheckConstraint(
+                condition=Q(situacao_iss__isnull=True)
+                | Q(situacao_iss__in=SituacaoIssReceitaInformada.values),
+                name="receita_informada_situacao_iss_valida",
+            ),
+            models.CheckConstraint(
+                condition=Q(mercado=MercadoReceita.INTERNO) | Q(situacao_iss__isnull=True),
+                name="receita_informada_iss_so_no_interno",
             ),
             # Coerência entre estado e colunas do ato, como em
             # `escrituracao_campos_coerentes_com_o_estado` (DL-072).
@@ -1006,3 +1059,286 @@ class OpcaoRegimeCaixaSimples(models.Model):
 
     def __str__(self):
         return f"Regime de caixa em {self.ano_calendario} — empresa {self.empresa_id}"
+
+
+# ---------------------------------------------------------------------------
+# DL-075 (frente A): atividades da empresa e folha para o fator r.
+#
+# Atividade (HI-68): o pré-DAS aplica cada receita a um ANEXO, e o anexo depende
+# da atividade que a receita descreve. O catálogo do enquadramento é FECHADO e
+# vem do contador, com dispositivo citado em `apps.fiscal.simples_tabelas`.
+# O código do subitem (LC 116 / cTribNac) é só informativo: NÃO deriva o
+# enquadramento (a norma enquadra por atividade, não por código; consulta
+# contador-senior, item 5).
+#
+# Folha (HI-69): o fator r usa a folha de salários dos 12 meses anteriores
+# (LC 123 art. 18 §§ 5º-K e 24). Cada mês é um lançamento com componentes
+# separados, confirmado como a receita informada e imutável depois de confirmado.
+# ---------------------------------------------------------------------------
+
+
+class EnquadramentoAtividade(models.TextChoices):
+    ANEXO_III = "anexo_iii", "Anexo III (sem fator r)"
+    ANEXO_III_OU_V_FATOR_R = "anexo_iii_ou_v_fator_r", "Anexo III ou V, pelo fator r"
+    ANEXO_IV = "anexo_iv", "Anexo IV (CPP fora do DAS)"
+
+
+class AtividadeEmpresa(models.Model):
+    """Atividade que a empresa presta, com enquadramento e vigência (DL-075, item 2).
+
+    `padrao=True` marca a atividade que a escrituração usa (por nota fica para
+    depois). Só pode haver UMA padrão em aberto por empresa, garantido no banco
+    pela constraint `atividade_padrao_unica_em_aberto`. Padrões com vigência
+    fechada não se sobrepõem por constraint: o serviço recusa a sobreposição.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="atividades_fiscais",
+        verbose_name="empresa",
+    )
+    descricao = models.CharField("descrição da atividade", max_length=200)
+    codigo_subitem = models.CharField(
+        "código do subitem (LC 116 / cTribNac), informativo",
+        max_length=20,
+        blank=True,
+        default="",
+    )
+    enquadramento = models.CharField(
+        "enquadramento", max_length=32, choices=EnquadramentoAtividade.choices
+    )
+    inicio = models.DateField("início da vigência")
+    fim = models.DateField("fim da vigência", null=True, blank=True)
+    padrao = models.BooleanField("atividade padrão da empresa", default=False)
+    criada_em = models.DateTimeField("criada em", auto_now_add=True)
+    criada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="criada por",
+    )
+
+    class Meta:
+        verbose_name = "atividade da empresa (Simples)"
+        verbose_name_plural = "atividades da empresa (Simples)"
+        ordering = ["empresa_id", "inicio", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(fim__isnull=True) | Q(fim__gte=F("inicio")),
+                name="atividade_fim_depois_do_inicio",
+            ),
+            models.CheckConstraint(
+                condition=Q(enquadramento__in=EnquadramentoAtividade.values),
+                name="atividade_enquadramento_valido",
+            ),
+            models.UniqueConstraint(
+                fields=["empresa"],
+                condition=Q(padrao=True, fim__isnull=True),
+                name="atividade_padrao_unica_em_aberto",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Atividade {self.pk} — {self.descricao} ({self.get_enquadramento_display()})"
+
+    def cobre_o_mes(self, ano: int, mes: int) -> bool:
+        """True se a vigência cobre o mês INTEIRO (1º ao último dia).
+
+        Mês parcialmente coberto não conta: a apuração é mensal e uma troca de
+        atividade no meio do mês não tem anexo único para o mês (o pré-DAS recusa).
+        """
+        primeiro = date(ano, mes, 1)
+        ultimo = date(ano, mes, calendar.monthrange(ano, mes)[1])
+        return self.inicio <= primeiro and (self.fim is None or self.fim >= ultimo)
+
+
+class EstadoFolhaFatorR(models.TextChoices):
+    """Rascunho, confirmada e estornada são estados distintos. Só a confirmada
+    entra no FS12 do fator r (regra do CLAUDE.md: rascunho é distinguível)."""
+
+    RASCUNHO = "rascunho", "Rascunho"
+    CONFIRMADA = "confirmada", "Confirmada"
+    ESTORNADA = "estornada", "Estornada"
+
+
+class FolhaImutavel(Exception):
+    """Folha confirmada ou estornada não se altera nem se exclui por `save()`/`delete()`.
+    A correção é estorno com motivo. O banco também recusa (migração 0004)."""
+
+    mensagem_padrao = (
+        "Folha confirmada não pode ser alterada nem excluída; estorne com motivo para corrigir."
+    )
+
+    def __init__(self, mensagem=None):
+        super().__init__(mensagem or self.mensagem_padrao)
+        self.mensagem = mensagem or self.mensagem_padrao
+
+
+class FolhaFatorR(models.Model):
+    """Folha de UM mês de UMA empresa, para o fator r (DL-075, item 3; HI-69).
+
+    Componentes (LC 123 art. 18 § 24; Res. CGSN 140 art. 26 § 2º, II, pelo consulta
+    contador-senior, item 6): remuneração base INSS de empregados e avulsos;
+    pró-labore e autônomos; 13º na competência da incidência; CPP recolhida
+    (inclusive a dentro do DAS); FGTS recolhido. Fora: aluguéis e lucros.
+
+    Valores em `DecimalField(17, 2)`, o mesmo da receita (DE-010). `documento_suporte`
+    é a fonte (ex.: "GFIP/eSocial 03/2026; guias da CPP e do FGTS").
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="folhas_fator_r",
+        verbose_name="empresa",
+    )
+    ano = models.PositiveSmallIntegerField("ano da competência")
+    mes = models.PositiveSmallIntegerField("mês da competência")
+    estado = models.CharField(
+        "estado",
+        max_length=12,
+        choices=EstadoFolhaFatorR.choices,
+        default=EstadoFolhaFatorR.RASCUNHO,
+    )
+    remuneracao_empregados_avulsos = models.DecimalField(
+        "remuneração base INSS — empregados e avulsos", max_digits=17, decimal_places=2
+    )
+    pro_labore_autonomos = models.DecimalField(
+        "pró-labore e autônomos", max_digits=17, decimal_places=2
+    )
+    decimo_terceiro = models.DecimalField("13º salário", max_digits=17, decimal_places=2)
+    cpp_recolhida = models.DecimalField(
+        "CPP recolhida (inclusive a do DAS)", max_digits=17, decimal_places=2
+    )
+    fgts_recolhido = models.DecimalField("FGTS recolhido", max_digits=17, decimal_places=2)
+    documento_suporte = models.CharField("documento de suporte", max_length=300)
+    criado_em = models.DateTimeField("criada em", auto_now_add=True)
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="criada por",
+    )
+    confirmada_em = models.DateTimeField("confirmada em", null=True, blank=True)
+    confirmada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="confirmada por",
+    )
+    estornada_em = models.DateTimeField("estornada em", null=True, blank=True)
+    estornada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="estornada por",
+    )
+    motivo_estorno = models.CharField("motivo do estorno", max_length=500, blank=True, default="")
+
+    COMPONENTES = (
+        "remuneracao_empregados_avulsos",
+        "pro_labore_autonomos",
+        "decimo_terceiro",
+        "cpp_recolhida",
+        "fgts_recolhido",
+    )
+
+    class Meta:
+        verbose_name = "folha mensal para o fator r"
+        verbose_name_plural = "folhas mensais para o fator r"
+        ordering = ["empresa_id", "ano", "mes", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(ano__gte=1970, ano__lte=2999, mes__gte=1, mes__lte=12),
+                name="folha_mes_valido",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(remuneracao_empregados_avulsos__gte=0)
+                    & Q(pro_labore_autonomos__gte=0)
+                    & Q(decimo_terceiro__gte=0)
+                    & Q(cpp_recolhida__gte=0)
+                    & Q(fgts_recolhido__gte=0)
+                ),
+                name="folha_valores_nao_negativos",
+            ),
+            models.CheckConstraint(
+                condition=~Q(documento_suporte=""),
+                name="folha_campos_obrigatorios",
+            ),
+            models.CheckConstraint(
+                condition=Q(estado__in=EstadoFolhaFatorR.values),
+                name="folha_estado_valido",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        estado="rascunho",
+                        confirmada_em__isnull=True,
+                        confirmada_por__isnull=True,
+                        estornada_em__isnull=True,
+                        estornada_por__isnull=True,
+                        motivo_estorno="",
+                    )
+                    | Q(
+                        estado="confirmada",
+                        confirmada_em__isnull=False,
+                        confirmada_por__isnull=False,
+                        estornada_em__isnull=True,
+                        estornada_por__isnull=True,
+                        motivo_estorno="",
+                    )
+                    | (
+                        Q(
+                            estado="estornada",
+                            confirmada_em__isnull=False,
+                            confirmada_por__isnull=False,
+                            estornada_em__isnull=False,
+                            estornada_por__isnull=False,
+                        )
+                        & ~Q(motivo_estorno="")
+                    )
+                ),
+                name="folha_campos_coerentes_com_o_estado",
+            ),
+            # No máximo um lançamento NÃO estornado por empresa e mês: rascunho ou
+            # confirmada. Estornada fica no histórico e não bloqueia um novo lançamento.
+            models.UniqueConstraint(
+                fields=["empresa", "ano", "mes"],
+                condition=~Q(estado="estornada"),
+                name="folha_mes_unica_ativa_por_empresa",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"Folha {self.ano}-{self.mes:02d} — empresa {self.empresa_id} "
+            f"({self.get_estado_display()})"
+        )
+
+    @property
+    def total(self):
+        """Folha do mês: soma dos componentes (LC 123 art. 18 § 24, com CPP e FGTS)."""
+        return sum((getattr(self, nome) for nome in self.COMPONENTES), Decimal("0.00"))
+
+    def _estado_gravado(self):
+        # Lê o estado GRAVADO: o objeto em memória pode estar desatualizado.
+        return FolhaFatorR.objects.filter(pk=self.pk).values_list("estado", flat=True).first()
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None and self._estado_gravado() != EstadoFolhaFatorR.RASCUNHO:
+            raise FolhaImutavel()
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.pk is not None and self._estado_gravado() != EstadoFolhaFatorR.RASCUNHO:
+            raise FolhaImutavel(
+                "Folha confirmada ou estornada não pode ser excluída; o histórico é preservado "
+                "pelo estorno."
+            )
+        return super().delete(*args, **kwargs)

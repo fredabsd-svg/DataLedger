@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block titulo %}{{ titulo }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Atividades do Simples</a></li>
+            <li aria-current="page">{{ titulo }}</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para as atividades</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-075 (frente B), arquétipo B (formulário de documento, direção de arte §2.B). A pergunta
+antes de gravar: a atividade vale para qual período, e com qual anexo? O enquadramento vem
+do catálogo, com o dispositivo ao lado de cada opção; a empresa escolhe o enquadramento,
+nunca a alíquota (HI-68). Erro de regra é mostrado com o motivo e nada é gravado.
+{% endcomment %}
+{% block titulo_pagina %}<h1>{{ titulo }}</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa">
+        <h2>O que vai acontecer</h2>
+        <p>
+            A atividade passa a valer na vigência informada. O pré-DAS usa a atividade <strong>padrão</strong>
+            de cada mês inteiro coberto por ela; só pode haver uma padrão em aberto por vez.
+        </p>
+        <p class="texto-apoio">
+            Alterar mantém a trilha: quem alterou, quando e o que mudou. Para tirar a atividade de uso
+            sem apagar o histórico, encerre a vigência.
+        </p>
+    </div>
+
+    <table class="tabela-dados">
+        <caption>Enquadramentos do catálogo, com o dispositivo de cada um</caption>
+        <thead>
+            <tr>
+                <th scope="col">Enquadramento</th>
+                <th scope="col">Dispositivo</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in catalogo %}
+                <tr>
+                    <th scope="row">{{ item.rotulo }}</th>
+                    <td>{{ item.dispositivo }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <form method="post" action="{{ url_envio }}" class="formulario">
+        {% csrf_token %}
+        <div class="campo">
+            <label for="id_descricao">Descrição da atividade</label>
+            <input type="text" id="id_descricao" name="descricao" value="{{ valores.descricao }}" required
+                   maxlength="{{ descricao_maxima }}">
+        </div>
+        <div class="campo">
+            <label for="id_codigo_subitem">Código do subitem (LC 116 / cTribNac), informativo</label>
+            <input type="text" id="id_codigo_subitem" name="codigo_subitem" value="{{ valores.codigo_subitem }}"
+                   maxlength="{{ codigo_maximo }}" aria-describedby="id_codigo_ajuda">
+            <p class="texto-apoio" id="id_codigo_ajuda">
+                Opcional. Só dígitos e pontos, até {{ codigo_maximo }} caracteres. Não entra no cálculo.
+            </p>
+        </div>
+        <div class="campo">
+            <label for="id_enquadramento">Enquadramento</label>
+            <select id="id_enquadramento" name="enquadramento" required>
+                <option value=""{% if not valores.enquadramento %} selected{% endif %}>Escolha o enquadramento</option>
+                {% for valor, rotulo in opcoes_enquadramento %}
+                    <option value="{{ valor }}"{% if valor == valores.enquadramento %} selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_inicio">Início da vigência</label>
+            <input type="text" id="id_inicio" name="inicio" value="{{ valores.inicio }}" inputmode="numeric"
+                   required maxlength="10" aria-describedby="id_inicio_ajuda">
+            <p class="texto-apoio" id="id_inicio_ajuda">Obrigatório, em dd/mm/aaaa.</p>
+        </div>
+        <div class="campo">
+            <label for="id_fim">Fim da vigência</label>
+            <input type="text" id="id_fim" name="fim" value="{{ valores.fim }}" inputmode="numeric"
+                   maxlength="10" aria-describedby="id_fim_ajuda">
+            <p class="texto-apoio" id="id_fim_ajuda">Em dd/mm/aaaa. Em branco, a atividade fica em aberto.</p>
+        </div>
+        <div class="campo">
+            <label for="id_padrao">
+                <input type="checkbox" id="id_padrao" name="padrao" value="1"{% if valores.padrao %} checked{% endif %}>
+                Atividade padrão da empresa
+            </label>
+            <p class="texto-apoio">
+                É a atividade que o pré-DAS usa no mês. Uma padrão por vez, sem sobreposição de vigência.
+            </p>
+        </div>
+        <div class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+            <button type="submit" class="botao botao--primario">{% if editando %}Salvar alteração{% else %}Cadastrar atividade{% endif %}</button>
+        </div>
+    </form>
+{% endblock %}

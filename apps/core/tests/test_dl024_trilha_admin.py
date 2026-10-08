@@ -102,10 +102,12 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
     )
     from apps.empresas.models import Empresa, Estabelecimento, HistoricoRegimeTributario
     from apps.fiscal.models import (
+        AtividadeEmpresa,
         ConfirmacaoReceitaMensal,
         DocumentoFiscal,
         EscrituracaoFiscal,
         EventoFiscal,
+        FolhaFatorR,
         LoteDeRecepcao,
         OpcaoRegimeCaixaSimples,
         ReceitaInformada,
@@ -180,6 +182,12 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         ReceitaInformada,
         ConfirmacaoReceitaMensal,
         OpcaoRegimeCaixaSimples,
+        # DL-075 (frente A, 2026-10-08): `AtividadeEmpresa` e `FolhaFatorR`, na cobertura
+        # "por padrão" (R1/DE-056), como os acima. Sem ModelAdmin (BL-262); a escrita é pelos
+        # serviços de `apps.fiscal.pre_das` e `apps.fiscal.folha_fator_r`, que gravam a trilha
+        # via `registrar()` na mesma transação.
+        AtividadeEmpresa,
+        FolhaFatorR,
         # DL-046 fatia 1 (2026-09-26): apps.livro_caixa é um app PRÓPRIO do
         # projeto, sem entrada em EXCLUSAO_DA_TRILHA_DO_ADMIN — mesmo
         # mecanismo "por padrão" (R1/DE-056) do bloco de apps.fiscal acima.
