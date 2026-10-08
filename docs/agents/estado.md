@@ -250,18 +250,21 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    planilha de 11 KB prendia o servidor ~10 s) — todo o resto aprovado. Pela
    regra de parada do §3.1, **sem terceira rodada**: as correções do Excel e
    de R1, R4 e R6 são aceitas pelos testes que o próprio auditor escreveu, e
-   a troca da biblioteca de planilha fica no BL-674. Em andamento.
+   a troca da biblioteca de planilha fica no BL-674. Correções feitas
+   (`a083ab0` na branch); suíte completa com a fatia 1 sobre a `main`:
+   **6.811 aprovados, 1 reprovado (ambiente), 53 pulados**. **Próximo: PR
+   da fatia 1, CI e merge (RC-168).**
    **Fatias 2 e 3** (exportar lançamentos e saldos; importar lançamentos com
    área de conferência) implementadas e integradas sobre a fatia 1 corrigida
    (suíte completa: 6.835 aprovados, 1 reprovado de ambiente); telas da
    importação de lançamentos em andamento; auditoria própria depois.
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
-PostgreSQL 16 local, sobre `4f42117`, medida na reconferência da DL-075):**
-`pytest` completo **5.973 aprovados, 1 reprovado, 53 pulados**, numa única
-invocação; a reprovação é a conhecida de ambiente
+PostgreSQL 16 local, branch com a DL-077 fatia 1 sobre `6c2baf7`, medida
+pelo arquiteto numa única invocação):** `pytest` completo **6.811
+aprovados, 1 reprovado, 53 pulados**; a reprovação é a conhecida de ambiente
 (`test_versao_minima_python.py`, exige Python 3.14). `ruff`, `check` e
-`makemigrations --check` limpos (427 arquivos). Lição da DL-075: a suíte
+`makemigrations --check` limpos (465 arquivos). Lição da DL-075: a suíte
 **em fatias** esconde interação entre migrações — só vale a invocação única.
 
 **Também achado em 08/10/2026:** o diagnóstico da DFC fatia 2 levantou, no
