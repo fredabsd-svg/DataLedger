@@ -75,6 +75,9 @@ def _valor_nao_negativo(valor, nome: str) -> Decimal:
         raise EntradaInvalidaFolha(
             f"{nome}: notação científica não é aceita; informe o valor por extenso."
         )
+    # R5 (reconferência DL-075): só dígitos ASCII, antes do Decimal (ver receita.FORMATO_VALOR).
+    if not receita_servico.FORMATO_VALOR.fullmatch(str(valor)):
+        raise EntradaInvalidaFolha(f"{nome}: valor inválido.")
     try:
         decimal = Decimal(str(valor))
     except (InvalidOperation, ValueError, TypeError) as exc:

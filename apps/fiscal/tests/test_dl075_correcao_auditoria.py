@@ -337,9 +337,10 @@ def test_encerrar_vigencia_antes_de_mes_confirmado_e_recusado(empresa_a, usuario
     with pytest.raises(servico.AtividadeConflito) as excecao:
         servico.alterar_atividade(atividade, {"fim": date(2026, 3, 10)}, usuario_gestor_a)
 
-    # Encerrar em 10/03/2026 tira a atividade de abril em diante: abril é o primeiro mês
-    # confirmado que mudaria (março ainda é coberto, por inteiro ou em parte).
-    assert "04/2026" in excecao.value.mensagem
+    # Encerrar em 10/03/2026 deixa março coberto só em parte: março, que estava coberto por
+    # inteiro, é o primeiro mês confirmado a mudar (R1 da reconferência DL-075). A asserção
+    # anterior, que apontava abril, fixava a brecha que a R1 fecha.
+    assert "03/2026" in excecao.value.mensagem
     atividade.refresh_from_db()
     assert atividade.fim is None
 

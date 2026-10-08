@@ -43,6 +43,7 @@ situação não entra no pré-DAS: a recusa é nomeada, e nunca se presume "pró
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -68,6 +69,12 @@ from apps.fiscal.models import (
 )
 
 ZERO = Decimal("0.00")
+
+# R5 (reconferência DL-075): valor só com dígitos ASCII, sinal opcional e ponto decimal.
+# O `Decimal` aceita "1_000" (vira 1000) e dígitos Unicode ("٣" vira 3), e isso passava
+# pelo serviço. O teste é sobre o texto, ANTES do Decimal. As casas decimais continuam
+# na checagem seguinte, com a mensagem própria.
+FORMATO_VALOR = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
 ANO_MINIMO, ANO_MAXIMO = 1970, 2999
 MOTIVO_MAXIMO = 500
 DOCUMENTO_SUPORTE_MAXIMO = 300
@@ -389,6 +396,8 @@ def _valor_positivo(valor) -> Decimal:
             "Notação científica não é aceita no valor: informe o valor por extenso, como "
             "1000,00 ou 1.000,00."
         )
+    if not FORMATO_VALOR.fullmatch(str(valor)):
+        raise EntradaInvalidaReceita("Valor inválido.")
     try:
         decimal = Decimal(str(valor))
     except (InvalidOperation, ValueError, TypeError) as exc:

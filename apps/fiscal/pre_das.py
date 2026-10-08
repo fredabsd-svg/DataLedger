@@ -547,6 +547,7 @@ def cadastrar_atividade(empresa: Empresa, dados: dict, usuario, request=None) ->
     valores = _validar_atividade(dados, None)
     travada = receita_servico.travar_empresa(empresa)
     _checar_padrao(travada, valores)
+    _recusar_cadastro_em_mes_confirmado(travada, valores)
     atividade = AtividadeEmpresa(empresa=travada, criada_por=usuario, **valores)
     _inserir_atividade(atividade)
     registrar(
@@ -569,11 +570,18 @@ def _meses_confirmados(empresa: Empresa) -> list[tuple[int, int]]:
     )
 
 
-def _mes_cruza_vigencia(ano: int, mes: int, inicio: date, fim: date | None) -> bool:
-    """A vigência toca algum dia do mês. Cobertura parcial conta: o pré-DAS do mês muda."""
+def _dias_cobertos_no_mes(ano: int, mes: int, inicio: date, fim: date | None):
+    """Primeiro e último dia da vigência DENTRO do mês, ou None se ela não toca o mês.
+
+    Comparar esses dias (e não só "toca ou não") é o que pega a troca de cobertura inteira
+    para parcial (R1 da reconferência DL-075): encerrar em 15/06 deixa de cobrir 06/2026
+    inteiro, e o pré-DAS desse mês muda, mesmo que a vigência ainda toque o mês.
+    """
     primeiro = date(ano, mes, 1)
     ultimo = date(ano, mes, _ultimo_dia(ano, mes))
-    return inicio <= ultimo and (fim is None or fim >= primeiro)
+    de = max(inicio, primeiro)
+    ate = ultimo if fim is None else min(fim, ultimo)
+    return (de, ate) if de <= ate else None
 
 
 def _recusar_mudanca_em_mes_confirmado(
@@ -589,18 +597,37 @@ def _recusar_mudanca_em_mes_confirmado(
     Mês confirmado não muda de anexo: se a atividade cobre um mês confirmado e a mudança
     altera o cálculo dele, a operação é recusada, nomeando o mês. `muda_calculo`: troca de
     enquadramento ou de padrão, que afeta todo mês que a atividade cobre (antes ou depois).
-    Sem isso, só a diferença de cobertura conta: encerrar a vigência para o futuro, depois
-    dos meses confirmados, continua permitido.
+    Sem isso, conta a mudança nos dias cobertos do mês: encerrar a vigência no último dia do
+    mês, ou para o futuro depois dos meses confirmados, continua permitido; encerrar no meio
+    de um mês confirmado não é.
     """
     for ano, mes in _meses_confirmados(empresa):
-        cobre_antes = _mes_cruza_vigencia(ano, mes, *antes)
-        cobre_depois = depois is not None and _mes_cruza_vigencia(ano, mes, *depois)
-        afetado = (cobre_antes or cobre_depois) if muda_calculo else (cobre_antes != cobre_depois)
+        dias_antes = _dias_cobertos_no_mes(ano, mes, *antes)
+        dias_depois = _dias_cobertos_no_mes(ano, mes, *depois) if depois is not None else None
+        if muda_calculo:
+            afetado = dias_antes is not None or dias_depois is not None
+        else:
+            afetado = dias_antes != dias_depois
         if afetado:
             raise AtividadeConflito(
                 f"{acao} mudaria o pré-DAS do mês confirmado {_mes_rotulo(ano, mes)}. Mês "
                 "confirmado não muda: encerre a vigência desta atividade e cadastre uma nova "
                 "a partir do mês aberto."
+            )
+
+
+def _recusar_cadastro_em_mes_confirmado(empresa: Empresa, valores: dict) -> None:
+    """Cadastro retroativo: a vigência nova não pode cobrir nenhum mês confirmado (R1, DL-075).
+
+    Cadastrar atividade que toca mês confirmado muda o pré-DAS desse mês (anexo, ou bloqueio
+    de atividade não definida com nota). Cadastrar a partir do mês aberto continua permitido.
+    """
+    for ano, mes in _meses_confirmados(empresa):
+        if _dias_cobertos_no_mes(ano, mes, valores["inicio"], valores["fim"]) is not None:
+            raise AtividadeConflito(
+                f"O cadastro desta atividade mudaria o pré-DAS do mês confirmado "
+                f"{_mes_rotulo(ano, mes)}. Mês confirmado não muda: cadastre a atividade a "
+                "partir do mês aberto."
             )
 
 

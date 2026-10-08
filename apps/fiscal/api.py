@@ -414,6 +414,12 @@ class ValorMonetarioEntrada(serializers.DecimalField):
             raise serializers.ValidationError(
                 'Notação científica não é aceita: envie o valor por extenso, por exemplo "1000.00".'
             )
+        # R5 (reconferência DL-075): o DRF converte com Decimal(), que aceita "1_000" e dígitos
+        # Unicode. O formato é checado no texto, com o mesmo strip() que o DRF faz antes.
+        if isinstance(data, str) and not receita_servico.FORMATO_VALOR.fullmatch(data.strip()):
+            raise serializers.ValidationError(
+                'Valor inválido: use só dígitos e ponto decimal, por exemplo "1234.56".'
+            )
         return super().to_internal_value(data)
 
 
@@ -924,7 +930,16 @@ def _pre_das_payload(resultado: pre_das_servico.PreDas) -> dict:
 
 
 class PreDasView(EmpresaEscopadaMixin, APIView):
-    """GET — pré-DAS do mês (ano/mes). 409 com a lista de bloqueios quando não calcula."""
+    """GET — pré-DAS do mês (ano/mes). 409 com a lista de bloqueios quando não calcula.
+
+    Formato dos números (R2c da reconferência DL-075):
+    - Campos estruturados (`total`, `total_por_tributo`, `rbt12`, `fator_r`, aliquotas e
+      percentuais) são strings em ponto decimal, exatas, sem float.
+    - `memoria[].valor` é TEXTO PARA LEITURA, não campo de cálculo. Dinheiro sai em pt-BR
+      ("8.080,00", "300.000,00"); percentuais e alíquotas continuam com ponto decimal e a
+      precisão de cálculo ("0.080800000000"). Quem precisar de número usa os campos
+      estruturados, nunca `memoria[].valor`.
+    """
 
     permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
 
