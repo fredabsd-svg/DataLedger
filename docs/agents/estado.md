@@ -138,6 +138,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md) | Melhorias do repositório com equipe multiagente (RC-160): entradas do acesso, consultas por linha, testes que faltavam | Integrada (PR #94, squash `76cb92a`) — auditoria e reconferência aprovadas com ressalvas; BL-652 a BL-654 abertos |
 | [DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) | A marcação manual da DMPL respeita o período fechado (BL-655) | Integrada (PR #95, squash `389aafe`) — auditoria e reconferência aprovadas com ressalvas; BL-656 a BL-659 abertos |
 | [DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) | Fiscal F1: escrituração das NFS-e prestadas (natureza, competência, estorno, conferência) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-073](../planos/DL-073-validador-ibscbs.md) | Fiscal: validador de conformidade IBS/CBS das NFS-e recebidas (modo aviso, HI-61) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -179,8 +180,13 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 2. **[DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) — Fiscal
    F1, escrituração das NFS-e prestadas: em desenvolvimento.** Frente A
    (domínio, API) em cópia isolada (`/home/user/wt-dl072a`, branch
-   `dl072-frente-a`, partindo de `a3076c6`), a integrar por cherry-pick na
+   `dl072-frente-a`, partindo de `f4f2a72`), a integrar por cherry-pick na
    branch recomeçada da `main` em `389aafe`; frente B (telas) em seguida.
+3. **[DL-073](../planos/DL-073-validador-ibscbs.md) — validador de
+   conformidade IBS/CBS das NFS-e recebidas: em desenvolvimento**, em
+   paralelo, em cópia isolada (`/home/user/wt-dl073`). Leiaute oficial
+   pesquisado e registrado em
+   [consultas/](../projeto/consultas/2026-10-08-leiaute-ibscbs-nfse.md).
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `f4f2a72`, medida pelo auditor):** `pytest`
