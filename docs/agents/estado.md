@@ -181,26 +181,30 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 2. **[DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) — Fiscal
    F1, escrituração das NFS-e prestadas — e
    [DL-073](../planos/DL-073-validador-ibscbs.md) — validador de
-   conformidade IBS/CBS: em revisão** na branch `ccr-bf4b4a55-hpqgbp`. As duas
-   frentes da DL-072 (domínio/API e telas), a DL-073 e o desdobramento da
-   natureza em seis (HI-67, com tabela de `tribISSQN` por versão de leiaute)
-   estão integrados; a tela de conformidade está no menu do Fiscal.
-   [Auditoria rodada 1](../auditorias/2026-10-08-dl-072-dl-073-rodada-1.md):
-   **as duas APROVADAS COM RESSALVAS**, sem bloqueador nem achado alto;
-   correção única em andamento (DL-072: A1, A2, A4 a A11; DL-073: B1 a B5), em
-   cópias isoladas. HI-72 (data de emissão = dia escrito no documento).
+   conformidade IBS/CBS: em revisão** na branch `ccr-bf4b4a55-hpqgbp`, PR
+   para a `main` a abrir. Ciclo do §3.1 encerrado:
+   [rodada 1](../auditorias/2026-10-08-dl-072-dl-073-rodada-1.md) e
+   [reconferência](../auditorias/2026-10-08-dl-072-dl-073-reconferencia.md),
+   as duas **APROVADAS COM RESSALVAS** para as duas etapas; os achados novos
+   R1, R2, R4 e R5 da reconferência foram corrigidos depois (`5035bb8`), com
+   testes que derrubam os mutantes, sem nova rodada. R3 (a migração `0002`
+   foi editada antes de chegar a ambiente compartilhado — bancos locais
+   antigos precisam ser recriados) vai declarada no PR. Abertos: BL-660 a
+   BL-666.
 3. **[DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) — receita
-   mensal e RBT12 do Simples: em desenvolvimento** (frente A, Haiku, em cópia
-   isolada `/home/user/wt-dl074` a partir de `a88e2fc`). Segunda consulta ao
-   `contador-senior` registrada em
+   mensal e RBT12 do Simples: em desenvolvimento.** Frentes A (domínio, API,
+   110 testes) e B (telas, 73 testes) prontas em cópia isolada
+   (`/home/user/wt-dl074int`, branch `dl074-int`), para integrar depois do
+   merge da DL-072/073 e seguir para auditoria. Segunda consulta ao
+   `contador-senior` em
    [consultas/](../projeto/consultas/2026-10-08-contador-senior-rbt12.md);
    HI-64 a HI-71.
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
-PostgreSQL 16 local, sobre `a88e2fc`, medida pelo auditor da DL-072):**
-`pytest` completo **5.358 aprovados, 1 reprovado, 53 pulados**; a reprovação é a
+PostgreSQL 16 local, sobre `5035bb8`):** `pytest` completo **5.459
+aprovados, 1 reprovado, 53 pulados**; a reprovação é a
 conhecida de ambiente (`test_versao_minima_python.py`, exige Python 3.14).
-`ruff`, `check` e `makemigrations --check` limpos (394 arquivos).
+`ruff`, `check` e `makemigrations --check` limpos (395 arquivos).
 
 **Também achado em 08/10/2026:** o diagnóstico da DFC fatia 2 levantou, no
 texto oficial do CPC 03 (R2), Rev. 24, que a norma **não define "classe"** de
