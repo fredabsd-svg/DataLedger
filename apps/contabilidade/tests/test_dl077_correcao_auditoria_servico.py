@@ -300,9 +300,9 @@ def _lancamento_de_201_partidas(numero):
     return debitos + creditos
 
 
-def test_t_a4_mais_de_200_partidas_vira_erro_de_conferencia_e_so_validos_deixa_de_fora(cenario):
-    """A4: 201 partidas é erro na conferência, com a mensagem do limite. Só-válidos
-    grava o resto."""
+def test_t_a4_mais_de_200_partidas_vira_erro_de_conferencia_e_so_validos_e_suspenso(cenario):
+    """A4: 201 partidas é erro na conferência, com a mensagem do limite. Antes, só-válidos gravava
+    o resto; agora a política está suspensa (BL-676) e nada entra no Diário."""
     empresa = cenario["empresa"]
     importacao = _receber_proprio(empresa, *_par(1), *_lancamento_de_201_partidas(2))
 
@@ -314,10 +314,9 @@ def test_t_a4_mais_de_200_partidas_vira_erro_de_conferencia_e_so_validos_deixa_d
     with pytest.raises(servico.ImportacaoNaoEfetivada):
         servico.efetivar(importacao, politica=servico.TUDO_OU_NADA, usuario=None)
 
-    resultado = servico.efetivar(importacao, politica=servico.SO_VALIDOS, usuario=None)
-    assert resultado.criados == 1
-    assert resultado.nao_efetivados == ["2"]
-    assert _diario(empresa).count() == 1
+    with pytest.raises(servico.ImportacaoNaoEfetivada, match="suspensa"):
+        servico.efetivar(importacao, politica=servico.SO_VALIDOS, usuario=None)
+    assert _diario(empresa).count() == 0
 
 
 def test_t_a4_valor_de_10_elevado_a_16_e_erro_de_conferencia_e_nao_500(cenario):
@@ -446,27 +445,30 @@ def test_t_a5_consultas_ao_diario_nao_crescem_com_o_numero_de_lancamentos(cenari
 # --- A7: soma efetivada separada da soma lida ---------------------------------------------------
 
 
-def test_t_a7_so_validos_grava_a_soma_efetivada_e_a_trilha_mostra_a_mesma(cenario):
-    """A7: um lançamento de 100,00 pronto e um de 200,00 com conta inexistente. Gravado: 100,00."""
+def test_t_a7_efetivacao_grava_a_soma_efetivada_e_a_trilha_mostra_a_mesma(cenario):
+    """A7: a soma efetivada e a trilha mostram o que entrou no Diário.
+
+    Antes, o teste usava a política parcial (lido 300, gravado 100). Ela está suspensa (BL-676), e
+    por tudo ou nada o gravado é o lido: 100,00 + 50,00.
+    """
     empresa = cenario["empresa"]
     importacao = _receber_proprio(
         empresa,
         *_par(1, valor="100.00"),
-        "2;2026-03-10;Ruim;9.9;D;200.00",
-        "2;2026-03-10;Ruim;2.1;C;200.00",
+        *_par(2, valor="50.00"),
     )
     _aceitar_arquivo(importacao)
 
-    servico.efetivar(importacao, politica=servico.SO_VALIDOS, usuario=None)
+    servico.efetivar(importacao, politica=servico.TUDO_OU_NADA, usuario=None)
 
     importacao.refresh_from_db()
-    assert importacao.soma_debitos == Decimal("300.00")
-    assert importacao.soma_debitos_efetivados == Decimal("100.00")
-    assert importacao.soma_creditos_efetivados == Decimal("100.00")
+    assert importacao.soma_debitos == Decimal("150.00")
+    assert importacao.soma_debitos_efetivados == Decimal("150.00")
+    assert importacao.soma_creditos_efetivados == Decimal("150.00")
     trilha = RegistroAuditoria.objects.get(acao="lancamentos.importacao.efetivada")
-    assert trilha.detalhes["soma_debitos_efetivados"] == "100.00"
-    assert trilha.detalhes["soma_creditos_efetivados"] == "100.00"
-    assert trilha.detalhes["quantidade_efetivados"] == 1
+    assert trilha.detalhes["soma_debitos_efetivados"] == "150.00"
+    assert trilha.detalhes["soma_creditos_efetivados"] == "150.00"
+    assert trilha.detalhes["quantidade_efetivados"] == 2
 
 
 # --- A8: ocorrências guardadas com teto e total -------------------------------------------------
@@ -496,7 +498,7 @@ def test_t_a8_erro_do_arquivo_inteiro_nunca_some_do_corte(cenario):
     assert importacao.ocorrencias_do_arquivo[0]["campo"] == "estrutura"
     _aceitar_arquivo(importacao)
     with pytest.raises(servico.ImportacaoNaoEfetivada):
-        servico.efetivar(importacao, politica=servico.SO_VALIDOS, usuario=None)
+        servico.efetivar(importacao, politica=servico.TUDO_OU_NADA, usuario=None)
     assert not _diario(empresa).exists()
 
 
@@ -545,21 +547,22 @@ def test_t_a10_linha_sem_nenhum_pipe_continua_erro(cenario):
 
 
 def test_t_a11_arquivo_sem_empresa_exige_aceite_nas_duas_politicas(cenario):
-    """A11: próprio (não declara empresa) exige o aceite do aviso antes de efetivar,
-    em tudo e só-válidos."""
+    """A11: próprio (não declara empresa) exige o aceite do aviso antes de efetivar.
+
+    A política só-válidos está suspensa (BL-676): ela é recusada antes, pela suspensão.
+    """
     empresa = cenario["empresa"]
     importacao = _receber_proprio(empresa, *_par(1))
     assert importacao.exige_aceite_do_arquivo is True
     assert importacao.aceite_do_arquivo is False
 
-    for politica in (servico.TUDO_OU_NADA, servico.SO_VALIDOS):
-        with pytest.raises(servico.ImportacaoNaoEfetivada) as excinfo:
-            servico.efetivar(importacao, politica=politica, usuario=None)
-        assert any(o["campo"] == "empresa" for o in excinfo.value.ocorrencias)
+    with pytest.raises(servico.ImportacaoNaoEfetivada) as excinfo:
+        servico.efetivar(importacao, politica=servico.TUDO_OU_NADA, usuario=None)
+    assert any(o["campo"] == "empresa" for o in excinfo.value.ocorrencias)
     assert not _diario(empresa).exists()
 
     _aceitar_arquivo(importacao)
-    servico.efetivar(importacao, politica=servico.SO_VALIDOS, usuario=None)
+    servico.efetivar(importacao, politica=servico.TUDO_OU_NADA, usuario=None)
     assert _diario(empresa).count() == 1
     trilha = RegistroAuditoria.objects.get(acao="lancamentos.avisos_aceitos")
     assert trilha.detalhes["arquivo"] is True

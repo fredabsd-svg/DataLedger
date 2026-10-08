@@ -98,7 +98,10 @@ def _aceitar_o_arquivo_pela_tela(client, empresa, importacao):
 
 
 def test_t_a1_tela_so_validos_fica_indisponivel_e_lista_o_erro_do_arquivo(client, cenario):
-    """A1: com o erro do arquivo inteiro, a política só-válidos não é oferecida; o erro aparece."""
+    """A1: com erro do arquivo, a efetivação não é oferecida; o erro aparece na tela.
+
+    A política só-válidos não é oferecida em tempo nenhum (suspensa, BL-676).
+    """
     empresa = cenario["empresa"]
     importacao = servico.receber(
         empresa=empresa,
@@ -117,8 +120,8 @@ def test_t_a1_tela_so_validos_fica_indisponivel_e_lista_o_erro_do_arquivo(client
     html = client.get(_url_tela("lancamentos_importacao", empresa, importacao.id)).content.decode()
 
     assert 'value="so_validos"' not in html, "a tela ofereceu só-válidos com erro do arquivo"
-    assert "Não é possível efetivar só os válidos" in html
-    assert "erro do arquivo inteiro" in html
+    assert "Não é possível efetivar tudo" in html
+    assert "Erros do arquivo, que impedem a efetivação" in html
     assert "CNPJ do registro 0000" in html
 
 
@@ -169,20 +172,19 @@ def test_t_a2_tela_recusa_byte_nulo_com_400_e_nada_gravado(client, cenario, cont
 
 
 def test_t_a7_tela_mostra_o_gravado_e_o_lido_e_a_frase_no_singular(client, cenario):
-    """A7: a efetivação só-válidos mostra a soma gravada e a lida, e 'lançamento', no singular."""
+    """A7: a efetivação mostra a soma gravada e a lida, e 'lançamento', no singular.
+
+    Antes usava a política parcial (lido 300, gravado 100). Ela está suspensa (BL-676): aqui o
+    arquivo tem só um lançamento limpo, e por tudo ou nada o gravado é o lido.
+    """
     empresa = cenario["empresa"]
-    importacao = _receber(
-        empresa,
-        *_par(1, valor="100.00"),
-        "2;2026-03-10;Ruim;9.9;D;200.00",
-        "2;2026-03-10;Ruim;2.1;C;200.00",
-    )
+    importacao = _receber(empresa, *_par(1, valor="100.00"))
     _entrar(client, "gestor-corr")
     _aceitar_o_arquivo_pela_tela(client, empresa, importacao)
 
     resposta = client.post(
         _url_tela("lancamentos_importacao_efetivar", empresa, importacao.id),
-        {"politica": "so_validos", "confirmar": "sim"},
+        {"politica": "tudo_ou_nada", "confirmar": "sim"},
         follow=True,
     )
 
@@ -190,7 +192,7 @@ def test_t_a7_tela_mostra_o_gravado_e_o_lido_e_a_frase_no_singular(client, cenar
     assert "Efetivada: 1 lançamento gravado no Diário." in html
     assert "1 lançamentos gravados" not in html
     assert "Gravado no Diário: débitos 100,00, créditos 100,00." in html
-    assert "Lido do arquivo: débitos 300,00, créditos 300,00." in html
+    assert "Lido do arquivo: débitos 100,00, créditos 100,00." in html
 
 
 # --- A8: lista da API sem as ocorrências; detalhe com o total -----------------------------------

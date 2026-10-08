@@ -323,7 +323,8 @@ def _aceitar_o_arquivo(client, empresa, importacao_id):
     assert resposta.status_code == 200, resposta.content
 
 
-def test_efetivar_so_validos_efetiva_o_que_presta(client, cenario):
+def test_efetivar_so_validos_e_recusado_pela_suspensao_e_nada_e_gravado(client, cenario):
+    """Antes (DL-077 fatia 3) a política gravava o lançamento 1. Agora está suspensa (BL-676)."""
     _entrar(client, "analista-imp")
     importacao_id = _enviar(
         client,
@@ -340,12 +341,10 @@ def test_efetivar_so_validos_efetiva_o_que_presta(client, cenario):
         content_type="application/json",
     )
 
-    assert resposta.status_code == 200
-    corpo = resposta.json()
-    assert corpo["criados"] == 1
-    assert corpo["nao_efetivados"] == ["2"]
-    assert LancamentoContabil.objects.filter(empresa=cenario["empresa"]).count() == 1
-    assert RegistroAuditoria.objects.filter(acao="lancamentos.importacao.efetivada").exists()
+    assert resposta.status_code == 400
+    assert "suspensa" in resposta.json()["detail"]
+    assert LancamentoContabil.objects.filter(empresa=cenario["empresa"]).count() == 0
+    assert not RegistroAuditoria.objects.filter(acao="lancamentos.importacao.efetivada").exists()
 
 
 def test_efetivar_duas_vezes_responde_409_e_nao_duplica(client, cenario):

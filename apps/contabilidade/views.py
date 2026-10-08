@@ -3186,7 +3186,11 @@ class ImportacaoLancamentosListarEnviarView(EmpresaEscopadaContabilMixin, APIVie
             )
         except IntercambioRecusado as exc:
             return _resposta_da_recusa(exc)
-        return Response(_importacao_como_dict(importacao), status=status.HTTP_201_CREATED)
+        # R2: a resposta do envio mostra os registros que a leitura ignorou (contados, como a prévia
+        # do plano). Não são gravados em campo; a trilha guarda a mesma contagem.
+        dados = _importacao_como_dict(importacao)
+        dados["registros_ignorados"] = importacao.registros_ignorados_da_leitura
+        return Response(dados, status=status.HTTP_201_CREATED)
 
 
 class ImportacaoLancamentosDetalheView(EmpresaEscopadaContabilMixin, APIView):

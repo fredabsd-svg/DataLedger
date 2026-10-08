@@ -39,6 +39,16 @@ DECISÕES DE LEITURA QUE O MANUAL NÃO FECHA (declaradas, não escondidas):
   e, na falta de UTF-8 válido, ISO-8859-1 (a do escritor do produto). UTF-8 sem BOM e com
   acento gera AVISO, porque a detecção pode errar.
 
+LINHA EM BRANCO (R2 da reconferência). Linha em branco dentro de um lote, seguida de outra linha
+(de registro ou não, inclusive um 6000 ou 0000 que feche o lote), é ERRO: pode ser um 6100 apagado.
+Em branco só no fim do arquivo é formatação e não conta.
+
+REGISTRO DESCONHECIDO (R2 da reconferência). Um registro que o leitor não conhece, dentro de um
+lote (depois de um 6000 e antes do próximo 6000, 0000 ou fim do arquivo), é ERRO do arquivo: o lote
+pode estar incompleto e a política não pode saber. Fora de lote, é aviso por registro. Pela
+definição acima, um registro desconhecido depois do último lote (um trailer, por exemplo) também é
+erro: a regra bloqueia em vez de deixar passar, mas um leiaute com trailer exige decisão do arquivo.
+
 Erros de estrutura e de conteúdo viram `Ocorrencia` com linha e campo (`6100.5`, por exemplo),
 e um lançamento com erro não entra no resultado. Nada é levantado por conteúdo ruim.
 """
@@ -411,10 +421,16 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
     lote_atual = None
     documento_visto = False
     sem_barras_nas_pontas = False
+    linha_em_branco = None  # a primeira linha em branco dentro de um lote, até a próxima linha lida
 
     for numero, bruta in enumerate(texto.split("\n"), start=1):
         linha = bruta.rstrip("\r")
         if not linha.strip():
+            # Linha em branco DENTRO de um lote pode ser um 6100 apagado (a partida sumiria sem
+            # erro). Só vira erro se outra linha vier depois; em branco no fim do arquivo é
+            # formatação.
+            if lote_atual is not None and linha_em_branco is None:
+                linha_em_branco = numero
             continue
         # A10 (HI-91, item 2): a forma sem barras nas pontas é aceita, com UM aviso por arquivo,
         # como no leitor do plano. A forma com as duas barras é a canônica e não gera aviso. Uma
@@ -440,6 +456,20 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
 
         campos = (linha[1:-1] if com_barras else linha).split("|")
         reg = campos[0].strip()
+        if linha_em_branco is not None:
+            if lote_atual is not None:
+                lote_atual.valido = False
+                ocorrencias.append(
+                    Ocorrencia(
+                        linha_em_branco,
+                        "linha",
+                        NIVEL_ERRO,
+                        f"linha em branco dentro do lote da linha {lote_atual.linha}: um registro "
+                        "do lote pode ter sido apagado. O lote não é lido com linha em branco no "
+                        "meio; corrija o arquivo.",
+                    )
+                )
+            linha_em_branco = None
 
         if reg == REG_DOCUMENTO:
             if documento_visto:
@@ -480,8 +510,35 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
             )
             continue
 
-        lote_atual = None
+        # R2 (reconferência): registro que o leitor não conhece. Dentro de um lote, o lote pode
+        # estar incompleto (um 6100 com identificador ilegível some sem deixar rastro), então o lote
+        # não vira lançamento e o registro é ERRO do arquivo, que bloqueia as duas políticas. O lote
+        # continua aberto até o próximo 6000, 0000 ou fim do arquivo. Fora de lote, é só aviso por
+        # registro. Em qualquer caso o registro é contado em `registros_ignorados`.
         ignorados[reg] += 1
+        identificador = reg[:20] or "(vazio)"
+        if lote_atual is not None:
+            lote_atual.valido = False
+            ocorrencias.append(
+                Ocorrencia(
+                    numero,
+                    "REG",
+                    NIVEL_ERRO,
+                    f"registro '{identificador}' dentro do lote da linha {lote_atual.linha} não é "
+                    "lido pelo DataLedger: o lote pode estar incompleto. O arquivo não pode ser "
+                    "efetivado enquanto isso não for corrigido.",
+                )
+            )
+        else:
+            ocorrencias.append(
+                Ocorrencia(
+                    numero,
+                    "registro",
+                    NIVEL_AVISO,
+                    f"registro '{identificador}' fora de lote não é lido pelo DataLedger: foi "
+                    "ignorado (contado em registros ignorados).",
+                )
+            )
 
     for lote in lotes:
         resultado.lancamentos.extend(_lancamentos_do_lote(lote, ocorrencias))

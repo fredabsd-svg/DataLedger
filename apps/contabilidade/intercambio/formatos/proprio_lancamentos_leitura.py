@@ -18,6 +18,10 @@ REGRAS DA LEITURA (além da estrutura):
 Um lançamento com qualquer erro em qualquer de suas linhas NÃO entra no resultado: as linhas
 boas do mesmo número também saem, porque a partida sozinha não fecha o lançamento.
 
+LINHA EM BRANCO (R2 da reconferência). Linha em branco que vem antes de outra linha do arquivo é
+ERRO do arquivo: pode ser uma partida apagada, e o formato não tem total declarado para denunciar a
+falta. Em branco só no fim do arquivo é formatação e não conta.
+
 `montar_lancamentos` é a parte que o leitor do Excel também usa: recebe as linhas já lidas
 (`LinhaLida`) e agrupa, confere número e data e devolve os lançamentos. Assim o formato
 próprio e a planilha seguem a mesma regra de agrupamento, sem duplicação.
@@ -242,6 +246,9 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
 
     linhas = []
     cabecalho_visto = False
+    linha_em_branco = (
+        None  # R2 (reconferência): a primeira linha em branco, até a próxima linha lida
+    )
     try:
         for numero, campos in _registros(texto):
             if not cabecalho_visto:
@@ -260,7 +267,24 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
                     return resultado
                 continue
             if campos == [""]:
+                # Linha em branco pode ser uma partida apagada: o leitor não a pula em silêncio, e
+                # sem ela um lançamento poderia sair incompleto e equilibrado (R2). Só o fim do
+                # arquivo, depois de tudo, é formatação.
+                if linha_em_branco is None:
+                    linha_em_branco = numero
                 continue
+            if linha_em_branco is not None:
+                resultado.ocorrencias.append(
+                    Ocorrencia(
+                        linha_em_branco,
+                        "linha",
+                        NIVEL_ERRO,
+                        "linha em branco no meio do arquivo: pode ser uma partida apagada. "
+                        "Corrija o arquivo; a leitura não aceita linha em branco antes de outra "
+                        "linha.",
+                    )
+                )
+                linha_em_branco = None
             linhas.append(_interpretar(numero, campos, resultado.ocorrencias))
     except _ErroDeEstrutura as exc:
         resultado.ocorrencias.append(

@@ -365,15 +365,16 @@ def test_efetivar_arquivo_sem_lancamento_e_recusado_nomeado_e_nao_efetiva(cenari
     assert not LancamentoContabil.objects.filter(empresa=cenario["empresa"]).exists()
 
 
-def test_so_validos_sem_lancamento_pronto_e_recusado_nomeado_e_nao_efetiva(cenario):
-    """Um lançamento só com débito é erro: nenhum está pronto, e a efetivação não pode seguir."""
+def test_so_validos_suspenso_e_recusado_mesmo_sem_lancamento_pronto(cenario):
+    """Um lançamento só com débito é erro. Antes a recusa era "nenhum pronto"; agora a política
+    está suspensa (BL-676), e a recusa é a da suspensão, sem gravar nada."""
     importacao = _receber(cenario["empresa"], "7;2026-03-10;Compra;1.1.1;D;100.00")
     assert importacao.quantidade_com_erro == 1
     # Arquivo sem 0000 (A11): o aceite do aviso do arquivo é dado antes, para a recusa ser a de
     # "nenhum pronto", que é o que este teste mede.
     servico.aceitar_avisos(importacao, [], aceitar_arquivo=True)
 
-    with pytest.raises(servico.ImportacaoNaoEfetivada, match="não há lançamento para efetivar"):
+    with pytest.raises(servico.ImportacaoNaoEfetivada, match="suspensa"):
         servico.efetivar(importacao, politica=servico.SO_VALIDOS, usuario=None)
 
     importacao.refresh_from_db()

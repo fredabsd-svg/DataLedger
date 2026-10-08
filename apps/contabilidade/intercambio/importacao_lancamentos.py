@@ -7,10 +7,11 @@ QUATRO OPERAÇÕES, E A SEPARAÇÃO É PROPOSITAL.
 2. `reconferir` refaz a conferência com o cadastro atual (de-para, competências, contas, Diário).
    É o que o contador roda depois de mudar um de-para ou reabrir uma competência.
 3. `definir_de_para` e `aceitar_avisos` são as decisões do contador, gravadas na trilha.
-4. `efetivar` é a ÚNICA operação que grava no Diário. Reconfere, decide pela política
-   (tudo ou nada, ou só os válidos), e chama `criar_lancamento` um a um, numa transação. Uma
-   falha no meio desfaz tudo. A chave de idempotência é `importacao:<SHA-256>:<número de origem>`:
-   o SHA-256 faz com que o mesmo número em outro arquivo NÃO colida, e o prefixo é reservado
+4. `efetivar` é a ÚNICA operação que grava no Diário. Reconfere, decide pela política (hoje só
+   tudo ou nada; a efetivação parcial está suspensa, BL-676), e chama `criar_lancamento` um a um,
+   numa transação. Uma falha no meio desfaz tudo. A chave de idempotência é
+   `importacao:<SHA-256>:<número de origem>`: o SHA-256 faz com que o mesmo número em outro arquivo
+   NÃO colida, e o prefixo é reservado
    (`criar_lancamento` recusa `importacao:` sem o parâmetro `permitir_prefixo_da_importacao`).
 
 REGRAS DE CONFERÊNCIA (por lançamento; erro nunca efetiva, aviso só efetiva se aceito):
@@ -41,14 +42,15 @@ total zero, conta de outra empresa, conta sintética, competência não aberta. 
 também o que o Diário não comporta (valor de 10^16 ou mais) e a conta inativa, que
 `criar_lancamento` aceita. Chave com prefixo `importacao:` é reservada ao próprio serviço.
 
-ERROS DO ARQUIVO INTEIRO (A1). Erro que impede conferir a empresa ou que interrompe a leitura
-(campos de `CAMPOS_DE_ERRO_DO_ARQUIVO`) bloqueia AS DUAS políticas: um lançamento lido de arquivo
-assim pode estar incompleto. Só os erros de lançamento saem na política só-válidos.
+ERROS DO ARQUIVO (A1, R1 e R2 da reconferência). Todo erro do arquivo, de lançamento ou não,
+recusa a efetivação. Um erro que o leitor não consegue atribuir a um lançamento (número ilegível,
+registro desconhecido dentro de um lote) deixa o lançamento vizinho incompleto, e a política não
+tem como saber qual é. Nada é efetivado com erro.
 
-POLÍTICAS DE EFETIVAÇÃO. `tudo_ou_nada` (padrão): qualquer erro, qualquer aviso não aceito, ou
-erro do arquivo recusa a efetivação inteira. `so_validos`: efetiva os lançamentos sem erro e
-com avisos aceitos; os demais ficam no relatório da importação. Erro do arquivo inteiro recusa
-as duas.
+POLÍTICAS DE EFETIVAÇÃO. Só `tudo_ou_nada`: qualquer erro, qualquer aviso não aceito, ou erro do
+arquivo recusa a efetivação inteira. A política `so_validos` (efetivar só os prontos) está SUSPENSA
+(BL-676): falhou duas vezes em gravar lançamento incompleto no Diário, que é imutável. Quem a pede
+recebe `ImportacaoNaoEfetivada` com a mensagem nomeada.
 
 AVISO DO ARQUIVO SEM EMPRESA (A11). Arquivo que não declara a empresa (ECD sem 0000, formato
 próprio, Excel) recebe o aviso "o arquivo não declara a empresa". Ele exige o aceite do contador
@@ -155,7 +157,8 @@ LIMITE_MAGNITUDE_VALOR = Decimal(10) ** 16
 # empresa; `codificacao`, `cabecalho`, `estrutura`, `linha` e `REG` = a leitura parou ou ficou com
 # a estrutura quebrada. Um lançamento lido em arquivo assim pode estar incompleto (uma partida
 # perdida pode deixar o lançamento equilibrado por acaso), então NENHUMA política grava com eles.
-# Os demais erros são de lançamento, e só a política só-válidos os deixa de fora.
+# Todo erro bloqueia a efetivação (R1 e R2 da reconferência). Esta lista separa, na tela e nos
+# totais, o erro do ARQUIVO INTEIRO do erro de um lançamento.
 CAMPOS_DE_ERRO_DO_ARQUIVO = frozenset(
     {"0000", "0000.2", "0000.6", "codificacao", "cabecalho", "estrutura", "linha", "REG"}
 )
@@ -173,16 +176,21 @@ SEPARADOR_DE_HISTORICO = " | "
 CENTAVO = Decimal("0.01")
 
 TUDO_OU_NADA = "tudo_ou_nada"
+# SUSPENSA (BL-676). A constante fica só para a recusa nomeada: nenhuma gravação usa esta política.
 SO_VALIDOS = "so_validos"
-POLITICAS_DE_EFETIVACAO = (TUDO_OU_NADA, SO_VALIDOS)
+POLITICAS_DE_EFETIVACAO = (TUDO_OU_NADA,)
+MENSAGEM_SO_VALIDOS_SUSPENSA = (
+    "a efetivação parcial ('só os válidos') está suspensa: corrija ou descarte os lançamentos com "
+    "erro e efetive tudo — BL-676"
+)
 
 MENSAGEM_ARQUIVO_BLOQUEADO = (
-    "o arquivo tem erro que impede a efetivação em qualquer política, ou o aviso de empresa "
+    "o arquivo tem erro que impede a efetivação, ou o aviso de empresa "
     "não foi aceito. Nada foi gravado. Corrija o arquivo ou aceite o aviso."
 )
 MENSAGEM_LANCAMENTO_BLOQUEADO = (
-    "a importação tem erro, ou aviso não aceito: nada foi gravado. Corrija o arquivo ou o de-para, "
-    "ou escolha efetivar só os válidos."
+    "a importação tem erro, ou aviso não aceito: nada foi gravado. Corrija o arquivo ou o de-para "
+    "e reconfira, ou descarte a importação."
 )
 
 _NAO_ALFANUMERICO = re.compile(r"[^0-9A-Z]")
@@ -796,12 +804,17 @@ def receber(*, empresa, formato, conteudo, nome_arquivo="", usuario=None, reques
             )
             _gravar_lancamentos(importacao, resultado)
             _recalcular_contagens(importacao)
+            # R2 (reconferência): os registros que a leitura ignorou (contados) vão para a trilha,
+            # como o plano faz. A importação não tem campo para eles, e criar um exigiria migração.
             _trilha(
                 "lancamentos.importacao.recebida",
                 importacao,
                 usuario,
                 request,
-                _resumo_para_trilha(importacao),
+                dict(
+                    _resumo_para_trilha(importacao),
+                    registros_ignorados=dict(resultado.registros_ignorados),
+                ),
             )
     except IntegrityError as exc:
         # Duas requisições com o mesmo arquivo: a que perdeu a corrida da restrição única recusa.
@@ -809,6 +822,9 @@ def receber(*, empresa, formato, conteudo, nome_arquivo="", usuario=None, reques
         if viva is None:
             raise
         raise _recusar_duplicado(viva) from exc
+    # Atributo EM MEMÓRIA, não gravado: a resposta do envio (API e tela) mostra os registros
+    # ignorados, como a prévia do plano. Depois do envio, quem os quer lê a trilha.
+    importacao.registros_ignorados_da_leitura = dict(resultado.registros_ignorados)
     return importacao
 
 
@@ -971,6 +987,11 @@ def aceitar_avisos(importacao, numeros, *, aceitar_arquivo=False, usuario=None, 
     dois, a operação é recusada. Devolve a quantidade de lançamentos aceitos.
     """
     numeros = [str(numero).strip() for numero in numeros if str(numero).strip()]
+    # R3: número com byte nulo não é consultado (o banco recusaria com 500). Nada é aceito.
+    if any("\x00" in numero for numero in numeros):
+        raise ImportacaoRecusada(
+            "número de lançamento com caractere nulo (código 0). Nada foi aceito."
+        )
     if not numeros and not aceitar_arquivo:
         raise ImportacaoRecusada(
             "informe ao menos um lançamento, ou o aceite do aviso do arquivo, para aceitar."
@@ -1030,6 +1051,12 @@ def descartar(importacao, *, motivo, usuario=None, request=None):
         raise ImportacaoRecusada("o motivo do descarte é obrigatório.")
     if len(motivo) > 500:
         raise ImportacaoRecusada("o motivo do descarte tem mais de 500 caracteres.")
+    # R3: o PostgreSQL não grava byte nulo em texto. Sem esta recusa, o motivo dava 500.
+    if "\x00" in motivo:
+        raise ImportacaoRecusada(
+            "o motivo do descarte tem caractere nulo (código 0), que o banco não grava. "
+            "Nada foi descartado."
+        )
     with transaction.atomic():
         atual = _bloquear_em_conferencia(importacao)
         atual.estado = EstadoImportacaoLancamentos.DESCARTADA
@@ -1043,17 +1070,14 @@ def descartar(importacao, *, motivo, usuario=None, request=None):
     return atual
 
 
-def _erros_que_bloqueiam(importacao, politica):
-    """Erros do ARQUIVO que impedem a política (A1): todos na tudo ou nada; o inteiro no só-válidos.
+def _erros_que_bloqueiam(importacao):
+    """Todo erro do ARQUIVO (linha sem dono de lançamento): bloqueia a efetivação (R1 e R2).
 
     Decidido pela lista guardada, que basta: a guarda põe os erros do arquivo na frente dos avisos
     (`_prioridade_na_guarda`); havendo erro, a lista cortada tem pelo menos um.
     """
-    tudo = politica == TUDO_OU_NADA
     return [
-        dict(o, numero=None)
-        for o in importacao.ocorrencias_do_arquivo
-        if o["nivel"] == NIVEL_ERRO and (tudo or erro_do_arquivo_inteiro(o))
+        dict(o, numero=None) for o in importacao.ocorrencias_do_arquivo if o["nivel"] == NIVEL_ERRO
     ]
 
 
@@ -1073,18 +1097,21 @@ def _bloqueio_do_aceite_do_arquivo():
 
 
 def efetivar(importacao, *, politica=TUDO_OU_NADA, usuario=None, request=None):
-    """Grava no Diário os lançamentos conferidos, pela política escolhida, numa transação.
+    """Grava no Diário os lançamentos conferidos, em tudo ou nada, numa transação.
 
     Reconfere antes, sob a trava da empresa (a mesma da aplicação do plano). Cada lançamento
     passa por `criar_lancamento`, com `chave_idempotencia = importacao:<SHA-256>:<número>`.
     Qualquer exceção no meio desfaz tudo: nenhum lançamento fica sem a importação e vice-versa.
-    Recusa com `ImportacaoNaoEfetivada` (nada gravado) quando há erro do arquivo inteiro ou aviso
-    de empresa sem aceite (nas duas políticas), quando há erro ou aviso não aceito na tudo ou nada,
-    e quando não há nenhum lançamento para efetivar (arquivo sem lançamento, ou, em só os válidos,
-    nenhum pronto).
+    Recusa com `ImportacaoNaoEfetivada` (nada gravado) quando há erro do arquivo ou de lançamento,
+    aviso sem aceite, aviso de empresa sem aceite, ou nenhum lançamento para efetivar. A política
+    `so_validos` é recusada com mensagem própria: está suspensa (BL-676).
 
     Grava na importação a soma dos lançamentos EFETIVADOS (A7), separada da soma lida do arquivo.
     """
+    if politica == SO_VALIDOS:
+        # BL-676: a efetivação parcial falhou duas vezes em gravar lançamento incompleto num Diário
+        # imutável. Enquanto estiver suspensa, a recusa vem antes de qualquer leitura ou trava.
+        raise ImportacaoNaoEfetivada(MENSAGEM_SO_VALIDOS_SUSPENSA)
     if politica not in POLITICAS_DE_EFETIVACAO:
         raise ImportacaoRecusada(
             f"política '{politica}' desconhecida. Use: {', '.join(POLITICAS_DE_EFETIVACAO)}."
@@ -1097,16 +1124,15 @@ def efetivar(importacao, *, politica=TUDO_OU_NADA, usuario=None, request=None):
         _recalcular_contagens(atual)
         linhas = list(atual.lancamentos.select_for_update().order_by("linha", "id"))
         # Ordem das recusas (fixa, e testada): erro do arquivo; arquivo sem lançamento; aviso de
-        # empresa sem aceite; erro ou aviso de lançamento (tudo ou nada). Erro do arquivo vem antes
-        # do zero: um arquivo com erro não é lido como "vazio".
-        erros_do_arquivo = _erros_que_bloqueiam(atual, politica)
+        # empresa sem aceite; erro ou aviso de lançamento. Erro do arquivo vem antes do zero: um
+        # arquivo com erro não é lido como "vazio".
+        erros_do_arquivo = _erros_que_bloqueiam(atual)
         bloqueios_de_lancamento = []
-        if politica == TUDO_OU_NADA:
-            for linha in linhas:
-                if linha.tem_erro or (linha.tem_aviso and not linha.aceito_com_aviso):
-                    bloqueios_de_lancamento += [
-                        dict(o, numero=linha.numero_origem) for o in linha.ocorrencias
-                    ]
+        for linha in linhas:
+            if linha.tem_erro or (linha.tem_aviso and not linha.aceito_com_aviso):
+                bloqueios_de_lancamento += [
+                    dict(o, numero=linha.numero_origem) for o in linha.ocorrencias
+                ]
         if erros_do_arquivo:
             raise ImportacaoNaoEfetivada(
                 MENSAGEM_ARQUIVO_BLOQUEADO, erros_do_arquivo + bloqueios_de_lancamento
@@ -1123,30 +1149,12 @@ def efetivar(importacao, *, politica=TUDO_OU_NADA, usuario=None, request=None):
                 MENSAGEM_ARQUIVO_BLOQUEADO,
                 [_bloqueio_do_aceite_do_arquivo()] + bloqueios_de_lancamento,
             )
-        if politica == TUDO_OU_NADA:
-            if bloqueios_de_lancamento:
-                raise ImportacaoNaoEfetivada(MENSAGEM_LANCAMENTO_BLOQUEADO, bloqueios_de_lancamento)
-            a_efetivar = linhas
-            nao_efetivados = []
-        else:
-            a_efetivar = [
-                linha
-                for linha in linhas
-                if not linha.tem_erro and (not linha.tem_aviso or linha.aceito_com_aviso)
-            ]
-            ids = {linha.pk for linha in a_efetivar}
-            nao_efetivados = [linha for linha in linhas if linha.pk not in ids]
-        if not a_efetivar:
-            # Só-válidos sem nenhum pronto: a mesma recusa de zero, com o motivo certo.
-            raise ImportacaoNaoEfetivada(
-                "não há lançamento para efetivar: nenhum está pronto (sem erro e com avisos "
-                "aceitos). Nada foi gravado.",
-                [
-                    dict(o, numero=linha.numero_origem)
-                    for linha in linhas
-                    for o in linha.ocorrencias
-                ],
-            )
+        if bloqueios_de_lancamento:
+            raise ImportacaoNaoEfetivada(MENSAGEM_LANCAMENTO_BLOQUEADO, bloqueios_de_lancamento)
+        # Tudo ou nada: nenhum lançamento fica de fora. `nao_efetivados` continua na forma do
+        # resultado (contrato da API), sempre vazia enquanto a efetivação parcial estiver suspensa.
+        a_efetivar = linhas
+        nao_efetivados = []
 
         contas = {conta.pk: conta for conta in Conta.objects.filter(empresa=atual.empresa)}
         criados = reaproveitados = 0

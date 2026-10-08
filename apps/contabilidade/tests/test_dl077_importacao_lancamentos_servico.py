@@ -429,7 +429,8 @@ def test_definir_de_para_com_conta_de_outra_empresa_e_recusado(cenario):
 # ---------------------------------------------------------------------------
 
 
-def test_tudo_ou_nada_recusa_com_um_erro_e_so_validos_efetiva_o_resto(cenario):
+def test_tudo_ou_nada_recusa_com_um_erro_e_so_validos_e_suspenso(cenario):
+    """Antes, só-válidos gravava o lançamento 1. A efetivação parcial está suspensa (BL-676)."""
     importacao = _receber(
         cenario["empresa"],
         *_lancamento_simples(1, data="2026-03-10"),
@@ -441,14 +442,12 @@ def test_tudo_ou_nada_recusa_com_um_erro_e_so_validos_efetiva_o_resto(cenario):
         _efetivar(importacao, politica=servico.TUDO_OU_NADA)
     assert LancamentoContabil.objects.filter(empresa=cenario["empresa"]).count() == 0
 
-    resultado = _efetivar(importacao, politica=servico.SO_VALIDOS)
+    with pytest.raises(servico.ImportacaoNaoEfetivada, match="suspensa"):
+        _efetivar(importacao, politica=servico.SO_VALIDOS)
 
-    assert resultado.criados == 1
-    assert resultado.nao_efetivados == ["2"]
-    assert LancamentoContabil.objects.filter(empresa=cenario["empresa"]).count() == 1
+    assert LancamentoContabil.objects.filter(empresa=cenario["empresa"]).count() == 0
     importacao.refresh_from_db()
-    assert importacao.estado == EstadoImportacaoLancamentos.EFETIVADA
-    assert importacao.quantidade_nao_efetivados == 1
+    assert importacao.estado == EstadoImportacaoLancamentos.EM_CONFERENCIA
 
 
 def test_politica_desconhecida_e_recusada(cenario):

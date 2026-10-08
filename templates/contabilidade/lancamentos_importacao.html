@@ -101,7 +101,7 @@ antes de gravar. Cada ação é um formulário próprio, com a confirmação exp
             <div><dt>Estado</dt><dd>{{ estado_rotulo }}</dd></div>
             <div><dt>Recebido em</dt><dd>{{ importacao.criado_em|date:"d/m/Y H:i" }} por {{ importacao.criado_por.get_username|default:"—" }}</dd></div>
             <div><dt>Lançamentos lidos</dt><dd class="valor-monetario">{{ contagens.total }}</dd></div>
-            <div><dt>Prontos para efetivar</dt><dd class="valor-monetario">{{ contagens.prontos }}</dd></div>
+            <div><dt>Sem erro e com avisos aceitos</dt><dd class="valor-monetario">{{ contagens.prontos }}</dd></div>
             <div><dt>Com erro</dt><dd class="valor-monetario">{{ contagens.com_erro }}</dd></div>
             <div><dt>Com aviso a aceitar</dt><dd class="valor-monetario">{{ contagens.com_aviso_a_aceitar }}</dd></div>
             <div><dt>Com aviso já aceito</dt><dd class="valor-monetario">{{ contagens.com_aviso_aceito }}</dd></div>

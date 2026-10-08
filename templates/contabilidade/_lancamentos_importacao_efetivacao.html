@@ -1,16 +1,16 @@
 {% comment %}
-DL-077, fatia 3 (frente B): a efetivação. Duas políticas, cada uma com o próprio botão e a própria
-confirmação, para que nenhuma dependa de script para mudar o que o botão faz:
+DL-077, fatia 3 (frente B): a efetivação, SÓ TUDO OU NADA. Grava todos os lançamentos, ou nenhum. O
+botão só é habilitado quando não há erro, nem erro do arquivo, nem aviso por aceitar. Quando não é
+possível, o botão aparece DESABILITADO com o motivo escrito ao lado (direção de arte, arquétipo B: nunca
+some). O formulário nem é renderizado nesse caso, para que a tela não ofereça a gravação que o servidor
+recusaria.
 
-- tudo ou nada (padrão): grava todos os lançamentos, ou nenhum. O botão só é habilitado quando não há
-  erro, nem erro do arquivo, nem aviso por aceitar. Quando não é possível, o botão aparece DESABILITADO
-  com o motivo escrito ao lado (direção de arte, arquétipo B: nunca some). O formulário nem é renderizado
-  nesse caso, para que a tela não ofereça a gravação que o servidor recusaria.
-- só os válidos: grava os lançamentos prontos e lista, ao lado, o que fica de fora e por quê.
+A efetivação parcial ("só os válidos") está SUSPENSA (BL-676) e não é oferecida: ela falhou duas vezes em
+gravar lançamento incompleto num Diário imutável.
 
 A confirmação é explícita: a caixa precisa estar marcada, e o servidor confere isso de novo.
-O veredito de cada política é APRESENTAÇÃO (ver `_vereditos_da_efetivacao` em views_web.py). O serviço
-reconfere e recusa de novo antes de gravar.
+O veredito é APRESENTAÇÃO (ver `_veredito_da_efetivacao` em views_web.py). O serviço reconfere e
+recusa de novo antes de gravar.
 {% endcomment %}
 <section class="painel-etapa" aria-labelledby="id_efetivacao_titulo">
     <h2 id="id_efetivacao_titulo">Efetivar no Diário</h2>
@@ -59,9 +59,10 @@ reconfere e recusa de novo antes de gravar.
             </form>
         {% endif %}
 
-        <h3>Tudo ou nada (padrão)</h3>
+        <h3>Tudo ou nada</h3>
         <p class="texto-apoio">
             Grava todos os lançamentos, ou nenhum. Só é possível sem erro, sem erro do arquivo e sem aviso por aceitar.
+            Não há efetivação parcial: um lançamento com erro não entra sozinho.
         </p>
         {% if tudo_ou_nada.pode %}
             {% if pode_agir %}
@@ -84,77 +85,25 @@ reconfere e recusa de novo antes de gravar.
                 <p>
                     <strong>Não é possível efetivar tudo:</strong>
                     {% for pendencia in tudo_ou_nada.pendencias %}{{ pendencia }}{% if not forloop.last %}; {% endif %}{% endfor %}.
-                    {% if contagens.total %}Corrija o arquivo ou o de-para e reconfira, ou efetive só os válidos abaixo.{% else %}Envie um arquivo com lançamentos.{% endif %}
                 </p>
-            </div>
-            {% if pode_agir and contagens.total %}
-                <button type="button" class="botao botao--primario" disabled aria-disabled="true">Efetivar tudo ou nada (indisponível)</button>
-            {% endif %}
-        {% endif %}
-
-        <h3>Só os válidos</h3>
-        <p class="texto-apoio">
-            Grava os lançamentos prontos e deixa os demais de fora. Os que ficam de fora continuam na conferência,
-            e a lista deles aparece abaixo, com o motivo de cada um.
-        </p>
-        {% if so_validos.pode %}
-            {% if pode_agir %}
-                <form method="post" action="{% url 'contabilidade_web:lancamentos_importacao_efetivar' empresa.id importacao.id %}" class="formulario">
-                    {% csrf_token %}
-                    <input type="hidden" name="politica" value="{{ politica_so_validos }}">
-                    <div class="campo campo-checkbox">
-                        <label class="campo-checkbox__opcao">
-                            <input type="checkbox" name="confirmar" value="sim" required>
-                            Os {{ so_validos.quantidade }} lançamentos prontos serão gravados no Diário e não poderão ser alterados — só estornados.
-                            {{ ficam_de_fora_total }} ficam de fora.
-                        </label>
-                    </div>
-                    <button type="submit" class="botao botao--secundario">Efetivar {{ so_validos.quantidade }} lançamentos válidos</button>
-                </form>
-            {% else %}
-                <p class="texto-apoio">Seu papel não efetiva lançamentos. Quem escritura a contabilidade faz esta ação.</p>
-            {% endif %}
-        {% else %}
-            <div class="mensagem mensagem-warning">
-                <p><strong>Não é possível efetivar só os válidos:</strong> {{ so_validos.pendencias|join:"; " }}.</p>
-                {% if so_validos.erros_do_arquivo %}
-                    <p>Erros do arquivo inteiro, que impedem as duas políticas:</p>
+                {% if contagens.total or tudo_ou_nada.erros_do_arquivo %}
+                    <p>Erro precisa ser corrigido no arquivo; se o arquivo não servir, descarte a importação. Depois de corrigir um de-para, reconfira.</p>
+                {% else %}
+                    <p>Não há lançamento neste arquivo: descarte a importação e envie outro.</p>
+                {% endif %}
+                {% if tudo_ou_nada.erros_do_arquivo %}
+                    <p>Erros do arquivo, que impedem a efetivação:</p>
                     <ul>
-                        {% for erro in so_validos.erros_do_arquivo %}
+                        {% for erro in tudo_ou_nada.erros_do_arquivo %}
                             <li>{{ erro.campo }}: {{ erro.mensagem }}</li>
                         {% endfor %}
                     </ul>
                 {% endif %}
             </div>
             {% if pode_agir and contagens.total %}
-                <button type="button" class="botao botao--secundario" disabled aria-disabled="true">Efetivar só os válidos (indisponível)</button>
+                <button type="button" class="botao botao--primario" disabled aria-disabled="true">Efetivar tudo ou nada (indisponível)</button>
             {% endif %}
         {% endif %}
 
-        {% if ficam_de_fora_total %}
-            <h3>Ficariam de fora da efetivação só os válidos</h3>
-            {% if ficam_de_fora_total > limite_de_fora %}
-                <p class="texto-apoio">Mostrando {{ limite_de_fora }} de {{ ficam_de_fora_total }}. A conferência por filtro mostra o restante.</p>
-            {% endif %}
-            <table class="tabela-dados">
-                <caption class="visualmente-oculto">Lançamentos que a política só os válidos deixaria de fora, com o motivo</caption>
-                <thead>
-                    <tr>
-                        <th scope="col">Número de origem</th>
-                        <th scope="col">Linha</th>
-                        <th scope="col">Motivo</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in ficam_de_fora %}
-                        <tr>
-                            <td>{{ item.numero }}</td>
-                            <td class="valor-monetario">{{ item.linha }}</td>
-                            <td>{{ item.motivo }}</td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        {% endif %}
     {% endif %}
 </section>

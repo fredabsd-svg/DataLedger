@@ -35,7 +35,6 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -8514,8 +8513,8 @@ def lancamentos_exportar_arquivo(request, empresa_id):
 #
 # NENHUMA regra de conferência mora aqui. A tela mostra o que o serviço já gravou em
 # `ImportacaoLancamentos` e `LancamentoImportado`, e chama o serviço para cada ação. Há duas
-# leituras de APRESENTAÇÃO, marcadas no código: a contagem de "prontos" e o veredito de cada
-# política, lidos das mesmas flags que o serviço usa para decidir. O serviço continua sendo a
+# leituras de APRESENTAÇÃO, marcadas no código: a contagem de "prontos" e o veredito da efetivação
+# (tudo ou nada), lidos das mesmas flags que o serviço usa para decidir. O serviço continua sendo a
 # autoridade: ele reconfere e recusa de novo na efetivação, e a tela só deixa de oferecer o
 # botão antes disso.
 # ---------------------------------------------------------------------------
@@ -8575,9 +8574,9 @@ FILTROS_DA_CONFERENCIA = {
     "avisos": "Só com aviso",
 }
 CAMPOS_DA_CONFERENCIA = frozenset({"filtro", "pagina"})
+# Só tudo ou nada: a efetivação parcial ("só os válidos") está suspensa (BL-676) e não é oferecida.
 POLITICAS_DE_EFETIVACAO_NA_TELA = {
     importacao_servico.TUDO_OU_NADA: "Tudo ou nada",
-    importacao_servico.SO_VALIDOS: "Só os válidos",
 }
 
 # Contratos das superfícies de escrita da tela: o corpo que cada formulário envia, e nada mais.
@@ -8696,27 +8695,24 @@ def _contagens_da_conferencia(importacao):
         "com_erro": lancamentos.filter(tem_erro=True).count(),
         "com_aviso_a_aceitar": lancamentos.filter(tem_aviso=True, aceito_com_aviso=False).count(),
         "com_aviso_aceito": lancamentos.filter(tem_aviso=True, aceito_com_aviso=True).count(),
-        # APRESENTAÇÃO: "pronto" é o critério que o serviço usa na política só_válidos (sem erro e
-        # com avisos aceitos). Se o serviço mudar esse critério, a efetivação continua recusada por
-        # ele; só o botão da tela ficaria errado.
+        # APRESENTAÇÃO: sem erro e com avisos aceitos. É informação para o contador; a efetivação
+        # só aceita o todo (tudo ou nada), e o serviço recusa de novo se algo não estiver pronto.
         "prontos": lancamentos.filter(tem_erro=False)
         .exclude(tem_aviso=True, aceito_com_aviso=False)
         .count(),
     }
 
 
-def _vereditos_da_efetivacao(importacao, contagens):
-    """O que cada política efetivaria, e o que a impede quando não pode.
+def _veredito_da_efetivacao(importacao, contagens):
+    """O que a efetivação (tudo ou nada) precisa para gravar, e o que a impede quando não pode.
 
-    APRESENTAÇÃO. `tudo_ou_nada` só é possível com ao menos um lançamento, sem erro do arquivo,
-    sem erro de lançamento e sem aviso por aceitar: é a condição que o serviço aplica (ele recusa
-    zero lançamento com a mesma mensagem). `so_validos` é possível com ao menos um lançamento
-    pronto e SEM erro do arquivo inteiro (A1): esse erro bloqueia as duas políticas, e a lista dele
-    vai no veredito. O aviso de empresa não declarada sem aceite também bloqueia as duas (A11).
-    Sem lançamento nenhum, a tela não oferece botão de efetivar.
+    APRESENTAÇÃO. A efetivação é possível com ao menos um lançamento, sem erro do arquivo, sem erro
+    de lançamento e sem aviso por aceitar: é a condição que o serviço aplica. A efetivação parcial
+    ("só os válidos") está suspensa (BL-676) e não tem veredito: a tela não a oferece. O aviso de
+    empresa não declarada sem aceite também impede (A11). Sem lançamento nenhum, não há botão.
+    A lista de erros do arquivo vai no veredito, para o contador ver qual linha impede a gravação.
     """
     erros_do_arquivo = importacao.quantidade_erros_do_arquivo
-    erros_inteiros = importacao.quantidade_erros_do_arquivo_inteiro
     aceite_pendente = importacao.exige_aceite_do_arquivo and not importacao.aceite_do_arquivo
     pendencias = []
     if erros_do_arquivo:
@@ -8732,43 +8728,20 @@ def _vereditos_da_efetivacao(importacao, contagens):
     if aceite_pendente:
         pendencias.append("o aviso de empresa não declarada precisa ser aceito")
     total = contagens["total"]
-    prontos = contagens["prontos"]
-    sem_lancamento = total == 0
-    if sem_lancamento:
+    if total == 0:
         pendencias.append("não há lançamento para efetivar")
-    tudo = {
+    return {
         "pode": not pendencias,
         "pendencias": pendencias,
         "quantidade": total,
-    }
-    pendencias_so_validos = []
-    if erros_inteiros:
-        pendencias_so_validos.append(
-            _contado(
-                erros_inteiros,
-                "erro do arquivo inteiro (impede as duas políticas)",
-                "erros do arquivo inteiro (impedem as duas políticas)",
-            )
-        )
-    if aceite_pendente:
-        pendencias_so_validos.append("o aviso de empresa não declarada precisa ser aceito")
-    if sem_lancamento:
-        pendencias_so_validos.append("não há lançamento para efetivar")
-    elif not prontos:
-        pendencias_so_validos.append("nenhum lançamento está pronto para efetivar")
-    so_validos = {
-        "pode": not pendencias_so_validos,
-        "pendencias": pendencias_so_validos,
-        "quantidade": prontos,
-        # Os erros do arquivo inteiro que impedem a política, para a tela listar (A1). A lista
-        # guardada prioriza esses erros, então o corte de 500 não os tira de cena.
+        # Os erros do arquivo que impedem a gravação, para a tela listar. A lista guardada prioriza
+        # os erros, então o corte de 500 não os tira de cena.
         "erros_do_arquivo": [
             _ocorrencia_na_tela(o)
             for o in importacao.ocorrencias_do_arquivo
-            if importacao_servico.erro_do_arquivo_inteiro(o)
+            if o["nivel"] == NIVEL_ERRO
         ][:LIMITE_DE_ERROS_DO_ARQUIVO_NA_TELA],
     }
-    return tudo, so_validos
 
 
 def _situacao_na_tela(lancamento, importacao):
@@ -8859,12 +8832,14 @@ def _codigos_sem_conta(importacao):
 
 
 def _lancamentos_que_ficam_de_fora(importacao):
-    """Os que a política só_válidos deixaria de fora (ou, efetivada, os que ficaram de fora)."""
+    """Efetivada, os lançamentos que não foram para o Diário. Em conferência, não há lista.
+
+    Sem efetivação parcial (BL-676), a conferência não separa "fica de fora": a efetivação é tudo
+    ou nada, e o que impede aparece no veredito e na própria linha.
+    """
     if importacao.estado == EstadoImportacaoLancamentos.EFETIVADA:
         return importacao.lancamentos.filter(lancamento__isnull=True)
-    return importacao.lancamentos.filter(
-        Q(tem_erro=True) | Q(tem_aviso=True, aceito_com_aviso=False)
-    )
+    return importacao.lancamentos.none()
 
 
 def _contexto_da_conferencia(
@@ -8874,7 +8849,7 @@ def _contexto_da_conferencia(
     pode_escriturar = _pode_escriturar(request)
     pode_agir = em_conferencia and pode_escriturar
     contagens = _contagens_da_conferencia(importacao)
-    tudo, so_validos = _vereditos_da_efetivacao(importacao, contagens)
+    tudo = _veredito_da_efetivacao(importacao, contagens)
     codigos = _codigos_sem_conta(importacao) if em_conferencia else []
     # A lista de contas só é montada onde há de-para a fazer: é o único uso dela.
     contas_analiticas = (
@@ -8902,9 +8877,7 @@ def _contexto_da_conferencia(
         "pode_agir": pode_agir,
         "contagens": contagens,
         "tudo_ou_nada": tudo,
-        "so_validos": so_validos,
         "politica_tudo_ou_nada": importacao_servico.TUDO_OU_NADA,
-        "politica_so_validos": importacao_servico.SO_VALIDOS,
         "politica_rotulo": POLITICAS_DE_EFETIVACAO_NA_TELA.get(
             importacao.politica_de_efetivacao, ""
         ),
@@ -9116,6 +9089,16 @@ def lancamentos_importar(request, empresa_id):
         request,
         "Arquivo recebido em conferência. Nada entrou no Diário: confira os lançamentos abaixo.",
     )
+    # R2: registros que a leitura ignorou, contados e não gravados (a prévia do plano mostra igual).
+    registros = importacao.registros_ignorados_da_leitura
+    if registros:
+        texto = ", ".join(
+            f"{registro} ({quantidade})" for registro, quantidade in registros.items()
+        )
+        messages.info(
+            request,
+            f"Registros do arquivo que o DataLedger não usa (contados, não gravados): {texto}.",
+        )
     return _redirecionar_para_conferencia(empresa, importacao)
 
 
@@ -9356,10 +9339,10 @@ def lancamentos_importacao_reconferir(request, empresa_id, importacao_id):
 @login_required
 @require_http_methods(["POST"])
 def lancamentos_importacao_efetivar(request, empresa_id, importacao_id):
-    """Grava no Diário pela política escolhida, depois de confirmação explícita.
+    """Grava no Diário (tudo ou nada), depois de confirmação explícita.
 
-    Nada é gravado com erro na política tudo_ou_nada. O serviço reconfere e recusa de novo, e a
-    recusa volta para esta tela com a lista do que impede.
+    Nada é gravado com erro. A efetivação parcial está suspensa (BL-676): se a política pedida for
+    outra, o serviço recusa com a mensagem nomeada, e a recusa volta para esta tela.
     """
     empresa, importacao, recusa = _acao_sobre_importacao(request, empresa_id, importacao_id)
     if recusa is not None:

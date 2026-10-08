@@ -23,7 +23,10 @@ REGRAS DE CÉLULA (erro com a linha da planilha e a coluna):
 - `valor`: número com no máximo DUAS casas, maior que zero; ou texto `1250.00`. Mais casas
   é erro: não há arredondamento em silêncio.
 
-Linhas totalmente vazias são ignoradas. Abas que não são `lancamentos` são ignoradas com aviso.
+LINHA VAZIA NO MEIO (R2 da reconferência). Linha totalmente vazia seguida de linha com dados é ERRO
+do arquivo: pode ser uma partida apagada, e a planilha não tem total declarado para denunciar a
+falta. Só as linhas vazias no fim são ignoradas. Abas que não são `lancamentos` são ignoradas com
+aviso.
 """
 
 import io
@@ -255,6 +258,7 @@ def _ler_planilha(formulas, valores, resultado):
     )
     iterador = enumerate(pares, 1)
     numero = 0
+    linha_vazia = None  # R2: a primeira linha vazia, até a próxima linha com dados
     while True:
         # R2, como em `excel._ler_planilha` (que não é reusável aqui: o laço é dela). O openpyxl
         # converte a célula ao montar a linha, então uma falha ao buscar a próxima é a da linha
@@ -291,8 +295,22 @@ def _ler_planilha(formulas, valores, resultado):
                     return
                 continue
             linha = _linha(numero, celulas, valor_salvo, ocorrencias)
-            if linha is not None:
-                linhas.append(linha)
+            if linha is None:
+                if linha_vazia is None:
+                    linha_vazia = numero
+                continue
+            if linha_vazia is not None:
+                ocorrencias.append(
+                    Ocorrencia(
+                        linha_vazia,
+                        "linha",
+                        NIVEL_ERRO,
+                        "linha totalmente vazia no meio da planilha: pode ser uma partida apagada. "
+                        "Corrija a planilha; só as linhas vazias no fim são ignoradas.",
+                    )
+                )
+                linha_vazia = None
+            linhas.append(linha)
         except IntercambioRecusado:
             raise
         except Exception as exc:

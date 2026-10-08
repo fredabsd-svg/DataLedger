@@ -88,6 +88,13 @@ ECD = (
     "|I250|1.1.2||30,00|C|||Aluguel de janeiro||\r\n"
 ).encode("iso-8859-1")
 
+# Só o lançamento 1 (pronto): para os testes que precisam de uma efetivação possível (tudo ou nada).
+PROPRIO_LIMPO = (
+    "numero;data;historico;conta;lado;valor\r\n"
+    "1;2026-01-10;Compra de material;1.1.1;D;100.00\r\n"
+    "1;2026-01-10;Compra de material;2.1;C;100.00\r\n"
+).encode("utf-8")
+
 PROPRIO = (
     "numero;data;historico;conta;lado;valor\r\n"
     "1;2026-01-10;Compra de material;1.1.1;D;100.00\r\n"
@@ -294,6 +301,10 @@ def _importacao_de_proprio(empresa):
     return _receber_direto(empresa, "proprio", PROPRIO)
 
 
+def _importacao_limpa(empresa):
+    return _receber_direto(empresa, "proprio", PROPRIO_LIMPO)
+
+
 def _ultima_importacao(empresa):
     return ImportacaoLancamentos.objects.filter(empresa=empresa).order_by("-id").first()
 
@@ -369,12 +380,23 @@ def _aceitar_o_arquivo_se_preciso(client, empresa, importacao):
 
 
 def _efetivar_com_so_validos(client, empresa, importacao):
+    """Pede a política parcial. Ela está suspensa (BL-676): o servidor responde 400."""
     return _agir(
         client,
         empresa,
         importacao,
         "lancamentos_importacao_efetivar",
         {"politica": "so_validos", "confirmar": "sim"},
+    )
+
+
+def _efetivar_tudo_ou_nada(client, empresa, importacao):
+    return _agir(
+        client,
+        empresa,
+        importacao,
+        "lancamentos_importacao_efetivar",
+        {"politica": "tudo_ou_nada", "confirmar": "sim"},
     )
 
 
@@ -533,7 +555,7 @@ def test_mesmo_arquivo_recebido_de_novo_e_recusado_com_link_para_a_existente(cli
 
 
 # ---------------------------------------------------------------------------
-# Efetivação: tudo ou nada, só os válidos, confirmação e política
+# Efetivação: tudo ou nada (o só os válidos está suspenso, BL-676), confirmação e política
 # ---------------------------------------------------------------------------
 
 
@@ -554,7 +576,10 @@ def test_efetivar_tudo_com_erro_e_recusado_e_nada_e_gravado(client, cenario):
     assert _estado(importacao) == EstadoImportacaoLancamentos.EM_CONFERENCIA
 
 
-def test_so_validos_grava_so_os_validos_e_lista_o_que_ficou_de_fora(client, cenario):
+def test_so_validos_e_recusado_pela_suspensao_e_nada_entra_no_diario(client, cenario):
+    """BL-676: a efetivação parcial está suspensa. Antes, gravava só o pronto (1) e listava os
+    de fora (2 e 3). Agora a recusa vem nomeada, nada entra no Diário e a importação segue em
+    conferência."""
     empresa = cenario["empresa"]
     importacao = _importacao_de_proprio(empresa)
     _entrar(client, "gestor-telas")
@@ -562,20 +587,12 @@ def test_so_validos_grava_so_os_validos_e_lista_o_que_ficou_de_fora(client, cena
 
     resposta = _efetivar_com_so_validos(client, empresa, importacao)
 
-    assert resposta.status_code == 302, resposta.content.decode()
+    assert resposta.status_code == 400, resposta.content.decode()
+    assert "suspensa" in resposta.content.decode()
     importacao.refresh_from_db()
-    assert importacao.estado == EstadoImportacaoLancamentos.EFETIVADA
-    assert importacao.politica_de_efetivacao == "so_validos"
-    assert importacao.quantidade_efetivados == 1
-    assert importacao.quantidade_nao_efetivados == 2
-    # Só o pronto (lançamento 1, 100,00) entrou no Diário. O aviso (2) e o erro (3) ficaram de fora.
-    assert _lancamentos_no_diario(empresa).count() == 1
-    assert _total_debito(empresa) == Decimal("100.00")
-    tela = _conferencia(client, empresa, importacao)
-    assert [item["numero"] for item in tela.context["ficam_de_fora"]] == ["2", "3"]
-    html = tela.content.decode()
-    assert "Ficou de fora: aviso não aceito" in html
-    assert "Ficou de fora: com erro" in html
+    assert importacao.estado == EstadoImportacaoLancamentos.EM_CONFERENCIA
+    assert importacao.politica_de_efetivacao == ""
+    assert _lancamentos_no_diario(empresa).count() == 0
 
 
 def test_botao_de_efetivar_tudo_nao_aparece_habilitado_com_erro_pendente(client, cenario):
@@ -590,7 +607,7 @@ def test_botao_de_efetivar_tudo_nao_aparece_habilitado_com_erro_pendente(client,
     assert 'value="tudo_ou_nada"' not in html, "formulário de efetivar tudo com erro pendente"
     assert "Efetivar tudo ou nada (indisponível)" in html
     assert "Não é possível efetivar tudo" in html
-    assert 'value="so_validos"' in html, "a política só os válidos continua possível"
+    assert 'value="so_validos"' not in html, "a tela ofereceu a efetivação parcial suspensa"
 
 
 def test_botao_de_efetivar_tudo_aparece_quando_a_politica_e_possivel(client, cenario):
@@ -889,11 +906,11 @@ def test_paralegal_le_a_importacao_mas_nao_age(client, cenario):
 @pytest.mark.parametrize("usuario", ["gestor-telas", "analista-telas", "financeiro-telas"])
 def test_quem_escritura_efetiva_a_importacao(client, cenario, usuario):
     empresa = cenario["empresa"]
-    importacao = _importacao_de_proprio(empresa)
+    importacao = _importacao_limpa(empresa)
     _entrar(client, usuario)
     _aceitar_o_arquivo_se_preciso(client, empresa, importacao)
 
-    resposta = _efetivar_com_so_validos(client, empresa, importacao)
+    resposta = _efetivar_tudo_ou_nada(client, empresa, importacao)
 
     assert resposta.status_code == 302, resposta.content.decode()
     assert _estado(importacao) == EstadoImportacaoLancamentos.EFETIVADA
@@ -990,10 +1007,13 @@ def test_telas_da_importacao_passam_as_guardas_de_acessibilidade(client, cenario
         _url("lancamentos_importacao_efetivar", empresa, importacao.id),
         {"politica": "tudo_ou_nada", "confirmar": "sim"},
     ).content.decode()
-    _efetivar_com_so_validos(client, empresa, importacao)
-    efetivada = _conferencia(client, empresa, importacao).content.decode()
+    recusada = _efetivar_com_so_validos(client, empresa, importacao).content.decode()
+    limpa = _importacao_limpa(empresa)
+    _aceitar_o_arquivo_se_preciso(client, empresa, limpa)
+    _efetivar_tudo_ou_nada(client, empresa, limpa)
+    efetivada = _conferencia(client, empresa, limpa).content.decode()
 
-    for html in (lista, formulario, conferencia, erro, efetivada):
+    for html in (lista, formulario, conferencia, erro, recusada, efetivada):
         assert_pagina_acessivel(html)
 
 
