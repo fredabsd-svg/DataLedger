@@ -144,6 +144,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-076](../planos/DL-076-iss-por-municipio-palmas.md) | Fiscal: ISS por município, começando por Palmas (alíquota informada, conferência por nota, apuração fora do Simples, retido sofrido, outros municípios) | Integrada (PR #99, squash `6c2baf7`) — rodada 1 e reconferência aprovadas com ressalvas |
 | [DL-077](../planos/DL-077-importacao-e-exportacao-contabil-em-txt.md) | Contabilidade: importar e exportar plano de contas e lançamentos em TXT e Excel | Integrada (PR #100, squash `929a79a`; PR #101, squash `b60560b`) — efetivação parcial suspensa (BL-676) |
 | [DL-078](../planos/DL-078-servicos-tomados-e-retencoes.md) | Fiscal: serviços tomados, ISS retido pelo tomador e retenções federais | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) | Fiscal: Lucro Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224 | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -296,6 +297,16 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    da nota; INSS de 11% vence pela emissão e IRRF/CSRF pelo pagamento
    (HI-93 a HI-96). **PE-82 com o Fred** (rotina do escritório nos
    tomados; não bloqueia).
+
+8. **[DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) — Lucro
+   Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224: planejada;
+   desenvolvimento começa quando a DL-078 entrar na branch.**
+   [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-presumido.md)
+   com o texto oficial lido no Planalto e no P&R da RFB: o acréscimo
+   multiplica o percentual por 1,10; IRPJ desde o 1º trimestre de 2026 e
+   CSLL desde o 2º (limite de R$ 3,75 milhões no ano para ela); a CSLL tem
+   percentuais próprios. HI-100 a HI-107; **PE-83 com o Fred** (rotina do
+   Presumido no escritório; não bloqueia).
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `97c2ae6` — conteúdo da `main` em `b60560b` —,
