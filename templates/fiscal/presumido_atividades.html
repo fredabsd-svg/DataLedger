@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block titulo %}Atividades de presunção{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-079 (frente B), arquétipo A (tabela de consulta) com cadastro à parte. A atividade de presunção
+é a que dá o percentual de IRPJ e CSLL de cada receita (Lei 9.249, arts. 15 e 20). O percentual
+vem do catálogo e não é digitado; sem atividade vigente, a apuração recusa e nomeia as notas.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Atividades de presunção</h1>{% endblock %}
+
+{% block content %}
+    {% include "fiscal/_filtro_presumido.html" %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver as atividades de presunção.</strong></p>
+            <p class="estado-vazio__descricao">
+                Cada atividade tem vigência e os percentuais de IRPJ e CSLL. Sem atividade vigente, a apuração do trimestre recusa e lista as notas.
+            </p>
+        </div>
+    {% else %}
+        <div class="acoes-formulario">
+            {% if pode_escriturar %}
+                <a class="botao botao--primario" href="{{ url_nova }}">Cadastrar atividade</a>
+            {% else %}
+                <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao">Cadastrar atividade</button>
+                <p class="texto-apoio" id="ajuda_sem_permissao">Seu papel consulta as atividades, mas não cadastra nem encerra.</p>
+            {% endif %}
+        </div>
+
+        {% if atividades %}
+            <table class="tabela-dados">
+                <caption>Atividades de presunção da empresa, com percentuais, vigência e padrão</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Atividade</th>
+                        <th scope="col">IRPJ</th>
+                        <th scope="col">CSLL</th>
+                        <th scope="col">Início</th>
+                        <th scope="col">Fim</th>
+                        <th scope="col">Padrão</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for atividade in atividades %}
+                        <tr>
+                            <td>
+                                {{ atividade.rotulo }}
+                                {% if atividade.requisitos %}<br><span class="texto-apoio">{{ atividade.requisitos }}</span>{% endif %}
+                            </td>
+                            <td class="valor-monetario">{{ atividade.irpj }}</td>
+                            <td class="valor-monetario">{{ atividade.csll }}</td>
+                            <td class="valor-monetario">{{ atividade.inicio }}</td>
+                            <td class="valor-monetario">{{ atividade.fim }}</td>
+                            <td>{{ atividade.padrao }}</td>
+                            <td>
+                                <div class="acoes-de-linha">
+                                    {% if atividade.url_encerrar %}
+                                        <a class="botao botao--perigoso botao--pequeno" href="{{ atividade.url_encerrar }}">Encerrar</a>
+                                    {% elif not pode_escriturar and atividade.fim == "em aberto" %}
+                                        <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Encerrar</button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="estado-vazio">
+                <p class="estado-vazio__titulo"><strong>Nenhuma atividade de presunção cadastrada para esta empresa.</strong></p>
+                <p class="estado-vazio__descricao">Sem atividade vigente na competência, a nota não entra na apuração e a tela diz quais são.</p>
+            </div>
+        {% endif %}
+
+        <h2>Catálogo de atividades de presunção</h2>
+        <table class="tabela-dados">
+            <caption>Atividades que o cadastro aceita, com os percentuais de IRPJ e CSLL de cada uma</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Atividade</th>
+                    <th scope="col">IRPJ</th>
+                    <th scope="col">CSLL</th>
+                    <th scope="col">Observação</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in catalogo %}
+                    <tr>
+                        <th scope="row">{{ item.rotulo }}</th>
+                        <td class="valor-monetario">{{ item.irpj }}</td>
+                        <td class="valor-monetario">{{ item.csll }}</td>
+                        <td>{{ item.observacao }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+{% endblock %}

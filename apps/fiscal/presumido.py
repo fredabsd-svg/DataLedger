@@ -27,6 +27,10 @@ Decisões que o código não explica sozinho:
 - Meses do adicional no trimestre de abertura: conta-se o MÊS CALENDÁRIO tocado pela atividade
   (o mês da abertura inteiro). É HIPÓTESE: o texto lido não diz como tratar fração de mês.
 - A situação só é `completa` sem recusas e com a declaração de receitas integrais válida (HI-104).
+- Medida judicial contra a LC 224 (DL-079, item 0): um trimestre coberto por medida ativa NÃO
+  entra na dedução do 4º trimestre, porque a parcela dele não foi recolhida (ficou suspensa ou
+  depositada). A medida não muda o limite, o excedente nem o caso: só tira o trimestre da soma.
+  A tela mostra esses trimestres como "parcela suspensa por medida judicial — fora da dedução".
 """
 
 from __future__ import annotations
@@ -564,6 +568,27 @@ def declarar_receitas_integrais(
         detalhes={"ano": ano, "trimestre": trimestre, "total": str(total)},
     )
     return declaracao
+
+
+@transaction.atomic
+def declarar_sem_receitas_integrais(
+    empresa: Empresa, ano: int, trimestre: int, usuario, request=None
+) -> DeclaracaoReceitasIntegrais:
+    """Declara "não houve receitas integrais no trimestre" (DL-079, item 3).
+
+    A declaração só vale com total ZERO: com integrais lançadas, "não houve" seria uma afirmação
+    falsa gravada com trilha. Por isso a checagem é feita aqui, sob a mesma trava da empresa, e a
+    recusa não grava nada.
+    """
+    validar_ano_e_trimestre(ano, trimestre)
+    travada = receita_servico.travar_empresa(empresa)
+    if _integrais_ativas(travada, ano, trimestre) != ZERO:
+        raise PresumidoConflito(
+            "Há receitas integrais lançadas neste trimestre: declare o total, não 'não houve'."
+        )
+    return declarar_receitas_integrais(
+        travada, ano, trimestre, "Não houve receitas integrais neste trimestre.", usuario, request
+    )
 
 
 def _declaracao_valida(empresa: Empresa, ano: int, trimestre: int):
@@ -1113,6 +1138,23 @@ def _medida_que_cobre(medidas, tributo: str, ano: int, trimestre: int):
     return None
 
 
+def _suspensos_por_tributo(medidas, ano: int) -> dict[str, frozenset[int]]:
+    """Trimestres do ano com medida ativa cobrindo cada tributo (DL-079, item 0).
+
+    Vai para o cálculo do ano INTEIRO, porque a dedução do 4º trimestre depende da cobertura dos
+    trimestres anteriores, não só do trimestre pedido. Trimestre coberto fica fora da dedução
+    (DL-079, item 0): a parcela dele não foi recolhida.
+    """
+    return {
+        tributo: frozenset(
+            trimestre
+            for trimestre in TRIMESTRES
+            if _medida_que_cobre(medidas, tributo, ano, trimestre) is not None
+        )
+        for tributo in tab.TRIBUTOS
+    }
+
+
 # ---------------------------------------------------------------------------
 # Apuração do trimestre
 # ---------------------------------------------------------------------------
@@ -1145,6 +1187,10 @@ class ColunasTributo:
     saldo_negativo: Decimal
     quotas: calc.OpcoesDeQuota
     caso_quarto: str | None
+    # Os quatro trimestres do ano para este tributo: é a memória do fechamento. Cada linha diz a
+    # diferença que o trimestre contribui para a dedução e se a parcela está suspensa por medida
+    # (item 0: suspensa fica fora da dedução).
+    linhas_do_ano: tuple[calc.LinhaTributoTrimestre, ...]
 
 
 @dataclass(frozen=True)
@@ -1230,6 +1276,7 @@ def _colunas(
         saldo_negativo=saldo_negativo,
         quotas=quotas,
         caso_quarto=caso,
+        linhas_do_ano=apuracao_anual.linhas,
     )
 
 
@@ -1312,7 +1359,8 @@ def apurar_trimestre(empresa: Empresa, ano, trimestre) -> Apuracao:
 
     retencao_irrf, retencao_csll = _retencoes_confirmadas(empresa, dados)
     medidas = list(MedidaJudicialLC224.objects.filter(empresa=empresa, ativa=True))
-    anual = {t: calc.apurar_ano(t, ano, periodos) for t in tab.TRIBUTOS}
+    suspensos = _suspensos_por_tributo(medidas, ano)
+    anual = {t: calc.apurar_ano(t, ano, periodos, suspensos[t]) for t in tab.TRIBUTOS}
     colunas = {
         tab.IRPJ: _colunas(
             tab.IRPJ,
@@ -1367,6 +1415,8 @@ class LinhaControle:
     limite: Decimal | None
     excedente: Decimal
     sobra: Decimal | None
+    diferenca_recalculo: Decimal | None
+    suspensa_por_medida: bool
 
 
 @dataclass(frozen=True)
@@ -1377,17 +1427,21 @@ class ControleLimite:
     linhas: tuple[LinhaControle, ...]
     fechamento: calc.Fechamento | None
     recusas: tuple[Recusa, ...]
+    deducao_quarto_trimestre: Decimal
 
 
 def controle_limite_ano(empresa: Empresa, ano, tributo: str) -> ControleLimite:
-    """Limite do ano por trimestre (R_t, L_t, E_t, sobra) e o fechamento com o caso (item 4)."""
+    """Limite do ano por trimestre (R_t, L_t, E_t, sobra), o fechamento com o caso (item 4) e a
+    dedução do 4º trimestre, com a mesma cobertura por medida judicial da apuração (item 0)."""
     if not isinstance(ano, int) or isinstance(ano, bool):
         raise EntradaInvalidaPresumido("Informe o ano como número inteiro.")
     if tributo not in tab.TRIBUTOS:
         raise EntradaInvalidaPresumido("Tributo: use 'irpj' ou 'csll'.")
     validar_ano_e_trimestre(ano, 1)
     periodos, recusas, _carregados = _periodos_do_ano(empresa, ano, 4)
-    anual = calc.apurar_ano(tributo, ano, periodos)
+    medidas = list(MedidaJudicialLC224.objects.filter(empresa=empresa, ativa=True))
+    suspensos = _suspensos_por_tributo(medidas, ano)
+    anual = calc.apurar_ano(tributo, ano, periodos, suspensos[tributo])
     linhas = tuple(
         LinhaControle(
             trimestre=linha.trimestre,
@@ -1396,6 +1450,8 @@ def controle_limite_ano(empresa: Empresa, ano, tributo: str) -> ControleLimite:
             limite=linha.limite,
             excedente=linha.excedente,
             sobra=linha.sobra,
+            diferenca_recalculo=linha.diferenca_recalculo,
+            suspensa_por_medida=linha.suspensa_por_medida,
         )
         for linha in anual.linhas
     )
@@ -1406,4 +1462,5 @@ def controle_limite_ano(empresa: Empresa, ano, tributo: str) -> ControleLimite:
         linhas=linhas,
         fechamento=anual.fechamento,
         recusas=tuple(recusas),
+        deducao_quarto_trimestre=anual.deducao_quarto_trimestre,
     )

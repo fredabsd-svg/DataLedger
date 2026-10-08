@@ -1,0 +1,328 @@
+{% extends "base.html" %}
+
+{% block titulo %}Apuração do trimestre{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-079 (frente B), tela 6: a MEMÓRIA DE CONFERÊNCIA do trimestre. Classe 1 de documento
+(personalizacao-de-relatorio.md): não é guia nem DARF. Esta tela não calcula: mostra o que o
+serviço apurou, com as três colunas (sem LC 224, com LC 224 e a parcela) em cada tributo.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Apuração do trimestre</h1>{% endblock %}
+
+{% block content %}
+    {% include "fiscal/_filtro_presumido.html" with mostrar_trimestre=True %}
+
+    {% if erro %}
+        <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+    {% endif %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa, o ano e o trimestre para ver a apuração.</strong></p>
+        </div>
+    {% elif apuracao %}
+        <p class="mensagem mensagem-info" role="note"><strong>{{ texto_conferencia }}</strong> Os números abaixo conferem a apuração; a guia é emitida fora deste produto.</p>
+
+        <h2>{{ apuracao.trimestre_rotulo }}</h2>
+        <p>
+            <strong>Situação: {{ apuracao.situacao_texto }}</strong>
+        </p>
+        <p>Critério de receita do ano: {{ apuracao.criterio }}</p>
+
+        {% if apuracao.recusas %}
+            <h3>Recusas</h3>
+            <table class="tabela-dados">
+                <caption>Recusas que impedem a apuração do trimestre, com as notas que as causam</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Motivo</th>
+                        <th scope="col">Notas ou receitas</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for recusa in apuracao.recusas %}
+                        <tr>
+                            <td>{{ recusa.mensagem }}</td>
+                            <td>{{ recusa.itens|default:"—" }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+
+        <p class="mensagem {% if apuracao.declaracao.situacao == 'vale' %}mensagem-success{% elif apuracao.declaracao.situacao == 'caiu' %}mensagem-warning{% else %}mensagem-info{% endif %}" role="status">
+            <strong>Receitas integrais:</strong> {{ apuracao.declaracao.texto }}
+        </p>
+
+        {% if apuracao.notas %}
+            <table class="tabela-dados">
+                <caption>Notas de serviço prestado que compõem a receita de presunção do trimestre</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Nota</th>
+                        <th scope="col">Competência</th>
+                        <th scope="col">Atividade</th>
+                        <th scope="col">Valor do serviço</th>
+                        <th scope="col">Desconto incondicional</th>
+                        <th scope="col">Base de presunção</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for nota in apuracao.notas %}
+                        <tr>
+                            <td>{{ nota.numero }}</td>
+                            <td class="valor-monetario">{{ nota.competencia }}</td>
+                            <td>{{ nota.atividade }}</td>
+                            <td class="valor-monetario">{{ nota.valor }}</td>
+                            <td class="valor-monetario">{{ nota.desconto }}</td>
+                            <td class="valor-monetario">{{ nota.base }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+
+        {% if apuracao.receitas %}
+            <table class="tabela-dados">
+                <caption>Receitas de presunção informadas no trimestre, com a atividade de cada uma</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Atividade</th>
+                        <th scope="col">Valor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for receita in apuracao.receitas %}
+                        <tr>
+                            <td>{{ receita.atividade }}</td>
+                            <td class="valor-monetario">{{ receita.valor }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+
+        <p>Receitas integrais do trimestre (art. 25, II), sem presunção: <strong class="valor-monetario">{{ apuracao.integrais_atuais }}</strong></p>
+
+        {% for chave, tributo in apuracao.tributos.items %}
+            <section aria-labelledby="titulo_{{ chave }}">
+                <h2 id="titulo_{{ chave }}">{{ tributo.tributo }} no {{ apuracao.trimestre_rotulo }}</h2>
+                <p>
+                    Código do DARF (informativo, não gerado aqui): <strong>{{ tributo.rotulo_darf }}</strong>.
+                    Fonte: <span class="texto-apoio">{{ tributo.fonte_darf }}</span>
+                </p>
+
+                {% if tributo.acrescimo_aplicavel %}
+                    <p>Acréscimo da LC 224 aplicado neste trimestre: alíquota multiplicada por 1,10 (ex.: 8% vira 8,8%).</p>
+                {% else %}
+                    <p class="texto-apoio">Sem acréscimo da LC 224 neste trimestre para este tributo. A coluna com acréscimo fica sem valor.</p>
+                {% endif %}
+
+                <table class="tabela-dados">
+                    <caption>{{ tributo.tributo }}: receita, excedente e parcelas por atividade</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Atividade</th>
+                            <th scope="col">Receita</th>
+                            <th scope="col">Excedente do limite</th>
+                            <th scope="col">Alíquota normal</th>
+                            <th scope="col">Alíquota acrescida</th>
+                            <th scope="col">Parcela normal</th>
+                            <th scope="col">Parcela acrescida</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for linha in tributo.memoria %}
+                            <tr>
+                                <td>{{ linha.atividade }}</td>
+                                <td class="valor-monetario">{{ linha.receita }}</td>
+                                <td class="valor-monetario">{{ linha.excedente }}</td>
+                                <td class="valor-monetario">{{ linha.aliquota }}</td>
+                                <td class="valor-monetario">{{ linha.aliquota_acrescida }}</td>
+                                <td class="valor-monetario">{{ linha.parcela_normal }}</td>
+                                <td class="valor-monetario">{{ linha.parcela_acrescida }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+
+                <table class="tabela-dados">
+                    <caption>{{ tributo.tributo }} no trimestre: sem LC 224, com LC 224 e a parcela da LC 224</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Linha</th>
+                            <th scope="col">Sem LC 224</th>
+                            <th scope="col">Com LC 224</th>
+                            <th scope="col">Parcela da LC 224</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for coluna in tributo.colunas %}
+                            <tr>
+                                <th scope="row">{{ coluna.rotulo }}</th>
+                                <td class="valor-monetario">{{ coluna.sem }}</td>
+                                <td class="valor-monetario">{{ coluna.com }}</td>
+                                <td class="valor-monetario">{{ coluna.parcela }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+
+                <dl class="lista-de-definicao">
+                    <div>
+                        <dt>Receitas integrais (art. 25, II)</dt>
+                        <dd class="valor-monetario">{{ tributo.receitas_integrais }}</dd>
+                    </div>
+                    <div>
+                        <dt>Coluna usada para o a recolher</dt>
+                        <dd>{{ tributo.coluna_escolhida }}</dd>
+                    </div>
+                    <div>
+                        <dt>Medida judicial</dt>
+                        <dd class="{% if tributo.medida.situacao != 'nenhuma' %}mensagem mensagem-warning{% endif %}">{{ tributo.medida.texto }}</dd>
+                    </div>
+                    <div>
+                        <dt>Retenção confirmada no trimestre</dt>
+                        <dd class="valor-monetario">{{ tributo.retencao_confirmada }}</dd>
+                    </div>
+                    <div>
+                        <dt>Dedução do 4º trimestre</dt>
+                        <dd class="valor-monetario">{{ tributo.deducao_quarto }}</dd>
+                    </div>
+                    <div>
+                        <dt>Saldo para PER/DCOMP (só mostrado, não abatido)</dt>
+                        <dd class="valor-monetario">{{ tributo.saldo_per_dcomp }}</dd>
+                    </div>
+                    <div>
+                        <dt>Saldo negativo da retenção (só mostrado)</dt>
+                        <dd class="valor-monetario">{{ tributo.saldo_negativo }}</dd>
+                    </div>
+                    <div>
+                        <dt>Tributo da coluna escolhida</dt>
+                        <dd class="valor-monetario">{{ tributo.tributo_escolhido }}</dd>
+                    </div>
+                    <div>
+                        <dt>A recolher</dt>
+                        <dd class="valor-monetario"><strong>{{ tributo.a_recolher }}</strong></dd>
+                    </div>
+                </dl>
+
+                {% if tributo.caso_quarto %}
+                    <p><strong>{{ tributo.caso_quarto }}</strong></p>
+                {% endif %}
+
+                {% if tributo.fechamento %}
+                    <table class="tabela-dados">
+                        <caption>Fechamento do ano: o que cada trimestre contribui para a dedução do 4º trimestre</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Trimestre</th>
+                                <th scope="col">Diferença do recálculo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for linha in tributo.fechamento.trimestres %}
+                                <tr>
+                                    <td>{{ linha.trimestre }}º trimestre</td>
+                                    <td class="valor-monetario">{{ linha.diferenca }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    <dl class="lista-de-definicao">
+                        <div>
+                            <dt>Quantidade de trimestres com acréscimo (N)</dt>
+                            <dd>{{ tributo.fechamento.n }}</dd>
+                        </div>
+                        <div>
+                            <dt>Limite anual (N × R$ 1.250.000,00)</dt>
+                            <dd class="valor-monetario">{{ tributo.fechamento.limite_anual }}</dd>
+                        </div>
+                        <div>
+                            <dt>Excedente anual</dt>
+                            <dd class="valor-monetario">{{ tributo.fechamento.excedente_anual }}</dd>
+                        </div>
+                        <div>
+                            <dt>Soma dos excedentes dos trimestres anteriores (S)</dt>
+                            <dd class="valor-monetario">{{ tributo.fechamento.s }}</dd>
+                        </div>
+                    </dl>
+                    <p><strong>{{ tributo.fechamento.caso_texto }}</strong></p>
+                {% endif %}
+
+                <h3>Quotas (conferência, não é o parcelamento)</h3>
+                <p>Imposto a recolher: <strong class="valor-monetario">{{ tributo.quotas.devido }}</strong></p>
+                <table class="tabela-dados">
+                    <caption>Opções de pagamento do {{ tributo.tributo }} no trimestre, com vencimento e juros em texto</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Plano</th>
+                            <th scope="col">Quota</th>
+                            <th scope="col">Valor</th>
+                            <th scope="col">Vencimento</th>
+                            <th scope="col">Juros</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for parcela in tributo.quotas.unica %}
+                            <tr>
+                                <td>Quota única</td>
+                                <td>{{ parcela.numero }}ª</td>
+                                <td class="valor-monetario">{{ parcela.valor }}</td>
+                                <td class="valor-monetario">{{ parcela.vencimento }}{% if parcela.aviso %} — {{ parcela.aviso }}{% endif %}</td>
+                                <td>{{ parcela.juros }}</td>
+                            </tr>
+                        {% endfor %}
+                        {% if tributo.quotas.tres %}
+                            {% for parcela in tributo.quotas.tres %}
+                                <tr>
+                                    <td>Três quotas</td>
+                                    <td>{{ parcela.numero }}ª</td>
+                                    <td class="valor-monetario">{{ parcela.valor }}</td>
+                                    <td class="valor-monetario">{{ parcela.vencimento }}{% if parcela.aviso %} — {{ parcela.aviso }}{% endif %}</td>
+                                    <td>{{ parcela.juros }}</td>
+                                </tr>
+                            {% endfor %}
+                        {% endif %}
+                    </tbody>
+                </table>
+                {% if not tributo.quotas.tres %}
+                    <p class="texto-apoio">Plano de três quotas indisponível: {{ tributo.quotas.motivo_sem_tres }}</p>
+                {% endif %}
+            </section>
+        {% endfor %}
+
+        {% if apuracao.avisos %}
+            <h2>Avisos</h2>
+            <ul>
+                {% for aviso in apuracao.avisos %}
+                    <li>{{ aviso }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        <section class="painel-etapa painel-etapa--risco" aria-labelledby="titulo_adi_apuracao">
+            <h2 id="titulo_adi_apuracao">Aviso fixo: ADI 7936 e ADI 7944</h2>
+            <p>{{ aviso_adi }}</p>
+            <p class="texto-apoio">Data da última conferência: {{ data_conferencia_adi }}.</p>
+        </section>
+
+        <p class="mensagem mensagem-info" role="note"><strong>{{ texto_conferencia }}</strong></p>
+
+        <h2>Fontes</h2>
+        <ul>
+            {% for fonte in apuracao.fontes %}
+                <li class="texto-apoio">{{ fonte }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+{% endblock %}

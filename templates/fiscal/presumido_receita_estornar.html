@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block titulo %}Estornar receita — {{ empresa_selecionada.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa_selecionada.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Receitas do trimestre</a></li>
+            <li aria-current="page">Estornar receita</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para as receitas</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-079 (frente B), arquétipo E (ação sensível). Estornar não apaga a receita: ela fica na lista,
+marcada como estornada, com o motivo. A receita estornada sai da base do trimestre.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Estornar receita</h1>{% endblock %}
+
+{% block content %}
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Tipo</dt>
+            <dd>{{ receita.tipo }}</dd>
+        </div>
+        <div>
+            <dt>Atividade</dt>
+            <dd>{{ receita.atividade }}</dd>
+        </div>
+        <div>
+            <dt>Descrição</dt>
+            <dd>{{ receita.descricao }}</dd>
+        </div>
+        <div>
+            <dt>Valor</dt>
+            <dd class="valor-monetario">{{ receita.valor }}</dd>
+        </div>
+    </dl>
+
+    <div class="painel-etapa painel-etapa--risco">
+        <h2>O que vai acontecer</h2>
+        <p>A receita sai da base do trimestre. A linha continua na lista, com o motivo e quem estornou, na trilha.</p>
+    </div>
+
+    <form method="post" action="{{ url_envio }}" class="formulario">
+        {% csrf_token %}
+        <div class="campo">
+            <label for="id_motivo">Motivo do estorno (obrigatório)</label>
+            <textarea id="id_motivo" name="motivo" rows="3" maxlength="500" required aria-describedby="ajuda_motivo{% if erro %} erro_do_formulario{% endif %}">{{ motivo }}</textarea>
+            <p class="texto-apoio" id="ajuda_motivo">Por exemplo: lançada em duplicidade, valor digitado errado, nota cancelada.</p>
+        </div>
+        {% if erro %}
+            <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+        {% endif %}
+        <div class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+            <button type="submit" class="botao botao--perigoso">Estornar receita</button>
+        </div>
+    </form>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% comment %}
+Filtro das telas do Lucro Presumido (DL-079, frente B). GET, sem JavaScript, rótulo acima de cada
+campo. Com empresa escolhida, mostra SÓ ela e o caminho para trocar (direção de arte §8.1). Sem
+empresa, mostra a escolha. Variáveis: `empresa_selecionada`, `empresas_do_escritorio` (só sem
+empresa), `url_trocar_empresa`, `ano_filtro`; opcionais `mostrar_trimestre` com `trimestre_filtro`
+e `opcoes_tributo` com `tributo_filtro`.
+{% endcomment %}
+<form method="get" action="{{ request.path }}" class="formulario-periodo formulario-periodo--rotulo-acima">
+    {% if empresa_selecionada %}
+        <input type="hidden" name="empresa" value="{{ empresa_selecionada.pk }}">
+        <p>
+            <strong>Empresa:</strong> {{ empresa_selecionada.razao_social }}
+            <a href="{{ url_trocar_empresa }}">Trocar de empresa</a>
+        </p>
+    {% else %}
+        <div class="campo">
+            <label for="id_empresa">Empresa</label>
+            <select id="id_empresa" name="empresa">
+                <option value="">Escolha uma empresa</option>
+                {% for empresa in empresas_do_escritorio %}
+                    <option value="{{ empresa.pk }}">{{ empresa.razao_social }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    {% endif %}
+    <div class="campo">
+        <label for="id_ano">Ano</label>
+        <input type="text" id="id_ano" name="ano" value="{{ ano_filtro }}" inputmode="numeric" maxlength="4"
+               aria-describedby="id_periodo_ajuda">
+    </div>
+    {% if mostrar_trimestre %}
+        <div class="campo">
+            <label for="id_trimestre">Trimestre</label>
+            <select id="id_trimestre" name="trimestre" aria-describedby="id_periodo_ajuda">
+                <option value="1"{% if trimestre_filtro == 1 %} selected{% endif %}>1º trimestre</option>
+                <option value="2"{% if trimestre_filtro == 2 %} selected{% endif %}>2º trimestre</option>
+                <option value="3"{% if trimestre_filtro == 3 %} selected{% endif %}>3º trimestre</option>
+                <option value="4"{% if trimestre_filtro == 4 %} selected{% endif %}>4º trimestre</option>
+            </select>
+        </div>
+    {% endif %}
+    {% if opcoes_tributo %}
+        <div class="campo">
+            <label for="id_tributo">Tributo</label>
+            <select id="id_tributo" name="tributo">
+                {% for valor, rotulo in opcoes_tributo %}
+                    <option value="{{ valor }}"{% if valor == tributo_filtro %} selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    {% endif %}
+    <button type="submit">Consultar</button>
+    <p class="texto-apoio" id="id_periodo_ajuda">
+        Ano com quatro dígitos{% if mostrar_trimestre %} e trimestre de 1 a 4{% endif %}. Sem período, a tela usa o trimestre corrente.
+    </p>
+</form>

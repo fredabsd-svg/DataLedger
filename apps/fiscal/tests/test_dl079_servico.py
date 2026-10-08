@@ -902,3 +902,103 @@ def test_nota_de_outra_empresa_nao_contamina_o_controle_de_limite(
 def test_sem_data_de_abertura_a_apuracao_avisa_atividade_no_ano_inteiro(presumido):
     apuracao = _apurar(presumido, 1)
     assert any("Data de abertura no CNPJ não informada" in aviso for aviso in apuracao.avisos)
+
+
+# ---------------------------------------------------------------------------
+# Item 0 (correção de dupla contagem) pelo serviço, com banco real
+# ---------------------------------------------------------------------------
+
+
+def _notas_caso_i(presumido, escritorio, usuario):
+    """Comércio: T1 2.000.000, T2 500.000, T3 500.000, T4 1.000.000 → caso I (Σ R = 4.000.000)."""
+    empresa = presumido["empresa"]
+    for trimestre, valor, competencia in [
+        (1, "2000000.00", "2026-01-10"),
+        (2, "500000.00", "2026-04-10"),
+        (3, "500000.00", "2026-07-10"),
+        (4, "1000000.00", "2026-10-10"),
+    ]:
+        nota_efetivada(
+            escritorio,
+            empresa,
+            usuario,
+            sufixo=300 + trimestre,
+            v_serv=valor,
+            d_compet=competencia,
+        )
+
+
+def test_caso_i_sem_medida_deduz_1500_do_t1_pelo_servico(presumido, escritorio_a, usuario_gestor_a):
+    # Controle positivo, valor de antes da correção. T4: IRPJ 14.000,00 (80.000 × 15% = 12.000 +
+    # 10% × 20.000 = 2.000). Dedução 1.500,00 (parcela de T1). A recolher = 12.500,00.
+    _notas_caso_i(presumido, escritorio_a, usuario_gestor_a)
+    apuracao = _apurar(presumido, 4)
+    assert apuracao.fechamento_irpj.caso == "I"
+    assert apuracao.irpj.deducao_quarto_trimestre == D("1500.00")
+    assert apuracao.irpj.a_recolher == D("12500.00")
+    assert apuracao.irpj.linhas_do_ano[0].suspensa_por_medida is False
+
+
+def test_caso_i_com_medida_no_t1_tira_o_t1_da_deducao_do_quarto(
+    presumido, escritorio_a, usuario_gestor_a
+):
+    # T1 com medida: recolhe a coluna sem acréscimo, 34.000,00 (24.000 + 10.000). A parcela de
+    # 1.500,00 fica suspensa e NÃO é devolvida no 4º trimestre. T4 passa a recolher 14.000,00.
+    # A memória do ano mostra T1 como "suspensa", com a diferença que não entrou na dedução.
+    _notas_caso_i(presumido, escritorio_a, usuario_gestor_a)
+    _medida(presumido["empresa"], usuario_gestor_a, trimestre_inicial=1, trimestre_final=1)
+    apuracao = _apurar(presumido, 4)
+    assert apuracao.irpj.deducao_quarto_trimestre == D("0.00")
+    assert apuracao.irpj.a_recolher == D("14000.00")
+    t1 = apuracao.irpj.linhas_do_ano[0]
+    assert t1.suspensa_por_medida is True
+    assert t1.diferenca_recalculo == D("1500.00")
+    assert _apurar(presumido, 1).irpj.a_recolher == D("34000.00")
+    assert _apurar(presumido, 1).irpj.valor_suspenso == D("1500.00")
+    controle = servico.controle_limite_ano(presumido["empresa"], 2026, "irpj")
+    assert controle.deducao_quarto_trimestre == D("0.00")
+    assert controle.linhas[0].suspensa_por_medida is True
+    assert controle.linhas[0].excedente == D("750000.00")  # o limite não muda
+
+
+def _notas_caso_ii(presumido, escritorio, usuario):
+    """T1 2.500.000, T2 2.500.000, T3 zero, T4 50.000 → caso II, dedução total de 4.900,00."""
+    empresa = presumido["empresa"]
+    for trimestre, valor in [(1, "2500000.00"), (2, "2500000.00"), (4, "50000.00")]:
+        nota_efetivada(
+            escritorio,
+            empresa,
+            usuario,
+            sufixo=400 + trimestre,
+            v_serv=valor,
+            d_compet=f"2026-{(trimestre - 1) * 3 + 1:02d}-10",
+        )
+
+
+def _deducao_total(irpj):
+    """Dedução que o 4º trimestre apurou: a aplicada no imposto mais a que vira saldo PER/DCOMP."""
+    return irpj.deducao_quarto_trimestre + irpj.saldo_per_dcomp
+
+
+def test_caso_ii_com_medida_em_parte_dos_trimestres_pelo_servico(
+    presumido, escritorio_a, usuario_gestor_a
+):
+    # Sem medida, a dedução é 4.900,00 (2.450 de T1 + 2.450 de T2). Com medida só no T1, cai para
+    # 2.450,00. Com medida em T1 e T2, cai para zero. O IRPJ de T4 (600,00) não muda.
+    _notas_caso_ii(presumido, escritorio_a, usuario_gestor_a)
+    assert _deducao_total(_apurar(presumido, 4).irpj) == D("4900.00")
+    _medida(presumido["empresa"], usuario_gestor_a, trimestre_inicial=1, trimestre_final=1)
+    irpj = _apurar(presumido, 4).irpj
+    assert _deducao_total(irpj) == D("2450.00")
+    assert irpj.deducao_quarto_trimestre == D("600.00")  # aplicado no devido de T4
+    assert irpj.saldo_per_dcomp == D("1850.00")
+    assert [linha.suspensa_por_medida for linha in irpj.linhas_do_ano] == [
+        True,
+        False,
+        False,
+        False,
+    ]
+    _medida(presumido["empresa"], usuario_gestor_a, trimestre_inicial=2, trimestre_final=2)
+    irpj = _apurar(presumido, 4).irpj
+    assert _deducao_total(irpj) == D("0.00")
+    assert irpj.a_recolher == D("600.00")

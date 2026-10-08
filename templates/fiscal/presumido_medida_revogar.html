@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block titulo %}Revogar medida judicial — {{ empresa_selecionada.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa_selecionada.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Medidas judiciais</a></li>
+            <li aria-current="page">Revogar medida</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para as medidas</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-079 (frente B), arquétipo E (ação sensível). Revogar devolve a parcela ao a recolher nos
+trimestres cobertos; a medida não some: fica na trilha, com o motivo.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Revogar medida judicial</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa painel-etapa--risco">
+        <h2>O que vai acontecer</h2>
+        <p>
+            A medida deixa de valer para a apuração. Nos trimestres que ela cobria, a parcela da LC 224
+            volta a entrar no a recolher. A linha não é apagada: a revogação, o motivo e a data ficam na trilha.
+        </p>
+    </div>
+
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Tributo</dt>
+            <dd>{{ medida.tributo }}</dd>
+        </div>
+        <div>
+            <dt>Período</dt>
+            <dd>{{ medida.periodo }}</dd>
+        </div>
+        <div>
+            <dt>Processo</dt>
+            <dd>{{ medida.processo }}</dd>
+        </div>
+        <div>
+            <dt>Depósito</dt>
+            <dd>{{ medida.deposito }}</dd>
+        </div>
+    </dl>
+
+    <form method="post" action="{{ url_envio }}" class="formulario">
+        {% csrf_token %}
+        <div class="campo">
+            <label for="id_motivo">Motivo da revogação (obrigatório)</label>
+            <textarea id="id_motivo" name="motivo" rows="3" maxlength="500" required aria-describedby="ajuda_motivo{% if erro %} erro_do_formulario{% endif %}">{{ motivo }}</textarea>
+            <p class="texto-apoio" id="ajuda_motivo">Por exemplo: decisão cassada, desistência, trânsito em julgado.</p>
+        </div>
+        {% if erro %}
+            <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+        {% endif %}
+        <div class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+            <button type="submit" class="botao botao--perigoso">Revogar medida</button>
+        </div>
+    </form>
+{% endblock %}

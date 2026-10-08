@@ -20,15 +20,20 @@ Escolha de produto, sem norma sobre o arredondamento (HI-100).
 No 4º trimestre (último do ano em atividade), com N trimestres sujeitos ao acréscimo:
 
     ExcAnual = max(0; sum(R_t) - 1.250.000,00 x N)     S = sum(E_t) dos trimestres anteriores
-    caso I   ExcAnual = 0          : todo E' = 0; dedução = soma das diferenças dos anteriores
+    caso I   ExcAnual = 0          : todo E' = 0; dedução = soma das diferenças
     caso II  0 < ExcAnual < S      : E' = E_t x ExcAnual / S (resíduo no último E > 0);
                                      dedução = soma das diferenças
     caso III ExcAnual >= S         : mantém E (E_4 = ExcAnual - S; a sobra já produz esse valor)
+
+Medida judicial (DL-079, item 0): a diferença de um trimestre só entra na dedução se a parcela
+da LC 224 desse trimestre FOI recolhida. Com medida ativa cobrindo o tributo no trimestre, a
+parcela ficou suspensa ou depositada; devolvê-la no 4º seria contá-la duas vezes. O limite (E,
+sobra, caso) NÃO muda com a medida: só a dedução exclui o trimestre.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -290,8 +295,12 @@ class LinhaTributoTrimestre:
     """Os três números que o contador confere, por tributo e trimestre (HI-100 e item 10).
 
     `sem_lc224`: o imposto sem o acréscimo. `com_lc224`: com o acréscimo do trimestre (None
-    fora do acréscimo). `parcela_lc224`: a diferença entre os dois. `ajuste_quarto`: a
-    diferença que o 4º trimestre deduz quando o caso é I ou II (só nele; zero nos demais).
+    fora do acréscimo). `parcela_lc224`: a diferença entre os dois. `ajuste_quarto`: o total que
+    o 4º trimestre deduz quando o caso é I ou II (só nele; zero nos demais).
+
+    `diferenca_recalculo`: com − recalculado com o E' do fechamento (None fora do fechamento).
+    É a parcela deste trimestre que o 4º pode devolver, SALVO se `suspensa_por_medida`: nesse caso
+    a parcela não foi recolhida e fica fora da dedução (DL-079, item 0).
     """
 
     trimestre: int
@@ -306,6 +315,8 @@ class LinhaTributoTrimestre:
     parcela_lc224: Decimal | None
     excedente_ajustado: Decimal | None
     ajuste_quarto: Decimal
+    diferenca_recalculo: Decimal | None = None
+    suspensa_por_medida: bool = False
 
 
 @dataclass(frozen=True)
@@ -320,8 +331,17 @@ class ApuracaoAnual:
     deducao_quarto_trimestre: Decimal
 
 
-def apurar_ano(tributo: str, ano: int, periodos: list[PeriodoTrimestre]) -> ApuracaoAnual:
+def apurar_ano(
+    tributo: str,
+    ano: int,
+    periodos: list[PeriodoTrimestre],
+    suspensos: frozenset[int] = frozenset(),
+) -> ApuracaoAnual:
     """Calcula os quatro trimestres de um tributo (pode receber trimestres futuros zerados).
+
+    `suspensos` são os trimestres com medida judicial ativa cobrindo o tributo (DL-079, item 0).
+    Eles NÃO mudam o limite nem o caso; saem só da dedução do 4º trimestre, porque a parcela
+    deles não foi recolhida.
 
     Os trimestres 1 a 3 não dependem dos seguintes: o limite é recursivo para a frente. A
     dedução e o caso só existem no 4º trimestre, e é por isso que `fechamento` é None antes dele.
@@ -352,13 +372,17 @@ def apurar_ano(tributo: str, ano: int, periodos: list[PeriodoTrimestre]) -> Apur
         if t in excedente_original:
             com = calcular_imposto(tributo, periodo, excedente_original[t])
             parcela = com.total - sem.total
-            ajuste = ZERO
             ajustado = None
+            diferenca = None
             if t in excedentes_depois:
                 ajustado = excedentes_depois[t]
                 com_depois = calcular_imposto(tributo, periodo, ajustado)
-                ajuste = com.total - com_depois.total
-            deducao += ajuste
+                diferenca = com.total - com_depois.total
+            suspensa = t in suspensos
+            # Parcela suspensa ou depositada não foi recolhida: devolvê-la no 4º seria contá-la
+            # duas vezes (DL-079, item 0). Por isso só a diferença de trimestre recolhido soma.
+            if diferenca is not None and not suspensa:
+                deducao += diferenca
             linhas.append(
                 LinhaTributoTrimestre(
                     trimestre=t,
@@ -373,6 +397,8 @@ def apurar_ano(tributo: str, ano: int, periodos: list[PeriodoTrimestre]) -> Apur
                     parcela_lc224=parcela,
                     excedente_ajustado=ajustado,
                     ajuste_quarto=ZERO,
+                    diferenca_recalculo=diferenca,
+                    suspensa_por_medida=suspensa,
                 )
             )
         else:
@@ -395,7 +421,8 @@ def apurar_ano(tributo: str, ano: int, periodos: list[PeriodoTrimestre]) -> Apur
     # A dedução vai para a linha do 4º trimestre, e só existe quando o caso é I ou II.
     deducao_do_quarto = deducao if fechamento is not None and fechamento.caso != CASO_III else ZERO
     linhas = [
-        _com_ajuste(linha, deducao_do_quarto) if linha.trimestre == 4 else linha for linha in linhas
+        replace(linha, ajuste_quarto=deducao_do_quarto) if linha.trimestre == 4 else linha
+        for linha in linhas
     ]
     return ApuracaoAnual(
         tributo=tributo,
@@ -404,23 +431,6 @@ def apurar_ano(tributo: str, ano: int, periodos: list[PeriodoTrimestre]) -> Apur
         linhas=tuple(linhas),
         fechamento=fechamento,
         deducao_quarto_trimestre=deducao_do_quarto,
-    )
-
-
-def _com_ajuste(linha: LinhaTributoTrimestre, ajuste: Decimal) -> LinhaTributoTrimestre:
-    return LinhaTributoTrimestre(
-        trimestre=linha.trimestre,
-        em_atividade=linha.em_atividade,
-        em_acrescimo=linha.em_acrescimo,
-        receita_presumida=linha.receita_presumida,
-        limite=linha.limite,
-        sobra=linha.sobra,
-        excedente=linha.excedente,
-        sem_lc224=linha.sem_lc224,
-        com_lc224=linha.com_lc224,
-        parcela_lc224=linha.parcela_lc224,
-        excedente_ajustado=linha.excedente_ajustado,
-        ajuste_quarto=ajuste,
     )
 
 

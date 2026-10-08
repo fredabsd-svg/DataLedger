@@ -368,3 +368,78 @@ def test_trimestre_fora_de_1_a_4_nao_passa_pelo_calculo(trimestre):
     periodos = [periodo(1), periodo(2), periodo(3), periodo(trimestre)]
     with pytest.raises(ValueError):
         calc.apurar_ano(tab.IRPJ, 2026, periodos)
+
+
+# ---------------------------------------------------------------------------
+# Item 0 (correção de dupla contagem): trimestre com medida judicial fica fora da dedução do 4º
+# ---------------------------------------------------------------------------
+
+
+def caso_i_exemplo():
+    """T1 2.000.000 (E1 = 750.000), T2 500.000, T3 500.000, T4 1.000.000: Σ R 4.000.000, caso I."""
+    return [
+        periodo(1, "2000000"),
+        periodo(2, "500000"),
+        periodo(3, "500000"),
+        periodo(4, "1000000"),
+    ]
+
+
+def test_caso_i_com_medida_no_t1_tira_o_t1_da_deducao():
+    # Parcela de T1 = IRPJ(E = 750.000) − IRPJ(E = 0) = 35.500 − 34.000 = 1.500,00 (como no teste
+    # do caso I). Com medida ativa no T1, a parcela NÃO foi recolhida (a coluna paga foi a sem
+    # acréscimo): devolvê-la no 4º seria contar 1.500,00 duas vezes. Dedução = 0,00.
+    # O limite e o caso não mudam: E1 continua 750.000 e o fechamento continua caso I.
+    apuracao = calc.apurar_ano(tab.IRPJ, 2026, caso_i_exemplo(), frozenset({1}))
+    assert apuracao.fechamento.caso == calc.CASO_I
+    assert apuracao.linhas[0].excedente == D("750000.00")
+    assert apuracao.linhas[0].suspensa_por_medida is True
+    assert apuracao.linhas[0].diferenca_recalculo == D("1500.00")  # a diferença existe, não é usada
+    assert apuracao.deducao_quarto_trimestre == D("0.00")
+    assert apuracao.linhas[3].ajuste_quarto == D("0.00")
+
+
+def test_caso_i_sem_medida_mantem_a_deducao_de_1500_do_t1():
+    # Controle positivo: sem medida, o valor é o de antes da correção (1.500,00).
+    sem_medida = calc.apurar_ano(tab.IRPJ, 2026, caso_i_exemplo())
+    com_conjunto_vazio = calc.apurar_ano(tab.IRPJ, 2026, caso_i_exemplo(), frozenset())
+    assert sem_medida.deducao_quarto_trimestre == D("1500.00")
+    assert com_conjunto_vazio.deducao_quarto_trimestre == D("1500.00")
+    assert sem_medida.linhas[0].suspensa_por_medida is False
+    assert sem_medida.linhas[0].diferenca_recalculo == D("1500.00")
+
+
+def test_caso_ii_com_medida_em_parte_dos_trimestres():
+    # T1 2.500.000 e T2 2.500.000 de comércio, T3 0, T4 50.000: ExcAnual 50.000, S 2.500.000.
+    # Cada um de T1 e T2 perde 1.225.000 de E: a diferença é 2.450,00 (46.500,00 com E = 1.250.000 −
+    # 44.050,00 com E = 25.000; base 210.000 contra 200.200). Sem medida, a dedução é 4.900,00.
+    periodos = [
+        periodo(1, "2500000"),
+        periodo(2, "2500000"),
+        periodo(3, "0"),
+        periodo(4, "50000"),
+    ]
+    assert calc.apurar_ano(tab.IRPJ, 2026, periodos).deducao_quarto_trimestre == D("4900.00")
+    so_t1 = calc.apurar_ano(tab.IRPJ, 2026, periodos, frozenset({1}))
+    assert so_t1.deducao_quarto_trimestre == D("2450.00")
+    assert so_t1.linhas[0].suspensa_por_medida is True
+    assert so_t1.linhas[1].suspensa_por_medida is False
+    so_t2 = calc.apurar_ano(tab.IRPJ, 2026, periodos, frozenset({2}))
+    assert so_t2.deducao_quarto_trimestre == D("2450.00")
+    ambos = calc.apurar_ano(tab.IRPJ, 2026, periodos, frozenset({1, 2}))
+    assert ambos.deducao_quarto_trimestre == D("0.00")
+    # O caso e o excedente redistribuído não mudam com a medida: só a dedução.
+    assert ambos.fechamento.caso == calc.CASO_II
+    assert ambos.linhas[0].excedente_ajustado == so_t1.linhas[0].excedente_ajustado
+
+
+def test_caso_iii_com_medida_no_t2_nao_muda_limite_nem_caso():
+    # Exemplo de quatro trimestres: caso III. A medida no T2 suspende a parcela de 1.263,15, mas
+    # não altera E2 (300.000), a sobra de T1 (350.000) nem o ExcAnual (500.000). Dedução segue 0.
+    apuracao = calc.apurar_ano(tab.IRPJ, 2026, exemplo_consulta_2026(), frozenset({2}))
+    assert apuracao.fechamento.caso == calc.CASO_III
+    assert apuracao.linhas[1].excedente == D("300000.00")
+    assert apuracao.linhas[1].limite == D("1600000.00")
+    assert apuracao.linhas[1].suspensa_por_medida is True
+    assert apuracao.linhas[1].parcela_lc224 == D("1263.15")
+    assert apuracao.deducao_quarto_trimestre == D("0.00")

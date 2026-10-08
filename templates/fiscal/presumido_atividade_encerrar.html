@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block titulo %}Encerrar atividade de presunção — {{ empresa_selecionada.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa_selecionada.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Atividades de presunção</a></li>
+            <li aria-current="page">Encerrar atividade</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para as atividades</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-079 (frente B), arquétipo E (ação sensível). Encerrar não apaga a atividade: o fim fica na
+trilha. Depois do fim, as receitas dessa atividade em meses posteriores ficam sem atividade vigente.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Encerrar atividade de presunção</h1>{% endblock %}
+
+{% block content %}
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Atividade</dt>
+            <dd>{{ atividade.rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Início da vigência</dt>
+            <dd class="valor-monetario">{{ atividade.inicio }}</dd>
+        </div>
+        <div>
+            <dt>Fim da vigência</dt>
+            <dd class="valor-monetario">{{ atividade.fim|default:"em aberto" }}</dd>
+        </div>
+    </dl>
+
+    {% if ja_encerrada %}
+        <p class="mensagem mensagem-warning" role="status">
+            <strong>Atividade já encerrada.</strong> Para outra data de fim, não há ajuste por esta tela: a trilha já registra o encerramento.
+        </p>
+        <p><a class="botao botao--secundario" href="{{ url_voltar }}">Voltar para as atividades</a></p>
+    {% else %}
+        <div class="painel-etapa painel-etapa--risco">
+            <h2>O que vai acontecer</h2>
+            <p>A vigência passa a terminar na data informada. A linha não é apagada: o fim e quem encerrou ficam na trilha.</p>
+        </div>
+
+        <form method="post" action="{{ url_envio }}" class="formulario">
+            {% csrf_token %}
+            <div class="campo">
+                <label for="id_fim">Fim da vigência</label>
+                <input type="text" id="id_fim" name="fim" value="{{ fim_digitado }}" inputmode="numeric" required maxlength="10" aria-describedby="id_fim_ajuda{% if erro %} erro_do_formulario{% endif %}">
+                <p class="texto-apoio" id="id_fim_ajuda">Em dd/mm/aaaa. Não pode ser anterior ao início.</p>
+            </div>
+            {% if erro %}
+                <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+            {% endif %}
+            <div class="acoes-formulario">
+                <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+                <button type="submit" class="botao botao--perigoso">Encerrar atividade</button>
+            </div>
+        </form>
+    {% endif %}
+{% endblock %}

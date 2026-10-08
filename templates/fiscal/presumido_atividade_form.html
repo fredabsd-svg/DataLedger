@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block titulo %}Nova atividade de presunção — {{ empresa_selecionada.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa_selecionada.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Atividades de presunção</a></li>
+            <li aria-current="page">Nova atividade</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para as atividades</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-079 (frente B), arquétipo B. A atividade escolhida define os percentuais de IRPJ e CSLL das
+receitas dela. O percentual vem do catálogo: a empresa escolhe a atividade, nunca a alíquota.
+Serviço hospitalar só vale com os dois requisitos legais confirmados pelo contador.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Nova atividade de presunção</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa">
+        <h2>O que vai acontecer</h2>
+        <p>
+            A atividade passa a valer na vigência informada. Só pode haver uma atividade padrão em aberto por vez.
+            Encerrar a vigência não apaga a atividade: ela fica no histórico.
+        </p>
+    </div>
+
+    <table class="tabela-dados">
+        <caption>Atividades do catálogo, com os percentuais de IRPJ e CSLL de cada uma</caption>
+        <thead>
+            <tr>
+                <th scope="col">Atividade</th>
+                <th scope="col">IRPJ</th>
+                <th scope="col">CSLL</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in catalogo %}
+                <tr>
+                    <th scope="row">{{ item.rotulo }}</th>
+                    <td class="valor-monetario">{{ item.irpj }}</td>
+                    <td class="valor-monetario">{{ item.csll }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <form method="post" action="{{ url_envio }}" class="formulario">
+        {% csrf_token %}
+        <div class="campo">
+            <label for="id_atividade">Atividade de presunção</label>
+            <select id="id_atividade" name="atividade" required>
+                <option value="">Escolha a atividade</option>
+                {% for valor, rotulo in opcoes_atividade %}
+                    <option value="{{ valor }}"{% if valor == valores.atividade %} selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_inicio">Início da vigência</label>
+            <input type="text" id="id_inicio" name="inicio" value="{{ valores.inicio }}" inputmode="numeric" required maxlength="10" aria-describedby="id_inicio_ajuda">
+            <p class="texto-apoio" id="id_inicio_ajuda">Obrigatório, em dd/mm/aaaa.</p>
+        </div>
+        <div class="campo">
+            <label for="id_fim">Fim da vigência</label>
+            <input type="text" id="id_fim" name="fim" value="{{ valores.fim }}" inputmode="numeric" maxlength="10" aria-describedby="id_fim_ajuda">
+            <p class="texto-apoio" id="id_fim_ajuda">Em dd/mm/aaaa. Em branco, a atividade fica em aberto.</p>
+        </div>
+        <div class="campo">
+            <label for="id_padrao">
+                <input type="checkbox" id="id_padrao" name="padrao" value="1"{% if valores.padrao %} checked{% endif %} aria-describedby="id_padrao_ajuda">
+                Atividade padrão da empresa
+            </label>
+            <p class="texto-apoio" id="id_padrao_ajuda">Usada nas notas que não trazem outra atividade. Uma padrão por vez, sem sobreposição de vigência.</p>
+        </div>
+        <div class="campo">
+            <label for="id_requisitos_hospitalares_confirmados">
+                <input type="checkbox" id="id_requisitos_hospitalares_confirmados" name="requisitos_hospitalares_confirmados" value="1"{% if valores.requisitos %} checked{% endif %} aria-describedby="id_requisitos_ajuda">
+                Requisitos de serviço hospitalar confirmados pelo contador
+            </label>
+            <p class="texto-apoio" id="id_requisitos_ajuda">Só para serviço hospitalar: a empresa é sociedade empresária e atende às normas da Anvisa (Lei 9.249, art. 15, § 1º, III, "a").</p>
+        </div>
+        {% if erro %}
+            <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+        {% endif %}
+        <div class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+            <button type="submit" class="botao botao--primario">Cadastrar atividade</button>
+        </div>
+    </form>
+{% endblock %}

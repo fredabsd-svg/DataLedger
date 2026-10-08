@@ -67,7 +67,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -86,6 +86,9 @@ from apps.fiscal import escrituracao as servico_escrituracao
 from apps.fiscal import folha_fator_r as servico_folha
 from apps.fiscal import iss_municipal as servico_iss
 from apps.fiscal import pre_das as servico_pre_das
+from apps.fiscal import presumido as servico_presumido
+from apps.fiscal import presumido_calculo as calc_presumido
+from apps.fiscal import presumido_tabelas as tab_presumido
 from apps.fiscal import rbt12 as apuracao
 from apps.fiscal import receita as servico_receita
 from apps.fiscal import retencoes as servico_retencoes
@@ -96,6 +99,7 @@ from apps.fiscal.formatacao_ptbr import valor_ptbr as _valor_ptbr
 from apps.fiscal.models import (
     AliquotaIssMunicipal,
     AtividadeEmpresa,
+    AtividadePresuncaoEmpresa,
     DocumentoFiscal,
     EnquadramentoAtividade,
     EscrituracaoFiscal,
@@ -107,6 +111,7 @@ from apps.fiscal.models import (
     EventoFiscal,
     FolhaFatorR,
     LoteDeRecepcao,
+    MedidaJudicialLC224,
     MercadoReceita,
     NaturezaOperacao,
     NaturezaTomada,
@@ -114,6 +119,7 @@ from apps.fiscal.models import (
     OrigemReceitaInformada,
     PapelDocumento,
     ReceitaInformada,
+    ReceitaTrimestralPresumido,
     RegimeIss,
     RegimeIssEmpresa,
     RegraIssMunicipio,
@@ -4717,3 +4723,1562 @@ def retencoes_federais(request):
         url_retido=_url_com_filtro("fiscal_web:iss_retido_a_recolher", empresa, ano=ano, mes=mes),
     )
     return render(request, "fiscal/retencoes_federais.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# Lucro Presumido, IRPJ e CSLL (DL-079, frente B: telas)
+#
+# Telas sobre `apps.fiscal.presumido` (frente A). A tela NÃO calcula: lê o que o serviço devolve e
+# formata em pt-BR. Autorização no servidor: consulta (GET) exige `papel_pode_consultar_documentos`;
+# cadastro, confirmação, estorno e revogação exigem `papel_pode_escriturar_fiscal`. Empresa de OUTRO
+# escritório é 404; ato de OUTRA empresa do mesmo escritório também é 404, porque a busca é feita
+# dentro da empresa. Entrada inválida volta com a mensagem e não grava nada.
+# ---------------------------------------------------------------------------
+
+_MENSAGEM_SEM_CONSULTA_DO_PRESUMIDO = "Seu papel não permite consultar o Lucro Presumido."
+_MENSAGEM_SEM_ESCRITA_DO_PRESUMIDO = (
+    "Seu papel consulta o Lucro Presumido, mas não cadastra, confirma, estorna nem revoga. "
+    "Peça a um administrador ou gestor do escritório."
+)
+# Texto fixo de conferência (personalizacao-de-relatorio.md, classe 1): NÃO é guia nem DARF.
+_TEXTO_CONFERENCIA_PRESUMIDO = "Conferência — não é guia nem DARF."
+_TEXTO_CASO_QUARTO = {
+    calc_presumido.CASO_I: (
+        "Caso I: excedente anual zero. Recalcula sem acréscimo e deduz a diferença no 4º trimestre."
+    ),
+    calc_presumido.CASO_II: (
+        "Caso II: excedente anual menor que a soma dos excedentes dos trimestres anteriores. "
+        "Recalcula com o excedente rateado e deduz a diferença no 4º trimestre."
+    ),
+    calc_presumido.CASO_III: (
+        "Caso III: excedente anual igual ou maior que a soma dos anteriores. Mantém a sobra; "
+        "não há dedução."
+    ),
+}
+_TRIBUTO_PRESUMIDO_ROTULO = {
+    tab_presumido.IRPJ: "IRPJ",
+    tab_presumido.CSLL: "CSLL",
+    tab_presumido.AMBOS: "IRPJ e CSLL",
+}
+_ROTULO_TIPO_RECEITA = {
+    "presuncao": "Receita de presunção",
+    "integral": "Receita integral (art. 25, II)",
+}
+_ROTULO_CRITERIO_PRESUMIDO = {
+    "competencia": "Competência",
+    "caixa": "Caixa",
+}
+_RECUSA_CAIXA_PRESUMIDO = (
+    "Critério de caixa: o Lucro Presumido não é apurado neste produto "
+    "(IN RFB 1.700/2017, art. 223, §§ 1º a 4º). A apuração do ano sai recusada, com este "
+    "motivo, e nenhum número de imposto é mostrado."
+)
+_PARCELA_SUSPENSA_TEXTO = "parcela suspensa por medida judicial — fora da dedução"
+ZERO_PRESUMIDO = Decimal("0.00")
+
+
+def _contrato_presumido(campos, contexto):
+    """Campos aceitos num POST do presumido. O token do CSRF é sempre aceito; qualquer outro campo
+    fora da lista é recusado com a mensagem nomeada (apps.core.requisicao)."""
+    return ContratoDeRequisicao(
+        campos={"csrfmiddlewaretoken", *campos},
+        cabecalhos_ignorados=(),
+        contexto=contexto,
+    )
+
+
+_CONTRATO_PRESUMIDO_ATIVIDADE = _contrato_presumido(
+    {"atividade", "inicio", "padrao", "requisitos_hospitalares_confirmados", "fim"},
+    "no cadastro da atividade de presunção",
+)
+_CONTRATO_PRESUMIDO_ENCERRAR = _contrato_presumido({"fim"}, "no encerramento da atividade")
+_CONTRATO_PRESUMIDO_CRITERIO = _contrato_presumido({"ano", "criterio"}, "na definição do critério")
+_CONTRATO_PRESUMIDO_RECEITA = _contrato_presumido(
+    {"ano", "trimestre", "tipo", "atividade_id", "valor", "descricao", "suporte"},
+    "no lançamento da receita do trimestre",
+)
+_CONTRATO_PRESUMIDO_MOTIVO = _contrato_presumido({"motivo"}, "no motivo da ação")
+_CONTRATO_PRESUMIDO_INTEGRAIS = _contrato_presumido(
+    {"ano", "trimestre", "observacao", "modo"}, "na declaração de receitas integrais"
+)
+_CONTRATO_PRESUMIDO_RETENCAO = _contrato_presumido(
+    {"ano", "trimestre", "irrf_confirmado", "csll_confirmada", "motivo"},
+    "na confirmação da retenção",
+)
+_CONTRATO_PRESUMIDO_MEDIDA = _contrato_presumido(
+    {
+        "tributo",
+        "ano_inicial",
+        "trimestre_inicial",
+        "ano_final",
+        "trimestre_final",
+        "numero_processo",
+        "orgao",
+        "data_decisao",
+        "deposito_judicial",
+        "suporte",
+    },
+    "no cadastro da medida judicial",
+)
+
+
+def _pres_recusa_de_consulta(request):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_DO_PRESUMIDO)
+    return None
+
+
+def _pres_recusa_de_escrita(request):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_ESCRITA_DO_PRESUMIDO)
+    return None
+
+
+def _pres_percentual(fracao) -> str:
+    """Fração do catálogo em percentual pt-BR, sem zeros à direita: 0,088 vira '8,8%'.
+
+    Só apresentação: a fração chega e sai como `Decimal`, e nenhuma conta passa por aqui.
+    """
+    if fracao is None:
+        return "—"
+    return format((Decimal(fracao) * 100).normalize(), "f").replace(".", ",") + "%"
+
+
+def _pres_trimestre(ano: int, trimestre: int) -> str:
+    return f"{trimestre}º trimestre de {ano}"
+
+
+def _pres_periodo_padrao(request):
+    """(ano, trimestre, erro) da consulta. Ausente: o trimestre corrente (Brasília). Malformado ou
+    fora do presumido: erro de formulário na tela, nunca 500 e nunca um número de outro período."""
+    ano_bruto = request.GET.get("ano", "").strip()
+    tri_bruto = request.GET.get("trimestre", "").strip()
+    if not ano_bruto and not tri_bruto:
+        hoje = timezone.localdate()
+        return hoje.year, (hoje.month - 1) // 3 + 1, None
+    ano = _inteiro_de_filtro(ano_bruto)
+    trimestre = _inteiro_de_filtro(tri_bruto)
+    if ano is None or trimestre is None:
+        return None, None, "Informe o ano (AAAA) e o trimestre (1 a 4)."
+    try:
+        servico_presumido.validar_ano_e_trimestre(ano, trimestre)
+    except servico_presumido.EntradaInvalidaPresumido as exc:
+        return None, None, exc.mensagem
+    return ano, trimestre, None
+
+
+def _pres_ano_padrao(request):
+    """(ano, erro) das telas que só pedem o ano (critério do ano, limite do ano)."""
+    bruto = request.GET.get("ano", "").strip()
+    if not bruto:
+        return timezone.localdate().year, None
+    ano = _inteiro_de_filtro(bruto)
+    if ano is None:
+        return None, "Informe o ano (AAAA)."
+    try:
+        servico_presumido.validar_ano_e_trimestre(ano, 1)
+    except servico_presumido.EntradaInvalidaPresumido as exc:
+        return None, exc.mensagem
+    return ano, None
+
+
+def _pres_contexto(request, empresa, *, pode_escriturar, titulo, **extra):
+    """Contexto comum: a empresa escolhida (ou a escolha, sem empresa), o aviso das ADIs e o
+    texto de conferência. Nenhum dado de outra empresa entra aqui (a escolha só aparece sem
+    empresa)."""
+    return {
+        "titulo": titulo,
+        "empresa_selecionada": empresa,
+        "empresas_do_escritorio": (
+            None
+            if empresa is not None
+            else Empresa.objects.filter(escritorio=request.escritorio).order_by("razao_social")
+        ),
+        "url_trocar_empresa": reverse("empresas:lista"),
+        "pode_escriturar": pode_escriturar,
+        "texto_conferencia": _TEXTO_CONFERENCIA_PRESUMIDO,
+        "aviso_adi": tab_presumido.AVISO_ADI,
+        "data_conferencia_adi": _data_na_tela(tab_presumido.DATA_CONFERENCIA_ADI),
+        **extra,
+    }
+
+
+def _pres_url_consulta(nome, empresa, **consulta):
+    """URL de uma tela de consulta, com a empresa e os filtros na querystring."""
+    return reverse(nome) + "?" + urlencode({"empresa": empresa.pk, **consulta})
+
+
+# ---------------------------------------------------------------------------
+# Atividades de presunção (tela 1)
+# ---------------------------------------------------------------------------
+
+
+def _pres_linha_da_atividade(atividade, empresa, pode_escriturar) -> dict:
+    definicao = tab_presumido.ATIVIDADES_POR_CODIGO[atividade.atividade]
+    encerrar = None
+    if pode_escriturar and atividade.fim is None:
+        encerrar = reverse(
+            "fiscal_web:presumido_atividade_encerrar", args=[empresa.pk, atividade.pk]
+        )
+    return {
+        "rotulo": definicao.rotulo,
+        "irpj": _pres_percentual(definicao.irpj),
+        "csll": _pres_percentual(definicao.csll),
+        "inicio": _data_na_tela(atividade.inicio),
+        "fim": _data_na_tela(atividade.fim) or "em aberto",
+        "padrao": "Sim" if atividade.padrao else "Não",
+        "requisitos": (
+            "Requisitos hospitalares confirmados"
+            if atividade.requisitos_hospitalares_confirmados
+            else ""
+        ),
+        "url_encerrar": encerrar,
+    }
+
+
+def _pres_catalogo_na_tela() -> list[dict]:
+    return [
+        {
+            "rotulo": item.rotulo,
+            "irpj": _pres_percentual(item.irpj),
+            "csll": _pres_percentual(item.csll),
+            "observacao": item.observacao,
+        }
+        for item in tab_presumido.CATALOGO_ATIVIDADES
+    ]
+
+
+@login_required
+@require_safe
+def presumido_atividades(request):
+    """Atividades de presunção da empresa, com percentuais de IRPJ e CSLL e vigência. Consulta."""
+    recusa = _pres_recusa_de_consulta(request)
+    if recusa is not None:
+        return recusa
+    empresa, erro = _empresa_da_escrituracao(request)
+    pode = _pode_escriturar(request)
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=pode,
+        titulo="Atividades de presunção",
+        catalogo=_pres_catalogo_na_tela(),
+    )
+    if erro:
+        messages.error(request, erro)
+        return render(request, "fiscal/presumido_atividades.html", contexto, status=400)
+    if empresa is None:
+        return render(request, "fiscal/presumido_atividades.html", contexto)
+    contexto.update(
+        atividades=[
+            _pres_linha_da_atividade(a, empresa, pode)
+            for a in servico_presumido.listar_atividades(empresa)
+        ],
+        url_nova=reverse("fiscal_web:presumido_atividade_nova", args=[empresa.pk]),
+    )
+    return render(request, "fiscal/presumido_atividades.html", contexto)
+
+
+def _pres_valores_atividade(valores=None) -> dict:
+    if valores is not None:
+        return valores
+    return {"atividade": "", "inicio": "", "fim": "", "padrao": False, "requisitos": False}
+
+
+def _pres_tela_atividade(request, empresa, *, valores, erro=None, status=200):
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=True,
+        titulo="Nova atividade de presunção",
+        valores=valores,
+        erro=erro,
+        catalogo=_pres_catalogo_na_tela(),
+        opcoes_atividade=[(c.codigo, c.rotulo) for c in tab_presumido.CATALOGO_ATIVIDADES],
+        url_envio=reverse("fiscal_web:presumido_atividade_nova", args=[empresa.pk]),
+        url_voltar=_pres_url_consulta("fiscal_web:presumido_atividades", empresa),
+    )
+    return render(request, "fiscal/presumido_atividade_form.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def presumido_atividade_nova(request, empresa_id):
+    """Cadastra uma atividade de presunção com vigência. Serviço hospitalar exige os requisitos."""
+    recusa = _pres_recusa_de_escrita(request)
+    if recusa is not None:
+        return recusa
+    empresa = _empresa_escopada(request, empresa_id)
+    if request.method == "GET":
+        return _pres_tela_atividade(request, empresa, valores=_pres_valores_atividade())
+    valores = {
+        "atividade": request.POST.get("atividade", ""),
+        "inicio": request.POST.get("inicio", ""),
+        "fim": request.POST.get("fim", ""),
+        "padrao": request.POST.get("padrao", "") == "1",
+        "requisitos": request.POST.get("requisitos_hospitalares_confirmados", "") == "1",
+    }
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_PRESUMIDO_ATIVIDADE)
+    except DadoNaoContratado as exc:
+        return _pres_tela_atividade(
+            request, empresa, valores=valores, erro=exc.mensagem, status=400
+        )
+    inicio = _data_do_formulario(valores["inicio"])
+    if inicio is None:
+        return _pres_tela_atividade(
+            request,
+            empresa,
+            valores=valores,
+            erro="Informe o início da vigência em dd/mm/aaaa.",
+            status=400,
+        )
+    fim = None
+    if valores["fim"].strip():
+        fim = _data_do_formulario(valores["fim"])
+        if fim is None:
+            return _pres_tela_atividade(
+                request,
+                empresa,
+                valores=valores,
+                erro="O fim da vigência é uma data inválida: use dd/mm/aaaa, ou deixe em branco.",
+                status=400,
+            )
+    dados = {
+        "atividade": valores["atividade"],
+        "inicio": inicio,
+        "fim": fim,
+        "padrao": valores["padrao"],
+        "requisitos_hospitalares_confirmados": valores["requisitos"],
+    }
+    try:
+        servico_presumido.criar_atividade(empresa, dados, request.user, request)
+    except servico_presumido.PresumidoErro as exc:
+        status = 400 if isinstance(exc, servico_presumido.EntradaInvalidaPresumido) else 409
+        return _pres_tela_atividade(
+            request, empresa, valores=valores, erro=exc.mensagem, status=status
+        )
+    messages.success(request, "Atividade de presunção cadastrada.")
+    return redirect(_pres_url_consulta("fiscal_web:presumido_atividades", empresa))
+
+
+def _pres_tela_encerrar(request, empresa, atividade, *, fim_digitado="", erro=None, status=200):
+    definicao = tab_presumido.ATIVIDADES_POR_CODIGO[atividade.atividade]
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=True,
+        titulo="Encerrar atividade de presunção",
+        atividade={
+            "rotulo": definicao.rotulo,
+            "inicio": _data_na_tela(atividade.inicio),
+            "fim": _data_na_tela(atividade.fim),
+        },
+        ja_encerrada=atividade.fim is not None,
+        fim_digitado=fim_digitado,
+        erro=erro,
+        url_envio=reverse(
+            "fiscal_web:presumido_atividade_encerrar", args=[empresa.pk, atividade.pk]
+        ),
+        url_voltar=_pres_url_consulta("fiscal_web:presumido_atividades", empresa),
+    )
+    return render(request, "fiscal/presumido_atividade_encerrar.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def presumido_atividade_encerrar(request, empresa_id, atividade_id):
+    """Encerra a vigência de uma atividade em aberto. A linha continua na trilha; nada é apagado."""
+    recusa = _pres_recusa_de_escrita(request)
+    if recusa is not None:
+        return recusa
+    empresa = _empresa_escopada(request, empresa_id)
+    atividade = get_object_or_404(AtividadePresuncaoEmpresa, pk=atividade_id, empresa=empresa)
+    if request.method == "GET":
+        return _pres_tela_encerrar(request, empresa, atividade)
+    fim_bruto = request.POST.get("fim", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_PRESUMIDO_ENCERRAR)
+    except DadoNaoContratado as exc:
+        return _pres_tela_encerrar(
+            request, empresa, atividade, fim_digitado=fim_bruto, erro=exc.mensagem, status=400
+        )
+    fim = _data_do_formulario(fim_bruto)
+    if fim is None:
+        return _pres_tela_encerrar(
+            request,
+            empresa,
+            atividade,
+            fim_digitado=fim_bruto,
+            erro="Informe o fim da vigência em dd/mm/aaaa.",
+            status=400,
+        )
+    try:
+        servico_presumido.encerrar_atividade(empresa, atividade.pk, fim, request.user, request)
+    except servico_presumido.PresumidoErro as exc:
+        status = 400 if isinstance(exc, servico_presumido.EntradaInvalidaPresumido) else 409
+        return _pres_tela_encerrar(
+            request, empresa, atividade, fim_digitado=fim_bruto, erro=exc.mensagem, status=status
+        )
+    messages.success(request, f"Atividade encerrada em {_data_na_tela(fim)}.")
+    return redirect(_pres_url_consulta("fiscal_web:presumido_atividades", empresa))
+
+
+# ---------------------------------------------------------------------------
+# Critério do ano (tela 2)
+# ---------------------------------------------------------------------------
+
+
+def _pres_tela_criterio(request, empresa, *, ano, erro=None, status=200):
+    criterio = servico_presumido.criterio_do_ano(empresa, ano)
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=_pode_escriturar(request),
+        titulo="Critério de receita do ano",
+        ano_filtro=ano,
+        erro=erro,
+        criterio=criterio,
+        criterio_rotulo=_ROTULO_CRITERIO_PRESUMIDO.get(criterio, "não informado"),
+        recusa_caixa=_RECUSA_CAIXA_PRESUMIDO if criterio == "caixa" else "",
+        opcoes_criterio=[("competencia", "Competência"), ("caixa", "Caixa")],
+        url_gravar=reverse("fiscal_web:presumido_criterio_gravar", args=[empresa.pk]),
+        url_consulta=_pres_url_consulta("fiscal_web:presumido_criterio", empresa, ano=ano),
+    )
+    return render(request, "fiscal/presumido_criterio.html", contexto, status=status)
+
+
+@login_required
+@require_safe
+def presumido_criterio(request):
+    """Critério do ano (competência ou caixa). Caixa mostra a recusa nomeada. Consulta."""
+    recusa = _pres_recusa_de_consulta(request)
+    if recusa is not None:
+        return recusa
+    empresa, erro = _empresa_da_escrituracao(request)
+    ano, erro_ano = _pres_ano_padrao(request)
+    erro = erro or erro_ano
+    if erro:
+        contexto = _pres_contexto(
+            request,
+            empresa,
+            pode_escriturar=_pode_escriturar(request),
+            titulo="Critério de receita",
+            erro=erro,
+        )
+        return render(request, "fiscal/presumido_criterio.html", contexto, status=400)
+    if empresa is None:
+        contexto = _pres_contexto(
+            request,
+            empresa,
+            pode_escriturar=_pode_escriturar(request),
+            titulo="Critério de receita",
+        )
+        return render(request, "fiscal/presumido_criterio.html", contexto)
+    return _pres_tela_criterio(request, empresa, ano=ano)
+
+
+@login_required
+@require_http_methods(["POST"])
+def presumido_criterio_gravar(request, empresa_id):
+    """Define o critério do ano. Trocar um critério já definido é conflito, e nada muda."""
+    recusa = _pres_recusa_de_escrita(request)
+    if recusa is not None:
+        return recusa
+    empresa = _empresa_escopada(request, empresa_id)
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_PRESUMIDO_CRITERIO)
+    except DadoNaoContratado as exc:
+        return _pres_tela_criterio(
+            request, empresa, ano=timezone.localdate().year, erro=exc.mensagem, status=400
+        )
+    ano = _inteiro_de_filtro(request.POST.get("ano", "").strip())
+    if ano is None:
+        return _pres_tela_criterio(
+            request,
+            empresa,
+            ano=timezone.localdate().year,
+            erro="Informe o ano (AAAA) do critério.",
+            status=400,
+        )
+    try:
+        servico_presumido.definir_criterio(
+            empresa, ano, request.POST.get("criterio", ""), request.user, request
+        )
+    except servico_presumido.PresumidoErro as exc:
+        status = 400 if isinstance(exc, servico_presumido.EntradaInvalidaPresumido) else 409
+        return _pres_tela_criterio(request, empresa, ano=ano, erro=exc.mensagem, status=status)
+    messages.success(request, f"Critério de {ano} gravado.")
+    return redirect(_pres_url_consulta("fiscal_web:presumido_criterio", empresa, ano=ano))
+
+
+# ---------------------------------------------------------------------------
+# Receitas do trimestre e declaração de receitas integrais (tela 3)
+# ---------------------------------------------------------------------------
+
+
+def _pres_linha_da_receita(receita, empresa, pode_escriturar) -> dict:
+    ativa = receita.estado == "ativa"
+    presuncao = receita.tipo == "presuncao"
+    return {
+        "tipo": _ROTULO_TIPO_RECEITA.get(receita.tipo, receita.tipo),
+        "atividade": (
+            tab_presumido.ATIVIDADES_POR_CODIGO[receita.atividade.atividade].rotulo
+            if presuncao and receita.atividade_id
+            else "—"
+        ),
+        "descricao": receita.descricao,
+        "valor": _valor_ptbr(receita.valor),
+        "suporte": receita.suporte,
+        "estado": "Ativa" if ativa else "Estornada",
+        "motivo_estorno": receita.motivo_estorno,
+        "url_estornar": (
+            reverse("fiscal_web:presumido_receita_estornar", args=[empresa.pk, receita.pk])
+            if ativa and pode_escriturar
+            else None
+        ),
+    }
+
+
+def _pres_declaracao_na_tela(apuracao) -> dict:
+    """Se a declaração de integrais do trimestre vale, ou caiu porque o total mudou (HI-104)."""
+    if apuracao.declaracao_total is None:
+        return {
+            "situacao": "nenhuma",
+            "texto": (
+                "Nenhuma declaração de receitas integrais neste trimestre. A apuração sai parcial."
+            ),
+        }
+    if apuracao.declaracao_valida:
+        return {
+            "situacao": "vale",
+            "texto": (
+                f"A declaração vale: o total declarado ({_valor_ptbr(apuracao.declaracao_total)}) "
+                "é o total atual das receitas integrais."
+            ),
+        }
+    return {
+        "situacao": "caiu",
+        "texto": (
+            "A declaração caiu porque o total mudou: declarado "
+            f"{_valor_ptbr(apuracao.declaracao_total)}, "
+            f"atual {_valor_ptbr(apuracao.integrais_atuais)}. "
+            "Declare de novo para a apuração sair completa."
+        ),
+    }
+
+
+def _pres_valores_receita(valores=None) -> dict:
+    if valores is not None:
+        return valores
+    return {"tipo": "presuncao", "atividade_id": "", "valor": "", "descricao": "", "suporte": ""}
+
+
+def _pres_tela_receitas(request, empresa, ano, trimestre, *, status=200, erro=None, valores=None):
+    apuracao = servico_presumido.apurar_trimestre(empresa, ano, trimestre)
+    pode = _pode_escriturar(request)
+    atividades = [
+        {
+            "id": a.pk,
+            "rotulo": f"{tab_presumido.ATIVIDADES_POR_CODIGO[a.atividade].rotulo} "
+            f"(desde {_data_na_tela(a.inicio)})",
+        }
+        for a in servico_presumido.listar_atividades(empresa)
+    ]
+    integrais_nenhuma = apuracao.integrais_atuais == ZERO_PRESUMIDO
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=pode,
+        titulo="Receitas do trimestre",
+        ano_filtro=ano,
+        trimestre_filtro=trimestre,
+        trimestre_rotulo=_pres_trimestre(ano, trimestre),
+        erro=erro,
+        valores=_pres_valores_receita(valores),
+        receitas=[
+            _pres_linha_da_receita(r, empresa, pode)
+            for r in servico_presumido.listar_receitas(empresa, ano, trimestre)
+        ],
+        atividades=atividades,
+        declaracao=_pres_declaracao_na_tela(apuracao),
+        integrais_atuais=_valor_ptbr(apuracao.integrais_atuais),
+        integrais_nenhuma=integrais_nenhuma,
+        motivo_sem_integrais=(
+            ""
+            if integrais_nenhuma
+            else "Há receitas integrais lançadas neste trimestre: declare o total, não 'não houve'."
+        ),
+        opcoes_tipo=[
+            ("presuncao", "Receita de presunção"),
+            ("integral", "Receita integral (art. 25, II)"),
+        ],
+        url_receita=reverse("fiscal_web:presumido_receita_nova", args=[empresa.pk]),
+        url_integrais=reverse("fiscal_web:presumido_integrais_declarar", args=[empresa.pk]),
+        url_consulta=_pres_url_consulta(
+            "fiscal_web:presumido_receitas", empresa, ano=ano, trimestre=trimestre
+        ),
+    )
+    return render(request, "fiscal/presumido_receitas.html", contexto, status=status)
+
+
+@login_required
+@require_safe
+def presumido_receitas(request):
+    """Receitas do trimestre (presunção e integrais), com a declaração de integrais. Consulta."""
+    recusa = _pres_recusa_de_consulta(request)
+    if recusa is not None:
+        return recusa
+    empresa, erro = _empresa_da_escrituracao(request)
+    ano, trimestre, erro_periodo = _pres_periodo_padrao(request)
+    erro = erro or erro_periodo
+    if erro or empresa is None:
+        contexto = _pres_contexto(
+            request,
+            empresa,
+            pode_escriturar=_pode_escriturar(request),
+            titulo="Receitas do trimestre",
+            erro=erro,
+        )
+        return render(
+            request, "fiscal/presumido_receitas.html", contexto, status=400 if erro else 200
+        )
+    return _pres_tela_receitas(request, empresa, ano, trimestre)
+
+
+def _pres_valor_do_formulario(bruto: str) -> str:
+    """Valor em pt-BR digitado ('1.234,56'). Formato ruim vira mensagem; nunca float."""
+    try:
+        return _valor_do_formulario(bruto)
+    except ValorInvalidoNoFormulario as exc:
+        raise servico_presumido.EntradaInvalidaPresumido(str(exc)) from exc
+
+
+@login_required
+@require_http_methods(["POST"])
+def presumido_receita_nova(request, empresa_id):
+    """Lança receita de presunção (com atividade) ou integral (sem atividade), com suporte."""
+    recusa = _pres_recusa_de_escrita(request)
+    if recusa is not None:
+        return recusa
+    empresa = _empresa_escopada(request, empresa_id)
+    ano = _inteiro_de_filtro(request.POST.get("ano", "").strip())
+    trimestre = _inteiro_de_filtro(request.POST.get("trimestre", "").strip())
+    valores = {
+        "tipo": request.POST.get("tipo", ""),
+        "atividade_id": request.POST.get("atividade_id", ""),
+        "valor": request.POST.get("valor", ""),
+        "descricao": request.POST.get("descricao", ""),
+        "suporte": request.POST.get("suporte", ""),
+    }
+    if ano is None or trimestre is None:
+        return _pres_tela_receitas_sem_periodo(request, empresa, "Informe o ano e o trimestre.")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_PRESUMIDO_RECEITA)
+        dados = {
+            "tipo": valores["tipo"],
+            "valor": _pres_valor_do_formulario(valores["valor"]),
+            "descricao": valores["descricao"],
+            "suporte": valores["suporte"],
+        }
+        if valores["tipo"] == servico_presumido.TIPO_PRESUNCAO:
+            dados["atividade_id"] = _inteiro_de_filtro(valores["atividade_id"].strip())
+        servico_presumido.criar_receita(empresa, ano, trimestre, dados, request.user, request)
+    except DadoNaoContratado as exc:
+        return _pres_tela_receitas(
+            request, empresa, ano, trimestre, status=400, erro=exc.mensagem, valores=valores
+        )
+    except servico_presumido.PresumidoErro as exc:
+        status = 400 if isinstance(exc, servico_presumido.EntradaInvalidaPresumido) else 409
+        return _pres_tela_receitas(
+            request, empresa, ano, trimestre, status=status, erro=exc.mensagem, valores=valores
+        )
+    messages.success(request, "Receita lançada no trimestre.")
+    return redirect(
+        _pres_url_consulta("fiscal_web:presumido_receitas", empresa, ano=ano, trimestre=trimestre)
+    )
+
+
+def _pres_tela_receitas_sem_periodo(request, empresa, erro):
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=_pode_escriturar(request),
+        titulo="Receitas do trimestre",
+        erro=erro,
+    )
+    return render(request, "fiscal/presumido_receitas.html", contexto, status=400)
+
+
+@login_required
+@require_http_methods(["POST"])
+def presumido_integrais_declarar(request, empresa_id):
+    """Declara as receitas integrais pelo total atual, ou "não houve" com total zero."""
+    recusa = _pres_recusa_de_escrita(request)
+    if recusa is not None:
+        return recusa
+    empresa = _empresa_escopada(request, empresa_id)
+    ano = _inteiro_de_filtro(request.POST.get("ano", "").strip())
+    trimestre = _inteiro_de_filtro(request.POST.get("trimestre", "").strip())
+    if ano is None or trimestre is None:
+        return _pres_tela_receitas_sem_periodo(request, empresa, "Informe o ano e o trimestre.")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_PRESUMIDO_INTEGRAIS)
+        if request.POST.get("modo") == "sem_integrais":
+            servico_presumido.declarar_sem_receitas_integrais(
+                empresa, ano, trimestre, request.user, request
+            )
+        else:
+            servico_presumido.declarar_receitas_integrais(
+                empresa, ano, trimestre, request.POST.get("observacao", ""), request.user, request
+            )
+    except DadoNaoContratado as exc:
+        return _pres_tela_receitas(request, empresa, ano, trimestre, status=400, erro=exc.mensagem)
+    except servico_presumido.PresumidoErro as exc:
+        status = 400 if isinstance(exc, servico_presumido.EntradaInvalidaPresumido) else 409
+        return _pres_tela_receitas(
+            request, empresa, ano, trimestre, status=status, erro=exc.mensagem
+        )
+    messages.success(request, "Receitas integrais do trimestre declaradas.")
+    return redirect(
+        _pres_url_consulta("fiscal_web:presumido_receitas", empresa, ano=ano, trimestre=trimestre)
+    )
+
+
+def _pres_tela_estornar_receita(request, empresa, receita, *, motivo="", erro=None, status=200):
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=True,
+        titulo="Estornar receita do trimestre",
+        receita=_pres_linha_da_receita(receita, empresa, False),
+        motivo=motivo,
+        erro=erro,
+        url_envio=reverse("fiscal_web:presumido_receita_estornar", args=[empresa.pk, receita.pk]),
+        url_voltar=_pres_url_consulta(
+            "fiscal_web:presumido_receitas", empresa, ano=receita.ano, trimestre=receita.trimestre
+        ),
+    )
+    return render(request, "fiscal/presumido_receita_estornar.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def presumido_receita_estornar(request, empresa_id, receita_id):
+    """Estorna uma receita com motivo obrigatório. Fica na trilha, marcada como estornada."""
+    recusa = _pres_recusa_de_escrita(request)
+    if recusa is not None:
+        return recusa
+    empresa = _empresa_escopada(request, empresa_id)
+    receita = get_object_or_404(ReceitaTrimestralPresumido, pk=receita_id, empresa=empresa)
+    if request.method == "GET":
+        return _pres_tela_estornar_receita(request, empresa, receita)
+    motivo = request.POST.get("motivo", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_PRESUMIDO_MOTIVO)
+        servico_presumido.estornar_receita(empresa, receita.pk, motivo, request.user, request)
+    except DadoNaoContratado as exc:
+        return _pres_tela_estornar_receita(
+            request, empresa, receita, motivo=motivo, erro=exc.mensagem, status=400
+        )
+    except servico_presumido.PresumidoErro as exc:
+        status = 400 if isinstance(exc, servico_presumido.EntradaInvalidaPresumido) else 409
+        return _pres_tela_estornar_receita(
+            request, empresa, receita, motivo=motivo, erro=exc.mensagem, status=status
+        )
+    messages.success(request, "Receita estornada.")
+    return redirect(
+        _pres_url_consulta(
+            "fiscal_web:presumido_receitas", empresa, ano=receita.ano, trimestre=receita.trimestre
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Retenções do trimestre (tela 4)
+# ---------------------------------------------------------------------------
+
+
+def _pres_csll_na_tela(linha) -> str:
+    """CSLL proposta com a marca da regra: exata, estimada ou a classificar (HI-102, HI-103)."""
+    if linha.csll_situacao == "exata":
+        return f"{_valor_ptbr(linha.csll_proposta)} (exata, tpRetPisCofins 8)"
+    if linha.csll_situacao == "estimada":
+        return f"{_valor_ptbr(linha.csll_proposta)} — estimada — conferir no comprovante"
+    return f"a classificar: {linha.csll_motivo}"
+
+
+def _pres_linha_da_retencao(linha, empresa, ano, trimestre, pode_escriturar) -> dict:
+    return {
+        "numero": linha.numero,
+        "competencia": _data_na_tela(linha.data_competencia),
+        "valor": _valor_ptbr(linha.valor_servico),
+        "irrf_proposto": _valor_ptbr(linha.irrf_proposto),
+        "csll_proposta": _pres_csll_na_tela(linha),
+        "irrf_confirmado": (
+            _valor_ptbr(linha.irrf_confirmado)
+            if linha.irrf_confirmado is not None
+            else "não confirmado"
+        ),
+        "csll_confirmada": (
+            _valor_ptbr(linha.csll_confirmada)
+            if linha.csll_confirmada is not None
+            else "não confirmada"
+        ),
+        "url_confirmar": (
+            reverse(
+                "fiscal_web:presumido_retencao_confirmar",
+                args=[empresa.pk, linha.escrituracao_id],
+            )
+            + "?"
+            + urlencode({"ano": ano, "trimestre": trimestre})
+            if pode_escriturar
+            else None
+        ),
+    }
+
+
+@login_required
+@require_safe
+def presumido_retencoes(request):
+    """Retenções sofridas por nota do trimestre: proposta, marca e confirmação ativa. Consulta."""
+    recusa = _pres_recusa_de_consulta(request)
+    if recusa is not None:
+        return recusa
+    empresa, erro = _empresa_da_escrituracao(request)
+    ano, trimestre, erro_periodo = _pres_periodo_padrao(request)
+    erro = erro or erro_periodo
+    pode = _pode_escriturar(request)
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=pode,
+        titulo="Retenções do trimestre",
+        ano_filtro=ano,
+        trimestre_filtro=trimestre,
+        erro=erro,
+    )
+    if erro or empresa is None:
+        return render(
+            request, "fiscal/presumido_retencoes.html", contexto, status=400 if erro else 200
+        )
+    linhas = servico_presumido.retencoes_do_trimestre(empresa, ano, trimestre)
+    contexto.update(
+        trimestre_rotulo=_pres_trimestre(ano, trimestre),
+        retencoes=[
+            _pres_linha_da_retencao(linha, empresa, ano, trimestre, pode) for linha in linhas
+        ],
+        url_consulta=_pres_url_consulta(
+            "fiscal_web:presumido_retencoes", empresa, ano=ano, trimestre=trimestre
+        ),
+    )
+    return render(request, "fiscal/presumido_retencoes.html", contexto)
+
+
+def _pres_tela_confirmar_retencao(
+    request, empresa, ano, trimestre, linha, *, valores, motivo, erro=None, status=200
+):
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=True,
+        titulo="Confirmar retenção",
+        ano_filtro=ano,
+        trimestre_filtro=trimestre,
+        trimestre_rotulo=_pres_trimestre(ano, trimestre),
+        retencao=_pres_linha_da_retencao(linha, empresa, ano, trimestre, False),
+        proposta_irrf=linha.irrf_proposto,
+        proposta_csll=linha.csll_proposta,
+        valores=valores,
+        motivo=motivo,
+        erro=erro,
+        url_envio=reverse(
+            "fiscal_web:presumido_retencao_confirmar", args=[empresa.pk, linha.escrituracao_id]
+        ),
+        url_voltar=_pres_url_consulta(
+            "fiscal_web:presumido_retencoes", empresa, ano=ano, trimestre=trimestre
+        ),
+    )
+    return render(request, "fiscal/presumido_retencao_confirmar.html", contexto, status=status)
+
+
+def _pres_linha_da_nota_no_trimestre(empresa, escrituracao_id, ano, trimestre):
+    """A linha de retenção da nota, dentro do trimestre pedido. Nota de outro trimestre ou de outra
+    empresa não aparece nesta lista e responde 404."""
+    for linha in servico_presumido.retencoes_do_trimestre(empresa, ano, trimestre):
+        if linha.escrituracao_id == escrituracao_id:
+            return linha
+    raise Http404("Nota não encontrada nesta empresa e neste trimestre.")
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def presumido_retencao_confirmar(request, empresa_id, escrituracao_id):
+    """Confirma o IRRF e a CSLL de UMA nota, com trilha. Valor diferente exige motivo."""
+    recusa = _pres_recusa_de_escrita(request)
+    if recusa is not None:
+        return recusa
+    empresa = _empresa_escopada(request, empresa_id)
+    # GET lê o período da consulta; POST lê os campos ocultos do formulário. A URL de envio não leva
+    # querystring: o contrato de requisição recusa parâmetro de URL em POST.
+    if request.method == "GET":
+        ano, trimestre, erro_periodo = _pres_periodo_padrao(request)
+    else:
+        ano = _inteiro_de_filtro(request.POST.get("ano", "").strip())
+        trimestre = _inteiro_de_filtro(request.POST.get("trimestre", "").strip())
+        erro_periodo = (
+            None if ano is not None and trimestre is not None else "Informe o ano e o trimestre."
+        )
+        if erro_periodo is None:
+            try:
+                servico_presumido.validar_ano_e_trimestre(ano, trimestre)
+            except servico_presumido.EntradaInvalidaPresumido as exc:
+                erro_periodo = exc.mensagem
+    if erro_periodo or ano is None:
+        contexto = _pres_contexto(
+            request,
+            empresa,
+            pode_escriturar=True,
+            titulo="Retenções do trimestre",
+            erro=erro_periodo or "Informe o ano e o trimestre.",
+        )
+        return render(request, "fiscal/presumido_retencoes.html", contexto, status=400)
+    linha = _pres_linha_da_nota_no_trimestre(empresa, escrituracao_id, ano, trimestre)
+    if request.method == "GET":
+        valores = {
+            "irrf": "" if linha.irrf_proposto is None else _valor_ptbr(linha.irrf_proposto),
+            "csll": "" if linha.csll_proposta is None else _valor_ptbr(linha.csll_proposta),
+        }
+        return _pres_tela_confirmar_retencao(
+            request, empresa, ano, trimestre, linha, valores=valores, motivo=""
+        )
+    valores = {
+        "irrf": request.POST.get("irrf_confirmado", ""),
+        "csll": request.POST.get("csll_confirmada", ""),
+    }
+    motivo = request.POST.get("motivo", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_PRESUMIDO_RETENCAO)
+        irrf = _pres_valor_do_formulario(valores["irrf"]) if valores["irrf"].strip() else None
+        csll = _pres_valor_do_formulario(valores["csll"]) if valores["csll"].strip() else None
+        servico_presumido.confirmar_retencao(
+            empresa, escrituracao_id, irrf, csll, motivo, request.user, request
+        )
+    except DadoNaoContratado as exc:
+        return _pres_tela_confirmar_retencao(
+            request,
+            empresa,
+            ano,
+            trimestre,
+            linha,
+            valores=valores,
+            motivo=motivo,
+            erro=exc.mensagem,
+            status=400,
+        )
+    except servico_presumido.PresumidoErro as exc:
+        status = 400 if isinstance(exc, servico_presumido.EntradaInvalidaPresumido) else 409
+        return _pres_tela_confirmar_retencao(
+            request,
+            empresa,
+            ano,
+            trimestre,
+            linha,
+            valores=valores,
+            motivo=motivo,
+            erro=exc.mensagem,
+            status=status,
+        )
+    messages.success(request, "Retenção confirmada.")
+    return redirect(
+        _pres_url_consulta("fiscal_web:presumido_retencoes", empresa, ano=ano, trimestre=trimestre)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Medidas judiciais contra o acréscimo (tela 5)
+# ---------------------------------------------------------------------------
+
+_ROTULO_TRIBUTO_MEDIDA = {"irpj": "IRPJ", "csll": "CSLL", "ambos": "IRPJ e CSLL"}
+
+
+def _pres_periodo_da_medida(medida) -> str:
+    inicio = _pres_trimestre(medida.ano_inicial, medida.trimestre_inicial)
+    if medida.ano_final is None:
+        return f"A partir do {inicio}, sem prazo final"
+    return f"Do {inicio} ao {_pres_trimestre(medida.ano_final, medida.trimestre_final)}"
+
+
+def _pres_linha_da_medida(medida, empresa, pode_escriturar) -> dict:
+    return {
+        "tributo": _ROTULO_TRIBUTO_MEDIDA.get(medida.tributo, medida.tributo),
+        "periodo": _pres_periodo_da_medida(medida),
+        "processo": medida.numero_processo,
+        "orgao": medida.orgao,
+        "data_decisao": _data_na_tela(medida.data_decisao),
+        "deposito": "Sim — depositar" if medida.deposito_judicial else "Não — suspensa",
+        "suporte": medida.suporte,
+        "situacao": "Ativa" if medida.ativa else f"Revogada: {medida.motivo_revogacao}",
+        "url_revogar": (
+            reverse("fiscal_web:presumido_medida_revogar", args=[empresa.pk, medida.pk])
+            if medida.ativa and pode_escriturar
+            else None
+        ),
+    }
+
+
+def _pres_tela_medidas(request, empresa, *, status=200, erro=None):
+    pode = _pode_escriturar(request)
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=pode,
+        titulo="Medidas judiciais contra a LC 224",
+        erro=erro,
+        medidas=[
+            _pres_linha_da_medida(m, empresa, pode)
+            for m in servico_presumido.listar_medidas(empresa)
+        ],
+        url_nova=reverse("fiscal_web:presumido_medida_nova", args=[empresa.pk]),
+        url_consulta=_pres_url_consulta("fiscal_web:presumido_medidas", empresa),
+    )
+    return render(request, "fiscal/presumido_medidas.html", contexto, status=status)
+
+
+@login_required
+@require_safe
+def presumido_medidas(request):
+    """Medidas judiciais da empresa, com o aviso fixo das ADIs. Consulta; o resto é à parte."""
+    recusa = _pres_recusa_de_consulta(request)
+    if recusa is not None:
+        return recusa
+    empresa, erro = _empresa_da_escrituracao(request)
+    if erro:
+        return render(
+            request,
+            "fiscal/presumido_medidas.html",
+            _pres_contexto(
+                request,
+                empresa,
+                pode_escriturar=_pode_escriturar(request),
+                titulo="Medidas judiciais contra a LC 224",
+                erro=erro,
+            ),
+            status=400,
+        )
+    if empresa is None:
+        return render(
+            request,
+            "fiscal/presumido_medidas.html",
+            _pres_contexto(
+                request,
+                empresa,
+                pode_escriturar=_pode_escriturar(request),
+                titulo="Medidas judiciais contra a LC 224",
+            ),
+        )
+    return _pres_tela_medidas(request, empresa)
+
+
+def _pres_valores_medida(valores=None) -> dict:
+    if valores is not None:
+        return valores
+    return {
+        "tributo": "irpj",
+        "ano_inicial": "",
+        "trimestre_inicial": "",
+        "ano_final": "",
+        "trimestre_final": "",
+        "numero_processo": "",
+        "orgao": "",
+        "data_decisao": "",
+        "deposito_judicial": False,
+        "suporte": "",
+    }
+
+
+def _pres_tela_medida_nova(request, empresa, *, valores, erro=None, status=200):
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=True,
+        titulo="Nova medida judicial",
+        valores=valores,
+        erro=erro,
+        opcoes_tributo=[("irpj", "IRPJ"), ("csll", "CSLL"), ("ambos", "IRPJ e CSLL")],
+        url_envio=reverse("fiscal_web:presumido_medida_nova", args=[empresa.pk]),
+        url_voltar=_pres_url_consulta("fiscal_web:presumido_medidas", empresa),
+    )
+    return render(request, "fiscal/presumido_medida_form.html", contexto, status=status)
+
+
+def _pres_inteiro_opcional(bruto: str, nome: str):
+    """Ano ou trimestre opcional: vazio é None (prazo indeterminado no final); texto ruim é erro."""
+    texto = bruto.strip()
+    if not texto:
+        return None
+    valor = _inteiro_de_filtro(texto)
+    if valor is None:
+        raise servico_presumido.EntradaInvalidaPresumido(f"{nome} deve ser um número inteiro.")
+    return valor
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def presumido_medida_nova(request, empresa_id):
+    """Cadastra uma medida judicial contra o acréscimo, com processo, órgão, data e suporte."""
+    recusa = _pres_recusa_de_escrita(request)
+    if recusa is not None:
+        return recusa
+    empresa = _empresa_escopada(request, empresa_id)
+    if request.method == "GET":
+        return _pres_tela_medida_nova(request, empresa, valores=_pres_valores_medida())
+    campos = (
+        "tributo",
+        "ano_inicial",
+        "trimestre_inicial",
+        "ano_final",
+        "trimestre_final",
+        "numero_processo",
+        "orgao",
+        "data_decisao",
+        "suporte",
+    )
+    valores = {campo: request.POST.get(campo, "") for campo in campos}
+    valores["deposito_judicial"] = request.POST.get("deposito_judicial", "") == "1"
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_PRESUMIDO_MEDIDA)
+        data = _data_do_formulario(valores["data_decisao"])
+        if data is None:
+            raise servico_presumido.EntradaInvalidaPresumido(
+                "A data da decisão é inválida: use dd/mm/aaaa."
+            )
+        dados = {
+            "tributo": valores["tributo"],
+            "ano_inicial": _inteiro_de_filtro(valores["ano_inicial"].strip()),
+            "trimestre_inicial": _inteiro_de_filtro(valores["trimestre_inicial"].strip()),
+            "ano_final": _pres_inteiro_opcional(valores["ano_final"], "O ano final"),
+            "trimestre_final": _pres_inteiro_opcional(
+                valores["trimestre_final"], "O trimestre final"
+            ),
+            "numero_processo": valores["numero_processo"],
+            "orgao": valores["orgao"],
+            "data_decisao": data,
+            "deposito_judicial": valores["deposito_judicial"],
+            "suporte": valores["suporte"],
+        }
+        servico_presumido.cadastrar_medida(empresa, dados, request.user, request)
+    except DadoNaoContratado as exc:
+        return _pres_tela_medida_nova(
+            request, empresa, valores=valores, erro=exc.mensagem, status=400
+        )
+    except servico_presumido.PresumidoErro as exc:
+        status = 400 if isinstance(exc, servico_presumido.EntradaInvalidaPresumido) else 409
+        return _pres_tela_medida_nova(
+            request, empresa, valores=valores, erro=exc.mensagem, status=status
+        )
+    messages.success(request, "Medida judicial cadastrada.")
+    return redirect(_pres_url_consulta("fiscal_web:presumido_medidas", empresa))
+
+
+def _pres_tela_revogar(request, empresa, medida, *, motivo="", erro=None, status=200):
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=True,
+        titulo="Revogar medida judicial",
+        medida=_pres_linha_da_medida(medida, empresa, False),
+        motivo=motivo,
+        erro=erro,
+        url_envio=reverse("fiscal_web:presumido_medida_revogar", args=[empresa.pk, medida.pk]),
+        url_voltar=_pres_url_consulta("fiscal_web:presumido_medidas", empresa),
+    )
+    return render(request, "fiscal/presumido_medida_revogar.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def presumido_medida_revogar(request, empresa_id, medida_id):
+    """Revoga uma medida ativa, com motivo. A medida não é apagada: a revogação fica na trilha."""
+    recusa = _pres_recusa_de_escrita(request)
+    if recusa is not None:
+        return recusa
+    empresa = _empresa_escopada(request, empresa_id)
+    medida = get_object_or_404(MedidaJudicialLC224, pk=medida_id, empresa=empresa)
+    if request.method == "GET":
+        return _pres_tela_revogar(request, empresa, medida)
+    motivo = request.POST.get("motivo", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_PRESUMIDO_MOTIVO)
+        servico_presumido.revogar_medida(empresa, medida.pk, motivo, request.user, request)
+    except DadoNaoContratado as exc:
+        return _pres_tela_revogar(
+            request, empresa, medida, motivo=motivo, erro=exc.mensagem, status=400
+        )
+    except servico_presumido.PresumidoErro as exc:
+        status = 400 if isinstance(exc, servico_presumido.EntradaInvalidaPresumido) else 409
+        return _pres_tela_revogar(
+            request, empresa, medida, motivo=motivo, erro=exc.mensagem, status=status
+        )
+    messages.success(request, "Medida judicial revogada.")
+    return redirect(_pres_url_consulta("fiscal_web:presumido_medidas", empresa))
+
+
+# ---------------------------------------------------------------------------
+# Apuração do trimestre: a memória de conferência (tela 6)
+# ---------------------------------------------------------------------------
+
+
+def _pres_valor_ou_traco(valor) -> str:
+    return _valor_ptbr(valor) if valor is not None else "—"
+
+
+def _pres_memoria_por_atividade(linhas, com_acrescimo: bool) -> list[dict]:
+    """Uma linha por atividade: receita, excedente, alíquotas (normal e acrescida) e parcelas.
+
+    Os números vêm prontos do serviço; a tela só formata. Sem acréscimo no trimestre, a coluna
+    acrescida sai como traço, e não como zero (ausência não é zero).
+    """
+    return [
+        {
+            "atividade": tab_presumido.ATIVIDADES_POR_CODIGO[linha.atividade].rotulo,
+            "receita": _valor_ptbr(linha.receita),
+            "excedente": _valor_ptbr(linha.excedente),
+            "aliquota": _pres_percentual(linha.aliquota),
+            "aliquota_acrescida": _pres_percentual(linha.aliquota_acrescida)
+            if com_acrescimo
+            else "—",
+            "parcela_normal": _valor_ptbr(linha.base_normal),
+            "parcela_acrescida": _valor_ptbr(linha.base_acrescida) if com_acrescimo else "—",
+        }
+        for linha in linhas
+    ]
+
+
+def _pres_medida_na_tela(colunas) -> dict:
+    if colunas.medida == "suspensa":
+        texto = (
+            "Parcela suspensa por medida judicial: "
+            f"{_valor_ptbr(colunas.valor_suspenso)} fica fora "
+            "do a recolher. A coluna recolhida é a sem LC 224."
+        )
+    elif colunas.medida == "depositar":
+        texto = (
+            "Parcela a depositar em juízo: "
+            f"{_valor_ptbr(colunas.valor_suspenso)}. A coluna recolhida "
+            "é a sem LC 224."
+        )
+    else:
+        texto = "Sem medida judicial ativa neste trimestre para este tributo."
+    return {"situacao": colunas.medida, "texto": texto}
+
+
+def _pres_quotas_na_tela(quotas) -> dict:
+    def parcela(p):
+        return {
+            "numero": p.numero,
+            "valor": _valor_ptbr(p.valor),
+            "vencimento": _data_na_tela(p.vencimento),
+            "aviso": "calendário a conferir" if p.aviso_calendario else "",
+            "juros": p.juros,
+        }
+
+    return {
+        "devido": _valor_ptbr(quotas.devido),
+        "unica": [parcela(p) for p in quotas.quota_unica],
+        "tres": [parcela(p) for p in quotas.tres_quotas] if quotas.tres_quotas else None,
+        "motivo_sem_tres": quotas.motivo_sem_tres_quotas or "",
+    }
+
+
+def _pres_tributo_na_tela(colunas, trimestre: int, fechamento, codigo_tributo: str) -> dict:
+    """Um tributo no trimestre: as três colunas, a memória por atividade, a medida, a dedução e a
+    recolher. Os valores são os do serviço; esta função só escolhe o que mostrar e formata."""
+    linha = colunas.linhas_do_ano[trimestre - 1]
+    sem = linha.sem_lc224
+    com = linha.com_lc224
+    com_acrescimo = com is not None
+    colunas_tres = [
+        {
+            "rotulo": "Base de cálculo",
+            "sem": _valor_ptbr(sem.base),
+            "com": _pres_valor_ou_traco(com.base if com_acrescimo else None),
+            "parcela": "—",
+        },
+        {
+            "rotulo": "Imposto principal",
+            "sem": _valor_ptbr(sem.principal),
+            "com": _pres_valor_ou_traco(com.principal if com_acrescimo else None),
+            "parcela": "—",
+        },
+        {
+            "rotulo": "Adicional",
+            "sem": _valor_ptbr(sem.adicional)
+            if codigo_tributo == tab_presumido.IRPJ
+            else "não se aplica",
+            "com": (
+                _pres_valor_ou_traco(com.adicional if com_acrescimo else None)
+                if codigo_tributo == tab_presumido.IRPJ
+                else "não se aplica"
+            ),
+            "parcela": "—",
+        },
+        {
+            "rotulo": "Imposto total",
+            "sem": _valor_ptbr(sem.total),
+            "com": _pres_valor_ou_traco(com.total if com_acrescimo else None),
+            "parcela": _pres_valor_ou_traco(linha.parcela_lc224),
+        },
+    ]
+    return {
+        "tributo": _TRIBUTO_PRESUMIDO_ROTULO[codigo_tributo],
+        "codigo_darf": tab_presumido.CODIGO_DARF[codigo_tributo],
+        "rotulo_darf": tab_presumido.ROTULO_DARF[codigo_tributo],
+        "fonte_darf": tab_presumido.FONTE_CODIGOS_DARF,
+        "acrescimo_aplicavel": colunas.acrescimo_aplicavel,
+        "memoria": _pres_memoria_por_atividade(
+            colunas.memoria_com_lc224 if com_acrescimo else colunas.memoria_sem_lc224, com_acrescimo
+        ),
+        "receitas_integrais": _valor_ptbr(colunas.receitas_integrais),
+        "colunas": colunas_tres,
+        "coluna_escolhida": "com LC 224"
+        if colunas.coluna_escolhida == "com_lc224"
+        else "sem LC 224",
+        "medida": _pres_medida_na_tela(colunas),
+        "retencao_confirmada": _valor_ptbr(colunas.retencao_confirmada),
+        "deducao_quarto": _valor_ptbr(colunas.deducao_quarto_trimestre)
+        if trimestre == 4
+        else "não se aplica fora do 4º trimestre",
+        "saldo_per_dcomp": _valor_ptbr(colunas.saldo_per_dcomp),
+        "saldo_negativo": _valor_ptbr(colunas.saldo_negativo),
+        "tributo_escolhido": _valor_ptbr(colunas.tributo_escolhido),
+        "a_recolher": _valor_ptbr(colunas.a_recolher),
+        "quotas": _pres_quotas_na_tela(colunas.quotas),
+        "caso_quarto": _TEXTO_CASO_QUARTO.get(colunas.caso_quarto) if colunas.caso_quarto else None,
+        "fechamento": (
+            _pres_fechamento_na_tela(fechamento, linha_do_ano=colunas.linhas_do_ano)
+            if fechamento is not None
+            else None
+        ),
+    }
+
+
+def _pres_fechamento_na_tela(fechamento, *, linha_do_ano) -> dict:
+    """Memória do fechamento do ano: N, limite anual, excedente, S e o que cada trimestre contribui.
+
+    Trimestre coberto por medida aparece como parcela suspensa, fora da dedução (item 0).
+    """
+    return {
+        "n": fechamento.n,
+        "receita_no_acrescimo": _valor_ptbr(fechamento.receita_no_acrescimo),
+        "limite_anual": _valor_ptbr(fechamento.limite_anual),
+        "excedente_anual": _valor_ptbr(fechamento.excedente_anual),
+        "s": _valor_ptbr(fechamento.s),
+        "caso": fechamento.caso,
+        "caso_texto": _TEXTO_CASO_QUARTO[fechamento.caso],
+        "trimestres": [
+            {
+                "trimestre": linha.trimestre,
+                "diferenca": (
+                    _PARCELA_SUSPENSA_TEXTO
+                    if linha.suspensa_por_medida
+                    else _pres_valor_ou_traco(linha.diferenca_recalculo)
+                ),
+                "suspensa": linha.suspensa_por_medida,
+            }
+            for linha in linha_do_ano
+            if linha.em_acrescimo
+        ],
+    }
+
+
+def _pres_apuracao_na_tela(apuracao, ano, trimestre) -> dict:
+    """Situação, recusas nomeadas, notas e receitas que compõem a base, e os dois tributos."""
+    if apuracao.recusas:
+        motivo = "há recusas, listadas abaixo; nenhum tributo sai."
+    elif apuracao.declaracao_total is None:
+        motivo = (
+            "receitas integrais do trimestre não declaradas "
+            "(sem a declaração, a apuração é parcial)."
+        )
+    elif not apuracao.declaracao_valida:
+        motivo = "a declaração de receitas integrais caiu porque o total mudou depois dela."
+    else:
+        motivo = ""
+    tributos = {}
+    if apuracao.irpj is not None:
+        tributos["irpj"] = _pres_tributo_na_tela(
+            apuracao.irpj, trimestre, apuracao.fechamento_irpj, tab_presumido.IRPJ
+        )
+        tributos["csll"] = _pres_tributo_na_tela(
+            apuracao.csll, trimestre, apuracao.fechamento_csll, tab_presumido.CSLL
+        )
+    return {
+        "ano": ano,
+        "trimestre_rotulo": _pres_trimestre(ano, trimestre),
+        "situacao": apuracao.situacao,
+        "situacao_texto": (
+            "Completa: não há recusa e a declaração de receitas integrais vale."
+            if apuracao.situacao == "completa"
+            else f"Parcial: {motivo}"
+        ),
+        "criterio": _ROTULO_CRITERIO_PRESUMIDO.get(apuracao.criterio, "não informado"),
+        "recusas": [
+            {"codigo": r.codigo, "mensagem": r.mensagem, "itens": ", ".join(r.itens)}
+            for r in apuracao.recusas
+        ],
+        "notas": [
+            {
+                "numero": n.numero or n.identificador,
+                "competencia": _data_na_tela(n.data_competencia),
+                "valor": _valor_ptbr(n.valor_servico),
+                "desconto": _valor_ptbr(n.desconto_incondicionado),
+                "base": _valor_ptbr(n.base),
+                "atividade": tab_presumido.ATIVIDADES_POR_CODIGO[n.atividade].rotulo,
+            }
+            for n in apuracao.notas
+        ],
+        "receitas": [
+            {
+                "atividade": tab_presumido.ATIVIDADES_POR_CODIGO[r.atividade].rotulo,
+                "valor": _valor_ptbr(r.valor),
+            }
+            for r in apuracao.receitas
+        ],
+        "integrais_atuais": _valor_ptbr(apuracao.integrais_atuais),
+        "declaracao": _pres_declaracao_na_tela(apuracao),
+        "tributos": tributos,
+        "avisos": list(apuracao.avisos),
+        "fontes": [
+            tab_presumido.FONTE_ALIQUOTAS,
+            tab_presumido.FONTE_LIMITE_LC224,
+            tab_presumido.FONTE_PERCENTUAIS,
+        ],
+    }
+
+
+@login_required
+@require_safe
+def presumido_apuracao(request):
+    """Memória de conferência do trimestre: os dois tributos, as três colunas, as recusas.
+
+    Esta tela não grava nada e não calcula: lê a apuração do serviço e mostra. Não é guia nem DARF.
+    """
+    recusa = _pres_recusa_de_consulta(request)
+    if recusa is not None:
+        return recusa
+    empresa, erro = _empresa_da_escrituracao(request)
+    ano, trimestre, erro_periodo = _pres_periodo_padrao(request)
+    erro = erro or erro_periodo
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=_pode_escriturar(request),
+        titulo="Apuração do trimestre",
+        ano_filtro=ano,
+        trimestre_filtro=trimestre,
+        erro=erro,
+    )
+    if erro or empresa is None:
+        return render(
+            request, "fiscal/presumido_apuracao.html", contexto, status=400 if erro else 200
+        )
+    apuracao = servico_presumido.apurar_trimestre(empresa, ano, trimestre)
+    contexto.update(
+        apuracao=_pres_apuracao_na_tela(apuracao, ano, trimestre),
+        url_consulta=_pres_url_consulta(
+            "fiscal_web:presumido_apuracao", empresa, ano=ano, trimestre=trimestre
+        ),
+    )
+    return render(request, "fiscal/presumido_apuracao.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# Controle do limite do ano (tela 7)
+# ---------------------------------------------------------------------------
+
+
+@login_required
+@require_safe
+def presumido_limite(request):
+    """Controle do limite de R$ 1.250.000,00 por trimestre, por tributo, com o fechamento."""
+    recusa = _pres_recusa_de_consulta(request)
+    if recusa is not None:
+        return recusa
+    empresa, erro = _empresa_da_escrituracao(request)
+    ano, erro_ano = _pres_ano_padrao(request)
+    tributo = request.GET.get("tributo", "irpj").strip() or "irpj"
+    erro = erro or erro_ano
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=_pode_escriturar(request),
+        titulo="Controle do limite do ano",
+        ano_filtro=ano,
+        tributo_filtro=tributo,
+        opcoes_tributo=[("irpj", "IRPJ"), ("csll", "CSLL")],
+        erro=erro,
+    )
+    if erro or empresa is None:
+        return render(
+            request, "fiscal/presumido_limite.html", contexto, status=400 if erro else 200
+        )
+    try:
+        controle = servico_presumido.controle_limite_ano(empresa, ano, tributo)
+    except servico_presumido.EntradaInvalidaPresumido as exc:
+        contexto["erro"] = exc.mensagem
+        return render(request, "fiscal/presumido_limite.html", contexto, status=400)
+    contexto.update(
+        controle=_pres_controle_na_tela(controle),
+        url_consulta=_pres_url_consulta(
+            "fiscal_web:presumido_limite", empresa, ano=ano, tributo=tributo
+        ),
+    )
+    return render(request, "fiscal/presumido_limite.html", contexto)
+
+
+def _pres_controle_na_tela(controle) -> dict:
+    linhas = [
+        {
+            "trimestre": linha.trimestre,
+            "acrescimo": "com acréscimo"
+            if linha.em_acrescimo
+            else "sem acréscimo (fora do período)",
+            "receita": _valor_ptbr(linha.receita_presumida),
+            "limite": _pres_valor_ou_traco(linha.limite),
+            "excedente": _pres_valor_ou_traco(linha.excedente) if linha.em_acrescimo else "—",
+            "sobra": _pres_valor_ou_traco(linha.sobra),
+            "diferenca": (
+                _PARCELA_SUSPENSA_TEXTO
+                if linha.suspensa_por_medida
+                else _pres_valor_ou_traco(linha.diferenca_recalculo)
+            ),
+        }
+        for linha in controle.linhas
+    ]
+    fechamento = None
+    if controle.fechamento is not None:
+        fechamento = {
+            "n": controle.fechamento.n,
+            "limite_anual": _valor_ptbr(controle.fechamento.limite_anual),
+            "receita_no_acrescimo": _valor_ptbr(controle.fechamento.receita_no_acrescimo),
+            "excedente_anual": _valor_ptbr(controle.fechamento.excedente_anual),
+            "s": _valor_ptbr(controle.fechamento.s),
+            "caso": controle.fechamento.caso,
+            "caso_texto": _TEXTO_CASO_QUARTO[controle.fechamento.caso],
+            "deducao": _valor_ptbr(controle.deducao_quarto_trimestre),
+        }
+    return {
+        "tributo": _TRIBUTO_PRESUMIDO_ROTULO[controle.tributo],
+        "primeiro_trimestre": controle.primeiro_trimestre,
+        "linhas": linhas,
+        "fechamento": fechamento,
+        "recusas": [
+            {"codigo": r.codigo, "mensagem": r.mensagem, "itens": ", ".join(r.itens)}
+            for r in controle.recusas
+        ],
+    }

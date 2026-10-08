@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+
+{% block titulo %}Receitas do trimestre{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-079 (frente B), tela 3, arquétipo B (formulário) sobre uma tabela de consulta. Receita de
+presunção vem com atividade e suporte; receita integral do art. 25, II não tem percentual e fica
+integral na base. A declaração de integrais é o que torna a apuração completa (HI-104). Estorno
+pede motivo e deixa a receita na trilha.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Receitas do trimestre</h1>{% endblock %}
+
+{% block content %}
+    {% include "fiscal/_filtro_presumido.html" with mostrar_trimestre=True %}
+
+    {% if erro %}
+        <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+    {% endif %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa, o ano e o trimestre para ver as receitas.</strong></p>
+        </div>
+    {% elif url_receita %}
+        <h2>{{ trimestre_rotulo }}: receitas lançadas</h2>
+
+        {% if receitas %}
+            <table class="tabela-dados">
+                <caption>Receitas do trimestre, de presunção e integrais, com o estado de cada uma</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Tipo</th>
+                        <th scope="col">Atividade</th>
+                        <th scope="col">Descrição</th>
+                        <th scope="col">Valor</th>
+                        <th scope="col">Suporte</th>
+                        <th scope="col">Estado</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for receita in receitas %}
+                        <tr>
+                            <td>{{ receita.tipo }}</td>
+                            <td>{{ receita.atividade }}</td>
+                            <td>{{ receita.descricao }}</td>
+                            <td class="valor-monetario">{{ receita.valor }}</td>
+                            <td>{{ receita.suporte }}</td>
+                            <td>
+                                {{ receita.estado }}
+                                {% if receita.motivo_estorno %}<br><span class="texto-apoio">Motivo: {{ receita.motivo_estorno }}</span>{% endif %}
+                            </td>
+                            <td>
+                                {% if receita.url_estornar %}
+                                    <a class="botao botao--perigoso botao--pequeno" href="{{ receita.url_estornar }}">Estornar</a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="estado-vazio">
+                <p class="estado-vazio__titulo"><strong>Nenhuma receita lançada neste trimestre.</strong></p>
+            </div>
+        {% endif %}
+
+        <section class="painel-etapa" aria-labelledby="titulo_declaracao">
+            <h2 id="titulo_declaracao">Receitas integrais do art. 25, II</h2>
+            <p>Total atual das receitas integrais: <strong class="valor-monetario">{{ integrais_atuais }}</strong></p>
+            <p class="mensagem {% if declaracao.situacao == 'vale' %}mensagem-success{% elif declaracao.situacao == 'caiu' %}mensagem-warning{% else %}mensagem-info{% endif %}" role="status">
+                <strong>{{ declaracao.texto }}</strong>
+            </p>
+
+            {% if pode_escriturar %}
+                <form method="post" action="{{ url_integrais }}" class="formulario">
+                    {% csrf_token %}
+                    <input type="hidden" name="ano" value="{{ ano_filtro }}">
+                    <input type="hidden" name="trimestre" value="{{ trimestre_filtro }}">
+                    <div class="campo">
+                        <label for="id_observacao_integrais">Observação da declaração (opcional)</label>
+                        <input type="text" id="id_observacao_integrais" name="observacao" maxlength="500" aria-describedby="ajuda_integrais">
+                        <p class="texto-apoio" id="ajuda_integrais">
+                            A declaração grava o total atual com trilha. Se a receita integral mudar depois, a declaração cai.
+                        </p>
+                    </div>
+                    <div class="acoes-formulario">
+                        <button type="submit" name="modo" value="declarar" class="botao botao--primario">Declarar receitas integrais</button>
+                        {% if integrais_nenhuma %}
+                            <button type="submit" name="modo" value="sem_integrais" class="botao botao--secundario" aria-describedby="ajuda_sem_integrais">Não houve receitas integrais neste trimestre</button>
+                        {% else %}
+                            <button type="button" class="botao botao--secundario" disabled aria-describedby="ajuda_sem_integrais">Não houve receitas integrais neste trimestre</button>
+                        {% endif %}
+                    </div>
+                    <p class="texto-apoio" id="ajuda_sem_integrais">
+                        {% if integrais_nenhuma %}
+                            Declara total zero para o trimestre.
+                        {% else %}
+                            {{ motivo_sem_integrais }}
+                        {% endif %}
+                    </p>
+                </form>
+            {% else %}
+                <p class="texto-apoio" id="ajuda_sem_permissao">Seu papel consulta as receitas, mas não lança, declara nem estorna.</p>
+                <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao">Declarar receitas integrais</button>
+            {% endif %}
+        </section>
+
+        {% if pode_escriturar %}
+            <section class="painel-etapa" aria-labelledby="titulo_lancar">
+                <h2 id="titulo_lancar">Lançar receita</h2>
+                <form method="post" action="{{ url_receita }}" class="formulario">
+                    {% csrf_token %}
+                    <input type="hidden" name="ano" value="{{ ano_filtro }}">
+                    <input type="hidden" name="trimestre" value="{{ trimestre_filtro }}">
+                    <div class="campo">
+                        <label for="id_tipo">Tipo da receita</label>
+                        <select id="id_tipo" name="tipo" aria-describedby="ajuda_tipo">
+                            {% for valor, rotulo in opcoes_tipo %}
+                                <option value="{{ valor }}"{% if valor == valores.tipo %} selected{% endif %}>{{ rotulo }}</option>
+                            {% endfor %}
+                        </select>
+                        <p class="texto-apoio" id="ajuda_tipo">Receita de presunção pede atividade. Receita integral não tem atividade.</p>
+                    </div>
+                    <div class="campo">
+                        <label for="id_atividade_id">Atividade de presunção</label>
+                        <select id="id_atividade_id" name="atividade_id" aria-describedby="ajuda_atividade">
+                            <option value="">Sem atividade (só para receita integral)</option>
+                            {% for atividade in atividades %}
+                                <option value="{{ atividade.id }}"{% if atividade.id|stringformat:"s" == valores.atividade_id %} selected{% endif %}>{{ atividade.rotulo }}</option>
+                            {% endfor %}
+                        </select>
+                        <p class="texto-apoio" id="ajuda_atividade">Obrigatória na receita de presunção. Sem atividade vigente, a apuração recusa.</p>
+                    </div>
+                    <div class="campo">
+                        <label for="id_valor">Valor (R$)</label>
+                        <input type="text" id="id_valor" name="valor" value="{{ valores.valor }}" inputmode="decimal" required aria-describedby="ajuda_valor">
+                        <p class="texto-apoio" id="ajuda_valor">Em pt-BR, como 1.234,56. Até duas casas.</p>
+                    </div>
+                    <div class="campo">
+                        <label for="id_descricao">Descrição</label>
+                        <input type="text" id="id_descricao" name="descricao" value="{{ valores.descricao }}" maxlength="300" required>
+                    </div>
+                    <div class="campo">
+                        <label for="id_suporte">Documento de suporte</label>
+                        <input type="text" id="id_suporte" name="suporte" value="{{ valores.suporte }}" maxlength="300" required aria-describedby="ajuda_suporte">
+                        <p class="texto-apoio" id="ajuda_suporte">Obrigatório: número da nota, extrato ou documento que sustenta a receita.</p>
+                    </div>
+                    <div class="acoes-formulario">
+                        <button type="submit" class="botao botao--primario">Lançar receita</button>
+                    </div>
+                </form>
+            </section>
+        {% else %}
+            <p class="texto-apoio" id="ajuda_sem_permissao_lancar">Seu papel consulta as receitas, mas não lança nem estorna.</p>
+            <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao_lancar">Lançar receita</button>
+        {% endif %}
+    {% endif %}
+{% endblock %}
