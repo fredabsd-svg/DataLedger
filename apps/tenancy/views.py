@@ -918,9 +918,13 @@ def ativar_escritorio(request):
 #   token recebido (em geral via link), autenticado, e virar
 #   ANALISTA do escritório.
 #
-# A defesa é no serviço (`primeiro_acesso.py`), não nas views — aqui só
-# tradução HTTP. As exceções de domínio viram 400/403/409/410 conforme o
-# contrato.
+# As REGRAS de domínio (um escritório por usuário sem vínculo, quem pode
+# convidar, validade do convite) moram no serviço (`primeiro_acesso.py`), não
+# nas views. A view faz duas coisas além da tradução HTTP: valida a ENTRADA
+# EXTERNA pelos formulários de `apps/tenancy/forms.py` (CNPJ, nome, e-mail;
+# DL-070, BL-645 a BL-647) e restringe a busca do escritório aos vínculos do
+# próprio usuário (BL-651). As exceções de domínio viram 400/403/409/410
+# conforme o contrato.
 
 
 @login_required
