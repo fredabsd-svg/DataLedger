@@ -104,6 +104,21 @@ ressalvas; correção única dos achados A1 a A7 e A9:
 - **Sinal de prestador de outro município** (A8): mantido, registrado como
   HI-99 para o Fred. Observações de uso (A10): BL-678.
 
+## Decisões tomadas na reconferência
+
+[Reconferência](../auditorias/2026-10-08-dl-078-reconferencia.md): aprovada com
+ressalvas; A1 a A7 e A9 fechados. Pela regra de parada do §3.1 não houve nova
+correção:
+
+- **R4 e R5** (lacunas de teste: permissão da rota de limpar a data de
+  pagamento; data de hoje em São Paulo, não em UTC) fecham com os **testes do
+  próprio auditor**, integrados pelo arquiteto em
+  `test_dl078_reconferencia.py`; derrubam os mutantes N8, N10 e N11.
+- **R2** (janela e limpeza completa só na aplicação, não no banco):
+  declarado na migração, como o A9.
+- **R1** (nota com emissão muito no futuro fecha a janela) e **R3** (aviso de
+  adiantamento só na tela das retenções): BL-679.
+
 ## Critérios de aceite
 
 1. Campos lidos batem com o XSD nas duas versões, com o caminho citado;
