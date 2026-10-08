@@ -252,8 +252,12 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    de R1, R4 e R6 são aceitas pelos testes que o próprio auditor escreveu, e
    a troca da biblioteca de planilha fica no BL-674. Correções feitas
    (`a083ab0` na branch); suíte completa com a fatia 1 sobre a `main`:
-   **6.811 aprovados, 1 reprovado (ambiente), 53 pulados**. **Próximo: PR
-   da fatia 1, CI e merge (RC-168).**
+   **6.811 aprovados, 1 reprovado (ambiente), 53 pulados**. PR #100 aberto.
+   **Achado de CI:** o job "Lint e testes" tinha limite de 10 min e a suíte
+   já leva 8 a 10 min — a execução do evento `pull_request` dos PRs #99 e
+   #100 foi **cancelada por tempo** (a do `push` passou). O limite subiu para
+   20 min (`.github/workflows/backend.yml`). **Próximo: CI verde e merge
+   (RC-168).**
    **Fatias 2 e 3** (exportar lançamentos e saldos; importar lançamentos com
    área de conferência) implementadas e integradas sobre a fatia 1 corrigida
    (suíte completa: 6.835 aprovados, 1 reprovado de ambiente); telas da
