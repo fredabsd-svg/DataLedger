@@ -65,6 +65,28 @@ confirmação e RBT12 por mercado.
    faixa, alíquota nominal e efetiva, tributos, memória de cálculo com o
    dispositivo de cada passo), cadastro de atividades e folha informada.
 
+## Decisões tomadas na implementação
+
+Depois da [consulta do pré-DAS](../projeto/consultas/2026-10-08-contador-senior-pre-das.md)
+e da [consulta sobre HI-76 e HI-77](../projeto/consultas/2026-10-08-contador-senior-hi76-hi77.md):
+
+- **ISS retido e exportação** (HI-78): percentual desconsiderado, sem
+  redistribuição; na exportação saem só Cofins, PIS e ISS.
+- **Teto do ISS antes da desconsideração** (HI-79): na 5ª faixa, aplica-se o
+  teto de 5% e redistribui-se; depois sai o ISS (5%) da receita retida ou
+  exportada. Inferência textual, sem exemplo oficial.
+- **Receita informada exige a situação do ISS** no mercado interno (HI-80):
+  próprio município, outro município ou retido; sem ela o pré-DAS recusa e
+  nomeia a receita. Exportação não aceita situação. Migração `fiscal 0005`.
+- **Sublimite** (HI-81): recusa quando o RBT12 do mercado passa de R$ 3,6 mi
+  ou a receita acumulada no ano passa do sublimite.
+- **Fator r na empresa nova** (HI-81): folha pelo mesmo critério do RBT12
+  (art. 26 § 4º), inclusive atravessando o ano (HI-76); primeiro mês pela
+  folha e receita do próprio mês; zeros pelo § 7º.
+- **ISS a outro município**: valor certo, mas sem o detalhamento por
+  município do extrato do PGDAS-D (BL-668).
+- **Alíquota da 6ª faixa no § 5º** fica fora: PE-78.
+
 ## Critérios de aceite
 
 1. Os **exemplos 2, 4 e 5** do Manual do PGDAS-D batem **centavo a centavo**
