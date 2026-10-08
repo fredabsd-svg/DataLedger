@@ -46,7 +46,7 @@ from apps.fiscal.models import (
     PapelDocumento,
     VinculoDocumentoEmpresa,
 )
-from apps.fiscal.receita import marcar_a_retificar_por_estorno, travar_empresa
+from apps.fiscal.receita import marcar_a_retificar, marcar_a_retificar_por_estorno, travar_empresa
 from apps.fiscal.services import documentos_do_escritorio, situacao_do_documento
 
 # tpRetISSQN 2 (retido pelo tomador) e 3 (retido pelo intermediário) são o
@@ -692,8 +692,15 @@ def efetivar_escrituracao(
     estorno + nova efetivação, para que a trilha mostre as duas.
 
     Se havia rascunho, ele vira efetivada (a mesma linha, não uma duplicata).
+
+    DL-074 (critério 6): efetivar muda a receita do mês de `dCompet`. Se esse mês já
+    está CONFIRMADO, ele é reaberto e marcado "a retificar" NA MESMA transação, com
+    trilha. A EMPRESA é travada antes do vínculo, na mesma ordem do estorno
+    (`estornar_escrituracao`): confirmação e efetivação não se intercalam, e não há
+    impasse entre elas.
     """
     _validar_natureza(natureza)
+    empresa = travar_empresa(vinculo.empresa)
     travado = _travar_vinculo_prestador(vinculo)
     ativa = _ativa_do_vinculo_travado(travado)
 
@@ -753,6 +760,23 @@ def efetivar_escrituracao(
             "antes": antes,
             "depois": _snapshot(escrituracao),
         },
+    )
+    # DL-074 (critério 6): a receita do mês de `dCompet` mudou. Se o mês já estava
+    # confirmado, o gancho reabre a confirmação e a marca "a retificar", com trilha.
+    # Sem confirmação, não faz nada. Só o mês da competência é tocado.
+    competencia = escrituracao.data_competencia
+    marcar_a_retificar(
+        empresa,
+        competencia.year,
+        competencia.month,
+        usuario,
+        origem=f"escrituração nº {escrituracao.pk}",
+        motivo=(
+            f"Efetivação de escrituração nº {escrituracao.pk} em mês confirmado: "
+            f"receita de {competencia.month:02d}/{competencia.year} a retificar."
+        ),
+        acao="receita_mensal.a_retificar_por_efetivacao",
+        request=request,
     )
     return escrituracao
 

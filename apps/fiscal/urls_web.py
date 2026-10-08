@@ -27,7 +27,14 @@ from apps.fiscal.views_web import (
     escriturar_nota,
     evento_xml,
     notas_a_escriturar,
+    receita_do_mes,
+    receita_informada_confirmar,
+    receita_informada_estornar,
+    receita_informada_nova,
+    receita_mes_confirmar,
+    receita_mes_reabrir,
     recepcao,
+    regime_caixa,
     relatorio_envio,
 )
 
@@ -74,5 +81,39 @@ urlpatterns = [
         "escrituracao/empresas/<int:empresa_id>/escrituracoes/<int:escrituracao_id>/estornar/",
         escrituracao_estornar,
         name="escrituracao_estornar",
+    ),
+    # DL-074 (frente B): receita mensal do Simples Nacional. Mesmo critério das rotas
+    # da DL-072: o painel leva empresa e competência na querystring; as ações levam a
+    # empresa no caminho, e o mês/a receita são buscados DENTRO dela (404 fora).
+    path("simples/receita/", receita_do_mes, name="receita_do_mes"),
+    path(
+        "simples/empresas/<int:empresa_id>/competencias/<int:ano>/<int:mes>/confirmar/",
+        receita_mes_confirmar,
+        name="receita_mes_confirmar",
+    ),
+    path(
+        "simples/empresas/<int:empresa_id>/competencias/<int:ano>/<int:mes>/reabrir/",
+        receita_mes_reabrir,
+        name="receita_mes_reabrir",
+    ),
+    path(
+        "simples/empresas/<int:empresa_id>/receitas/nova/",
+        receita_informada_nova,
+        name="receita_informada_nova",
+    ),
+    path(
+        "simples/empresas/<int:empresa_id>/receitas/<int:receita_id>/confirmar/",
+        receita_informada_confirmar,
+        name="receita_informada_confirmar",
+    ),
+    path(
+        "simples/empresas/<int:empresa_id>/receitas/<int:receita_id>/estornar/",
+        receita_informada_estornar,
+        name="receita_informada_estornar",
+    ),
+    path(
+        "simples/empresas/<int:empresa_id>/regime-caixa/",
+        regime_caixa,
+        name="regime_caixa",
     ),
 ]

@@ -20,9 +20,11 @@ critérios 1, 6 e 7). Decisões que o código não explica sozinho:
   de escrita passar pelo gancho.
 - Estorno de escrituração ou de receita informada de mês CONFIRMADO reabre a
   confirmação e a marca `a_retificar` (Res. CGSN 140 art. 18: o cancelamento
-  deduz no período de origem, nunca no mês corrente). É o gancho
-  `marcar_a_retificar_por_estorno`, chamado por `apps.fiscal.escrituracao.
-  estornar_escrituracao` e por `estornar_receita_informada`.
+  deduz no período de origem, nunca no mês corrente). O gancho genérico é
+  `marcar_a_retificar`; `marcar_a_retificar_por_estorno` é a porta do estorno.
+  Chamado por `apps.fiscal.escrituracao.estornar_escrituracao`, por
+  `apps.fiscal.escrituracao.efetivar_escrituracao` (efetivar em mês confirmado
+  também muda a receita do mês) e por `estornar_receita_informada`.
 - Receita informada confirmada em mês já confirmado é recusada (409): mudaria o
   total de um mês declarado completo sem o ato de reabertura, com motivo.
 
@@ -494,16 +496,29 @@ def reabrir_mes(
     return confirmacao
 
 
-def marcar_a_retificar_por_estorno(
-    empresa: Empresa, ano: int, mes: int, usuario, origem: str, request=None
+def marcar_a_retificar(
+    empresa: Empresa,
+    ano: int,
+    mes: int,
+    usuario,
+    *,
+    origem: str,
+    motivo: str,
+    acao: str,
+    request=None,
 ):
-    """GANCHO do estorno (DL-074, critério 6). Chamado DENTRO da transação do estorno,
-    com a empresa JÁ TRAVADA pelo chamador.
+    """GANCHO "a retificar" (DL-074, critério 6). Chamado DENTRO da transação do ato
+    que muda a receita de um mês, com a empresa JÁ TRAVADA pelo chamador (ordem de
+    travas: empresa primeiro, depois o que o ato trava).
 
-    Mês confirmado → reaberto e marcado `a_retificar`, com motivo que cita a origem.
+    Quem chama: o estorno (de escrituração ou de receita informada) e a efetivação
+    de escrituração em mês já confirmado. `motivo` (texto livre, até 500 caracteres)
+    e `acao` (nome na trilha) são do chamador: o ato é que sabe por que o mês volta.
+
+    Mês confirmado → reaberto e marcado `a_retificar`, com `motivo` na linha.
     Já reaberto → só marca `a_retificar`. Sem confirmação → nada muda (o mês não
     estava declarado completo). Não toca em nenhum outro mês: a correção é no mês
-    de origem (Res. CGSN 140 art. 18).
+    de origem (Res. CGSN 140 art. 18, para o estorno).
     """
     confirmacao = confirmacao_do_mes(empresa, ano, mes, travar=True)
     if confirmacao is None:
@@ -514,10 +529,6 @@ def marcar_a_retificar_por_estorno(
     antes = _snapshot_confirmacao(confirmacao)
     agora = timezone.now()
     if confirmacao.estado == EstadoConfirmacaoMes.CONFIRMADA:
-        motivo = (
-            f"Estorno de {origem}: receita de {_mm_aaaa(ano, mes)} a retificar "
-            "(Res. CGSN 140, art. 18)."
-        )
         atualizadas = ConfirmacaoReceitaMensal.objects.filter(
             pk=confirmacao.pk, estado=EstadoConfirmacaoMes.CONFIRMADA
         ).update(
@@ -536,7 +547,7 @@ def marcar_a_retificar_por_estorno(
     confirmacao.refresh_from_db()
 
     registrar(
-        acao="receita_mensal.a_retificar_por_estorno",
+        acao=acao,
         usuario=usuario,
         escritorio=empresa.escritorio,
         objeto=confirmacao,
@@ -551,6 +562,29 @@ def marcar_a_retificar_por_estorno(
         },
     )
     return confirmacao
+
+
+def marcar_a_retificar_por_estorno(
+    empresa: Empresa, ano: int, mes: int, usuario, origem: str, request=None
+):
+    """Porta do ESTORNO sobre o gancho `marcar_a_retificar` (DL-074, critério 6).
+
+    Mantém o texto e a ação de trilha que o estorno já gravava (testes e auditoria
+    dependem deles). Res. CGSN 140 art. 18: o cancelamento deduz no período de origem.
+    """
+    return marcar_a_retificar(
+        empresa,
+        ano,
+        mes,
+        usuario,
+        origem=origem,
+        motivo=(
+            f"Estorno de {origem}: receita de {_mm_aaaa(ano, mes)} a retificar "
+            "(Res. CGSN 140, art. 18)."
+        ),
+        acao="receita_mensal.a_retificar_por_estorno",
+        request=request,
+    )
 
 
 # ---------------------------------------------------------------------------

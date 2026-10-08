@@ -64,6 +64,7 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -80,14 +81,22 @@ from apps.core.requisicao import (
 )
 from apps.empresas.models import Empresa
 from apps.fiscal import escrituracao as servico_escrituracao
+from apps.fiscal import rbt12 as apuracao
+from apps.fiscal import receita as servico_receita
 from apps.fiscal.models import (
     DocumentoFiscal,
     EscrituracaoFiscal,
+    EstadoConfirmacaoMes,
     EstadoEscrituracao,
+    EstadoReceitaInformada,
     EventoFiscal,
     LoteDeRecepcao,
+    MercadoReceita,
     NaturezaOperacao,
+    OpcaoRegimeCaixaSimples,
+    OrigemReceitaInformada,
     PapelDocumento,
+    ReceitaInformada,
     VinculoDocumentoEmpresa,
 )
 from apps.fiscal.permissoes import (
@@ -1281,3 +1290,693 @@ def conferencia_escrituracao(request):
         }
     )
     return render(request, "fiscal/conferencia_escrituracao.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# DL-074 (frente B): receita mensal do Simples Nacional — painel do mês,
+# confirmação e reabertura, receita informada, RBT12 e regime de caixa.
+#
+# NÍVEL 1 (AGENTS.md §3.1): o RBT12 decide a faixa do DAS. A tela é PRÉ-APURAÇÃO
+# para o contador conferir contra o PGDAS-D, relatório de CONFERÊNCIA (classe 1 de
+# docs/projeto/personalizacao-de-relatorio.md). Nenhuma tela transmite, gera DAS,
+# calcula alíquota ou é documento oficial. A regra fica em `apps.fiscal.receita` e
+# `apps.fiscal.rbt12`; aqui há só autorização, isolamento, leitura da entrada e
+# tradução de erro (mesmo critério da API da DL-074, apps/fiscal/api.py).
+# ---------------------------------------------------------------------------
+
+_ROTULO_DA_SITUACAO = {
+    servico_receita.SITUACAO_CONFIRMADO: "Confirmado",
+    servico_receita.SITUACAO_NAO_CONFIRMADO: "Não confirmado",
+    servico_receita.SITUACAO_A_RETIFICAR: "A retificar",
+    # Mês da janela anterior à abertura no CNPJ: zero, sem confirmação a exigir.
+    "fora_da_atividade": "Antes da abertura (zero)",
+}
+
+_EXPLICACAO_DA_SITUACAO = {
+    servico_receita.SITUACAO_CONFIRMADO: (
+        "A receita declarada confere com o total atual. O mês entra no RBT12."
+    ),
+    servico_receita.SITUACAO_NAO_CONFIRMADO: (
+        "O mês ainda não foi declarado completo. Sem confirmação ele não entra no RBT12, "
+        "e o RBT12 dos meses seguintes fica não apurável."
+    ),
+    servico_receita.SITUACAO_A_RETIFICAR: (
+        "A receita mudou depois da confirmação, ou o mês foi reaberto para retificação. "
+        "Ele não entra no RBT12 até ser confirmado de novo."
+    ),
+}
+
+_ROTULO_DO_MERCADO = {
+    MercadoReceita.INTERNO: "Mercado interno",
+    MercadoReceita.EXTERNO: "Mercado externo (exportação de serviço)",
+}
+
+# Regra do art. 22 da Res. CGSN 140, por extenso, para o contador ler. A chave é o
+# rótulo que `apps.fiscal.rbt12` devolve. Nenhum texto aqui traz alíquota.
+_REGRA_POR_EXTENSO = {
+    "§ 1º": "§ 1º (regra geral): soma dos 12 meses anteriores ao período de apuração",
+    "§ 2º": "§ 2º (primeiro mês de atividade): receita do próprio mês × 12",
+    "§ 3º": "§ 3º (meses seguintes do ano de início): média dos meses de atividade anteriores × 12",
+    "§ 4º": (
+        "§ 4º (abertura no ano anterior ao da opção): § 3º até o 12º mês de atividade, "
+        "§ 1º a partir do 13º"
+    ),
+}
+
+_ROTULO_DO_ESTADO_DA_RECEITA = {
+    EstadoReceitaInformada.RASCUNHO: "Rascunho (não entra em nenhum total)",
+    EstadoReceitaInformada.CONFIRMADA: "Confirmada",
+    EstadoReceitaInformada.ESTORNADA: "Estornada",
+}
+
+_MESES_DO_ANO = [
+    (f"{numero:02d}", f"{numero:02d} — {nome}")
+    for numero, nome in enumerate(
+        (
+            "janeiro",
+            "fevereiro",
+            "março",
+            "abril",
+            "maio",
+            "junho",
+            "julho",
+            "agosto",
+            "setembro",
+            "outubro",
+            "novembro",
+            "dezembro",
+        ),
+        start=1,
+    )
+]
+
+_MENSAGEM_SEM_PERMISSAO_DE_RECEITA = (
+    "Seu papel consulta a receita, mas não confirma, reabre, lança nem estorna: "
+    "peça a um administrador ou gestor do escritório."
+)
+
+# Contratos das superfícies de escrita (apps.core.requisicao, BL-196). Toda view de
+# POST desta seção chama `recusar_dado_nao_contratado` com um destes.
+_CONTRATO_SEM_CAMPOS = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na ação sobre a receita",
+)
+_CONTRATO_MOTIVO_DO_MES = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na reabertura do mês",
+)
+_CONTRATO_RECEITA_INFORMADA = ContratoDeRequisicao(
+    campos={
+        "csrfmiddlewaretoken",
+        "ano",
+        "mes",
+        "mercado",
+        "valor",
+        "origem",
+        "motivo",
+        "documento_suporte",
+        "acao",
+    },
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no lançamento da receita informada",
+)
+_CONTRATO_MOTIVO_DA_RECEITA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no estorno da receita informada",
+)
+_CONTRATO_REGIME_CAIXA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "ano"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na opção pelo regime de caixa",
+)
+
+
+def _mes_por_extenso(ano, mes):
+    return f"{mes:02d}/{ano}"
+
+
+def _url_do_mes(empresa, ano, mes):
+    return _url_da_competencia(reverse("fiscal_web:receita_do_mes"), empresa, ano, mes)
+
+
+def _valor_do_formulario(bruto: str) -> str:
+    """Valor digitado pelo contador, em pt-BR ('1.234,56') ou com ponto ('1234.56').
+
+    Com vírgula, o ponto é separador de milhar e a vírgula é o decimal. Sem vírgula,
+    o texto segue como está. Não vira número aqui: o serviço recusa o que não for
+    decimal positivo de até duas casas, e nunca aceita float.
+    """
+    texto = bruto.strip()
+    if "," in texto:
+        return texto.replace(".", "").replace(",", ".")
+    return texto
+
+
+def _so_digitos_com_ponto_decimal(texto: str) -> bool:
+    """Só dígitos ASCII, com no máximo um ponto decimal. Recusa sinal, letras e notação
+    científica. Não valida a quantidade de casas: isso é do serviço (até duas)."""
+    semponto = texto.replace(".", "", 1)
+    return bool(semponto) and semponto.isascii() and semponto.isdigit()
+
+
+def _celula_de_valor(valor, texto_se_nulo):
+    """Célula de RBT12: número em R$ (tabulado) ou texto explicando a ausência."""
+    if valor is None:
+        return {"texto": texto_se_nulo, "monetario": False}
+    return {"texto": _valor_ptbr(valor), "monetario": True}
+
+
+def _linhas_do_mercado_no_rbt12(resultado, mercado):
+    """Linhas de UM mercado do RBT12. O valor é exato no cálculo; aqui é só exibição."""
+    r = resultado.de(mercado)
+    return [
+        {"rotulo": "Soma da janela", "celula": _celula_de_valor(r.soma, "—")},
+        {
+            "rotulo": "Meses no divisor",
+            "celula": {
+                "texto": str(r.divisor) if r.divisor is not None else "—",
+                "monetario": False,
+            },
+        },
+        {
+            "rotulo": "RBT12 apurado",
+            "celula": _celula_de_valor(
+                r.apurado, "Não apurável: há meses da janela sem confirmação (lista acima)"
+            ),
+        },
+        {
+            "rotulo": "Acumulado no ano (até o período)",
+            "celula": _celula_de_valor(
+                r.acumulado_no_ano, "Não calculado: há meses do ano sem confirmação"
+            ),
+        },
+        {"rotulo": "Teto do limite", "celula": _celula_de_valor(r.teto_limite, "Não cadastrado")},
+        {
+            "rotulo": "Teto do sublimite",
+            "celula": _celula_de_valor(r.teto_sublimite, "Não cadastrado"),
+        },
+    ]
+
+
+def _linha_da_janela(mes_da_janela):
+    m = mes_da_janela
+    return {
+        "rotulo": f"{m.mes:02d}/{m.ano}",
+        "situacao": _ROTULO_DA_SITUACAO.get(m.situacao, m.situacao),
+        "pendente": m.na_atividade and m.situacao != servico_receita.SITUACAO_CONFIRMADO,
+        "interno": _valor_ptbr(m.interno),
+        "externo": _valor_ptbr(m.externo),
+    }
+
+
+def _pendentes_em_texto(pendentes):
+    return [
+        f"{mes:02d}/{ano} ({_ROTULO_DA_SITUACAO.get(situacao, situacao)})"
+        for ano, mes, situacao in pendentes
+    ]
+
+
+def _bloco_do_rbt12(resultado):
+    """Tudo que a tela mostra do RBT12: regra, janela, pendentes, valores e avisos.
+
+    Os avisos vêm de `apps.fiscal.rbt12` já com o dispositivo que os motiva: a tela
+    não reescreve nem interpreta o limite.
+    """
+    apurados = [resultado.de(m).apurado for m in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)]
+    # Sem `quantize` no cálculo, o RBT12 pode ter dízima. A exibição usa duas casas;
+    # a tela avisa quando isso esconde casas, em vez de fingir que o valor é exato.
+    valores_exatos = all(
+        valor == valor.quantize(Decimal("0.01")) for valor in apurados if valor is not None
+    )
+    return {
+        "regra": _REGRA_POR_EXTENSO.get(resultado.regra, resultado.regra),
+        "apuravel": resultado.apuravel,
+        "data_abertura_ptbr": resultado.data_abertura.strftime("%d/%m/%Y"),
+        "ano_opcao": resultado.ano_opcao,
+        "modo_limite": resultado.modo_limite,
+        "janela": [_linha_da_janela(m) for m in resultado.janela],
+        "pendentes": _pendentes_em_texto(resultado.pendentes_da_janela),
+        "pendentes_do_ano": _pendentes_em_texto(resultado.pendentes_do_ano),
+        "por_mercado": [
+            {"rotulo": _ROTULO_DO_MERCADO[m], "linhas": _linhas_do_mercado_no_rbt12(resultado, m)}
+            for m in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)
+        ],
+        "avisos": [
+            {
+                "mensagem": aviso.mensagem,
+                "dispositivo": aviso.dispositivo,
+                "mercado": (
+                    _ROTULO_DO_MERCADO[aviso.mercado]
+                    if aviso.mercado is not None
+                    else "Empresa, no ano"
+                ),
+            }
+            for aviso in resultado.avisos
+        ],
+        "valores_exatos": valores_exatos,
+    }
+
+
+def _linha_da_receita_informada(receita, empresa, pode_escriturar):
+    return {
+        "id": receita.pk,
+        "mercado": receita.get_mercado_display(),
+        "valor_ptbr": _valor_ptbr(receita.valor),
+        "origem": receita.get_origem_display(),
+        "suporte": receita.documento_suporte,
+        "estado": _ROTULO_DO_ESTADO_DA_RECEITA.get(receita.estado, receita.estado),
+        "motivo_estorno": receita.motivo_estorno,
+        "pode_confirmar": pode_escriturar and receita.estado == EstadoReceitaInformada.RASCUNHO,
+        "pode_estornar": pode_escriturar and receita.estado == EstadoReceitaInformada.CONFIRMADA,
+        "url_confirmar": reverse(
+            "fiscal_web:receita_informada_confirmar", args=[empresa.pk, receita.pk]
+        ),
+        "url_estornar": reverse(
+            "fiscal_web:receita_informada_estornar", args=[empresa.pk, receita.pk]
+        ),
+    }
+
+
+def _contexto_do_mes(empresa, ano, mes, pode_escriturar):
+    """Tudo que o painel do mês mostra. Regra só nos serviços; aqui, apresentação."""
+    dados = servico_receita.receita_do_mes(empresa, ano, mes)
+    confirmacao = dados.confirmacao
+    # Quem pode mudar a confirmação: só quem escritura, e só no estado que o serviço
+    # aceita (sem linha ou reaberta confirma; confirmada reabre).
+    pode_confirmar = pode_escriturar and (
+        confirmacao is None or confirmacao.estado == EstadoConfirmacaoMes.REABERTA
+    )
+    pode_reabrir = (
+        pode_escriturar
+        and confirmacao is not None
+        and confirmacao.estado == EstadoConfirmacaoMes.CONFIRMADA
+    )
+    # O RBT12 é lido só quando há como apurar. Recusa nomeada (sem data de abertura,
+    # sem período do Simples, 2027 em diante) vira mensagem, e a tela segue.
+    try:
+        resultado = apuracao.rbt12(empresa, ano, mes)
+        recusa_do_rbt12 = None
+        rbt12 = _bloco_do_rbt12(resultado)
+    except apuracao.ApuracaoRecusada as exc:
+        recusa_do_rbt12 = exc.mensagem
+        rbt12 = None
+
+    return {
+        "empresa_selecionada": empresa,
+        "ano": ano,
+        "mes": mes,
+        "mes_rotulo": _mes_por_extenso(ano, mes),
+        "pode_escriturar": pode_escriturar,
+        "mensagem_sem_permissao": _MENSAGEM_SEM_PERMISSAO_DE_RECEITA,
+        "linhas_mercado": [
+            {
+                "rotulo": _ROTULO_DO_MERCADO[m],
+                "documento": _valor_ptbr(dados.composicao.de(m).documento),
+                "informado": _valor_ptbr(dados.composicao.de(m).informado),
+                "total": _valor_ptbr(dados.composicao.de(m).total),
+            }
+            for m in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)
+        ],
+        "situacao": dados.situacao,
+        "situacao_rotulo": _ROTULO_DA_SITUACAO[dados.situacao],
+        "explicacao_situacao": _EXPLICACAO_DA_SITUACAO[dados.situacao],
+        "confirmada_em": confirmacao.confirmada_em if confirmacao is not None else None,
+        "motivo_reabertura": confirmacao.motivo_reabertura if confirmacao is not None else "",
+        "pode_confirmar": pode_confirmar,
+        "pode_reabrir": pode_reabrir,
+        "receitas": [
+            _linha_da_receita_informada(r, empresa, pode_escriturar)
+            for r in dados.receitas_informadas
+        ],
+        "url_nova_receita": (
+            reverse("fiscal_web:receita_informada_nova", args=[empresa.pk])
+            + "?"
+            + urlencode({"ano": ano, "mes": f"{mes:02d}"})
+        ),
+        "url_confirmar": reverse("fiscal_web:receita_mes_confirmar", args=[empresa.pk, ano, mes]),
+        "url_reabrir": reverse("fiscal_web:receita_mes_reabrir", args=[empresa.pk, ano, mes]),
+        "url_regime_caixa": reverse("fiscal_web:regime_caixa", args=[empresa.pk]),
+        "recusa_do_rbt12": recusa_do_rbt12,
+        "rbt12": rbt12,
+    }
+
+
+@login_required
+@require_safe
+def receita_do_mes(request):
+    """Painel do mês por empresa (arquétipo D). Consulta: `papel_pode_consultar_documentos`."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite consultar a receita do Simples Nacional."
+        )
+
+    empresa, competencia, erro = _filtros_de_escrituracao(request)
+    pode_escriturar = _pode_escriturar(request)
+    contexto = {
+        **_contexto_do_filtro(request, competencia),
+        "pode_escriturar": pode_escriturar,
+        "empresa_selecionada": None,
+    }
+    if erro:
+        messages.error(request, erro)
+        return render(request, "fiscal/receita_do_mes.html", contexto, status=400)
+    if empresa is None:
+        return render(request, "fiscal/receita_do_mes.html", contexto)
+
+    ano, mes = competencia
+    contexto.update(_contexto_do_mes(empresa, ano, mes, pode_escriturar))
+    return render(request, "fiscal/receita_do_mes.html", contexto)
+
+
+@login_required
+@require_http_methods(["POST"])
+def receita_mes_confirmar(request, empresa_id, ano, mes):
+    """POST — "receita de MM/AAAA completa". Recusa do serviço vira mensagem, nada gravado."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_PERMISSAO_DE_RECEITA)
+    empresa = _empresa_escopada(request, empresa_id)
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_SEM_CAMPOS)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return redirect(_url_do_mes(empresa, ano, mes))
+    try:
+        servico_receita.confirmar_mes(empresa, ano, mes, usuario=request.user, request=request)
+    except (servico_receita.EntradaInvalidaReceita, servico_receita.ReceitaErro) as exc:
+        messages.error(request, exc.mensagem)
+    else:
+        messages.success(
+            request,
+            f"Receita de {_mes_por_extenso(ano, mes)} confirmada. O mês passa a entrar no RBT12.",
+        )
+    return redirect(_url_do_mes(empresa, ano, mes))
+
+
+def _tela_de_reabrir_mes(request, empresa, ano, mes, *, motivo, status=200):
+    confirmacao = servico_receita.confirmacao_do_mes(empresa, ano, mes)
+    contexto = {
+        "empresa": empresa,
+        "ano": ano,
+        "mes": mes,
+        "mes_rotulo": _mes_por_extenso(ano, mes),
+        "confirmada": (
+            confirmacao is not None and confirmacao.estado == EstadoConfirmacaoMes.CONFIRMADA
+        ),
+        "motivo": motivo,
+        "motivo_maximo": servico_receita.MOTIVO_MAXIMO,
+        "url_mes": _url_do_mes(empresa, ano, mes),
+    }
+    return render(request, "fiscal/receita_mes_reabrir.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def receita_mes_reabrir(request, empresa_id, ano, mes):
+    """GET: tela de confirmação com o motivo. POST: reabre o mês (motivo obrigatório)."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_PERMISSAO_DE_RECEITA)
+    empresa = _empresa_escopada(request, empresa_id)
+    if request.method == "GET":
+        return _tela_de_reabrir_mes(request, empresa, ano, mes, motivo="")
+
+    motivo = request.POST.get("motivo", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_MOTIVO_DO_MES)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_reabrir_mes(request, empresa, ano, mes, motivo=motivo, status=400)
+    try:
+        servico_receita.reabrir_mes(
+            empresa, ano, mes, motivo, usuario=request.user, request=request
+        )
+    except (servico_receita.EntradaInvalidaReceita, servico_receita.ReceitaErro) as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_reabrir_mes(request, empresa, ano, mes, motivo=motivo, status=200)
+    messages.success(
+        request,
+        f"Receita de {_mes_por_extenso(ano, mes)} reaberta. "
+        "O mês sai do RBT12 até ser confirmado de novo.",
+    )
+    return redirect(_url_do_mes(empresa, ano, mes))
+
+
+def _valores_do_lancamento(request):
+    """Valores iniciais do formulário de lançamento: a competência pedida ou a corrente."""
+    hoje = timezone.localdate()
+    ano = _inteiro_de_filtro(request.GET.get("ano", "").strip())
+    mes = _inteiro_de_filtro(request.GET.get("mes", "").strip())
+    return {
+        "ano": str(ano) if ano is not None else str(hoje.year),
+        "mes": f"{mes:02d}" if mes is not None and 1 <= mes <= 12 else f"{hoje.month:02d}",
+        "mercado": MercadoReceita.INTERNO,
+        "valor": "",
+        "origem": "",
+        "motivo": "",
+        "documento_suporte": "",
+    }
+
+
+def _tela_de_lancar_receita(request, empresa, *, valores, status=200):
+    inicio_ano, inicio_mes = servico_receita.inicio_de_uso(empresa)
+    contexto = {
+        "empresa": empresa,
+        "valores": valores,
+        "opcoes_mes": _MESES_DO_ANO,
+        "opcoes_mercado": MercadoReceita.choices,
+        "opcoes_origem": OrigemReceitaInformada.choices,
+        "inicio_de_uso_rotulo": _mes_por_extenso(inicio_ano, inicio_mes),
+        "motivo_maximo": servico_receita.MOTIVO_MAXIMO,
+        "suporte_maximo": servico_receita.DOCUMENTO_SUPORTE_MAXIMO,
+        "url_voltar": reverse("fiscal_web:receita_do_mes")
+        + "?"
+        + urlencode({"empresa": empresa.pk}),
+    }
+    return render(request, "fiscal/receita_informada_nova.html", contexto, status=status)
+
+
+def _lancar_receita_post(request, empresa):
+    campos = ("ano", "mes", "mercado", "valor", "origem", "motivo", "documento_suporte", "acao")
+    valores = {campo: request.POST.get(campo, "") for campo in campos}
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_RECEITA_INFORMADA)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_lancar_receita(request, empresa, valores=valores, status=400)
+    if valores["acao"] not in ("rascunho", "confirmar"):
+        messages.error(
+            request, "Ação desconhecida. Escolha 'Salvar rascunho' ou 'Salvar e confirmar'."
+        )
+        return _tela_de_lancar_receita(request, empresa, valores=valores, status=400)
+
+    ano = _inteiro_de_filtro(valores["ano"].strip())
+    mes = _inteiro_de_filtro(valores["mes"].strip())
+    if ano is None or mes is None:
+        messages.error(request, "Informe o ano e o mês da competência, com números.")
+        return _tela_de_lancar_receita(request, empresa, valores=valores, status=200)
+
+    valor = _valor_do_formulario(valores["valor"])
+    if not _so_digitos_com_ponto_decimal(valor):
+        # Notação científica, sinal e letras não são valor digitado pelo contador. O serviço
+        # aceitaria "1e3" como decimal, então a forma é conferida aqui, na entrada.
+        messages.error(
+            request,
+            "Valor inválido: use só números, com vírgula ou ponto para os centavos "
+            "(ex.: 1.234,56).",
+        )
+        return _tela_de_lancar_receita(request, empresa, valores=valores, status=200)
+
+    try:
+        # Lançar e confirmar são UM ato: se a confirmação for recusada (mês já confirmado,
+        # por exemplo), o lançamento também não é gravado. A mensagem diz isso.
+        with transaction.atomic():
+            receita = servico_receita.lancar_receita_informada(
+                empresa,
+                ano,
+                mes,
+                valores["mercado"],
+                valor,
+                valores["origem"],
+                valores["motivo"],
+                valores["documento_suporte"],
+                usuario=request.user,
+                request=request,
+            )
+            if valores["acao"] == "confirmar":
+                servico_receita.confirmar_receita_informada(
+                    receita, usuario=request.user, request=request
+                )
+    except (servico_receita.EntradaInvalidaReceita, servico_receita.ReceitaErro) as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_lancar_receita(request, empresa, valores=valores, status=200)
+
+    if valores["acao"] == "confirmar":
+        messages.success(request, "Receita informada confirmada. Ela entra na receita do mês.")
+    else:
+        messages.success(
+            request, "Rascunho salvo. Ele não entra em nenhum total até ser confirmado."
+        )
+    return redirect(_url_do_mes(empresa, ano, mes))
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def receita_informada_nova(request, empresa_id):
+    """GET: formulário de lançamento. POST: rascunho ou rascunho já confirmado."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_PERMISSAO_DE_RECEITA)
+    empresa = _empresa_escopada(request, empresa_id)
+    if request.method == "GET":
+        return _tela_de_lancar_receita(request, empresa, valores=_valores_do_lancamento(request))
+    return _lancar_receita_post(request, empresa)
+
+
+def _receita_da_empresa(empresa, receita_id):
+    # Receita de outra empresa, mesmo do mesmo escritório, é 404 (isolamento).
+    return get_object_or_404(ReceitaInformada, pk=receita_id, empresa=empresa)
+
+
+@login_required
+@require_http_methods(["POST"])
+def receita_informada_confirmar(request, empresa_id, receita_id):
+    """POST — rascunho → confirmada. Recusa do serviço vira mensagem; nada gravado."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_PERMISSAO_DE_RECEITA)
+    empresa = _empresa_escopada(request, empresa_id)
+    receita = _receita_da_empresa(empresa, receita_id)
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_SEM_CAMPOS)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return redirect(_url_do_mes(empresa, receita.ano, receita.mes))
+    try:
+        servico_receita.confirmar_receita_informada(receita, usuario=request.user, request=request)
+    except servico_receita.ReceitaErro as exc:
+        messages.error(request, exc.mensagem)
+    else:
+        messages.success(request, "Receita informada confirmada. Ela entra na receita do mês.")
+    return redirect(_url_do_mes(empresa, receita.ano, receita.mes))
+
+
+def _tela_de_estornar_receita(request, empresa, receita, *, motivo, status=200):
+    contexto = {
+        "empresa": empresa,
+        "receita": receita,
+        "mes_rotulo": _mes_por_extenso(receita.ano, receita.mes),
+        "confirmada": receita.estado == EstadoReceitaInformada.CONFIRMADA,
+        "estado_rotulo": _ROTULO_DO_ESTADO_DA_RECEITA.get(receita.estado, receita.estado),
+        "valor_ptbr": _valor_ptbr(receita.valor),
+        "origem_rotulo": receita.get_origem_display(),
+        "motivo": motivo,
+        "motivo_maximo": servico_receita.MOTIVO_MAXIMO,
+        "url_mes": _url_do_mes(empresa, receita.ano, receita.mes),
+    }
+    return render(request, "fiscal/receita_informada_estornar.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def receita_informada_estornar(request, empresa_id, receita_id):
+    """GET: tela de confirmação com o motivo. POST: estorna (motivo obrigatório)."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_PERMISSAO_DE_RECEITA)
+    empresa = _empresa_escopada(request, empresa_id)
+    receita = _receita_da_empresa(empresa, receita_id)
+    if request.method == "GET":
+        return _tela_de_estornar_receita(request, empresa, receita, motivo="")
+
+    motivo = request.POST.get("motivo", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_MOTIVO_DA_RECEITA)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_estornar_receita(request, empresa, receita, motivo=motivo, status=400)
+    try:
+        servico_receita.estornar_receita_informada(
+            receita, motivo, usuario=request.user, request=request
+        )
+    except (servico_receita.EntradaInvalidaReceita, servico_receita.ReceitaErro) as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_estornar_receita(request, empresa, receita, motivo=motivo, status=200)
+    messages.success(
+        request,
+        "Receita informada estornada. Se o mês estava confirmado, ele voltou a 'a retificar'.",
+    )
+    return redirect(_url_do_mes(empresa, receita.ano, receita.mes))
+
+
+def _tela_de_regime_caixa(request, empresa, *, ano_digitado="", status=200):
+    contexto = {
+        "empresa": empresa,
+        "ano_digitado": ano_digitado,
+        "ano_maximo": servico_receita.ANO_ULTIMO_CAIXA,
+        "opcoes": OpcaoRegimeCaixaSimples.objects.filter(empresa=empresa).order_by(
+            "ano_calendario"
+        ),
+        "pode_registrar": _pode_escriturar(request),
+        "url_voltar": reverse("fiscal_web:receita_do_mes")
+        + "?"
+        + urlencode({"empresa": empresa.pk}),
+    }
+    return render(request, "fiscal/regime_caixa.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def regime_caixa(request, empresa_id):
+    """Opção pelo regime de caixa no Simples, por ano (só até 2026, HI-66).
+
+    GET: consulta (`papel_pode_consultar_documentos`). POST: registro, que exige
+    `papel_pode_escriturar_fiscal` e é recusado no servidor para quem só consulta.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if request.method == "POST" and not _pode_escriturar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite registrar a opção pelo regime de caixa."
+        )
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite consultar o regime de caixa."
+        )
+    empresa = _empresa_escopada(request, empresa_id)
+    if request.method == "GET":
+        return _tela_de_regime_caixa(request, empresa)
+
+    bruto = request.POST.get("ano", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_REGIME_CAIXA)
+    except DadoNaoContratado as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_regime_caixa(request, empresa, ano_digitado=bruto, status=400)
+    ano = _inteiro_de_filtro(bruto.strip())
+    if ano is None:
+        messages.error(request, "Informe o ano-calendário com quatro dígitos (AAAA).")
+        return _tela_de_regime_caixa(request, empresa, ano_digitado=bruto, status=200)
+    try:
+        servico_receita.registrar_opcao_regime_caixa(
+            empresa, ano, usuario=request.user, request=request
+        )
+    except (servico_receita.EntradaInvalidaReceita, servico_receita.ReceitaErro) as exc:
+        # Recusa de 2027 em diante e ano duplicado: mensagem com a fonte, nada gravado.
+        messages.error(request, exc.mensagem)
+        return _tela_de_regime_caixa(request, empresa, ano_digitado=bruto, status=200)
+    messages.success(
+        request,
+        f"Opção pelo regime de caixa registrada para {ano}. Ela é irretratável no ano.",
+    )
+    return redirect("fiscal_web:regime_caixa", empresa_id=empresa.pk)

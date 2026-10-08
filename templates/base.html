@@ -859,6 +859,23 @@
                                                     </li>
                                                 </ul>
                                             </div>
+                                            {% comment %}
+                                            DL-074 (frente B): receita mensal e RBT12 do Simples Nacional. Mesma
+                                            permissão de consulta do grupo acima; o servidor decide cada ação
+                                            (confirmar, reabrir, lançar, estornar) na própria tela.
+                                            {% endcomment %}
+                                            <div class="menu-grupo">
+                                                <p class="menu-grupo__rotulo" id="grupo-simples-nacional">Simples Nacional</p>
+                                                <ul aria-labelledby="grupo-simples-nacional">
+                                                    <li>
+                                                        {% if pagina_atual == "receita_do_mes" %}
+                                                            <span class="item-atual" aria-current="page">Receita do mês</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:receita_do_mes' %}">Receita do mês</a>
+                                                        {% endif %}
+                                                    </li>
+                                                </ul>
+                                            </div>
                                         {% endwith %}
                                     </div>
                                 </details>

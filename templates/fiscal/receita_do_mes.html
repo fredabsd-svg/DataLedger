@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+
+{% block titulo %}Receita do mês{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Competência</span>
+            <strong>{{ mes|stringformat:"02d" }}/{{ ano }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-074 (frente B), arquétipo D (painel de período, direção de arte §2.D): em que
+empresa, em que competência e o que falta fazer. É PRÉ-APURAÇÃO para conferência
+(classe 1 de docs/projeto/personalizacao-de-relatorio.md): não transmite, não gera
+DAS, não aplica alíquota e não é documento oficial. A regra do RBT12 e os avisos vêm
+de apps.fiscal.rbt12, com o dispositivo que os motiva.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Receita do mês</h1>{% endblock %}
+
+{% block content %}
+    <p class="mensagem mensagem-info" role="status">
+        <strong>Pré-apuração para conferência.</strong>
+        Esta tela não é documento oficial e não transmite nada: não gera DAS nem PGDAS-D e não
+        aplica alíquota. Ela mostra a receita e o RBT12 para você conferir contra o PGDAS-D.
+    </p>
+
+    {% include "fiscal/_filtro_receita.html" %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver a receita do mês.</strong></p>
+            <p class="estado-vazio__descricao">
+                O painel é sempre de uma empresa e de uma competência.
+            </p>
+        </div>
+    {% else %}
+        {% if not pode_escriturar %}
+            <p class="texto-apoio">
+                Seu papel consulta esta receita, mas não confirma, reabre, lança nem estorna.
+            </p>
+        {% endif %}
+
+        <h2>Receita por mercado</h2>
+        <p class="texto-apoio">
+            Documentos escriturados (efetivados) somados à receita informada confirmada. Rascunho e
+            receita estornada não entram em nenhum total. Exportação nunca soma no mercado interno.
+        </p>
+        <table class="tabela-dados">
+            <caption>Receita de {{ mes_rotulo }} por mercado: documentos, receita informada e total</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Mercado</th>
+                    <th scope="col">Documentos escriturados</th>
+                    <th scope="col">Receita informada</th>
+                    <th scope="col">Total do mês</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for linha in linhas_mercado %}
+                    <tr>
+                        <th scope="row">{{ linha.rotulo }}</th>
+                        <td class="valor-monetario">{{ linha.documento }}</td>
+                        <td class="valor-monetario">{{ linha.informado }}</td>
+                        <td class="valor-monetario">{{ linha.total }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="painel-etapa">
+            <h2>Confirmação de {{ mes_rotulo }}</h2>
+            <p>
+                <strong>Situação: {{ situacao_rotulo }}.</strong> {{ explicacao_situacao }}
+            </p>
+            {% if confirmada_em %}
+                <p class="texto-apoio">Confirmada em {{ confirmada_em|date:"d/m/Y H:i" }}.</p>
+            {% endif %}
+            {% if motivo_reabertura %}
+                <p class="texto-apoio">Motivo da última reabertura: {{ motivo_reabertura }}</p>
+            {% endif %}
+            <div class="acoes-formulario">
+                {% if pode_reabrir %}
+                    <a class="botao botao--perigoso" href="{{ url_reabrir }}">Reabrir receita de {{ mes_rotulo }}</a>
+                {% elif pode_confirmar %}
+                    <form method="post" action="{{ url_confirmar }}">
+                        {% csrf_token %}
+                        <button type="submit" class="botao botao--primario">Confirmar receita de {{ mes_rotulo }} completa</button>
+                    </form>
+                {% else %}
+                    <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_confirmacao">Confirmar receita de {{ mes_rotulo }} completa</button>
+                    <p class="texto-apoio" id="ajuda_confirmacao">{{ mensagem_sem_permissao }}</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <h2>Receitas informadas de {{ mes_rotulo }}</h2>
+        <p class="texto-apoio">
+            Receita que não veio de escrituração: histórico, mercadoria, serviço com documento de
+            município não integrado, outras receitas da atividade ou ajuste. Cada uma pede motivo e
+            documento de suporte.
+        </p>
+        <p>
+            {% if pode_escriturar %}
+                <a class="botao botao--secundario" href="{{ url_nova_receita }}">Lançar receita informada</a>
+            {% else %}
+                <button type="button" class="botao botao--secundario" disabled aria-describedby="ajuda_lancamento">Lançar receita informada</button>
+                <span class="texto-apoio" id="ajuda_lancamento">{{ mensagem_sem_permissao }}</span>
+            {% endif %}
+        </p>
+        {% if receitas %}
+            <table class="tabela-dados">
+                <caption>Receitas informadas de {{ mes_rotulo }}, com estado e ação</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Mercado</th>
+                        <th scope="col">Valor</th>
+                        <th scope="col">Origem</th>
+                        <th scope="col">Documento de suporte</th>
+                        <th scope="col">Estado</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in receitas %}
+                        <tr>
+                            <td>{{ r.mercado }}</td>
+                            <td class="valor-monetario">{{ r.valor_ptbr }}</td>
+                            <td>{{ r.origem }}</td>
+                            <td>{{ r.suporte }}</td>
+                            <td>
+                                {{ r.estado }}
+                                {% if r.motivo_estorno %}
+                                    <br><span class="texto-apoio">Motivo do estorno: {{ r.motivo_estorno }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if r.pode_confirmar %}
+                                    <form method="post" action="{{ r.url_confirmar }}">
+                                        {% csrf_token %}
+                                        <button type="submit" class="botao botao--secundario botao--pequeno">Confirmar</button>
+                                    </form>
+                                {% endif %}
+                                {% if r.pode_estornar %}
+                                    <a class="botao botao--perigoso botao--pequeno" href="{{ r.url_estornar }}">Estornar</a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo"><strong>Nenhuma receita informada em {{ mes_rotulo }}.</strong></p>
+                <p class="estado-vazio__descricao">
+                    Sem receita informada, o total do mês é só o dos documentos escriturados.
+                </p>
+            </div>
+        {% endif %}
+
+        <h2>RBT12 por mercado</h2>
+        <p class="texto-apoio">
+            Art. 22 da Res. CGSN 140/2018, com a regra aplicada a este período. Conferência com o
+            PGDAS-D: o cálculo não arredonda.
+        </p>
+        {% if recusa_do_rbt12 %}
+            <p class="mensagem mensagem-warning" role="status">
+                <strong>RBT12 não apurado:</strong> {{ recusa_do_rbt12 }}
+            </p>
+        {% elif rbt12 %}
+            <dl class="lista-de-definicao">
+                <div>
+                    <dt>Regra aplicada</dt>
+                    <dd>{{ rbt12.regra }}</dd>
+                </div>
+                <div>
+                    <dt>Data de abertura no CNPJ</dt>
+                    <dd>{{ rbt12.data_abertura_ptbr }}</dd>
+                </div>
+                <div>
+                    <dt>Ano da opção pelo Simples</dt>
+                    <dd>{{ rbt12.ano_opcao }}</dd>
+                </div>
+                <div>
+                    <dt>Teto dos limites</dt>
+                    <dd>{{ rbt12.modo_limite }}</dd>
+                </div>
+            </dl>
+
+            {% if not rbt12.apuravel %}
+                <p class="mensagem mensagem-warning" role="status">
+                    <strong>Não apurável.</strong>
+                    Faltam meses confirmados na janela do RBT12: {{ rbt12.pendentes|join:"; " }}.
+                    O RBT12 só é apurado com todos os meses da janela confirmados.
+                </p>
+            {% endif %}
+
+            <table class="tabela-dados">
+                <caption>Meses da janela do RBT12, com a situação e a receita de cada mercado</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Mês</th>
+                        <th scope="col">Situação</th>
+                        <th scope="col">Receita interno</th>
+                        <th scope="col">Receita externo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in rbt12.janela %}
+                        <tr>
+                            <th scope="row">{{ m.rotulo }}</th>
+                            <td>{{ m.situacao }}</td>
+                            <td class="valor-monetario">{{ m.interno }}</td>
+                            <td class="valor-monetario">{{ m.externo }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            {% for bloco in rbt12.por_mercado %}
+                <table class="tabela-dados">
+                    <caption>RBT12 do {{ bloco.rotulo }}</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Item</th>
+                            <th scope="col">Valor</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for linha in bloco.linhas %}
+                            <tr>
+                                <th scope="row">{{ linha.rotulo }}</th>
+                                <td{% if linha.celula.monetario %} class="valor-monetario"{% endif %}>{{ linha.celula.texto }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% endfor %}
+
+            {% if not rbt12.valores_exatos %}
+                <p class="texto-apoio">
+                    O RBT12 apurado tem mais de duas casas decimais. A tela mostra duas casas; o cálculo
+                    não arredonda, e a conferência com o PGDAS-D é do contador.
+                </p>
+            {% endif %}
+
+            {% if rbt12.pendentes_do_ano %}
+                <p class="texto-apoio">
+                    Meses de {{ mes_rotulo }} do ano sem confirmação, que impedem os avisos de limite:
+                    {{ rbt12.pendentes_do_ano|join:"; " }}.
+                </p>
+            {% endif %}
+
+            <h3>Avisos de limite e de regime</h3>
+            {% if rbt12.avisos %}
+                <ul>
+                    {% for aviso in rbt12.avisos %}
+                        <li>
+                            <strong>{{ aviso.mercado }}:</strong> {{ aviso.mensagem }}
+                            <span class="texto-apoio">Dispositivo: {{ aviso.dispositivo }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="texto-apoio">Nenhum aviso de limite para este período.</p>
+            {% endif %}
+        {% endif %}
+    {% endif %}
+{% endblock %}

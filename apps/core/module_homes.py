@@ -965,6 +965,22 @@ def _dados_fiscal(request, escopo):
                 ),
             }
         )
+        # DL-074 (frente B): receita mensal do Simples. Mesma permissão de consulta; o
+        # painel pede UMA empresa, e sem ela a própria tela pede a escolha.
+        atalhos.append(
+            {
+                "rotulo": "Receita do mês (Simples)",
+                "url": reverse("fiscal_web:receita_do_mes")
+                + "?"
+                + urlencode(
+                    {
+                        "ano": escopo.ano,
+                        "mes": escopo.mes,
+                        **({"empresa": empresas[0].pk} if len(empresas) == 1 else {}),
+                    }
+                ),
+            }
+        )
     return {
         "fontes": fontes,
         "kpis": kpis,

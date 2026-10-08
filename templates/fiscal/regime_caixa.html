@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block titulo %}Regime de caixa (Simples) — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Receita do mês</a></li>
+            <li aria-current="page">Regime de caixa</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para a receita do mês</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-074 (frente B), arquétipo B. A opção pelo regime de caixa do Simples é por ano-calendário
+e irretratável no ano (Res. CGSN 140, art. 16, § 1º). Só existe até o PA 12/2026 (HI-66;
+LC 214/2025, art. 517 c/c art. 544, III; hipótese a conferir pelo Fred). Anos a partir de
+2027 são recusados antes de gravar.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Regime de caixa (Simples)</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa">
+        <h2>O que esta opção muda</h2>
+        <p>
+            Optar pelo caixa põe a base do Simples na receita recebida, e não na competência. A opção
+            vale para um ano-calendário, é irretratável no ano e só existe até o PA 12/2026.
+        </p>
+        <p class="texto-apoio">
+            Fonte: Res. CGSN 140/2018, art. 16, § 1º; LC 214/2025, art. 517 c/c art. 544, III. A
+            hipótese HI-66 está em docs/projeto/requisitos.md, a conferir.
+        </p>
+    </div>
+
+    {% if opcoes %}
+        <table class="tabela-dados">
+            <caption>Anos em que a empresa optou pelo regime de caixa</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Ano-calendário</th>
+                    <th scope="col">Registrada em</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for opcao in opcoes %}
+                    <tr>
+                        <th scope="row">{{ opcao.ano_calendario }}</th>
+                        <td>{{ opcao.registrada_em|date:"d/m/Y H:i" }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Nenhuma opção pelo regime de caixa registrada.</strong></p>
+            <p class="estado-vazio__descricao">Sem opção, a empresa segue a competência.</p>
+        </div>
+    {% endif %}
+
+    {% if pode_registrar %}
+        <form method="post" action="{% url 'fiscal_web:regime_caixa' empresa.id %}" class="formulario">
+            {% csrf_token %}
+            <div class="campo">
+                <label for="id_ano">Ano-calendário da opção</label>
+                <input type="text" id="id_ano" name="ano" value="{{ ano_digitado }}" inputmode="numeric"
+                       maxlength="4" required aria-describedby="id_ano_ajuda">
+                <p class="texto-apoio" id="id_ano_ajuda">
+                    Ano com quatro dígitos, até {{ ano_maximo }}. Anos a partir de 2027 não são aceitos.
+                </p>
+            </div>
+            <button type="submit" class="botao botao--primario">Registrar opção pelo caixa</button>
+        </form>
+    {% else %}
+        <p class="texto-apoio">
+            Seu papel consulta esta opção, mas não a registra: peça a um administrador ou gestor do escritório.
+        </p>
+    {% endif %}
+{% endblock %}

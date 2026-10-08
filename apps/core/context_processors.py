@@ -96,6 +96,12 @@ ROTULOS_DE_TELA = {
     ("fiscal_web", "escriturar_nota"): "Escriturar nota",
     ("fiscal_web", "escrituracao_detalhe"): "Escrituração",
     ("fiscal_web", "escrituracao_estornar"): "Estornar escrituração",
+    # DL-074 (frente B): receita mensal do Simples Nacional e suas telas de ação.
+    ("fiscal_web", "receita_do_mes"): "Receita do mês",
+    ("fiscal_web", "receita_informada_nova"): "Lançar receita informada",
+    ("fiscal_web", "receita_informada_estornar"): "Estornar receita informada",
+    ("fiscal_web", "receita_mes_reabrir"): "Reabrir receita do mês",
+    ("fiscal_web", "regime_caixa"): "Regime de caixa (Simples)",
     # DL-073: conformidade IBS/CBS das NFS-e recebidas (modo aviso).
     ("fiscal_web", "conformidade_ibscbs"): "Conformidade IBS/CBS",
     ("tenancy", "bootstrap-primeiro-acesso"): "Criar escritório",
