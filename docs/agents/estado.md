@@ -221,7 +221,11 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    e 5 centavo a centavo, 41 de 50 mutantes mortos pela suíte. Achados A2 a
    A11 (lacunas de isolamento por teste, notas sempre na atividade padrão,
    atividade alterável sob mês confirmado, entrada "10.000" na folha dava
-   500). **Correção única em andamento.**
+   500). Correção única feita (`147a6a9`, Haiku): A1 a A11, com 51 testes
+   novos e os mutantes M10 a M13, M38 e M45 mortos; suíte completa numa
+   única invocação com só a reprovação de ambiente. Decisão do arquiteto no
+   A5: com mais de uma atividade vigente e nota no mês, o pré-DAS **bloqueia**
+   (atividade por nota é o BL-670). **Reconferência em andamento.**
 5. **[DL-076](../planos/DL-076-iss-por-municipio-palmas.md) — ISS por
    município, começando por Palmas: planejada, em desenvolvimento.**
    [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-iss-palmas.md):
