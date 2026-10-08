@@ -140,6 +140,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) | Fiscal F1: escrituração das NFS-e prestadas (natureza, competência, estorno, conferência) | Integrada (PR #96, squash `8f36cd4`) — auditoria e reconferência aprovadas com ressalvas |
 | [DL-073](../planos/DL-073-validador-ibscbs.md) | Fiscal: validador de conformidade IBS/CBS das NFS-e recebidas (modo aviso, HI-61) | Integrada (PR #96, squash `8f36cd4`) — auditoria e reconferência aprovadas com ressalvas |
 | [DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) | Fiscal: receita mensal, receita informada, confirmação e RBT12 do Simples por mercado | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-075](../planos/DL-075-pre-das-do-simples.md) | Fiscal: pré-DAS do Simples para prestadores de serviço (Anexos I a V como dado, fator r, teto do ISS, segregação) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
