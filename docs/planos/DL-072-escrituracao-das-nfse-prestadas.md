@@ -70,8 +70,10 @@ contábil (HI-01, BL-72).
 - Isolamento: escritório e empresa verificados no servidor em toda porta
   (tela e API); vínculo de outra empresa responde 404.
 - Permissão no servidor: escriturar e estornar seguem os mesmos papéis que
-  escrituram na contabilidade (ADMINISTRADOR, GESTOR, ANALISTA); CLIENTE não
-  vê (DL-055). O implementador mede o padrão existente e o reusa.
+  escrituram na contabilidade — medido no `PodeEscriturar`: ADMINISTRADOR,
+  GESTOR, ANALISTA e **FINANCEIRO** (a primeira versão deste plano listava só
+  três, por erro do arquiteto; corrigido em 08/10/2026). PARALEGAL consulta e
+  não escritura; CLIENTE não vê (DL-055).
 - Valores em `Decimal`, escala do documento, sem ponto flutuante.
 
 ## Critérios de aceite
@@ -102,6 +104,15 @@ contábil (HI-01, BL-72).
     imutabilidade, o 4 cai.
 12. Não regressão: suíte completa sem reprovação nova; `ruff`, `check`,
     `makemigrations --check` limpos; migração aplica em banco vazio.
+
+## Limites declarados na implementação
+
+- Sem trava por período fiscal fechado (etapa própria).
+- Empresa em modo **livro-caixa** (pessoa física, DL-038) não é recusada na
+  escrituração fiscal, ao contrário da contabilidade; decisão para o Fred.
+- Rascunho existe no domínio e na tela, sem rota de API.
+- `TRUNCATE` não aciona o gatilho de linha (mesmo limite da DL-052).
+- Não há admin do fiscal, de propósito (BL-262).
 
 ## Hipóteses usadas (validação do Fred)
 
