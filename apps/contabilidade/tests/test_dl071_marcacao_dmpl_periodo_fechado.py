@@ -1095,3 +1095,39 @@ def test_nao_ha_admin_que_grave_marcacao_da_dmpl():
     um admin, este teste cai e obriga a decidir como a regra vale lá (o
     `ModelForm` grava por `full_clean()`, sem passar pelo serviço)."""
     assert MarcacaoDmpl not in admin.site._registry
+
+
+@pytest.mark.django_db(transaction=True)
+def test_erro_de_banco_que_nao_e_lock_sobe_intacto_e_nao_vira_recusa():
+    """R1 da reconferência da DL-071: só `lock_timeout` (55P03) e deadlock
+    (40P01) na trava do lançamento viram "tente de novo". Qualquer outro erro
+    do banco — aqui um `statement_timeout` (57014) — precisa subir intacto, ou
+    uma falha real seria mostrada ao contador como simples concorrência.
+    Teste proposto pelo auditor, que o executou: passa no código e cai com o
+    mutante que transforma todo `OperationalError` em recusa (A2c)."""
+    empresa, contas, gestor, p1, p2 = _cenario()
+    antes = _marcacoes(p1)
+    segurando, largar, da_thread = threading.Event(), threading.Event(), {}
+
+    def _segurar():
+        with transaction.atomic():
+            LancamentoContabil.objects.select_for_update().get(pk=p1.pk)
+            segurando.set()
+            largar.wait(timeout=60)
+
+    t = _na_thread(_segurar, da_thread)
+    t.start()
+    try:
+        assert segurando.wait(timeout=30)
+        with connection.cursor() as cursor:
+            cursor.execute("SET statement_timeout = '200ms'")  # SQLSTATE 57014, não 55P03
+        with pytest.raises(OperationalError) as erro:
+            _tentar_pelo_servico("trocar", p1, gestor)
+        assert erro.value.__cause__.sqlstate == "57014"
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute("RESET statement_timeout")
+        largar.set()
+        t.join(timeout=60)
+    assert not t.is_alive()
+    assert _marcacoes(p1) == antes

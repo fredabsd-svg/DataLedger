@@ -148,16 +148,48 @@ que não existe mais no remoto (medido em 07/10/2026), e não foi integrada — 
 
 ## Próximo passo
 
-**AGORA, em 08/10/2026: [DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md)
-— a marcação manual da DMPL respeita o período fechado, em desenvolvimento**
-na branch `ccr-bf4b4a55-hpqgbp` (recomeçada da `main` em `76cb92a`). Nível 1.
-Origem: *"Próxima etapa"* (RC-163). O diagnóstico da DFC fatia 2 reproduziu
-o **BL-655**: com a competência encerrada ou entregue, a marcação da DMPL
-ainda era trocada, removida ou criada, pelo serviço e pela API, e a DMPL já
-apurada mudava (inclusive `pode_emitir`). A etapa estende a regra da DL-065
-à marcação. A DFC fatia 2 volta à fila depois dela, com perguntas para o
-Fred sobre as classes do método direto, levantadas no texto oficial do
-CPC 03 (R2), Rev. 24.
+**Ordem permanente do Fred desde 08/10/2026 (RC-164):** depois da DL-071,
+construir o **módulo fiscal por completo**, sem parar; dúvidas de domínio vão
+ao `contador-senior` (Fable) antes do Fred; Opus coordena, Haiku programa,
+Sonnet audita. O que a IA responde é **hipótese** (HI-54) até o Fred validar;
+nada de alíquota, prazo ou leiaute sem fonte oficial; nenhuma transmissão,
+publicação ou exclusão (HI-55). Roteiro de execução no fim do
+[DL-067](../planos/DL-067-plano-do-modulo-fiscal.md); consulta registrada em
+[consultas/](../projeto/consultas/2026-10-08-contador-senior-fiscal.md);
+hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
+
+**AGORA, em 08/10/2026:**
+
+1. **[DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) — a
+   marcação manual da DMPL respeita o período fechado (BL-655): em revisão**
+   na branch `ccr-bf4b4a55-hpqgbp`, PR para a `main` a abrir. Nível 1.
+   [Rodada 1](../auditorias/2026-10-08-dl-071-rodada-1.md) **APROVADA COM
+   RESSALVAS**; correção única (`f4f2a72`, Haiku);
+   [reconferência](../auditorias/2026-10-08-dl-071-reconferencia.md)
+   **APROVADA COM RESSALVAS** — ciclo do §3.1 encerrado. O teste proposto na
+   R1 da reconferência entrou depois, com o mutante conferido pelo arquiteto.
+   Abertos: **BL-656 (alta)** — a reclassificação de conta da DL-065 tem o
+   mesmo furo (só olha os meses com movimento; DMPL e DLPA acumulam o
+   exercício e o saldo inicial), em etapa própria, com a parte do saldo de
+   exercícios anteriores para o Fred; BL-657 (limite aceito: competência sem
+   linha não é travada); BL-658 e BL-659 (baixos).
+2. **[DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) — Fiscal
+   F1, escrituração das NFS-e prestadas: em desenvolvimento.** Frente A
+   (domínio, API) em cópia isolada (`/home/user/wt-dl072a`, branch
+   `dl072-frente-a`), para entrar depois do merge da DL-071; frente B (telas)
+   em seguida.
+
+**Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
+PostgreSQL 16 local, sobre `f4f2a72`, medida pelo auditor):** `pytest`
+completo **5.065 aprovados, 1 reprovado, 53 pulados**; a reprovação é a
+conhecida de ambiente (`test_versao_minima_python.py`, exige Python 3.14).
+`ruff`, `check` e `makemigrations --check` limpos (381 arquivos).
+
+**Também achado em 08/10/2026:** o diagnóstico da DFC fatia 2 levantou, no
+texto oficial do CPC 03 (R2), Rev. 24, que a norma **não define "classe"** de
+recebimento e pagamento — só dá exemplos (item 14) — e que o item 19(b)(ii)
+não é regra de marcação por lançamento. A DFC fatia 2 volta à fila depois do
+fiscal ou quando o Fred decidir as classes.
 
 **[DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md) — melhorias
 do repositório com equipe multiagente: INTEGRADA** pelo
@@ -191,7 +223,7 @@ sem limite de tentativas no `/bootstrap/`, risco aceito por ora), BL-653
 (corrida do mesmo usuário criando dois escritórios, preexistente) e BL-654
 (parte local do e-mail, decisão do Fred).
 
-**Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
+**Linha de base medida na DL-070 (08/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `25fe182`, medida pelo auditor):** `ruff check` e
 `ruff format --check` limpos (380 arquivos), `manage.py check` e
 `makemigrations --check` sem mudança; `pytest` completo **5.021 aprovados, 1

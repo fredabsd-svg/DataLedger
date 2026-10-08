@@ -85,6 +85,8 @@ etapa estende a regra, sem criar regra contábil nova:
 7. Corrida: fechamento concorrente com a marcação não termina com o período
    encerrado e a marcação trocada (teste com duas threads e
    `django_db(transaction=True)`, que só roda de verdade em PostgreSQL).
+   **Exceção aceita depois da auditoria:** competência que ainda não tem
+   linha no banco não é travada (A5, BL-657 — ver "Limite aceito" abaixo).
 8. `lock_timeout` estourado responde 409 (ou recusa na tela), nunca 500.
 9. Isolamento: lançamento de outra empresa ou de outro escritório continua
    404, antes de qualquer consulta de período.
