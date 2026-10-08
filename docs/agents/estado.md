@@ -231,37 +231,29 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    BL-671, BL-672.
 6. **[DL-077](../planos/DL-077-importacao-e-exportacao-contabil-em-txt.md) —
    importar e exportar plano de contas e lançamentos em TXT e Excel (RC-166,
-   RC-167): planejada.** [Consulta](../projeto/consultas/2026-10-08-contador-senior-txt-contabil.md)
-   ao manual de referência e ao leiaute oficial da ECD. O Fred respondeu a
-   PE-80: **as três opções** (registros da ECD, leiaute do sistema de
-   referência e formato próprio) **e importação por Excel**. **Fatia 1
-   (plano de contas) implementada, em auditoria**, em cópia isolada: núcleo
-   comum, os quatro formatos (importar; exportar nos três TXT), conferência
-   do CNPJ do arquivo, contas inativas, prévia com tipos por prefixo e
-   aplicação atômica com SHA-256, e as telas — suíte completa com 6.560
-   aprovados e só a reprovação de ambiente. Dependência nova: `openpyxl`.
-   [Auditoria rodada 1](../auditorias/2026-10-08-dl-077-fatia-1-rodada-1.md):
-   **REPROVADA** — nada grava com erro e a aplicação é atômica, mas: A2
-   (conta de resultado da ECD herdava "ativo"), A3 (pai errado no leiaute de
-   referência), A4 (planilha pequena prendia o servidor 1 a 2 minutos), A5
-   (CNPJ alfanumérico recusado, contra a RC-46), A1 e A6. Correção única
-   (`02be3ed`) e [reconferência](../auditorias/2026-10-08-dl-077-fatia-1-reconferencia.md):
-   **REPROVADA só pelo leitor Excel** (R2: XML inválido dava 500; R3:
-   planilha de 11 KB prendia o servidor ~10 s) — todo o resto aprovado. Pela
-   regra de parada do §3.1, **sem terceira rodada**: as correções do Excel e
-   de R1, R4 e R6 são aceitas pelos testes que o próprio auditor escreveu, e
-   a troca da biblioteca de planilha fica no BL-674. Correções feitas
-   (`a083ab0` na branch); suíte completa com a fatia 1 sobre a `main`:
-   **6.811 aprovados, 1 reprovado (ambiente), 53 pulados**. PR #100 aberto.
-   **Achado de CI:** o job "Lint e testes" tinha limite de 10 min e a suíte
-   já leva 8 a 10 min — a execução do evento `pull_request` dos PRs #99 e
-   #100 foi **cancelada por tempo** (a do `push` passou). O limite subiu para
-   20 min (`.github/workflows/backend.yml`). **Próximo: CI verde e merge
-   (RC-168).**
-   **Fatias 2 e 3** (exportar lançamentos e saldos; importar lançamentos com
-   área de conferência) implementadas e integradas sobre a fatia 1 corrigida
-   (suíte completa: 6.835 aprovados, 1 reprovado de ambiente); telas da
-   importação de lançamentos em andamento; auditoria própria depois.
+   RC-167).** Três leiautes de TXT (registros da ECD, leiaute do sistema de
+   referência e formato próprio) e importação por Excel
+   ([consulta](../projeto/consultas/2026-10-08-contador-senior-txt-contabil.md);
+   [casas do 6100](../projeto/consultas/2026-10-08-casas-decimais-6100.md)).
+   - **Fatia 1 — plano de contas: INTEGRADA** pelo
+     [PR #100](https://github.com/fredabsd-svg/DataLedger/pull/100), squash
+     `929a79a`, mesclado **pelo Fred** em 08/10/2026, com os quatro checks
+     verdes em todas as execuções. Ciclo do §3.1:
+     [rodada 1](../auditorias/2026-10-08-dl-077-fatia-1-rodada-1.md) e
+     [reconferência](../auditorias/2026-10-08-dl-077-fatia-1-reconferencia.md)
+     reprovadas (a reconferência só pelo leitor Excel); pela regra de parada,
+     sem terceira rodada — correções aceitas pelos testes do próprio auditor.
+     Abertos: BL-673, BL-674 (leitor de planilha próprio), BL-675, PE-81.
+   - **Achado de CI:** o job "Lint e testes" tinha limite de 10 min e a suíte
+     já leva cerca de 11 min no executor; execuções do evento `pull_request`
+     dos PRs #99 e #100 foram **canceladas por tempo**. Limite subido para
+     20 min no PR #100; desde então, todas as execuções verdes.
+   - **Fatias 2 e 3 — exportar lançamentos e saldos; importar lançamentos
+     com área de conferência, de-para e efetivação: implementadas, em
+     auditoria** (rodada 1, Sonnet), em cópia isolada sobre a fatia 1 final.
+     Suíte completa: 7.091 aprovados, 1 reprovado (ambiente). Teto de 2.000
+     lançamentos por arquivo (efetivar 2.000 leva ~21 s; o servidor padrão
+     corta em 30 s).
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, branch com a DL-077 fatia 1 sobre `6c2baf7`, medida
