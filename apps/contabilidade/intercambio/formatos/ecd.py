@@ -142,6 +142,12 @@ REGISTROS_DO_LEIAUTE_9 = frozenset(
 # Os únicos registros que este módulo LÊ.
 REGISTROS_USADOS = frozenset({"I050", "I051"})
 
+# Registro 0000 (abertura e identificação). Traz o CNPJ da empresa (campo 06, p. 64),
+# e é o único campo dele que o DataLedger lê, só para a conferência com a empresa.
+REGISTRO_DE_IDENTIFICACAO = "0000"
+_INDICE_DO_CNPJ_NO_0000 = 5  # campos[0] é o REG; o campo 06 do manual fica no índice 5
+_PADRAO_CNPJ_DIGITOS = re.compile(r"[0-9]{14}")
+
 # Registros que, pela tabela de níveis (pp. 57-58), são filhos do I050 (nível 4)
 # ou o próprio I050. Eles não encerram a associação entre um I051 e o I050 acima.
 # Qualquer outro registro encerra essa associação.
@@ -400,6 +406,34 @@ def _interpretar_i051(numero, campos, i050):
     return erros
 
 
+def _ler_documento_do_0000(numero, campos, resultado, ocorrencias):
+    """Guarda em `documento_declarado` o CNPJ do 0000 (campo 06, p. 64), se houver.
+
+    O manual torna o campo obrigatório, mas um trecho de ECD sem ele não é recusado
+    aqui: sem CNPJ não há conferência, e o núcleo diz isso pelo `documento_declarado`
+    vazio. O CNPJ é 14 dígitos (tamanho do campo, p. 64); nada é aceito com máscara,
+    porque o manual não a prevê, e uma máscara seria palpite sobre o formato.
+    Só o primeiro 0000 conta: o manual limita o registro a uma ocorrência.
+    """
+    if len(campos) <= _INDICE_DO_CNPJ_NO_0000 or resultado.documento_declarado is not None:
+        return
+    cnpj = campos[_INDICE_DO_CNPJ_NO_0000].strip()
+    if not cnpj:
+        return
+    if not _PADRAO_CNPJ_DIGITOS.fullmatch(cnpj):
+        ocorrencias.append(
+            Ocorrencia(
+                numero,
+                "0000.06",
+                NIVEL_ERRO,
+                "CNPJ do registro 0000 (campo 06, p. 64) deve ter 14 dígitos, sem máscara. "
+                "Não é possível conferir a empresa.",
+            )
+        )
+        return
+    resultado.documento_declarado = cnpj
+
+
 def ler(conteudo: bytes) -> ResultadoLeitura:
     """Lê um trecho de ECD e devolve o plano de contas (I050 e I051).
 
@@ -445,6 +479,11 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
                 )
             )
             continue
+
+        if reg == REGISTRO_DE_IDENTIFICACAO:
+            # O 0000 não entra no plano, mas traz o CNPJ que o núcleo confere com a
+            # empresa (ver `_ler_documento_do_0000`). Continua contado como ignorado.
+            _ler_documento_do_0000(numero, campos, resultado, ocorrencias)
 
         if reg not in REGISTROS_FILHOS_DO_I050:
             # Outro registro encerra a associação com o I050 anterior.

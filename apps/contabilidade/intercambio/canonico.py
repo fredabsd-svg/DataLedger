@@ -80,6 +80,11 @@ class ContaLida:
     natureza: str | None
     codigo_origem: str | None
     referencial: str | None
+    # Situação no arquivo: True = ativa, False = inativa, None = o formato não diz.
+    # Só o leiaute do sistema de referência traz (campo 7 do 0200). A conta inativa
+    # é criada inativa no DataLedger, com aviso. Na política de atualizar, a situação
+    # de conta existente NÃO muda.
+    ativa: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -128,6 +133,10 @@ class ResultadoLeitura:
     lancamentos: list[LancamentoLido] = field(default_factory=list)
     ocorrencias: list[Ocorrencia] = field(default_factory=list)
     registros_ignorados: dict[str, int] = field(default_factory=dict)
+    # CNPJ/CPF que o PRÓPRIO arquivo declara (só dígitos), quando o formato traz: o
+    # registro 0000 no leiaute do sistema de referência e na ECD. None = o arquivo não
+    # declara. Quem confere contra a empresa é `conferir_plano`, no núcleo.
+    documento_declarado: str | None = None
 
     @property
     def tem_erro(self) -> bool:

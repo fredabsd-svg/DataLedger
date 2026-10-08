@@ -155,7 +155,9 @@ def test_previa_recusa_parametro_na_url(client, cenario):
 def test_previa_recusa_formato_fora_da_lista(client, cenario):
     _entrar(client, "analista-api")
 
-    resposta = _previa(client, cenario["empresa"], formato="excel")
+    # "ods" é um formato que o produto não aceita. (Antes da frente B era "excel", que
+    # passou a ser aceito; a expectativa é a mesma: formato fora da lista responde 400.)
+    resposta = _previa(client, cenario["empresa"], formato="ods")
 
     assert resposta.status_code == 400
     assert "formato" in resposta.json()

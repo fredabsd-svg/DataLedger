@@ -153,8 +153,13 @@ def test_a_derivacao_encontrou_as_vinte_e_quatro_rotas_web_e_as_vinte_da_api():
     # nesta frente (a tela é a frente C). Autorizado pelo arquiteto-senior, que
     # classificou a mudança como inventário: a varredura de recusa do livro-caixa
     # cobre as três rotas novas, e o que muda aqui é só a contagem.
+    #
+    # DL-077, fatia 1 (frente B, API): UMA rota nova — "plano-modelo-excel" (GET,
+    # download do modelo `.xlsx` da importação por planilha). Passa pelo mesmo
+    # `get_empresa()` das irmãs, então a varredura de livro-caixa cobre também ela.
+    # 25 -> 26 do lado da API. Nenhuma rota de tela nesta frente.
     assert len(ROTAS_WEB) == 26, ROTAS_WEB
-    assert len(ROTAS_API) == 25, ROTAS_API
+    assert len(ROTAS_API) == 26, ROTAS_API
 
 
 @pytest.fixture

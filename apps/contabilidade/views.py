@@ -18,7 +18,7 @@ from rest_framework.views import APIView
 
 from apps.auditoria.services import registrar
 from apps.contabilidade.intercambio.canonico import IntercambioRecusado
-from apps.contabilidade.intercambio.formatos import LEITORES
+from apps.contabilidade.intercambio.formatos import LEITORES, excel, referencia
 from apps.contabilidade.intercambio.leitura import (
     TAMANHO_MAXIMO_ARQUIVO_BYTES,
     ArquivoGrandeDemais,
@@ -2630,6 +2630,15 @@ def _entrada_da_importacao(request, *, com_token):
             if not (request.data.get(campo) or "").strip():
                 erros[campo] = ["Informe o valor devolvido pela prévia."]
 
+    # Excel: só `.xlsx`. O conteúdo é conferido de novo no leitor (macro, .xls,
+    # CSV renomeado), mas o nome é a primeira barreira e a mensagem mais clara.
+    if formato == excel.FORMATO and arquivo is not None:
+        if not arquivo.name.lower().endswith(".xlsx"):
+            erros["arquivo"] = [
+                "a planilha precisa ser .xlsx, sem macros (.xlsm não é aceito). "
+                "Use o modelo para baixar."
+            ]
+
     if erros:
         raise DRFValidationError(erros)
     if arquivo.size > TAMANHO_MAXIMO_ARQUIVO_BYTES:
@@ -2641,7 +2650,11 @@ def _entrada_da_importacao(request, *, com_token):
 
 
 def _ler_e_conferir(empresa, arquivo, formato, politica, prefixos):
-    """Lê o arquivo com o leitor do formato e confere contra o cadastro. Não grava."""
+    """Lê o arquivo com o leitor do formato e confere contra o cadastro. Não grava.
+
+    A conferência do CNPJ/CPF declarado no arquivo é do NÚCLEO (`conferir_plano`), não
+    desta view: assim vale para qualquer porta que use o plano, e não só esta API.
+    """
     try:
         resultado = ler_arquivo(formato, arquivo.read(), nome_arquivo=arquivo.name)
     except ArquivoGrandeDemais as exc:
@@ -2754,6 +2767,42 @@ class PlanoDeContasImportacaoAplicarView(EmpresaEscopadaContabilMixin, APIView):
         )
 
 
+class PlanoDeContasModeloExcelView(EmpresaEscopadaContabilMixin, APIView):
+    """Baixa o modelo `.xlsx` da importação do plano (aba `plano` e aba `instrucoes`).
+
+    O modelo não depende da empresa, mas a rota passa por `get_empresa()` mesmo assim:
+    é o que aplica o isolamento por escritório e a recusa do modo livro-caixa (DL-038)
+    a esta rota, como a todas as outras da contabilidade.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturar]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            recusar_campos_nao_contratados(
+                request.query_params,
+                frozenset(),
+                contexto="no modelo do plano de contas",
+            )
+        except DadoNaoContratado as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        self.get_empresa()
+        resposta = HttpResponse(excel.gerar_modelo(), content_type=TIPO_DE_CONTEUDO_XLSX)
+        resposta["Content-Disposition"] = 'attachment; filename="modelo-plano-de-contas.xlsx"'
+        return resposta
+
+
+# Sufixo do nome do arquivo por leiaute. Nenhum deles usa "ECD" nem "SPED": o arquivo
+# não é a ECD, e o nome não pode dizer que é (ver `formatos/ecd.py`).
+_SUFIXO_DO_ARQUIVO_EXPORTADO = {
+    "ecd": "registros-I050",
+    referencia.FORMATO: "leiaute-com-separador",
+}
+# Leiaute em ISO-8859-1 (ECD e leiaute com separador). O formato próprio é UTF-8.
+_FORMATOS_EM_ISO_8859_1 = frozenset({"ecd", referencia.FORMATO})
+TIPO_DE_CONTEUDO_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
 def _nome_do_arquivo_exportado(empresa, formato, hoje):
     """`plano-<documento>-<aaaammdd>-<sufixo>.txt`, sem as palavras ECD nem SPED.
 
@@ -2762,7 +2811,7 @@ def _nome_do_arquivo_exportado(empresa, formato, hoje):
     ele é a ECD: não tem bloco J, termos nem assinatura (ver `formatos/ecd.py`).
     """
     documento = re.sub(r"[^0-9A-Za-z]", "", empresa.cnpj or empresa.cpf or "") or "sem-documento"
-    sufixo = "registros-I050" if formato == "ecd" else "formato-dataledger"
+    sufixo = _SUFIXO_DO_ARQUIVO_EXPORTADO.get(formato, "formato-dataledger")
     return f"plano-{documento}-{hoje:%Y%m%d}-{sufixo}.txt"
 
 
@@ -2820,14 +2869,19 @@ class PlanoDeContasExportacaoView(EmpresaEscopadaContabilMixin, APIView):
                 "quantidade_contas": arquivo.quantidade_contas,
                 "sinteticas_incluidas": arquivo.sinteticas_incluidas,
                 "sha256": arquivo.sha256,
+                "avisos": list(arquivo.avisos),
             },
         )
 
-        if formato == "ecd":
+        if formato in _FORMATOS_EM_ISO_8859_1:
             tipo_do_conteudo = "text/plain; charset=iso-8859-1"
         else:
             tipo_do_conteudo = "text/plain; charset=utf-8"
         resposta = HttpResponse(arquivo.conteudo, content_type=tipo_do_conteudo)
         nome = _nome_do_arquivo_exportado(empresa, arquivo.formato, timezone.localdate())
         resposta["Content-Disposition"] = f'attachment; filename="{nome}"'
+        # Avisos do formato (ASCII, por isso cabem em cabeçalho HTTP). Juntos, separados por
+        # "; ". Ausente quando o formato não tem aviso.
+        if arquivo.avisos:
+            resposta["X-DataLedger-Avisos"] = "; ".join(arquivo.avisos)
         return resposta

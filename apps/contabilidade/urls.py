@@ -23,6 +23,7 @@ from apps.contabilidade.views import (
     PlanoDeContasExportacaoView,
     PlanoDeContasImportacaoAplicarView,
     PlanoDeContasImportacaoPreviaView,
+    PlanoDeContasModeloExcelView,
     RazaoView,
     ReabrirCompetenciaView,
     ZerarResultadoView,
@@ -180,5 +181,12 @@ urlpatterns = [
         "empresas/<int:empresa_id>/plano-de-contas/exportacao/",
         PlanoDeContasExportacaoView.as_view(),
         name="plano-exportacao",
+    ),
+    # DL-077, frente B (RC-167): modelo `.xlsx` para a importação por planilha. Só
+    # download; a planilha preenchida volta pela prévia e pela aplicação acima.
+    path(
+        "empresas/<int:empresa_id>/plano-de-contas/importacao/modelo-excel/",
+        PlanoDeContasModeloExcelView.as_view(),
+        name="plano-modelo-excel",
     ),
 ]

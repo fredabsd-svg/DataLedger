@@ -12,3 +12,9 @@ whitenoise==6.12.0
 # de terceiro (NFS-e) com DTD proibido — proteção contra entidade externa e
 # expansão exponencial, o ataque clássico a um importador de XML.
 defusedxml==0.7.1
+# DL-077, frente B (RC-167): leitura do plano de contas em planilha .xlsx. Riscos
+# tratados em `apps/contabilidade/intercambio/formatos/excel.py`: pacote hostil
+# (bomba de compressão medida no conteúdo, não no cabeçalho), macros (.xlsm
+# recusado), fórmula sem valor calculado. Com `defusedxml` instalado, o openpyxl
+# usa o parser seguro para o XML interno. Dependência transitiva: et-xmlfile.
+openpyxl==3.1.5

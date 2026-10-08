@@ -29,10 +29,16 @@ REGRAS DA FATIA 1 (plano DL-077, consulta do contador-senior de 08/10/2026).
 - Plano referencial (I051) lido e não gravado: aviso. O DataLedger ainda não
   guarda o plano referencial nesta fatia.
 - Arquivo sem nenhuma conta: erro.
+- Documento (DL-077, B3): se o arquivo declara CNPJ/CPF (registro 0000), ele tem de ser
+  o da empresa escolhida. Diferente: erro no nível do arquivo (linha 0), e nada é gravado.
+  A conferência fica AQUI, no núcleo, para valer em qualquer porta que use o plano.
+- Situação (DL-077, B4): conta nova inativa no arquivo nasce inativa. Conta existente
+  mantém a situação do cadastro, nas duas políticas; divergência é aviso.
 """
 
 import hashlib
 import json
+import re
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -48,7 +54,11 @@ from apps.contabilidade.intercambio.canonico import (
     Ocorrencia,
     ResultadoLeitura,
 )
-from apps.contabilidade.intercambio.formatos import ESCRITORES
+from apps.contabilidade.intercambio.formatos import (
+    AVISOS_DE_EXPORTACAO,
+    ESCRITORES,
+    FORMATOS_QUE_PRECISAM_DO_DOCUMENTO,
+)
 from apps.contabilidade.intercambio.leitura import FormatoNaoSuportado
 from apps.contabilidade.models import (
     NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO,
@@ -116,6 +126,9 @@ class ItemDoPlano:
     natureza: str | None
     origem_natureza: str | None
     ocorrencias: tuple[Ocorrencia, ...] = ()
+    # Situação FINAL da conta depois da aplicação: True ativa, False inativa. Para conta
+    # existente, é a do cadastro (a importação não muda a situação dela).
+    ativa: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -159,6 +172,9 @@ class ArquivoDoPlano:
     sha256: str
     quantidade_contas: int
     sinteticas_incluidas: int
+    # Avisos do formato sobre o arquivo gerado (ex.: código reduzido não estável). A
+    # API os devolve no cabeçalho, e a trilha os registra.
+    avisos: tuple[str, ...] = ()
 
 
 # -----------------------------------------------------------------------------
@@ -301,12 +317,22 @@ class _Conferencia:
 
         tipo = natureza = origem_tipo = origem_natureza = None
         acao = ACAO_CRIAR
+        ativa = None
 
         if codigo in self.banco:
             cadastrada = self.banco[codigo]
             acao = ACAO_SEM_MUDANCA
             tipo, origem_tipo = cadastrada.tipo, ORIGEM_CADASTRO
             natureza, origem_natureza = cadastrada.natureza, ORIGEM_CADASTRO
+            # Situação: a da conta existente é a que vale, nas duas políticas. Se o
+            # arquivo diz outra, é aviso (o contador vê e decide no cadastro).
+            ativa = cadastrada.ativo
+            if conta.ativa is not None and conta.ativa != cadastrada.ativo:
+                aviso(
+                    "ativa",
+                    "a situação no arquivo difere da cadastrada; a conta mantém a situação "
+                    "atual. A importação não altera situação de conta existente.",
+                )
             if conta.tipo is not None and conta.tipo != cadastrada.tipo:
                 erro(
                     "tipo",
@@ -346,6 +372,9 @@ class _Conferencia:
                         f"'{cadastrada.nome}' (política só acrescentar).",
                     )
         else:
+            # Conta nova nasce conforme o arquivo: inativa só se ele disser inativa. Sem
+            # situação no formato (ECD, próprio), nasce ativa, como toda conta nova.
+            ativa = conta.ativa is not False
             if conta.tipo is not None:
                 tipo, origem_tipo = conta.tipo, ORIGEM_ARQUIVO
                 if pai_tipo is not None and pai_tipo != conta.tipo:
@@ -401,6 +430,7 @@ class _Conferencia:
             natureza=natureza,
             origem_natureza=origem_natureza,
             ocorrencias=tuple(ocorrencias),
+            ativa=ativa,
         )
         resolucao = _Resolucao(
             item=item,
@@ -412,6 +442,11 @@ class _Conferencia:
         self.memo[codigo] = resolucao
         self.ordem.append(codigo)
         return resolucao
+
+
+def _digitos_do_documento(empresa):
+    """CNPJ, ou CPF para empresa de pessoa física, só com dígitos. Vazio se não há."""
+    return re.sub(r"\D", "", empresa.cnpj or empresa.cpf or "")
 
 
 def _assinatura(itens):
@@ -428,6 +463,7 @@ def _assinatura(itens):
             item.natureza or "",
             item.codigo_pai or "",
             "A" if item.analitica else "S",
+            "" if item.ativa is None else ("A" if item.ativa else "I"),
             item.nome,
         ]
         for item in itens
@@ -507,10 +543,29 @@ def conferir_plano(empresa, resultado, politica, tipos_por_prefixo=None):
     else:
         ocorrencias_do_arquivo = []
 
+    # Conferência da empresa (isolamento entre empresas): o documento que o PRÓPRIO arquivo
+    # declara tem de ser o da empresa escolhida. Quando o arquivo não declara (None), não há
+    # o que comparar aqui; o leitor já recusa a falta do 0000 no leiaute que o exige. A
+    # mensagem não repete os números: o contador vê que o arquivo é de outra empresa.
+    ocorrencias_do_documento = []
+    if resultado.documento_declarado is not None and (
+        resultado.documento_declarado != _digitos_do_documento(empresa)
+    ):
+        ocorrencias_do_documento.append(
+            Ocorrencia(
+                0,
+                "documento",
+                NIVEL_ERRO,
+                "o arquivo não é da empresa escolhida: o CNPJ/CPF que ele declara é outro. "
+                "Nada foi gravado.",
+            )
+        )
+
     ocorrencias = sorted(
         [
             *resultado.ocorrencias,
             *ocorrencias_do_arquivo,
+            *ocorrencias_do_documento,
             *(o for item in itens for o in item.ocorrencias),
         ],
         key=lambda o: (o.linha, o.campo),
@@ -581,12 +636,12 @@ def aplicar_plano(empresa, previa, usuario, request=None, *, sha256_esperado, as
             )
 
         por_codigo = {item.codigo: item for item in fresca.itens}
-        criadas = atualizadas = 0
+        criadas = atualizadas = inativas_criadas = 0
         for codigo in fresca.ordem:
             item = por_codigo[codigo]
             try:
                 if item.acao == ACAO_CRIAR:
-                    criar_conta_pelo_plano(
+                    conta_criada = criar_conta_pelo_plano(
                         empresa=empresa,
                         codigo=item.codigo,
                         nome=item.nome,
@@ -598,6 +653,13 @@ def aplicar_plano(empresa, previa, usuario, request=None, *, sha256_esperado, as
                         request=request,
                     )
                     criadas += 1
+                    if item.ativa is False:
+                        # A situação não é argumento de `criar_conta_pelo_plano`; grava-se
+                        # logo depois, na mesma transação. A trilha do plano registra a
+                        # quantidade de inativas criadas.
+                        conta_criada.ativo = False
+                        conta_criada.save(update_fields=["ativo"])
+                        inativas_criadas += 1
                 elif item.acao == ACAO_ATUALIZAR:
                     conta = Conta.objects.get(empresa=empresa, codigo=item.codigo)
                     renomear_conta_pelo_plano(
@@ -625,6 +687,7 @@ def aplicar_plano(empresa, previa, usuario, request=None, *, sha256_esperado, as
                 "sha256": fresca.sha256,
                 "assinatura": fresca.assinatura,
                 "criadas": criadas,
+                "inativas_criadas": inativas_criadas,
                 "atualizadas": atualizadas,
                 "sem_mudanca": sem_mudanca,
                 "registros_ignorados": dict(fresca.resultado.registros_ignorados),
@@ -742,12 +805,18 @@ def exportar_plano(*, empresa, formato, filtro="todas", inicio=None, fim=None, d
             natureza=conta.natureza,
             codigo_origem=None,
             referencial=None,
+            ativa=conta.ativo,
         )
         for conta in (por_id[i] for i in incluidas)
     ]
     registros = _ordenar_em_arvore(registros)
 
-    conteudo = ESCRITORES[formato](registros, data_alteracao=data_alteracao)
+    # O documento (registro 0000) só vai aos escritores que o pedem: os demais não
+    # aceitam o argumento. Vem do próprio cadastro da empresa, nunca de parâmetro da API.
+    argumentos = {"data_alteracao": data_alteracao}
+    if formato in FORMATOS_QUE_PRECISAM_DO_DOCUMENTO:
+        argumentos["documento"] = _digitos_do_documento(empresa) or None
+    conteudo = ESCRITORES[formato](registros, **argumentos)
     return ArquivoDoPlano(
         formato=formato,
         filtro=filtro,
@@ -755,4 +824,5 @@ def exportar_plano(*, empresa, formato, filtro="todas", inicio=None, fim=None, d
         sha256=hashlib.sha256(conteudo).hexdigest(),
         quantidade_contas=len(registros),
         sinteticas_incluidas=sinteticas_incluidas,
+        avisos=tuple(AVISOS_DE_EXPORTACAO.get(formato, ())),
     )
