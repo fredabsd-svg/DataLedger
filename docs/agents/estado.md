@@ -213,8 +213,15 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    HI-78 a HI-81), todas em Haiku. Os exemplos 2, 4 e 5 do Manual do PGDAS-D
    batem centavo a centavo. A frente C achou e corrigiu um defeito da
    própria etapa: receita informada de exportação era cobrada de PIS, Cofins
-   e ISS. **Próximo: auditoria independente (Sonnet), correção,
-   reconferência, PR e merge.**
+   e ISS. [Auditoria rodada 1](../auditorias/2026-10-08-dl-075-rodada-1.md):
+   **REPROVADA** por A1 (alta: a migração `fiscal 0005` dependia de
+   `empresas 0016` e deixava 4 testes vermelhos na suíte completa — a
+   frente C rodou a suíte **em fatias**, e a interação não apareceu). O
+   cálculo confere: tabelas idênticas ao Planalto por script, exemplos 2, 4
+   e 5 centavo a centavo, 41 de 50 mutantes mortos pela suíte. Achados A2 a
+   A11 (lacunas de isolamento por teste, notas sempre na atividade padrão,
+   atividade alterável sob mês confirmado, entrada "10.000" na folha dava
+   500). **Correção única em andamento.**
 5. **[DL-076](../planos/DL-076-iss-por-municipio-palmas.md) — ISS por
    município, começando por Palmas: planejada, em desenvolvimento.**
    [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-iss-palmas.md):
