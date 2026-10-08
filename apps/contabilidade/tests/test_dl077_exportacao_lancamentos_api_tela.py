@@ -227,7 +227,9 @@ def test_api_referencia_com_nm_recusa_400_listando_o_lancamento(client, cenario)
     assert f"lançamento {cenario['l5'].pk} (15/03/2026" in resposta.content.decode()
 
 
-def test_api_referencia_sem_casas_declaradas_recusa_400_e_nao_gera_arquivo(client, cenario):
+def test_api_referencia_com_casas_declaradas_sai_200_com_valor_em_virgula(client, cenario):
+    """DL-077 fatia 3: `CASAS_DECIMAIS_DO_VALOR_6100` = 2, decidido pelo arquiteto. Antes, a
+    API recusava (400) por falta de casas. Agora o arquivo sai, com o valor em vírgula."""
     _entrar(client, "gestor-exp")
 
     resposta = client.get(
@@ -240,9 +242,11 @@ def test_api_referencia_sem_casas_declaradas_recusa_400_e_nao_gera_arquivo(clien
         )
     )
 
-    assert resposta.status_code == 400
-    assert "não declara as casas decimais" in resposta.content.decode()
-    assert not RegistroAuditoria.objects.filter(acao="lancamentos.exportados").exists()
+    assert resposta.status_code == 200
+    conteudo = resposta.content.decode("iso-8859-1")
+    assert conteudo.startswith("|0000|77777777000177|\r\n")
+    assert "|6100|10/01/2026|3|12|1000,00||Aporte de capital||||" in conteudo
+    assert RegistroAuditoria.objects.filter(acao="lancamentos.exportados").exists()
 
 
 def test_api_paralegal_le_e_cliente_nao_passa(client, cenario):

@@ -10,7 +10,9 @@ NUMERAÇÃO. Campo N do registro é o campo N do manual, começando em 1 (o camp
 identificador do registro).
 
 O QUE O MANUAL DEFINE, e o que este escritor aplica:
-- separador `|`; campo numérico sem vírgula (p. 1225);
+- separador `|`, com `|` no início e no fim de cada registro (p. 1224, item 2); campo
+  Numérico sem vírgula, campo Decimal COM vírgula decimal e as casas declaradas (p. 1224,
+  item 2: "Decimal (3) 150,895");
 - registro 0000, campo 2: CNPJ ou CPF da empresa, só com dígitos (p. 1225);
 - registro 6000, campo 2: TIPO DO LANÇAMENTO. D = um débito p/ vários créditos;
   C = um crédito p/ vários débitos; X = um débito p/ um crédito; V = vários débitos
@@ -28,12 +30,12 @@ COMO UM LANÇAMENTO VIRA LINHAS 6100 (decomposição única, sem palpite):
 
 O QUE O MANUAL NÃO DEFINE, e como este escritor trata. Nada disto é apresentado como
 regra do manual:
-- TIPO e CASAS DECIMAIS do valor do 6100 (campo 5): na tabela da p. 1450 o tipo e as
-  casas decimais estão EM BRANCO. A p. 1225 diz que o campo numérico tem casas declaradas.
-  Sem casas declaradas, o valor não é escrito. Por isso `casas_decimais_do_valor` é
-  obrigatório para escrever lançamento, e a exportação do produto passa `None`, que a
-  recusa com o motivo. Quem testa informa o número explicitamente, e isso é teste do
-  mecanismo, não afirmação sobre o manual.
+- CASAS DECIMAIS do valor do 6100 (campo 5): na tabela da p. 1450 o tipo e as casas estão
+  EM BRANCO na extração do PDF. O produto passa 2 (`CASAS_DECIMAIS_DO_VALOR_6100` em
+  `lancamentos.py`), apoiado em três pontos: o campo é do tipo Decimal (p. 1450), o registro
+  irmão 6110 declara Decimal 2 (campo 4, p. 1451), e o exemplo do fornecedor com valor
+  `1234,56` (regra da vírgula em p. 1224, item 2). Isto é decisão do arquiteto, registrada
+  aqui; o manual não declara o número na tabela do 6100.
 - DATA do 6100 (campo 2): o campo se chama "data" e a p. 1225 define o tipo data como
   dd/mm/aaaa. Usa-se dd/mm/aaaa. É inferência, e fica registrada.
 - CÓDIGO REDUZIDO (campos 3 e 4): o DataLedger não tem código reduzido. Usa-se a mesma
@@ -55,8 +57,8 @@ CÓDIGO REDUZIDO E ESTABILIDADE. Quem produz a lista de lançamentos precisa pas
 mapa de códigos sobre o plano INTEIRO da empresa. Incluir ou remover uma conta muda
 os números das seguintes. O relatório de conferência traz o mapa das contas usadas.
 
-FORMATO DO ARQUIVO. ISO-8859-1, CRLF, sem `|` nas pontas (como o escritor do plano da
-fatia 1). Histórico com `|`, caractere de controle ou fora de ISO-8859-1 é recusado.
+FORMATO DO ARQUIVO. ISO-8859-1, CRLF, `|` no início e no fim de cada registro (p. 1224).
+Histórico com `|`, caractere de controle ou fora de ISO-8859-1 é recusado.
 """
 
 import re
@@ -122,8 +124,8 @@ def _pares(lancamento, tipo):
     return [(d.codigo_conta, creditos[0].codigo_conta, d.valor) for d in debitos]
 
 
-def _valor_implicito(valor, casas):
-    """Valor sem vírgula, com `casas` decimais implícitos (p. 1225).
+def _valor_com_virgula(valor, casas):
+    """Valor Decimal com vírgula decimal e exatamente `casas` casas, sem milhar (p. 1224, item 2).
 
     Recusa, em vez de arredondar, um valor que tenha mais casas do que o declarado.
     """
@@ -133,7 +135,7 @@ def _valor_implicito(valor, casas):
             f"o valor {valor} tem mais casas decimais que as {casas} declaradas; a exportação "
             "não arredonda em silêncio."
         )
-    return str(int(inteiro))
+    return f"{valor:.{casas}f}".replace(".", ",")
 
 
 def _campo_escrevivel(valor, rotulo, numero, ocorrencias):
@@ -246,26 +248,28 @@ def escrever(
             "Lançamentos não podem ser exportados nele até que o número seja confirmado."
         )
 
-    linhas = [SEPARADOR.join([REG_DOCUMENTO, digitos])]
+    def registro(*campos):
+        # `|` no início e no fim de cada registro (p. 1224, item 2).
+        return SEPARADOR + SEPARADOR.join(campos) + SEPARADOR
+
+    linhas = [registro(REG_DOCUMENTO, digitos)]
     for lancamento in representaveis:
         tipo = tipo_do_lote(lancamento)
-        linhas.append(SEPARADOR.join([REG_LOTE, tipo, "", "", ""]))
+        linhas.append(registro(REG_LOTE, tipo, "", "", ""))
         data = lancamento.data.strftime("%d/%m/%Y")
         for debito, credito, valor in _pares(lancamento, tipo):
             linhas.append(
-                SEPARADOR.join(
-                    [
-                        REG_PARTIDA,
-                        data,
-                        str(codigos_reduzidos[debito]),
-                        str(codigos_reduzidos[credito]),
-                        _valor_implicito(valor, casas_decimais_do_valor),
-                        "",  # campo 6: código do histórico (0220): o DataLedger não tem
-                        lancamento.historico,  # campo 7: descrição do histórico
-                        "",  # campo 8: usuário, em branco = usuário da importação
-                        "",  # campo 9: filial, só para empresa filial
-                        "",  # campo 10: SCP
-                    ]
+                registro(
+                    REG_PARTIDA,
+                    data,
+                    str(codigos_reduzidos[debito]),
+                    str(codigos_reduzidos[credito]),
+                    _valor_com_virgula(valor, casas_decimais_do_valor),
+                    "",  # campo 6: código do histórico (0220): o DataLedger não tem
+                    lancamento.historico,  # campo 7: descrição do histórico
+                    "",  # campo 8: usuário, em branco = usuário da importação
+                    "",  # campo 9: filial, só para empresa filial
+                    "",  # campo 10: SCP
                 )
             )
 

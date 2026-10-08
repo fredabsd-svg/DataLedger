@@ -346,9 +346,9 @@ def test_nm_no_sistema_de_referencia_recusa_a_exportacao_listando_o_lancamento(c
     assert [o.linha for o in excinfo.value.ocorrencias] == [cenario["l5"].pk]
 
 
-def test_sem_casas_declaradas_o_produto_nao_exporta_lancamento_no_sistema_de_referencia(cenario):
-    """`CASAS_DECIMAIS_DO_VALOR_6100` é None: o manual não declara as casas do 6100 (campo 5)."""
-    assert nucleo.CASAS_DECIMAIS_DO_VALOR_6100 is None
+def test_com_as_casas_do_produto_1x1_sai_no_sistema_de_referencia_com_virgula(cenario):
+    """DL-077 fatia 3: 6100 com 2 casas declaradas (decisão do arquiteto). Valor em vírgula."""
+    assert nucleo.CASAS_DECIMAIS_DO_VALOR_6100 == 2
     empresa = criar_empresa(
         escritorio=cenario["escritorio"],
         razao_social="Empresa Só 1x1 Ltda",
@@ -360,29 +360,22 @@ def test_sem_casas_declaradas_o_produto_nao_exporta_lancamento_no_sistema_de_ref
         contas,
         date(2026, 1, 10),
         "Só um para um",
-        [("1.1.1", "10.00")],
-        [("5.1", "10.00")],
+        [("1.1.1", "1234.56")],
+        [("5.1", "1234.56")],
     )
 
-    with pytest.raises(IntercambioRecusado) as excinfo:
-        _exportar(empresa, "referencia")
+    arquivo = _exportar(empresa, "referencia")
 
-    assert "não declara as casas decimais do valor do registro 6100" in excinfo.value.mensagem
-
-
-def test_omitir_nao_representaveis_nao_contorna_a_recusa_das_casas(cenario):
-    """Com a omissão, o N×M sai. As casas não declaradas continuam recusando a exportação."""
-    with pytest.raises(IntercambioRecusado) as excinfo:
-        _exportar(cenario["empresa"], "referencia", omitir_nao_representaveis=True)
-
-    assert "não declara as casas decimais" in excinfo.value.mensagem
+    linhas = arquivo.conteudo.decode("iso-8859-1").split("\r\n")
+    assert "|6100|10/01/2026|3|12|1234,56||Só um para um||||" in linhas
 
 
 def test_escritor_de_referencia_com_casas_declaradas_escreve_o_layout_escrito_a_mao(cenario):
     """Mecanismo: com as casas injetadas, o escritor segue o layout descrito no módulo.
 
     0000 com o documento; um 6000 por lançamento (tipo X, D ou C); um 6100 por par de contas
-    (valor sem vírgula, com 2 casas implícitas); o N×M omitido e listado. O código reduzido é o do
+    (valor com vírgula decimal, 2 casas, e `|` nas pontas); o N×M omitido e listado.
+    O código reduzido é o do
     plano inteiro (1, 1.1, 1.1.1, ... 5.1 -> 12).
     """
     empresa = cenario["empresa"]
@@ -399,22 +392,22 @@ def test_escritor_de_referencia_com_casas_declaradas_escreve_o_layout_escrito_a_
 
     assert [o.numero for o in omitidos] == [cenario["l5"].pk]
     assert _linhas(conteudo, "iso-8859-1") == [
-        "0000|77777777000177",
-        "6000|X|||",
-        "6100|10/01/2026|3|12|100000||Aporte de capital|||",
-        "6000|X|||",
-        "6100|05/02/2026|3|8|50000||Venda à vista|||",
-        "6000|D|||",
-        "6100|20/02/2026|10|3|20000||Pagamento de aluguel e luz|||",
-        "6100|20/02/2026|10|6|10000||Pagamento de aluguel e luz|||",
-        "6000|C|||",
-        '6100|03/03/2026|4|6|15000||Compra a prazo; fornecedor "Alfa"|||',
-        '6100|03/03/2026|10|6|5000||Compra a prazo; fornecedor "Alfa"|||',
-        "6000|X|||",
-        "6100|04/03/2026|8|3|50000||Estorno: Venda à vista|||",
-        "6000|C|||",
-        "6100|31/03/2026|8|10|1500||Encerramento do resultado|||",
-        "6100|31/03/2026|12|10|33500||Encerramento do resultado|||",
+        "|0000|77777777000177|",
+        "|6000|X||||",
+        "|6100|10/01/2026|3|12|1000,00||Aporte de capital||||",
+        "|6000|X||||",
+        "|6100|05/02/2026|3|8|500,00||Venda à vista||||",
+        "|6000|D||||",
+        "|6100|20/02/2026|10|3|200,00||Pagamento de aluguel e luz||||",
+        "|6100|20/02/2026|10|6|100,00||Pagamento de aluguel e luz||||",
+        "|6000|C||||",
+        '|6100|03/03/2026|4|6|150,00||Compra a prazo; fornecedor "Alfa"||||',
+        '|6100|03/03/2026|10|6|50,00||Compra a prazo; fornecedor "Alfa"||||',
+        "|6000|X||||",
+        "|6100|04/03/2026|8|3|500,00||Estorno: Venda à vista||||",
+        "|6000|C||||",
+        "|6100|31/03/2026|8|10|15,00||Encerramento do resultado||||",
+        "|6100|31/03/2026|12|10|335,00||Encerramento do resultado||||",
     ]
 
 

@@ -76,10 +76,13 @@ FORMATOS_DE_EXPORTACAO_DE_LANCAMENTOS = (FORMATO_ECD, FORMATO_PROPRIO, FORMATO_R
 # ano bissexto inteiro (366 dias), e nenhum intervalo que passe de um ano.
 DIAS_MAXIMOS_POR_ARQUIVO = 366
 
-# Casas decimais do valor do registro 6100 no leiaute do sistema de referência. O manual
-# NÃO declara (tabela da p. 1450 com tipo e casas em branco; ver `referencia_lancamentos`).
-# Enquanto isso não for confirmado, a exportação de lançamento nesse leiaute é recusada.
-CASAS_DECIMAIS_DO_VALOR_6100 = None
+# Casas decimais do valor do registro 6100 no leiaute do sistema de referência: 2, com
+# vírgula decimal (`1234,56`). Decisão do arquiteto-senior (DL-077, frente A, 08/10/2026),
+# apoiada no tipo Decimal do campo 5 (p. 1450), no registro irmão 6110, campo 4, que declara
+# Decimal 2 (p. 1451), no exemplo de arquivo do fornecedor (solução 672, que não é copiado
+# para o repositório) e na regra da vírgula em Decimal (p. 1224, item 2). A tabela da p. 1450
+# deixa as casas do campo 5 em branco na extração do PDF; ver `referencia_lancamentos`.
+CASAS_DECIMAIS_DO_VALOR_6100 = 2
 
 # Avisos que vão junto de cada arquivo, em ASCII (cabem em cabeçalho HTTP). Não são
 # opcionais: a tela os mostra sempre, e a API os devolve no cabeçalho.

@@ -174,8 +174,14 @@ def test_a_derivacao_encontrou_as_vinte_e_quatro_rotas_web_e_as_vinte_da_api():
     # conferência) e "lancamentos_exportar_arquivo" (GET, download com SHA-256 conferido).
     # Cada uma recusa livro-caixa antes de ler o formulário, como as irmãs. 30 -> 32 do lado
     # da tela.
+    #
+    # DL-077, fatia 3 (frente A, API): SETE rotas novas de importação de lançamentos com área
+    # de conferência — "lancamentos-importacao" (GET lista, POST recebe), "-detalhe" (GET),
+    # "-reconferir", "-avisos", "-efetivar", "-descartar" (POST cada) e "-de-para" (GET/POST).
+    # Todas passam por `get_empresa()` da mixin, então a varredura de livro-caixa as cobre.
+    # 27 -> 34 do lado da API. Nenhuma rota de tela nesta frente (a tela é a frente B).
     assert len(ROTAS_WEB) == 32, ROTAS_WEB
-    assert len(ROTAS_API) == 27, ROTAS_API
+    assert len(ROTAS_API) == 34, ROTAS_API
 
 
 @pytest.fixture
