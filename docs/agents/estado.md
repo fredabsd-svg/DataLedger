@@ -141,6 +141,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-073](../planos/DL-073-validador-ibscbs.md) | Fiscal: validador de conformidade IBS/CBS das NFS-e recebidas (modo aviso, HI-61) | Integrada (PR #96, squash `8f36cd4`) — auditoria e reconferência aprovadas com ressalvas |
 | [DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) | Fiscal: receita mensal, receita informada, confirmação e RBT12 do Simples por mercado | Integrada (PR #97, squash `ebc40a3`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 | [DL-075](../planos/DL-075-pre-das-do-simples.md) | Fiscal: pré-DAS do Simples para prestadores de serviço (Anexos I a V como dado, fator r, teto do ISS, segregação) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-076](../planos/DL-076-iss-por-municipio-palmas.md) | Fiscal: ISS por município, começando por Palmas (alíquota informada, conferência por nota, apuração fora do Simples, retido sofrido, outros municípios) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -214,6 +215,14 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    própria etapa: receita informada de exportação era cobrada de PIS, Cofins
    e ISS. **Próximo: auditoria independente (Sonnet), correção,
    reconferência, PR e merge.**
+5. **[DL-076](../planos/DL-076-iss-por-municipio-palmas.md) — ISS por
+   município, começando por Palmas: planejada, em desenvolvimento.**
+   [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-iss-palmas.md):
+   a tabela de alíquotas vigente de Palmas **não foi achada** (LC 300/2014
+   inacessível); a alíquota vira dado informado pelo escritório e o produto
+   confere o ISS de cada nota (HI-82 a HI-86). **PE-79 para o Fred:** as
+   alíquotas que o WebISS aplica aos clientes dele, a LC 300/2014 e a UFIP
+   2026 — não bloqueia o código.
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `71f371d`, medida na reconferência da DL-074):**
