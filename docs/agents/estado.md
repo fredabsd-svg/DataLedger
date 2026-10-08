@@ -142,7 +142,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) | Fiscal: receita mensal, receita informada, confirmação e RBT12 do Simples por mercado | Integrada (PR #97, squash `ebc40a3`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 | [DL-075](../planos/DL-075-pre-das-do-simples.md) | Fiscal: pré-DAS do Simples para prestadores de serviço (Anexos I a V como dado, fator r, teto do ISS, segregação) | Integrada (PR #98, squash `05668d4`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 | [DL-076](../planos/DL-076-iss-por-municipio-palmas.md) | Fiscal: ISS por município, começando por Palmas (alíquota informada, conferência por nota, apuração fora do Simples, retido sofrido, outros municípios) | Integrada (PR #99, squash `6c2baf7`) — rodada 1 e reconferência aprovadas com ressalvas |
-| [DL-077](../planos/DL-077-importacao-e-exportacao-contabil-em-txt.md) | Contabilidade: importar e exportar plano de contas e lançamentos em TXT e Excel | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-077](../planos/DL-077-importacao-e-exportacao-contabil-em-txt.md) | Contabilidade: importar e exportar plano de contas e lançamentos em TXT e Excel | Integrada (PR #100, squash `929a79a`; PR #101, squash `b60560b`) — efetivação parcial suspensa (BL-676) |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -249,8 +249,10 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
      dos PRs #99 e #100 foram **canceladas por tempo**. Limite subido para
      20 min no PR #100; desde então, todas as execuções verdes.
    - **Fatias 2 e 3 — exportar lançamentos e saldos; importar lançamentos
-     com área de conferência, de-para e efetivação: implementadas, em
-     auditoria**, em cópia isolada sobre a fatia 1 final.
+     com área de conferência, de-para e efetivação: INTEGRADAS** pelo
+     [PR #101](https://github.com/fredabsd-svg/DataLedger/pull/101), squash
+     `b60560b`, em 08/10/2026, com os quatro checks verdes em todas as
+     execuções; merge autorizado pelo Fred (RC-169).
      [Rodada 1](../auditorias/2026-10-08-dl-077-fatias-2-3-rodada-1.md):
      **REPROVADA** — A1 (alta: "só os válidos" ignorava erro do arquivo
      inteiro e gravou lançamentos de outra empresa no Diário), A2 a A7
@@ -270,17 +272,18 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
      auditor passando nas duas políticas, cada mutante derrubando o seu
      teste, e os fuzzers do auditor com **0 violações** nos quatro leitores
      (inclusive linhas em branco, que o fuzzer original não sorteava).
-     HI-92 e BL-677 registrados. **Próximo: PR, CI e merge (RC-169).**
+     HI-92 e BL-677 registrados.
      Suíte completa: 7.091 aprovados, 1 reprovado (ambiente). Teto de 2.000
      lançamentos por arquivo (efetivar 2.000 leva ~21 s; o servidor padrão
      corta em 30 s).
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
-PostgreSQL 16 local, branch com a DL-077 fatia 1 sobre `6c2baf7`, medida
-pelo arquiteto numa única invocação):** `pytest` completo **6.811
+PostgreSQL 16 local, sobre `97c2ae6` — conteúdo da `main` em `b60560b` —,
+medida pelo arquiteto numa única invocação):** `pytest` completo **7.308
 aprovados, 1 reprovado, 53 pulados**; a reprovação é a conhecida de ambiente
 (`test_versao_minima_python.py`, exige Python 3.14). `ruff`, `check` e
-`makemigrations --check` limpos (465 arquivos). Lição da DL-075: a suíte
+`makemigrations --check` limpos (491 arquivos). A suíte leva cerca de 11
+min: o job "Lint e testes" tem limite de 20 min. Lição da DL-075: a suíte
 **em fatias** esconde interação entre migrações — só vale a invocação única.
 
 **Também achado em 08/10/2026:** o diagnóstico da DFC fatia 2 levantou, no
