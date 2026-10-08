@@ -226,9 +226,12 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    [Auditoria rodada 1](../auditorias/2026-10-08-dl-076-rodada-1.md):
    **APROVADA COM RESSALVAS** — campos conferidos contra o XSD oficial,
    tabela do art. 3º contra o Planalto, 63 de 90 mutantes mortos. Correção
-   única em andamento: A1 (500 com percentual mal digitado), A2 (nota não
-   escriturada some sem aviso — vira aviso forte, HI-89), A3, A4 e A5
-   (testes de isolamento), e A6 a A12.
+   única feita (`a8c8def`, Haiku): A1 (500 com percentual mal digitado), A2
+   (nota não escriturada vira aviso forte, HI-89), A3, A4 e A5 (testes de
+   isolamento; 19 mutantes vivos agora mortos), A6 (consultas por nota), A7
+   (vencimento nominal com dia da semana), A8 a A11; migração `fiscal 0007`
+   (piso de 2% no banco). Suíte completa: 6.343 aprovados, 1 reprovado
+   (ambiente), 53 pulados. **Reconferência em andamento.**
    [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-iss-palmas.md):
    a tabela de alíquotas vigente de Palmas **não foi achada** (LC 300/2014
    inacessível); a alíquota vira dado informado pelo escritório e o produto
