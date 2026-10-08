@@ -78,6 +78,36 @@ escreve; a validação, a conferência e a gravação são uma só.
    reservado. Histórico por partida vira histórico do lançamento sem truncar
    em silêncio. De-para de contas por empresa, reutilizável.
 
+## Decisões tomadas na fatia 1 (auditoria e correção)
+
+[Rodada 1](../auditorias/2026-10-08-dl-077-fatia-1-rodada-1.md) reprovada,
+correção única e [reconferência](../auditorias/2026-10-08-dl-077-fatia-1-reconferencia.md)
+reprovada só pelo leitor Excel. Pela regra de parada do §3.1 não houve
+terceira rodada: as correções do Excel foram aceitas pelos **testes escritos
+pelo próprio auditor** na reconferência.
+
+- **Conta de resultado da ECD** (COD_NAT 04) só aceita receita ou despesa;
+  herdar outro tipo do pai ou do prefixo é erro.
+- **Conta pai** é o maior prefixo existente no arquivo **ou** no cadastro,
+  respeitando a fronteira de nível; aviso quando não é o prefixo imediato.
+- **Limites:** até 2.500 contas por importação (a aplicação de 5.000 levou
+  cerca de 28 s, perto do limite de tempo do servidor); até 50 níveis de
+  conta superior, contando arquivo e cadastro; caractere de controle em
+  código ou nome é recusado.
+- **Excel:** só `.xlsx`; varredura do pacote antes da biblioteca de
+  planilha, com teto de tamanho por parte, de elementos, de células e de 50
+  colunas; XML inválido vira recusa com mensagem. A troca da biblioteca por
+  um leitor próprio fica para o BL-674.
+- **CNPJ alfanumérico** (RC-46): aceito na ECD; recusado com mensagem no
+  leiaute do sistema de referência, que só define inscrição numérica
+  (PE-81).
+- **Leiaute do sistema de referência:** linha com barra no início e no fim é
+  a forma canônica (HI-91).
+- **Formato próprio do DataLedger (plano):** TXT UTF-8 (BOM aceito na
+  leitura), CRLF na escrita, separador `;`, cabeçalho
+  `codigo;nome;codigo_pai;analitica;tipo;natureza`, `analitica` S ou N, tipo
+  e natureza vazios ou nos valores do cadastro, aspas no padrão RFC 4180.
+
 ## Critérios de aceite da fatia 1
 
 1. Os quatro leitores aceitam arquivos sintéticos montados à mão segundo o

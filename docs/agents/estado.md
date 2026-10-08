@@ -244,9 +244,17 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    **REPROVADA** — nada grava com erro e a aplicação é atômica, mas: A2
    (conta de resultado da ECD herdava "ativo"), A3 (pai errado no leiaute de
    referência), A4 (planilha pequena prendia o servidor 1 a 2 minutos), A5
-   (CNPJ alfanumérico recusado, contra a RC-46), A1 e A6. Correção única em
-   andamento. Fatia 2 (exportar lançamentos e saldos) em desenvolvimento em
-   paralelo.
+   (CNPJ alfanumérico recusado, contra a RC-46), A1 e A6. Correção única
+   (`02be3ed`) e [reconferência](../auditorias/2026-10-08-dl-077-fatia-1-reconferencia.md):
+   **REPROVADA só pelo leitor Excel** (R2: XML inválido dava 500; R3:
+   planilha de 11 KB prendia o servidor ~10 s) — todo o resto aprovado. Pela
+   regra de parada do §3.1, **sem terceira rodada**: as correções do Excel e
+   de R1, R4 e R6 são aceitas pelos testes que o próprio auditor escreveu, e
+   a troca da biblioteca de planilha fica no BL-674. Em andamento.
+   **Fatias 2 e 3** (exportar lançamentos e saldos; importar lançamentos com
+   área de conferência) implementadas e integradas sobre a fatia 1 corrigida
+   (suíte completa: 6.835 aprovados, 1 reprovado de ambiente); telas da
+   importação de lançamentos em andamento; auditoria própria depois.
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `4f42117`, medida na reconferência da DL-075):**
