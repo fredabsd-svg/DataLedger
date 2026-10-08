@@ -1452,9 +1452,10 @@ class AliquotaIssMunicipal(models.Model):
     lista da LC 116 (o código de tributação nacional de 6 dígitos, cTribNac, tem
     item(2)+subitem(2)+desdobro(2)). O percentual é em pontos (5 = 5%), com 4 casas.
 
-    O limite de 2% a 5% (LC 116, art. 8º, II, e art. 8º-A) é conferido pelo serviço,
-    na entrada, e não pelo banco: o banco só segura o teto de 5%. A exceção do § 1º
-    do art. 8º-A (subitens 7.02, 7.05 e 16.01 abaixo de 2%) entra com aviso.
+    O limite de 2% a 5% (LC 116, art. 8º, II, e art. 8º-A) é conferido pelo serviço, na
+    entrada, e também pelo banco (teto e piso, CHECK abaixo), para o caso de o ORM ser usado
+    direto. A exceção do § 1º do art. 8º-A (subitens 7.02, 7.05 e 16.01 abaixo de 2%) entra
+    com aviso no serviço; o banco a deixa passar pela mesma lista.
     """
 
     escritorio = models.ForeignKey(
@@ -1503,6 +1504,11 @@ class AliquotaIssMunicipal(models.Model):
             models.CheckConstraint(
                 condition=Q(percentual__gt=0) & Q(percentual__lte=5),
                 name="aliquota_iss_percentual_ate_5",
+            ),
+            # Piso de 2% (art. 8º-A), salvo a exceção do § 1º para estes subitens (A9 da DL-076).
+            models.CheckConstraint(
+                condition=Q(percentual__gte=2) | Q(subitem__in=["07.02", "07.05", "16.01"]),
+                name="aliquota_iss_piso_2_salvo_excecao",
             ),
             models.CheckConstraint(
                 condition=~Q(fonte=""),

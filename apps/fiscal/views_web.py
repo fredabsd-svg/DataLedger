@@ -89,7 +89,6 @@ from apps.fiscal import pre_das as servico_pre_das
 from apps.fiscal import rbt12 as apuracao
 from apps.fiscal import receita as servico_receita
 from apps.fiscal import simples_tabelas as tabelas
-from apps.fiscal.iss_nota import campos_iss_do_documento
 from apps.fiscal.models import (
     AliquotaIssMunicipal,
     AtividadeEmpresa,
@@ -2244,6 +2243,11 @@ def _data_na_tela(data) -> str:
     return data.strftime("%d/%m/%Y") if data is not None else ""
 
 
+def _vencimento_na_tela(data) -> str:
+    """Data nominal do vencimento na tela (A7): a regra mora em `iss_municipal.data_nominal_br`."""
+    return servico_iss.data_nominal_br(data)
+
+
 # ---------------------------------------------------------------------------
 # URLs e filtros das telas do Simples
 # ---------------------------------------------------------------------------
@@ -3302,22 +3306,9 @@ def _aviso_na_tela(aviso) -> dict:
     return {"mensagem": aviso.mensagem, "dispositivo": aviso.dispositivo}
 
 
-def _documentos_das_notas(escritorio, identificadores) -> dict:
-    """DocumentoFiscal de cada nota, por identificador, do escritório. A apuração não devolve o
-    tomador nem a alíquota aplicada da nota, e a tela os lê do próprio documento."""
-    documentos = DocumentoFiscal.objects.filter(
-        escritorio=escritorio, identificador__in=list(identificadores)
-    )
-    return {documento.identificador: documento for documento in documentos}
-
-
-def _nota_apurada_na_tela(nota, documento) -> dict:
-    campos = campos_iss_do_documento(documento) if documento is not None else None
-    tomador = (
-        _tomador_texto(documento.tomador_nome, documento.tomador_documento)
-        if documento is not None
-        else "—"
-    )
+def _nota_apurada_na_tela(nota) -> dict:
+    # Tomador e alíquota aplicada vêm da apuração (A6): a tela não relê o XML da nota.
+    tomador = _tomador_texto(nota.tomador_nome, nota.tomador_documento)
     # Esperado e diferença saem com 4 casas: com 2, uma diferença de centavos (a que a tolerância
     # de R$ 0,01 decide) ficaria escondida atrás do arredondamento de exibição.
     return {
@@ -3325,7 +3316,7 @@ def _nota_apurada_na_tela(nota, documento) -> dict:
         "tomador": tomador,
         "subitem": nota.subitem,
         "base": _dinheiro_ptbr(nota.v_bc),
-        "aliquota_nota": _aliquota_ptbr(campos.p_aliq_aplic) if campos is not None else "—",
+        "aliquota_nota": _aliquota_ptbr(nota.p_aliq_aplic),
         "iss": _dinheiro_ptbr(nota.v_iss_qn),
         "aliquota_cadastrada": _aliquota_ptbr(nota.aliquota_cadastrada),
         "esperado": _decimal_ptbr(nota.esperado, 4),
@@ -3354,16 +3345,18 @@ def _memoria_na_tela(memoria) -> list[dict]:
 
 
 def _bloco_da_apuracao(empresa, resultado) -> dict:
-    documentos = _documentos_das_notas(
-        empresa.escritorio, [nota.identificador for nota in resultado.notas]
-    )
-    notas = [_nota_apurada_na_tela(n, documentos.get(n.identificador)) for n in resultado.notas]
+    notas = [_nota_apurada_na_tela(n) for n in resultado.notas]
+    # HI-89 (A2): o aviso de notas não escrituradas tem tela própria (destaque e link). Os demais
+    # avisos seguem na lista comum, e este não aparece duas vezes.
+    pendentes_de_escrituracao = [
+        a for a in resultado.avisos if a.codigo == servico_iss.CODIGO_NOTAS_NAO_ESCRITURADAS
+    ]
     return {
         "total": _dinheiro_ptbr(resultado.total),
         "municipio": f"{resultado.nome_municipio} ({resultado.municipio_ibge})",
         "regime": RegimeIss(resultado.regime).label,
-        "vencimento_proprio": _data_na_tela(resultado.vencimento_proprio),
-        "vencimento_retido": _data_na_tela(resultado.vencimento_retido),
+        "vencimento_proprio": _vencimento_na_tela(resultado.vencimento_proprio),
+        "vencimento_retido": _vencimento_na_tela(resultado.vencimento_retido),
         "regra_dia_nao_util": resultado.regra_dia_nao_util,
         # O dispositivo da regra de vencimento é a constante que o próprio serviço usa no passo 2
         # da memória: a tela cita a mesma fonte, sem reescrevê-la.
@@ -3371,7 +3364,14 @@ def _bloco_da_apuracao(empresa, resultado) -> dict:
         "aviso_multa": resultado.aviso_multa or "",
         "notas": notas,
         "pendencias": [n["numero"] for n in notas if not n["conferida"]],
-        "avisos": [_aviso_na_tela(a) for a in resultado.avisos],
+        "avisos": [
+            _aviso_na_tela(a)
+            for a in resultado.avisos
+            if a.codigo != servico_iss.CODIGO_NOTAS_NAO_ESCRITURADAS
+        ],
+        "escrituracao_pendente": (
+            _aviso_na_tela(pendentes_de_escrituracao[0]) if pendentes_de_escrituracao else None
+        ),
         "memoria": _memoria_na_tela(resultado.memoria),
     }
 
@@ -3401,6 +3401,9 @@ def _contexto_da_apuracao(empresa, ano, mes) -> dict:
         "url_aliquotas": _url_aliquotas(),
         "url_regimes": _url_com_filtro("fiscal_web:iss_regimes", empresa),
         "url_retido": _url_com_filtro("fiscal_web:iss_retido_sofrido", empresa, ano=ano, mes=mes),
+        "url_escriturar": _url_com_filtro(
+            "fiscal_web:notas_a_escriturar", empresa, ano=ano, mes=mes
+        ),
         "url_outros": _url_com_filtro(
             "fiscal_web:iss_outros_municipios", empresa, ano=ano, mes=mes
         ),
@@ -3461,7 +3464,7 @@ def _grupo_na_tela(grupo, nomes) -> dict:
         "municipio": _rotulo_do_municipio(grupo.municipio_ibge, nomes),
         "total": _dinheiro_ptbr(grupo.total),
         "incompletas": ", ".join(grupo.incompletas) or "—",
-        "vencimento_retido": _data_na_tela(grupo.vencimento_retido) or "—",
+        "vencimento_retido": _vencimento_na_tela(grupo.vencimento_retido) or "—",
         "aviso": grupo.aviso or "",
     }
 
@@ -3636,10 +3639,21 @@ def _percentual_do_formulario(bruto: str):
     número decimal sem sinal é recusado aqui, e o serviço cuida da faixa e das casas."""
     if not bruto.strip():
         raise servico_iss.EntradaInvalidaIss("Informe a alíquota em percentual (ex.: 5,00).")
+    # ValorAmbiguo é subclasse de ValorInvalidoNoFormulario, por isso vem primeiro. A classe-base
+    # cobre '5,00,0', '1.23,4' e similares, que antes subiam como 500 (A1 da auditoria DL-076).
     try:
         texto = _valor_do_formulario(bruto)
     except ValorAmbiguo as exc:
-        raise servico_iss.EntradaInvalidaIss(str(exc)) from exc
+        # Mensagem do campo percentual, sem "reais" (A8): o texto do helper fala em reais.
+        raise servico_iss.EntradaInvalidaIss(
+            "Valor ambíguo na alíquota: sem vírgula, o ponto é lido como separador de milhar. "
+            "Escreva a alíquota com vírgula para as casas decimais (ex.: 5,00 para 5%)."
+        ) from exc
+    except ValorInvalidoNoFormulario as exc:
+        raise servico_iss.EntradaInvalidaIss(
+            "Alíquota inválida: use um número com no máximo uma vírgula para as casas decimais "
+            "(ex.: 5,00)."
+        ) from exc
     if not _so_digitos_com_ponto_decimal(texto):
         raise servico_iss.EntradaInvalidaIss(
             "A alíquota aceita só números, com vírgula para as casas decimais (ex.: 5,00)."

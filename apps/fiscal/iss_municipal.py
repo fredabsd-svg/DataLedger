@@ -51,7 +51,12 @@ from django.utils import timezone
 
 from apps.auditoria.services import registrar
 from apps.empresas.models import Empresa
-from apps.fiscal.iss_nota import campos_iss_do_documento, divergencia_de_base
+from apps.fiscal.escrituracao import (
+    SITUACAO_A_ESCRITURAR,
+    SITUACAO_RASCUNHO,
+    notas_a_escriturar,
+)
+from apps.fiscal.iss_nota import ausentes_que_alertam, campos_iss_do_documento, divergencia_de_base
 from apps.fiscal.models import (
     AliquotaIssMunicipal,
     EscrituracaoFiscal,
@@ -92,6 +97,14 @@ DISP_CANCELADA = "DL-072, critério 5 (nota cancelada depois de escriturada); es
 DISP_RETIDO = "HI-86; LC 116/2003, art. 6º; RCTM arts. 141 a 148 (cópia legisweb)"
 DISP_MULTA = "LC 285/2013, art. 142, I–III e § 1º (cópia legisweb; consulta de 08/10/2026, item 9)"
 DISP_ART_3 = "LC 116/2003, art. 3º, caput, incisos I a XXV, e §§ 1º e 2º (texto do Planalto)"
+DISP_ESCRITURACAO = (
+    "HI-89 (auditoria DL-076, A2); DL-072: só a escrituração efetivada entra no total"
+)
+DISP_NATUREZA = "HI-85; LC 116/2003, art. 3º (incidência no município do estabelecimento)"
+
+# Código do aviso de notas prestadas da competência ainda não escrituradas (HI-89). A tela
+# destaca este aviso e leva à escrituração; a API o devolve em `avisos`.
+CODIGO_NOTAS_NAO_ESCRITURADAS = "notas_nao_escrituradas"
 
 # Alíquota mínima, com a exceção do § 1º do art. 8º-A: estes subitens podem sair abaixo de
 # 2% sem nulidade, por isso entram com aviso e não são recusados.
@@ -105,6 +118,9 @@ _CONTEXTO_EXATO = Context(prec=60)
 
 _ANO_MINIMO, _ANO_MAXIMO = 1970, 2999
 _EXERCICIO_MINIMO, _EXERCICIO_MAXIMO = 2000, 2999
+# Vigência de alíquota: datas fora de 2000 a 2100 são erro de digitação (A9 da auditoria DL-076).
+# O sistema não tem data de vigência nesses extremos; o limite é só para recusar o absurdo.
+_VIGENCIA_ALIQUOTA_MINIMA, _VIGENCIA_ALIQUOTA_MAXIMA = date(2000, 1, 1), date(2100, 12, 31)
 
 _PADRAO_MUNICIPIO = re.compile(r"[0-9]{7}")
 _PADRAO_SUBITEM = re.compile(r"(0[1-9]|[12][0-9]|3[0-9]|40)\.(0[1-9]|[1-9][0-9])")
@@ -118,6 +134,7 @@ _RESTRICOES_DE_ENTRADA_ALIQUOTA = frozenset(
         "aliquota_iss_percentual_ate_5",
         "aliquota_iss_fonte_preenchida",
         "aliquota_iss_fim_depois_do_inicio",
+        "aliquota_iss_piso_2_salvo_excecao",
     }
 )
 _RESTRICOES_DE_ENTRADA_REGIME = frozenset(
@@ -258,6 +275,10 @@ class NotaApurada:
     diferenca: Decimal
     conferida: bool
     avisos: tuple[str, ...] = ()
+    # Lidos uma vez, na apuração, para a tela não reler o XML da nota (A6 da auditoria DL-076).
+    p_aliq_aplic: Decimal | None = None
+    tomador_documento: str = ""
+    tomador_nome: str = ""
 
 
 @dataclass(frozen=True)
@@ -359,6 +380,20 @@ def _data_br(valor: date) -> str:
     return valor.strftime("%d/%m/%Y")
 
 
+_DIA_DE_FIM_DE_SEMANA = {5: "sábado", 6: "domingo"}
+
+
+def data_nominal_br(valor: date | None) -> str:
+    """Data NOMINAL do vencimento em dd/mm/aaaa, com o dia da semana quando cai em sábado ou
+    domingo (HI-90, item 4; auditoria A7). Não calcula feriado nem afirma outra data: o dia útil
+    seguinte é texto da regra (HI-83), mostrado ao lado."""
+    if valor is None:
+        return ""
+    texto = _data_br(valor)
+    dia = _DIA_DE_FIM_DE_SEMANA.get(valor.weekday())
+    return f"{texto} ({dia})" if dia else texto
+
+
 def _cobre_o_mes(inicio: date, fim: date | None, primeiro: date, ultimo: date) -> bool:
     return inicio <= primeiro and (fim is None or fim >= ultimo)
 
@@ -431,8 +466,23 @@ def _regra_do_mes(municipio: str, ano: int, mes: int) -> tuple[RegraIssMunicipio
     return None, "sobrepostas"
 
 
-def _aliquotas_que_cobrem_o_mes(
-    escritorio: Escritorio, municipio: str, subitem: str, ano: int, mes: int
+def _aliquotas_do_municipio(
+    escritorio: Escritorio, municipio: str
+) -> dict[str, list[AliquotaIssMunicipal]]:
+    """Alíquotas do ESCRITÓRIO no município, por subitem. Uma consulta para a apuração inteira
+    (A6 da auditoria DL-076): antes havia uma por nota. O filtro por escritório fica aqui, e
+    nenhuma alíquota de outro escritório entra no dicionário (AGENTS.md §11)."""
+    por_subitem: dict[str, list[AliquotaIssMunicipal]] = {}
+    consulta = AliquotaIssMunicipal.objects.filter(
+        escritorio=escritorio, municipio_ibge=municipio
+    ).order_by("subitem", "inicio_vigencia", "id")
+    for aliquota in consulta:
+        por_subitem.setdefault(aliquota.subitem, []).append(aliquota)
+    return por_subitem
+
+
+def _cobertura_do_mes(
+    aliquotas: list[AliquotaIssMunicipal], ano: int, mes: int
 ) -> tuple[list[AliquotaIssMunicipal], bool]:
     """(alíquotas que cobrem o mês INTEIRO, há alguma que toca só parte do mês).
 
@@ -440,20 +490,27 @@ def _aliquotas_que_cobrem_o_mes(
     único para a competência, e a apuração recusa com o motivo, em vez de escolher uma.
     """
     primeiro, ultimo = _primeiro_e_ultimo(ano, mes)
-    base = AliquotaIssMunicipal.objects.filter(
-        escritorio=escritorio, municipio_ibge=municipio, subitem=subitem
-    )
     cobrindo = [
         aliquota
-        for aliquota in base
+        for aliquota in aliquotas
         if _cobre_o_mes(aliquota.inicio_vigencia, aliquota.fim_vigencia, primeiro, ultimo)
     ]
     parcial = any(
         _toca_o_mes(a.inicio_vigencia, a.fim_vigencia, primeiro, ultimo)
         and not _cobre_o_mes(a.inicio_vigencia, a.fim_vigencia, primeiro, ultimo)
-        for a in base
+        for a in aliquotas
     )
     return cobrindo, parcial
+
+
+def _notas_nao_escrituradas(empresa: Empresa, ano: int, mes: int) -> list:
+    """Notas PRESTADAS da empresa na competência que ainda não estão efetivadas: a escriturar
+    ou em rascunho (HI-89). Canceladas ficam de fora: o cancelamento já é tratado à parte."""
+    return [
+        nota
+        for nota in notas_a_escriturar(empresa, ano, mes)
+        if nota.situacao in (SITUACAO_A_ESCRITURAR, SITUACAO_RASCUNHO)
+    ]
 
 
 def _regime_do_exercicio(empresa: Empresa, ano: int) -> RegimeIssEmpresa | None:
@@ -498,6 +555,25 @@ def _notas_do_regime_fixo(empresa: Empresa, ano: int, mes: int) -> tuple[NotaDeR
     return tuple(
         _nota_de_relatorio(esc, anotadas)
         for esc in _escrituracoes_da_competencia(empresa, ano, mes)
+    )
+
+
+def _aviso_natureza_incompativel(documento, anotadas, municipio) -> AvisoIss | None:
+    """Aviso A3 (auditoria DL-076): nota escriturada como "ISS devido a outro município" cujo
+    `cLocIncid` é o município do estabelecimento. É o espelho da incidência em outro município
+    (que já avisa quando a natureza é "devido"). A nota cancelada não avisa: fica fora dos
+    relatórios de qualquer forma. Sem município do estabelecimento não há com o que comparar."""
+    if municipio is None or _cancelada(documento, anotadas):
+        return None
+    c_loc_incid = campos_iss_do_documento(documento).c_loc_incid
+    if c_loc_incid is None or c_loc_incid != municipio:
+        return None
+    return AvisoIss(
+        "natureza_incompativel_com_incidencia",
+        f"Nota {_numero(documento)} está escriturada como ISS devido a outro município, mas o "
+        f"local de incidência (cLocIncid {c_loc_incid}) é o município do estabelecimento "
+        f"({municipio}). Confira a natureza escriturada e o cLocIncid da nota.",
+        DISP_NATUREZA,
     )
 
 
@@ -603,9 +679,17 @@ def apuracao_iss_proprio(
     if apura_por_nota:
         escrituracoes = _escrituracoes_da_competencia(empresa, ano, mes)
         anotadas = _canceladas(empresa, ano, mes)
+        # Uma consulta de alíquotas para o município inteiro (A6), indexada por subitem.
+        por_subitem = _aliquotas_do_municipio(empresa.escritorio, municipio)
         for esc in escrituracoes:
-            # Só o ISS devido pelo prestador entra. Retido, outro município, exportação,
-            # imune e fora da lista seguem outro caminho e não somam aqui (HI-82, HI-86).
+            # Retido, exportação, imune e fora da lista seguem outro caminho e não somam aqui
+            # (HI-82, HI-86). Outro município não soma, mas pode estar com a natureza errada (A3).
+            if esc.natureza == NaturezaOperacao.PRESTADO_ISS_OUTRO_MUNICIPIO:
+                aviso = _aviso_natureza_incompativel(esc.vinculo.documento, anotadas, municipio)
+                if aviso is not None:
+                    avisos.append(aviso)
+                continue
+            # Só o ISS devido pelo prestador entra (HI-82).
             if esc.natureza != NaturezaOperacao.PRESTADO_ISS_DEVIDO_PRESTADOR:
                 continue
             documento = esc.vinculo.documento
@@ -654,9 +738,7 @@ def apuracao_iss_proprio(
                 )
                 continue
 
-            cobrindo, parcial = _aliquotas_que_cobrem_o_mes(
-                empresa.escritorio, municipio, campos.subitem, ano, mes
-            )
+            cobrindo, parcial = _cobertura_do_mes(por_subitem.get(campos.subitem, []), ano, mes)
             if len(cobrindo) > 1:
                 # Não deveria existir: o cadastro recusa a sobreposição. Se existir, não se escolhe.
                 aliquota_sobreposta.add(campos.subitem)
@@ -689,9 +771,28 @@ def apuracao_iss_proprio(
                     diferenca=diferenca,
                     conferida=conferida,
                     avisos=(aviso_base,) if aviso_base else (),
+                    p_aliq_aplic=campos.p_aliq_aplic,
+                    tomador_documento=documento.tomador_documento,
+                    tomador_nome=documento.tomador_nome,
                 )
             )
             total += campos.v_iss_qn
+
+        # HI-89 (A2): notas prestadas da competência ainda não escrituradas ficam fora do total.
+        # Aviso forte, não bloqueio: a guia sai das notas no portal, e esta conta é conferência.
+        pendentes = _notas_nao_escrituradas(empresa, ano, mes)
+        if pendentes:
+            numeros = ", ".join(_numero(nota.documento) for nota in pendentes)
+            avisos.append(
+                AvisoIss(
+                    CODIGO_NOTAS_NAO_ESCRITURADAS,
+                    f"{len(pendentes)} nota(s) prestada(s) na competência ainda não "
+                    f"escriturada(s) ou em rascunho, fora deste total: {numeros}. A apuração "
+                    "soma só as notas efetivadas: escriture ou efetive essas notas e confira "
+                    "antes de guiar.",
+                    DISP_ESCRITURACAO,
+                )
+            )
 
     if aliquota_sobreposta:
         bloqueios.append(
@@ -752,8 +853,9 @@ def apuracao_iss_proprio(
         PassoIss(
             2,
             "Vencimento do ISS próprio (dia do mês seguinte) e do retido",
-            f"próprio {_data_br(vencimento_proprio)} (dia {regra.dia_vencimento_proprio}); "
-            f"retido {_data_br(vencimento_retido)} (dia {regra.dia_vencimento_retido})",
+            f"próprio dia {regra.dia_vencimento_proprio}: {data_nominal_br(vencimento_proprio)}; "
+            f"retido dia {regra.dia_vencimento_retido}: {data_nominal_br(vencimento_retido)}; "
+            "datas nominais",
             DISP_REGRA,
         ),
         PassoIss(
@@ -804,7 +906,8 @@ def apuracao_iss_proprio(
 def _nota_de_relatorio(esc, anotadas: dict[int, bool]) -> NotaDeRelatorio:
     documento = esc.vinculo.documento
     campos = campos_iss_do_documento(documento)
-    ausentes = tuple(campos.ausentes) + tuple(campos.invalidos)
+    # Só ausente que o produto exige alerta: campo opcional do XSD ausente é normal (A11).
+    ausentes = ausentes_que_alertam(campos) + tuple(campos.invalidos)
     if campos.erro_leitura:
         ausentes = (f"XML ilegível: {campos.erro_leitura}",)
     return NotaDeRelatorio(
@@ -950,6 +1053,11 @@ def relatorio_iss_outros_municipios(
         notas.append(nota)
         if nota.cancelada:
             continue
+        aviso_natureza = _aviso_natureza_incompativel(
+            esc.vinculo.documento, anotadas, municipio_prestador
+        )
+        if aviso_natureza is not None:
+            avisos.append(aviso_natureza)
         p = nota.p_aliq_aplic
         if p is not None and not (Decimal("2") <= p <= Decimal("5")):
             avisos.append(
@@ -1008,7 +1116,7 @@ def _subitem(valor) -> str:
     if not _PADRAO_SUBITEM.fullmatch(texto):
         raise EntradaInvalidaIss(
             "O subitem tem o formato II.SS da lista da LC 116, com item de 01 a 40 "
-            "(ex.: 17.01, 7.02)."
+            "(ex.: 17.01, 07.02)."
         )
     return texto
 
@@ -1083,6 +1191,13 @@ def _validar_aliquota(
         raise EntradaInvalidaIss("Informe o início da vigência (AAAA-MM-DD).")
     if fim is not None and not isinstance(fim, date):
         raise EntradaInvalidaIss("O fim da vigência tem de ser uma data (AAAA-MM-DD).")
+    # Limite sensato para a data de vigência (A9): o erro de digitação (ano 0001, 9999) não
+    # vira alíquota. Não é regra legal: é só a faixa em que a alíquota pode ter sido cadastrada.
+    for nome, data in (("início", inicio), ("fim", fim)):
+        if data is not None and not _VIGENCIA_ALIQUOTA_MINIMA <= data <= _VIGENCIA_ALIQUOTA_MAXIMA:
+            raise EntradaInvalidaIss(
+                f"A data de {nome} da vigência tem de estar entre 2000 e 2100."
+            )
     if fim is not None and fim < inicio:
         raise EntradaInvalidaIss("O fim da vigência é anterior ao início.")
 

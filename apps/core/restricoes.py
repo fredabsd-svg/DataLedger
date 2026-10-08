@@ -484,6 +484,7 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     "aliquota_iss_codigo_ibge": "apps.fiscal.iss_municipal._gravar_aliquota",
     "aliquota_iss_subitem_valido": "apps.fiscal.iss_municipal._gravar_aliquota",
     "aliquota_iss_percentual_ate_5": "apps.fiscal.iss_municipal._gravar_aliquota",
+    "aliquota_iss_piso_2_salvo_excecao": "apps.fiscal.iss_municipal._gravar_aliquota",
     "aliquota_iss_fonte_preenchida": "apps.fiscal.iss_municipal._gravar_aliquota",
     "aliquota_iss_fim_depois_do_inicio": "apps.fiscal.iss_municipal._gravar_aliquota",
     "regime_iss_unico_por_empresa_exercicio": "apps.fiscal.iss_municipal._gravar_regime",

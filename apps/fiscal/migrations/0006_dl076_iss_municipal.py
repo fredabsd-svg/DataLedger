@@ -7,8 +7,8 @@
 #
 # Fonte da regra: Decreto 1.667/2018 (RCTM de Palmas), art. 86 § 3º e Anexo I, cópia
 # íntegra em legisweb, consultada em 08/10/2026 (consulta do contador-senior, item 2).
-# A vigência começa em 01/01/2019 conforme o plano DL-076 (HIPÓTESE, HI-83, a registrar
-# pelo arquiteto); o decreto é de 06/12/2018.
+# A vigência começa em 01/01/2019 conforme o plano DL-076 (HIPÓTESE, HI-83; a conferência
+# da vigência está registrada em HI-90, item 1); o decreto é de 06/12/2018.
 
 import datetime
 

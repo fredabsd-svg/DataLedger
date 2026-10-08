@@ -92,6 +92,28 @@ CAMINHO_TP_RET_ISSQN = (
     "tribMun",
     "tpRetISSQN",
 )  # 1.01: :1909 | 1.00: :1528
+# Termos da fórmula do vBC que o XSD 1.01 traz (tiposComplexos_v1.01.xsd:250, em TCValoresNFSe):
+#   vBC = vServ - descIncond - (vDR ou vCalcDR + vCalcReeRepRes) - (vRedBCBM ou VCalcBM)
+# (o XSD escreve "VCalcBM" com V maiúsculo; o elemento é vCalcBM, linha :239). Os três são
+# opcionais (minOccurs=0). A versão 1.00 não traz o texto da fórmula no vBC e não tem o grupo
+# IBSCBS, por isso `vCalcReeRepRes` não existe nela.
+CAMINHO_V_CALC_BM = ("infNFSe", "valores", "vCalcBM")  # 1.01: :239 | 1.00: :230
+CAMINHO_V_RED_BC_BM = (
+    "infNFSe",
+    "DPS",
+    "infDPS",
+    "valores",
+    "trib",
+    "tribMun",
+    "BM",
+    "vRedBCBM",
+)  # 1.01: :1948 (escolha com pRedBCBM) | 1.00: :1562
+CAMINHO_V_CALC_REE_REP_RES = (
+    "infNFSe",
+    "IBSCBS",
+    "valores",
+    "vCalcReeRepRes",
+)  # 1.01: :338 (grupo IBSCBS da NFS-e) | 1.00: inexistente
 
 # Padrões dos tipos simples do XSD, usados como `fullmatch`.
 # TSDec15V2: "0|0\.[0-9]{2}|[1-9][0-9]{0,14}(\.[0-9]{2})?" (tiposSimples_v1.01.xsd, :1432).
@@ -135,12 +157,40 @@ class CamposIss:
     v_iss_qn: Decimal | None = None
     trib_issqn: str | None = None
     tp_ret_issqn: str | None = None
+    # Termos da fórmula do vBC (A10): benefício municipal (vCalcBM, ou vRedBCBM do BM da DPS)
+    # e reembolso (vCalcReeRepRes). Opcionais; ausência é tratada em `divergencia_de_base`.
+    v_calc_bm: Decimal | None = None
+    v_red_bc_bm: Decimal | None = None
+    v_calc_ree_rep_res: Decimal | None = None
     ausentes: tuple[str, ...] = ()
     invalidos: tuple[str, ...] = ()
 
 
 def _legivel(caminho) -> str:
     return "/".join(("NFSe",) + tuple(caminho))
+
+
+# Campos que o XSD torna opcionais e que o produto não exige (minOccurs=0 e fora da apuração e
+# dos relatórios). A ausência é normal: não entra no alerta do relatório (A11 da auditoria
+# DL-076). vBC, pAliqAplic e vISSQN também são minOccurs=0 no XSD, mas o produto os exige
+# (DL-076, item 1), por isso NÃO estão aqui.
+CAMINHOS_OPCIONAIS = frozenset(
+    _legivel(caminho)
+    for caminho in (
+        CAMINHO_V_DESC_INCOND,
+        CAMINHO_V_DR,
+        CAMINHO_V_CALC_DR,
+        CAMINHO_V_CALC_BM,
+        CAMINHO_V_RED_BC_BM,
+        CAMINHO_V_CALC_REE_REP_RES,
+    )
+)
+
+
+def ausentes_que_alertam(campos: CamposIss) -> tuple[str, ...]:
+    """Campos AUSENTES que o produto precisa (sem os opcionais do XSD). Campo presente e
+    ilegível não passa por aqui: está em `invalidos` e sempre alerta."""
+    return tuple(caminho for caminho in campos.ausentes if caminho not in CAMINHOS_OPCIONAIS)
 
 
 def _elemento(raiz, caminho):
@@ -215,6 +265,11 @@ def ler_campos_iss(xml_bytes: bytes, versao: str) -> CamposIss:
         v_iss_qn=_decimal(raiz, CAMINHO_V_ISSQN, _PADRAO_DEC15V2, ausentes, invalidos),
         trib_issqn=trib_issqn,
         tp_ret_issqn=tp_ret,
+        v_calc_bm=_decimal(raiz, CAMINHO_V_CALC_BM, _PADRAO_DEC15V2, ausentes, invalidos),
+        v_red_bc_bm=_decimal(raiz, CAMINHO_V_RED_BC_BM, _PADRAO_DEC15V2, ausentes, invalidos),
+        v_calc_ree_rep_res=_decimal(
+            raiz, CAMINHO_V_CALC_REE_REP_RES, _PADRAO_DEC15V2, ausentes, invalidos
+        ),
         ausentes=tuple(ausentes),
         invalidos=tuple(invalidos),
     )
@@ -226,35 +281,40 @@ def campos_iss_do_documento(documento) -> CamposIss:
 
 
 def divergencia_de_base(campos: CamposIss) -> str | None:
-    """Aviso quando `vBC` não bate com `vServ − vDescIncond − deduções` (DL-076, item 5).
+    """Aviso quando `vBC` não bate com a fórmula do XSD (DL-076, item 5; auditoria A10).
 
-    A base de conferência é `vBC` (HI-82). Esta função só informa o que o XML diz de
-    diferente. A dedução usada é `vDedRed/vDR` (da DPS) quando existe, senão
-    `vCalcDR` (da NFS-e), como na fórmula do próprio XSD (`vBC = vServ - descIncond -
-    (vDR ou vCalcDR + vCalcReeRepRes) - ...`, tiposComplexos_v1.01.xsd:246).
+    Fórmula, conforme `tiposComplexos_v1.01.xsd:250` (TCValoresNFSe, linha do elemento vBC
+    em :246):
 
-    Se falta um termo, o aviso só sai quando `vBC` difere de `vServ`, e nomeia o que
-    faltou. Não se presume zero no termo ausente.
+        vBC = vServ - vDescIncond - (vDR ou vCalcDR + vCalcReeRepRes) - (vRedBCBM ou vCalcBM)
+
+    Caminhos dos termos (ver as constantes CAMINHO_* acima): `vServ` e `vDescIncond` em
+    `infDPS/valores`; `vDR` em `infDPS/valores/vDedRed`; `vCalcDR` e `vCalcBM` em
+    `infNFSe/valores`; `vCalcReeRepRes` em `infNFSe/IBSCBS/valores`; `vRedBCBM` no BM de
+    `infDPS/valores/trib/tribMun`. A versão 1.00 não traz o texto da fórmula; a conta vale
+    para as duas, porque os termos novos não existem na 1.00.
+
+    Regra de ausência (decisão do arquiteto, DL-076 auditoria A10, dúvidas 3 e 4): TODO termo
+    opcional da fórmula (minOccurs=0 no XSD) que estiver ausente conta como ZERO nesta conta:
+    vDescIncond, vDR, vCalcDR, vCalcReeRepRes, vCalcBM e vRedBCBM. Isto vale só para o AVISO
+    de base. O total continua sendo a soma do vISSQN, e a conferência não muda. Limite
+    conhecido: benefício dado só em percentual (`pRedBCBM`) não entra na fórmula; sem `vCalcBM`
+    o aviso pode sair, e a mensagem mostra os números para o contador conferir.
+
+    Campos obrigatórios (vServ, vBC) ausentes não entram aqui: a função não avisa nada.
     """
     if campos.v_serv is None or campos.v_bc is None:
         return None
+    desconto = campos.v_desc_incond if campos.v_desc_incond is not None else Decimal(0)
     deducoes = campos.v_dr if campos.v_dr is not None else campos.v_calc_dr
-    if campos.v_desc_incond is not None and deducoes is not None:
-        recomposta = campos.v_serv - campos.v_desc_incond - deducoes
-        if recomposta != campos.v_bc:
-            return (
-                f"vBC ({campos.v_bc}) difere de vServ − vDescIncond − deduções "
-                f"({recomposta}) no XML"
-            )
-        return None
-    if campos.v_bc != campos.v_serv:
-        faltam = []
-        if campos.v_desc_incond is None:
-            faltam.append("vDescIncond")
-        if deducoes is None:
-            faltam.append("deduções (vDedRed/vDR ou vCalcDR)")
+    deducoes = deducoes if deducoes is not None else Decimal(0)
+    reembolso = campos.v_calc_ree_rep_res if campos.v_calc_ree_rep_res is not None else Decimal(0)
+    beneficio = campos.v_calc_bm if campos.v_calc_bm is not None else campos.v_red_bc_bm
+    beneficio = beneficio if beneficio is not None else Decimal(0)
+    recomposta = campos.v_serv - desconto - deducoes - reembolso - beneficio
+    if recomposta != campos.v_bc:
         return (
-            f"vBC ({campos.v_bc}) difere de vServ ({campos.v_serv}) e a diferença não "
-            f"pode ser explicada: campo(s) ausente(s) {', '.join(faltam)}"
+            f"vBC ({campos.v_bc}) difere de vServ − vDescIncond − deduções "
+            f"({recomposta}) no XML; termos opcionais ausentes contam como zero"
         )
     return None

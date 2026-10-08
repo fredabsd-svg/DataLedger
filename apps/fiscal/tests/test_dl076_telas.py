@@ -374,7 +374,8 @@ def test_tela_iss_retido_sofrido_totais_por_municipio(client, cenario, empresa_a
         r'<th scope="row">Palmas \(TO\) \(1721000\)</th>\s*<td class="valor-monetario">30,00</td>',
         html,
     )
-    assert re.search(r'<td class="valor-monetario">15/11/2026</td>', html)
+    # A7 (auditoria DL-076): 15/11/2026 é domingo; a data nominal sai com o dia da semana.
+    assert re.search(r'<td class="valor-monetario">15/11/2026 \(domingo\)</td>', html)
     nota = _linha(html, "2001")
     assert _celulas_monetarias(nota) == ["1.000,00", "5,0000%", "30,00"]
     assert "Retido pelo tomador" in nota

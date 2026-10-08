@@ -202,13 +202,14 @@ def test_divergencia_de_base_avisa_quando_vbc_nao_bate_com_os_termos():
     assert "900" in aviso and "850" in aviso
 
 
-def test_divergencia_de_base_nomeia_termo_ausente_em_vez_de_presumir_zero():
-    # vBC menor que vServ e sem vDescIncond: a diferença não se explica pelo XML. O aviso
-    # nomeia o termo ausente, e não assume que ele vale zero.
+def test_divergencia_de_base_termo_opcional_ausente_conta_como_zero():
+    # Decisão do arquiteto (DL-076, auditoria A10, dúvida 4): vDescIncond é minOccurs=0 e, ausente,
+    # conta como zero no aviso. Com vServ 1000 e vBC 900 sem nenhum termo, a recomposição é 1000,
+    # e o aviso mostra esse número e diz que o opcional ausente vale zero.
     campos = _ler(xml_nfse_iss(v_serv="1000.00", v_bc="900.00"))
     aviso = iss_nota.divergencia_de_base(campos)
     assert aviso is not None
-    assert "vDescIncond" in aviso
+    assert "(1000.00)" in aviso and "contam como zero" in aviso
 
 
 def test_divergencia_de_base_silenciosa_quando_vbc_igual_a_vserv_sem_termos():

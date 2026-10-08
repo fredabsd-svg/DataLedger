@@ -131,7 +131,7 @@ bloqueia o total.
                 <dd>{{ regime }}</dd>
             </div>
             <div>
-                <dt>Vencimento do ISS próprio (dia do mês seguinte)</dt>
+                <dt>Vencimento nominal do ISS próprio (dia do mês seguinte)</dt>
                 <dd>{{ vencimento_proprio }}</dd>
             </div>
             <div>
@@ -139,7 +139,7 @@ bloqueia o total.
                 <dd>{{ regra_dia_nao_util }}<br><span class="texto-apoio">Dispositivo: {{ dispositivo_do_vencimento }}</span></dd>
             </div>
             <div>
-                <dt>Vencimento do ISS retido (informativo)</dt>
+                <dt>Vencimento nominal do ISS retido (informativo)</dt>
                 <dd>{{ vencimento_retido }}</dd>
             </div>
         </dl>
@@ -147,6 +147,15 @@ bloqueia o total.
             <p class="mensagem mensagem-warning" role="alert">
                 <strong>Atenção:</strong> {{ aviso_multa }}
             </p>
+        {% endif %}
+
+        {% if escrituracao_pendente %}
+            <div class="painel-etapa painel-etapa--risco" role="alert">
+                <h2>Notas do mês ainda não escrituradas</h2>
+                <p>{{ escrituracao_pendente.mensagem }}</p>
+                <p><a class="botao botao--secundario botao--pequeno" href="{{ url_escriturar }}">Escriturar as notas da competência</a></p>
+                <p class="texto-apoio">Dispositivo: {{ escrituracao_pendente.dispositivo }}</p>
+            </div>
         {% endif %}
 
         {% if pendencias %}

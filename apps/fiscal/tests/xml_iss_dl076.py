@@ -47,12 +47,20 @@ def xml_nfse_iss(
     tp_ret_issqn: str = "1",
     trib_issqn: str | None = "1",
     v_liq: str = "1000.00",
+    v_calc_bm: str | None = None,
+    v_red_bc_bm: str | None = None,
+    v_calc_ree_rep_res: str | None = None,
     omitir: frozenset[str] = frozenset(),
 ) -> bytes:
     """NFS-e sintética com os campos de ISS. Padrão: ISS devido, 5%, sobre R$ 1.000,00.
 
     `omitir` aceita nomes de elemento (ex.: "vBC", "cLocIncid", "cTribNac"). Um campo
     em `omitir` não é escrito. Um valor `None` também não é escrito.
+
+    Termos da fórmula do vBC (A10 da auditoria DL-076): `v_calc_bm` é o vCalcBM de infNFSe/valores;
+    `v_red_bc_bm` é o vRedBCBM do BM de infDPS/valores/trib/tribMun; `v_calc_ree_rep_res` vai
+    no grupo IBSCBS, que só é escrito quando ele vem (o XSD exige vBC dentro do grupo, e aqui
+    ele repete o da nota, sem valor de conferência).
     """
     if identificador is None:
         identificador = identificador_nfse(sufixo)
@@ -66,6 +74,19 @@ def xml_nfse_iss(
 
     loc_incid = campo("cLocIncid", c_loc_incid)
     trib_iss = campo("tribISSQN", trib_issqn)
+    bm = (
+        f"<BM><nBM>17210000100001</nBM><vRedBCBM>{escape(v_red_bc_bm)}</vRedBCBM></BM>"
+        if v_red_bc_bm is not None and "vRedBCBM" not in omitir
+        else ""
+    )
+    ibs = (
+        "<IBSCBS><cLocalidadeIncid>1721000</cLocalidadeIncid><valores>"
+        f"<vBC>{escape(v_bc or v_serv)}</vBC>"
+        f"{campo('vCalcReeRepRes', v_calc_ree_rep_res)}"
+        "</valores></IBSCBS>"
+        if v_calc_ree_rep_res is not None and "vCalcReeRepRes" not in omitir
+        else ""
+    )
     desc = (
         f"<vDescCondIncond>{campo('vDescIncond', v_desc_incond)}</vDescCondIncond>"
         if v_desc_incond is not None and "vDescIncond" not in omitir
@@ -86,11 +107,13 @@ def xml_nfse_iss(
     <emit><CNPJ>{prestador_documento}</CNPJ><xNome>{escape(prestador_nome)}</xNome></emit>
     <valores>
       {campo("vCalcDR", v_calc_dr)}
+      {campo("vCalcBM", v_calc_bm)}
       {campo("vBC", v_bc)}
       {campo("pAliqAplic", p_aliq_aplic)}
       {campo("vISSQN", v_iss_qn)}
       <vLiq>{v_liq}</vLiq>
     </valores>
+    {ibs}
     <DPS versao="{versao}">
       <infDPS Id="DPS{"0" * 42}">
         <tpAmb>1</tpAmb>
@@ -108,6 +131,7 @@ def xml_nfse_iss(
           <trib>
             <tribMun>
               {trib_iss}
+              {bm}
               <tpRetISSQN>{tp_ret_issqn}</tpRetISSQN>
             </tribMun>
           </trib>
