@@ -147,20 +147,50 @@ que não existe mais no remoto (medido em 07/10/2026), e não foi integrada — 
 ## Próximo passo
 
 **AGORA, em 08/10/2026: [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md)
-— melhorias do repositório com equipe multiagente, em desenvolvimento** na
-branch `ccr-bf4b4a55-hpqgbp`. Ordem do Fred (RC-160): orquestrador em Opus,
-desenvolvedores em Haiku em paralelo, auditor em Sonnet. Escopo restrito a
-nível 2 e 3 por causa do modelo de implementação: entradas do `/bootstrap/` e
-do convite que davam 500 (BL-645 a BL-647, BL-651), consultas por linha na
-API (BL-648, BL-649), testes que faltavam (BL-600, BL-602, BL-619) e
-comentários (BL-575, BL-591). Nenhuma regra contábil muda.
+— melhorias do repositório com equipe multiagente, em revisão** na branch
+`ccr-bf4b4a55-hpqgbp`, enviada ao remoto; **sem PR aberto e sem merge** — o
+próximo passo é o Fred autorizar o PR para a `main`. Ordem do Fred (RC-160):
+orquestrador em Opus, desenvolvedores em Haiku em paralelo, auditor em Sonnet.
 
-**Linha de base desta sessão (08/10/2026, contêiner Linux, Python 3.13.16,
-PostgreSQL 16 local, sobre `79ff2e5`):** `ruff check` e `ruff format --check`
-limpos (375 arquivos), `manage.py check` e `makemigrations --check` sem
-mudança; `pytest` completo **4.987 aprovados, 1 reprovado, 53 pulados** em
-368 s. A reprovação é a conhecida de ambiente
-(`test_versao_minima_python.py`, que exige Python 3.14).
+O que entrou:
+- entradas do `/bootstrap/` e do convite que davam 500 ou gravavam lixo
+  (BL-645 a BL-647), oráculo de existência de escritório (BL-651), e a tela do
+  primeiro acesso aceitando CNPJ com máscara e alfanumérico como o cadastro
+  público (A3);
+- consultas por linha eliminadas na lista de empresas e na trilha da API
+  (BL-648, BL-649);
+- testes que faltavam (BL-600, BL-602, BL-619 — este último provou que o
+  defeito já não existia) e comentários corrigidos (BL-575, BL-591).
+
+Nenhuma regra contábil mudou. Dois itens tocam nível 1 do §3.1 (isolamento e
+trilha), e o controle foi a auditoria independente.
+
+**Ciclo do §3.1 encerrado:**
+[rodada 1](../auditorias/2026-10-08-dl-070-rodada-1.md) **APROVADA COM
+RESSALVAS** (A1 a A7, todas baixas), correção única, e
+[reconferência](../auditorias/2026-10-08-dl-070-reconferencia.md) **APROVADA
+COM RESSALVAS** — A1, A2, A3, A5, A6 e A7 fechados por execução do auditor;
+na reconferência o auditor reconheceu que a premissa dele no A6(c) estava
+errada e o desenvolvedor, certo. Ficam abertos: BL-652 (enumeração de CNPJ
+sem limite de tentativas no `/bootstrap/`, risco aceito por ora), BL-653
+(corrida do mesmo usuário criando dois escritórios, preexistente) e BL-654
+(parte local do e-mail, decisão do Fred).
+
+**Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
+PostgreSQL 16 local, sobre `25fe182`, medida pelo auditor):** `ruff check` e
+`ruff format --check` limpos (380 arquivos), `manage.py check` e
+`makemigrations --check` sem mudança; `pytest` completo **5.021 aprovados, 1
+reprovado, 53 pulados**. A reprovação é a conhecida de ambiente
+(`test_versao_minima_python.py`, que exige Python 3.14). Antes da DL-070,
+sobre `79ff2e5`: 4.987/1/53. **A CI (Python 3.14) não rodou** — só roda com
+o PR.
+
+**Achado de processo desta etapa:** as cópias isoladas criadas pela
+ferramenta de agentes (`isolation: worktree`) partiram de `d5cc6bf`, quatro
+commits **atrás** da revisão pedida. Os quatro desenvolvedores pararam sem
+editar porque o pedido mandava conferir a base com `git log -1` — **mantenha
+essa conferência em todo pedido com worktree**. As cópias foram refeitas à
+mão a partir da revisão certa.
 
 **[DL-069](../planos/DL-069-travas-no-banco.md) — travas no banco.** Origem:
 ordem do Fred, *"Próxima etapa"* (RC-158). A interpretação é do arquiteto: é
