@@ -33,6 +33,7 @@ from django.db import models
 from django.db.models import F, Q
 
 from apps.empresas.models import Empresa
+from apps.fiscal import presumido_tabelas as _tabelas_presumido
 from apps.tenancy.models import Escritorio
 
 
@@ -1896,3 +1897,456 @@ class RegimeIssEmpresa(models.Model):
             f"Regime do ISS {self.exercicio} — empresa {self.empresa_id} "
             f"({self.get_regime_display()})"
         )
+
+
+# ---------------------------------------------------------------------------
+# DL-079 (frente A): Lucro Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224.
+# Plano: docs/planos/DL-079-lucro-presumido-irpj-csll.md. Catálogo, alíquotas e fontes:
+# apps/fiscal/presumido_tabelas.py (fonte única: as opções abaixo saem de lá). Cálculo:
+# apps/fiscal/presumido_calculo.py.
+# Sem ModelAdmin (BL-262). A escrita passa por `apps.fiscal.presumido`, que grava a trilha.
+# Gatilhos de imutabilidade no banco: migração fiscal 0009 (mesmo desenho da DL-078).
+# ---------------------------------------------------------------------------
+
+OPCOES_ATIVIDADE_PRESUMIDA = [
+    (atividade.codigo, atividade.rotulo) for atividade in _tabelas_presumido.CATALOGO_ATIVIDADES
+]
+CODIGOS_ATIVIDADE_PRESUMIDA = [codigo for codigo, _ in OPCOES_ATIVIDADE_PRESUMIDA]
+SERVICOS_HOSPITALARES_PRESUMIDO = _tabelas_presumido.SERVICOS_HOSPITALARES
+
+
+class AtividadePresuncaoEmpresa(models.Model):
+    """Atividade de presunção da empresa, com vigência (DL-079, item 2; HI-101).
+
+    `padrao=True` é a atividade que a NFS-e recebe na `dCompet` em que está vigente. Só pode
+    haver UMA padrão em aberto por empresa (restrição do banco); padrões com vigência fechada
+    não se sobrepõem, e isso o serviço recusa. Atividades não padrão ficam para a receita
+    informada, que nomeia a atividade.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="atividades_presuncao",
+        verbose_name="empresa",
+    )
+    atividade = models.CharField(
+        "atividade de presunção", max_length=40, choices=OPCOES_ATIVIDADE_PRESUMIDA
+    )
+    inicio = models.DateField("início da vigência")
+    fim = models.DateField("fim da vigência", null=True, blank=True)
+    padrao = models.BooleanField("atividade padrão das NFS-e", default=False)
+    # Serviço hospitalar só vale com os dois requisitos legais confirmados pelo contador
+    # (Lei 9.249, art. 15, § 1º, III, "a"; HI-101). Não se infere a partir do código do serviço.
+    requisitos_hospitalares_confirmados = models.BooleanField(
+        "requisitos do serviço hospitalar confirmados pelo contador", default=False
+    )
+    criada_em = models.DateTimeField("criada em", auto_now_add=True)
+    criada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="criada por",
+    )
+
+    class Meta:
+        verbose_name = "atividade de presunção da empresa"
+        verbose_name_plural = "atividades de presunção da empresa"
+        ordering = ["empresa_id", "inicio", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(fim__isnull=True) | Q(fim__gte=F("inicio")),
+                name="presumido_atividade_fim_depois_do_inicio",
+            ),
+            models.CheckConstraint(
+                condition=Q(atividade__in=CODIGOS_ATIVIDADE_PRESUMIDA),
+                name="presumido_atividade_valida",
+            ),
+            models.CheckConstraint(
+                condition=~Q(atividade=SERVICOS_HOSPITALARES_PRESUMIDO)
+                | Q(requisitos_hospitalares_confirmados=True),
+                name="presumido_hospitalar_exige_requisitos",
+            ),
+            models.UniqueConstraint(
+                fields=["empresa"],
+                condition=Q(padrao=True, fim__isnull=True),
+                name="presumido_padrao_unica_em_aberto",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Atividade de presunção {self.pk} — {self.get_atividade_display()}"
+
+
+OPCOES_CRITERIO_RECEITA = [
+    ("competencia", "Competência"),
+    ("caixa", "Caixa"),
+]
+
+
+class CriterioReceitaPresumido(models.Model):
+    """Critério de reconhecimento da receita do ano (competência ou caixa), por empresa e ano.
+
+    Uma linha por empresa e ano; definido uma vez (HI-66 e consulta, item 9). O caixa é recusado
+    pela apuração (IN 1.700, art. 223), e não existe meio-termo.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="criterios_receita_presumido",
+        verbose_name="empresa",
+    )
+    ano = models.PositiveSmallIntegerField("ano-calendário")
+    criterio = models.CharField("critério", max_length=12, choices=OPCOES_CRITERIO_RECEITA)
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="criado por",
+    )
+
+    class Meta:
+        verbose_name = "critério de receita do presumido"
+        verbose_name_plural = "critérios de receita do presumido"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["empresa", "ano"],
+                name="presumido_criterio_unico_por_ano",
+            ),
+            models.CheckConstraint(
+                condition=Q(criterio__in=["competencia", "caixa"]),
+                name="presumido_criterio_valido",
+            ),
+            models.CheckConstraint(
+                condition=Q(ano__gte=1970, ano__lte=2999),
+                name="presumido_criterio_ano_valido",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Critério {self.ano} — empresa {self.empresa_id} ({self.get_criterio_display()})"
+
+
+OPCOES_TIPO_RECEITA_PRESUMIDO = [
+    ("presuncao", "Sujeita à presunção"),
+    ("integral", "Integral (art. 25, II da Lei 9.430/1996)"),
+]
+OPCOES_ESTADO_RECEITA_PRESUMIDO = [
+    ("ativa", "Ativa"),
+    ("estornada", "Estornada"),
+]
+
+
+class ReceitaTrimestralPresumido(models.Model):
+    """Receita informada do trimestre: presunção (com atividade) ou integral (sem atividade).
+
+    Imutável depois de criada, exceto pelo estorno (ativa → estornada, com motivo). O banco
+    recusa o resto por gatilho (migração fiscal 0009), como na DL-078. Estornar é o único
+    caminho para corrigir: a linha original fica na trilha.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="receitas_trimestrais_presumido",
+        verbose_name="empresa",
+    )
+    ano = models.PositiveSmallIntegerField("ano-calendário")
+    trimestre = models.PositiveSmallIntegerField("trimestre (1 a 4)")
+    tipo = models.CharField("tipo da receita", max_length=10, choices=OPCOES_TIPO_RECEITA_PRESUMIDO)
+    atividade = models.ForeignKey(
+        AtividadePresuncaoEmpresa,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="receitas_trimestrais",
+        verbose_name="atividade de presunção",
+    )
+    descricao = models.CharField("descrição", max_length=300)
+    valor = models.DecimalField("valor", max_digits=15, decimal_places=2)
+    suporte = models.CharField("documento de suporte", max_length=300)
+    estado = models.CharField(
+        "estado", max_length=10, choices=OPCOES_ESTADO_RECEITA_PRESUMIDO, default="ativa"
+    )
+    motivo_estorno = models.CharField("motivo do estorno", max_length=500, blank=True, default="")
+    estornada_em = models.DateTimeField("estornada em", null=True, blank=True)
+    estornada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="estornada por",
+    )
+    criada_em = models.DateTimeField("criada em", auto_now_add=True)
+    criada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="criada por",
+    )
+
+    class Meta:
+        verbose_name = "receita trimestral do presumido"
+        verbose_name_plural = "receitas trimestrais do presumido"
+        ordering = ["empresa_id", "ano", "trimestre", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(trimestre__gte=1, trimestre__lte=4),
+                name="presumido_receita_trimestre_valido",
+            ),
+            models.CheckConstraint(
+                condition=Q(ano__gte=1970, ano__lte=2999),
+                name="presumido_receita_ano_valido",
+            ),
+            models.CheckConstraint(
+                condition=Q(tipo="presuncao", atividade__isnull=False)
+                | Q(tipo="integral", atividade__isnull=True),
+                name="presumido_receita_atividade_conforme_tipo",
+            ),
+            models.CheckConstraint(
+                condition=Q(valor__gt=0),
+                name="presumido_receita_valor_positivo",
+            ),
+            models.CheckConstraint(
+                condition=~Q(suporte=""),
+                name="presumido_receita_suporte_obrigatorio",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        estado="ativa",
+                        motivo_estorno="",
+                        estornada_em__isnull=True,
+                        estornada_por__isnull=True,
+                    )
+                    | Q(
+                        ~Q(motivo_estorno=""),
+                        estado="estornada",
+                        estornada_em__isnull=False,
+                        estornada_por__isnull=False,
+                    )
+                ),
+                name="presumido_receita_estado_coerente",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Receita {self.pk} — {self.ano}/T{self.trimestre} ({self.get_tipo_display()})"
+
+
+class DeclaracaoReceitasIntegrais(models.Model):
+    """Declaração do contador: as receitas integrais do trimestre estão declaradas (HI-104).
+
+    `total` é o SNAPSHOT das receitas integrais ativas no instante da declaração. A declaração
+    só vale enquanto o total atual for igual a esse snapshot; se mudar, a apuração volta a
+    "parcial". Declarar de novo cria um registro novo, e vale o mais recente. Nunca se altera.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="declaracoes_integrais_presumido",
+        verbose_name="empresa",
+    )
+    ano = models.PositiveSmallIntegerField("ano-calendário")
+    trimestre = models.PositiveSmallIntegerField("trimestre (1 a 4)")
+    total = models.DecimalField("total das integrais declaradas", max_digits=15, decimal_places=2)
+    observacao = models.CharField("observação", max_length=500, blank=True, default="")
+    declarada_em = models.DateTimeField("declarada em", auto_now_add=True)
+    declarada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="declarada por",
+    )
+
+    class Meta:
+        verbose_name = "declaração de receitas integrais"
+        verbose_name_plural = "declarações de receitas integrais"
+        ordering = ["empresa_id", "ano", "trimestre", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(trimestre__gte=1, trimestre__lte=4),
+                name="presumido_declaracao_trimestre_valido",
+            ),
+            models.CheckConstraint(
+                condition=Q(total__gte=0),
+                name="presumido_declaracao_total_nao_negativo",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Declaração {self.pk} — {self.ano}/T{self.trimestre}"
+
+
+OPCOES_ESTADO_CONFIRMACAO_RETENCAO = [
+    ("ativa", "Ativa"),
+    ("substituida", "Substituída"),
+]
+
+
+class ConfirmacaoRetencaoPresumido(models.Model):
+    """Retenção confirmada pelo contador para uma escrituração (HI-102, HI-103).
+
+    Só a confirmação ATIVA entra na apuração. Confirmar de novo substitui a anterior (que fica
+    como `substituida`, na trilha). `irrf_confirmado` e `csll_confirmada` são nulos quando o
+    contador não confirma aquele tributo. A empresa é a da escrituração (sem campo próprio).
+    """
+
+    escrituracao = models.ForeignKey(
+        EscrituracaoFiscal,
+        on_delete=models.PROTECT,
+        related_name="confirmacoes_retencao_presumido",
+        verbose_name="escrituração prestada",
+    )
+    irrf_confirmado = models.DecimalField(
+        "IRRF confirmado", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    csll_confirmada = models.DecimalField(
+        "CSLL confirmada", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    motivo = models.CharField(
+        "motivo (obrigatório quando o valor difere do proposto)",
+        max_length=500,
+        blank=True,
+        default="",
+    )
+    estado = models.CharField(
+        "estado", max_length=12, choices=OPCOES_ESTADO_CONFIRMACAO_RETENCAO, default="ativa"
+    )
+    confirmada_em = models.DateTimeField("confirmada em", auto_now_add=True)
+    confirmada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="confirmada por",
+    )
+
+    class Meta:
+        verbose_name = "confirmação de retenção do presumido"
+        verbose_name_plural = "confirmações de retenção do presumido"
+        ordering = ["escrituracao_id", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["escrituracao"],
+                condition=Q(estado="ativa"),
+                name="presumido_confirmacao_ativa_unica_por_escrituracao",
+            ),
+            models.CheckConstraint(
+                condition=Q(irrf_confirmado__isnull=True) | Q(irrf_confirmado__gte=0),
+                name="presumido_confirmacao_irrf_nao_negativo",
+            ),
+            models.CheckConstraint(
+                condition=Q(csll_confirmada__isnull=True) | Q(csll_confirmada__gte=0),
+                name="presumido_confirmacao_csll_nao_negativa",
+            ),
+            models.CheckConstraint(
+                condition=Q(irrf_confirmado__isnull=False) | Q(csll_confirmada__isnull=False),
+                name="presumido_confirmacao_ao_menos_um_valor",
+            ),
+            models.CheckConstraint(
+                condition=Q(estado__in=["ativa", "substituida"]),
+                name="presumido_confirmacao_estado_valido",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Confirmação {self.pk} — escrituração {self.escrituracao_id} ({self.estado})"
+
+
+OPCOES_TRIBUTO_MEDIDA = [
+    ("irpj", "IRPJ"),
+    ("csll", "CSLL"),
+    ("ambos", "IRPJ e CSLL"),
+]
+
+
+class MedidaJudicialLC224(models.Model):
+    """Medida judicial contra o acréscimo da LC 224, por empresa, tributo e período (HI-106).
+
+    Com medida ativa cobrindo o tributo e o trimestre, "a recolher" usa a coluna SEM o
+    acréscimo, e a parcela aparece como suspensa (ou "depositar", com depósito judicial). Sem
+    medida, nunca se escolhe a coluna sem o acréscimo por padrão. A revogação é um ato com
+    motivo; a medida não se apaga.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="medidas_judiciais_lc224",
+        verbose_name="empresa",
+    )
+    tributo = models.CharField("tributo", max_length=10, choices=OPCOES_TRIBUTO_MEDIDA)
+    ano_inicial = models.PositiveSmallIntegerField("ano inicial")
+    trimestre_inicial = models.PositiveSmallIntegerField("trimestre inicial (1 a 4)")
+    ano_final = models.PositiveSmallIntegerField("ano final", null=True, blank=True)
+    trimestre_final = models.PositiveSmallIntegerField(
+        "trimestre final (1 a 4)", null=True, blank=True
+    )
+    numero_processo = models.CharField("número do processo", max_length=60)
+    orgao = models.CharField("órgão judicial", max_length=200)
+    data_decisao = models.DateField("data da decisão")
+    deposito_judicial = models.BooleanField("depósito judicial", default=False)
+    suporte = models.CharField("documento de suporte", max_length=300)
+    ativa = models.BooleanField("ativa", default=True)
+    revogada_em = models.DateTimeField("revogada em", null=True, blank=True)
+    motivo_revogacao = models.CharField(
+        "motivo da revogação", max_length=500, blank=True, default=""
+    )
+    criada_em = models.DateTimeField("criada em", auto_now_add=True)
+    criada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="criada por",
+    )
+
+    class Meta:
+        verbose_name = "medida judicial contra a LC 224"
+        verbose_name_plural = "medidas judiciais contra a LC 224"
+        ordering = ["empresa_id", "ano_inicial", "trimestre_inicial", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(trimestre_inicial__gte=1, trimestre_inicial__lte=4),
+                name="presumido_medida_trimestre_inicial_valido",
+            ),
+            models.CheckConstraint(
+                condition=Q(trimestre_final__isnull=True)
+                | Q(trimestre_final__gte=1, trimestre_final__lte=4),
+                name="presumido_medida_trimestre_final_valido",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(ano_final__isnull=True, trimestre_final__isnull=True)
+                    | Q(ano_final__isnull=False, trimestre_final__isnull=False)
+                ),
+                name="presumido_medida_fim_completo_ou_indeterminado",
+            ),
+            models.CheckConstraint(
+                condition=Q(ano_final__isnull=True)
+                | Q(ano_final__gt=F("ano_inicial"))
+                | Q(ano_final=F("ano_inicial"), trimestre_final__gte=F("trimestre_inicial")),
+                name="presumido_medida_fim_depois_do_inicio",
+            ),
+            models.CheckConstraint(
+                condition=Q(tributo__in=["irpj", "csll", "ambos"]),
+                name="presumido_medida_tributo_valido",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(ativa=True, revogada_em__isnull=True, motivo_revogacao="")
+                    | Q(
+                        ~Q(motivo_revogacao=""),
+                        ativa=False,
+                        revogada_em__isnull=False,
+                    )
+                ),
+                name="presumido_medida_ativa_coerente",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Medida {self.pk} — {self.numero_processo} ({self.get_tributo_display()})"

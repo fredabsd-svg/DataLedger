@@ -107,15 +107,21 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
     from apps.fiscal.models import (
         AliquotaIssMunicipal,
         AtividadeEmpresa,
+        AtividadePresuncaoEmpresa,
         ConfirmacaoReceitaMensal,
+        ConfirmacaoRetencaoPresumido,
+        CriterioReceitaPresumido,
+        DeclaracaoReceitasIntegrais,
         DocumentoFiscal,
         EscrituracaoFiscal,
         EscrituracaoTomada,
         EventoFiscal,
         FolhaFatorR,
         LoteDeRecepcao,
+        MedidaJudicialLC224,
         OpcaoRegimeCaixaSimples,
         ReceitaInformada,
+        ReceitaTrimestralPresumido,
         RegimeIssEmpresa,
         RegraIssMunicipio,
         ResultadoDoArquivo,
@@ -187,6 +193,15 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         # (BL-262); a porta de escrita é `apps.fiscal.tomadas`, que grava a trilha na mesma
         # transação. Nenhuma exclusão foi adicionada.
         EscrituracaoTomada,
+        # DL-079 (frente A, 2026-10-08): Lucro Presumido. Seis modelos novos do apps.fiscal na
+        # cobertura "por padrão" (R1/DE-056). Sem ModelAdmin (BL-262); a escrita é pelo serviço
+        # `apps.fiscal.presumido`, que grava a trilha via `registrar()` na mesma transação.
+        AtividadePresuncaoEmpresa,
+        CriterioReceitaPresumido,
+        ReceitaTrimestralPresumido,
+        DeclaracaoReceitasIntegrais,
+        ConfirmacaoRetencaoPresumido,
+        MedidaJudicialLC224,
         # DL-074 (frente A, 2026-10-08): `ReceitaInformada`, `ConfirmacaoReceitaMensal` e
         # `OpcaoRegimeCaixaSimples`, modelos novos do apps.fiscal, na cobertura "por padrão"
         # (R1/DE-056). Sem ModelAdmin (BL-262); a escrita é pelos serviços de
