@@ -199,9 +199,12 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    [Reconferência](../auditorias/2026-10-08-dl-074-reconferencia.md) sobre
    `71f371d`: **APROVADA COM RESSALVAS** — A1 e A2 fechados por execução, com
    contas à mão; ciclo do §3.1 encerrado. Ressalvas R1 (média: "10,000" na
-   tela virava R$ 10,00), R2 a R5 em correção antes do merge, como na DL-072;
-   R6 (commit intermediário com teste vermelho) só registrada. HI-76 e HI-77
-   levadas ao contador-senior antes de o pré-DAS consumir o RBT12.
+   tela virava R$ 10,00) a R5 **corrigidas** em `6670121` (Haiku), com testes
+   que derrubam os mutantes apontados, sem nova rodada, como na DL-072; R6
+   (commit intermediário com teste vermelho) só registrada. HI-76 conferida e
+   HI-77 **ajustada** pelo contador-senior
+   ([consulta](../projeto/consultas/2026-10-08-contador-senior-hi76-hi77.md));
+   PE-78 aberta (alíquota no § 5º; não bloqueia). **Próximo: PR, CI e merge.**
 4. **DL-075 — pré-DAS do Simples:
    em desenvolvimento** em cópia isolada (`/home/user/wt-dl075`). Tabelas oficiais dos
    Anexos I a V vigentes em 2026 pesquisadas no Planalto e no Manual do

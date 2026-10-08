@@ -87,6 +87,13 @@ explicado; receitas de 2027 em diante com as regras da Res. CGSN 190/2026.
   valor com ponto de milhar sem vírgula ("10.000") é recusado pedindo a
   vírgula, em vez de virar R$ 10,00; não se confirma mês futuro nem anterior à
   abertura no CNPJ, e receita anterior à abertura gera aviso no RBT12.
+- **Ressalvas da reconferência** (R1 a R5): valor com mais de duas casas
+  ("10,000", "1.000,000") é recusado no serviço, na tela e na API; período do
+  Simples que começa **antes da abertura no CNPJ** recusa a apuração como dado
+  inconsistente (Res. 140 art. 6º §§ 1º e 5º, V); o aviso do **§ 5º** usa o
+  limite cheio de R$ 4,8 mi nos dois incisos, e o teto proporcional do ano de
+  início é aviso separado (HI-77 ajustada pela
+  [consulta](../projeto/consultas/2026-10-08-contador-senior-hi76-hi77.md)).
 - **Tela de edição de empresa não existe** (BL-666): a data de abertura de
   empresa já cadastrada só entra pela API.
 
