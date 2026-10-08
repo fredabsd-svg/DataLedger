@@ -305,8 +305,14 @@ def _valor_positivo(valor) -> Decimal:
         raise EntradaInvalidaReceita("Valor inválido.") from exc
     if not decimal.is_finite() or decimal <= 0:
         raise EntradaInvalidaReceita("O valor da receita informada tem de ser maior que zero.")
-    if decimal.normalize().as_tuple().exponent < -2:
-        raise EntradaInvalidaReceita("O valor aceita no máximo duas casas decimais.")
+    # Conferido SEM normalize(): normalize() apaga zeros à direita, e então "10.000" (dez mil,
+    # ou dez centavos com ponto decimal) passava como 10,00 (R1 da reconferência da DL-074).
+    # Três casas são recusadas mesmo quando a terceira é zero.
+    if decimal.as_tuple().exponent < -2:
+        raise EntradaInvalidaReceita(
+            "O valor aceita no máximo duas casas decimais: use vírgula para os centavos, "
+            "como 10.000,00 para dez mil reais ou 10,50 para dez reais e cinquenta centavos."
+        )
     if decimal >= Decimal("1000000000000000"):
         raise EntradaInvalidaReceita("O valor excede o limite de 15 dígitos inteiros.")
     return decimal.quantize(Decimal("0.01"))

@@ -285,7 +285,7 @@ def test_a7_confirmar_mes_anterior_a_abertura_e_recusado_e_o_da_abertura_e_aceit
 ):
     fixar_hoje(monkeypatch, date(2026, 10, 8))
     empresa = preparar_simples(
-        empresa_a, abertura=date(2026, 3, 10), inicio_simples=date(2026, 3, 1)
+        empresa_a, abertura=date(2026, 3, 10), inicio_simples=date(2026, 3, 10)
     )
 
     with pytest.raises(servico.EntradaInvalidaReceita, match="anterior à abertura no CNPJ"):
@@ -502,8 +502,9 @@ def test_a7_painel_mostra_o_aviso_de_receita_antes_da_abertura(
     client, empresa_a, usuario_gestor_a, monkeypatch
 ):
     fixar_hoje(monkeypatch, date(2026, 12, 31))
+    # Simples a partir da abertura (R4: o início do período não pode ser anterior a ela).
     empresa = preparar_simples(
-        empresa_a, abertura=date(2026, 3, 10), inicio_simples=date(2026, 3, 1)
+        empresa_a, abertura=date(2026, 3, 10), inicio_simples=date(2026, 3, 10)
     )
     informar_e_confirmar(empresa, usuario_gestor_a, 2026, 1, "50000")
     informar_e_confirmar(empresa, usuario_gestor_a, 2026, 3, "1000")

@@ -337,10 +337,12 @@ def _excesso(acumulado: Decimal, teto: Decimal) -> tuple[Decimal, bool]:
 
 
 def _avisos_de_excesso(mercado: str, acumulado: Decimal, teto_limite, teto_sublimite):
-    """Avisos de excesso do sublimite e do limite, por mercado, com a faixa de 20% (art. 81).
+    """Avisos de excesso do sublimite e do limite, por mercado, com a faixa de 20%.
 
     Excesso "até 20%" = acumulado ≤ 1,20 × teto. Cada aviso cita SÓ os dispositivos da
-    sua faixa: o art. 81, II, 'a' e 'b', numerado 1 (acima de 20%) ou 2 (até 20%).
+    sua faixa. Faixa do LIMITE: art. 81, II, 'a' e 'b' (numerado 1 acima de 20%, 2 até
+    20%). Faixa do SUBLIMITE: Res. CGSN 140, art. 12, §§ 1º e 4º, dito expressamente na
+    HI-70 de docs/projeto/requisitos.md (hipótese, a confirmar com o contador-senior).
     """
     avisos = []
     if teto_sublimite is not None and acumulado > teto_sublimite:
@@ -358,8 +360,8 @@ def _avisos_de_excesso(mercado: str, acumulado: Decimal, teto_limite, teto_subli
                 ),
                 dispositivo=(
                     "LC 123, art. 3º, §§ 11 e 13; Res. CGSN 140, art. 12, §§ 1º, 3º, 4º e 6º; "
-                    "art. 20, §§ 1º e 1º-A. Faixa de 20%: aplicação do art. 81 ao sublimite "
-                    "(hipótese HI-70, a conferir)"
+                    "art. 20, §§ 1º e 1º-A. Faixa de 20% do sublimite: Res. CGSN 140, art. 12, "
+                    "§§ 1º e 4º (HI-70, hipótese a confirmar)"
                 ),
             )
         )
@@ -440,8 +442,9 @@ def rbt12(empresa: Empresa, ano: int, mes: int) -> Rbt12:
     """RBT12 do PA `ano/mes` por mercado, com a regra usada, a janela e os avisos.
 
     Recusa com `ApuracaoRecusada` (mensagem nomeada) quando não há como apurar:
-    ano 2027 ou depois, sem data de abertura, sem período do Simples no PA, ou PA
-    anterior à abertura. Mês da janela sem confirmação NÃO é recusa: o resultado
+    ano 2027 ou depois, sem data de abertura, PA anterior à abertura, sem período do
+    Simples no PA, ou período do Simples que começa antes da abertura (dado
+    inconsistente, R4). Mês da janela sem confirmação NÃO é recusa: o resultado
     fica "não apurável" e lista os meses.
     """
     recibo.validar_competencia(ano, mes)
@@ -457,16 +460,32 @@ def rbt12(empresa: Empresa, ano: int, mes: int) -> Rbt12:
             "Informe a data de abertura no CNPJ da empresa: sem ela o RBT12 não é apurado "
             "(Res. CGSN 140, art. 2º, V; HI-65)."
         )
+    # A competência antes da abertura é recusada antes de procurar o período: isso não
+    # depende do regime, e um período do Simples que alcance um mês anterior à abertura
+    # já seria dado inconsistente (ver a checagem do início do período, abaixo).
+    if (ano, mes) < (abertura.year, abertura.month):
+        raise ApuracaoRecusada(
+            f"A competência {_mm_aaaa(ano, mes)} é anterior à abertura no CNPJ "
+            f"({abertura.strftime('%d/%m/%Y')})."
+        )
     periodo = _periodo_do_simples(empresa, ano, mes)
     if periodo is None:
         raise ApuracaoRecusada(
             f"Não há período do Simples Nacional que alcance {_mm_aaaa(ano, mes)}: o RBT12 "
             "do Simples não se aplica a este mês."
         )
-    if (ano, mes) < (abertura.year, abertura.month):
+    # R4 (reconferência da DL-074): a recusa é por DATA, não por ano. A opção produz efeitos
+    # a partir da inscrição no CNPJ (Res. CGSN 140/2018, art. 6º, §§ 1º e 5º, V, e art. 2º, V),
+    # então um início anterior à abertura é dado inconsistente. Sem a recusa, o ano da opção
+    # cairia em § 1º e a apuração sairia calada e para menos. Corrige-se o cadastro; não se
+    # adivinha o dado aqui. Início igual à abertura (qualquer dia) é aceito.
+    if periodo.vigencia_inicio < abertura:
         raise ApuracaoRecusada(
-            f"A competência {_mm_aaaa(ano, mes)} é anterior à abertura no CNPJ "
-            f"({abertura.strftime('%d/%m/%Y')})."
+            "Dado inconsistente: o período do Simples Nacional começa em "
+            f"{periodo.vigencia_inicio.strftime('%d/%m/%Y')}, antes da abertura no CNPJ "
+            f"({abertura.strftime('%d/%m/%Y')}). A opção produz efeitos a partir da inscrição "
+            "no CNPJ (Res. CGSN 140/2018, art. 6º, §§ 1º e 5º, V, e art. 2º, V). Corrija a data "
+            "de abertura ou o início do regime no cadastro da empresa antes de apurar o RBT12."
         )
 
     ano_opcao = periodo.vigencia_inicio.year
@@ -514,7 +533,8 @@ def rbt12(empresa: Empresa, ano: int, mes: int) -> Rbt12:
     )
 
     modo_limite, teto_limite, teto_sublimite = _limites_do_ano(abertura, ano, mes)
-    # HI-77: limite anual CHEIO do período, que é o que o aviso do § 5º compara com o RBT12.
+    # Limite anual CHEIO (art. 2º, § 1º): o aviso do § 5º compara com ele o RBT12 (inciso I) e a
+    # receita acumulada no ano (inciso II). O teto proporcional do ano de início é outro aviso.
     limite_cheio = limite_vigente("limite_anual", date(ano, mes, 1))
     teto_cheio = None if limite_cheio is None else limite_cheio.valor
 
@@ -565,23 +585,32 @@ def rbt12(empresa: Empresa, ano: int, mes: int) -> Rbt12:
         acumulado = None
         if not pendentes_do_ano:
             acumulado = sum((mes_lido(i).receita(mercado) for i in indices_do_ano), Decimal("0.00"))
-            # HI-77: o § 5º compara o RBT12 (anualizado) com o limite CHEIO; o teto
-            # proporcional do ano de início vale só para a receita acumulada no ano.
-            if apurado is not None and teto_cheio is not None and apurado > teto_cheio:
-                if teto_limite is not None and acumulado <= teto_limite:
-                    avisos.append(
-                        Aviso(
-                            codigo="rbt12_acima_do_limite_ano_dentro",
-                            mercado=mercado,
-                            mensagem=(
-                                f"RBT12 do mercado {mercado} ({apurado}) acima do limite anual "
-                                f"de {teto_cheio}, com a receita do ano ainda dentro do teto "
-                                f"do ano ({teto_limite}): alíquota da última faixa (a alíquota "
-                                "fica para a etapa seguinte)."
-                            ),
-                            dispositivo="Res. CGSN 140, art. 22, § 5º",
-                        )
+            # § 5º do art. 22 (Res. CGSN 140/2018), com o LIMITE CHEIO de R$ 4,8 mi nos dois
+            # incisos, por mercado (art. 2º, § 1º). Inciso I: o RBT12, inclusive o proporcional,
+            # passa do limite cheio ("superior": igual a 4,8 mi não avisa). Inciso II: a receita
+            # acumulada no ano em curso está no limite cheio ("<="), e NÃO no teto proporcional
+            # do ano de início (art. 3º). O teto proporcional gera o aviso de limite excedido,
+            # à parte, e os dois podem disparar juntos. Consulta ao contador-senior, 08/10/2026.
+            if (
+                apurado is not None
+                and teto_cheio is not None
+                and apurado > teto_cheio
+                and acumulado <= teto_cheio
+            ):
+                avisos.append(
+                    Aviso(
+                        codigo="rbt12_acima_do_limite_ano_dentro",
+                        mercado=mercado,
+                        mensagem=(
+                            f"RBT12 do mercado {mercado} ({apurado}) acima do limite anual de "
+                            f"{teto_cheio} (inciso I), e receita acumulada no ano ({acumulado}) "
+                            f"dentro do limite de {teto_cheio} (inciso II): aplicam-se as "
+                            "alíquotas da última faixa (6ª), sem exclusão. A alíquota fica para "
+                            "a etapa seguinte."
+                        ),
+                        dispositivo=("Res. CGSN 140/2018, art. 22, § 5º, I e II, e art. 2º, § 1º"),
                     )
+                )
             avisos.extend(_avisos_de_excesso(mercado, acumulado, teto_limite, teto_sublimite))
 
         por_mercado[mercado] = RbtPorMercado(

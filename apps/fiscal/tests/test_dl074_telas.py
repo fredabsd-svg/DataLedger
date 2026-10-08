@@ -342,7 +342,9 @@ def test_avisos_de_sublimite_citam_o_dispositivo(client, escritorio_a, empresa, 
     assert "Dispositivo:" in html
     assert "LC 123, art. 3º, §§ 11 e 13" in html
     assert "Res. CGSN 140, art. 12" in html
-    assert "hipótese HI-70, a conferir" in html
+    # R5: o dispositivo da faixa do sublimite é o da HI-70 (art. 12, §§ 1º e 4º), não o art. 81.
+    assert "Res. CGSN 140, art. 12, §§ 1º e 4º (HI-70, hipótese a confirmar)" in html
+    assert "por analogia" not in html
 
 
 def test_painel_com_receita_de_outro_mes_nao_entra_no_mes_pedido(
