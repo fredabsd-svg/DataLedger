@@ -72,6 +72,26 @@ municipais, os outros 51 municípios além de Palmas (o cadastro aceita, mas
 nenhum vem pronto), serviços tomados e ISS retido **pelo cliente tomador**
 (etapa 6 do roteiro).
 
+## Decisões tomadas na implementação
+
+- **Caminhos dos campos conferidos no esquema oficial** (pacote de XSD da
+  NFS-e nacional, versões 1.00 e 1.01): `vBC`, `pAliqAplic` e `vISSQN` ficam
+  em `infNFSe/valores`, não na DPS; o código cita arquivo e linha de cada
+  elemento.
+- **Regra do município é dado global** (a norma é a mesma para todos os
+  escritórios); a **alíquota é por escritório** (HI-82). Palmas entra pela
+  migração com vigência desde 01/01/2019 — hipótese: o decreto é de
+  06/12/2018 e a data de entrada em vigor não foi conferida no texto.
+- **Base da conferência = `vBC` da nota**; quando `vServ − desconto −
+  dedução` difere da `vBC`, é aviso.
+- **A alíquota precisa cobrir o mês inteiro**; cobertura parcial bloqueia.
+- **Bloqueios além do plano**, por segurança: nota cancelada depois de
+  escriturada; nota escriturada como "ISS devido pelo prestador" com
+  retenção no XML; `cLocIncid` ausente em nota de ISS devido.
+- **Exceções do art. 3º da LC 116** transcritas do Planalto por subitem; o
+  inciso I (serviço vindo do exterior) não é por subitem e ficou fora, e o
+  inciso XII foi associado ao 7.16 — **para revisão do contador**.
+
 ## Critérios de aceite
 
 1. Os campos de ISS lidos batem com o esquema oficial nas duas versões, com
