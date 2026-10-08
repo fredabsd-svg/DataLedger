@@ -102,6 +102,14 @@ BL-569.
 
 ### Fatia 2 — período encerrado recusa INSERT no banco (sem dependência do Fred)
 
+**Situação: integrada** pelo PR #93, merge `79ff2e5` na `main`, em
+07/10/2026, com a conta do Fred como autora do squash (registro conferido no Git em 08/10/2026 pela DL-070). O
+commit cita a correção dos achados A1, R1 e R2 da auditoria da fatia 2, mas o
+**relatório dessa auditoria não foi gravado** em `docs/auditorias/` — lacuna
+de registro, não reconstituída aqui. A evidência que vale para o merge é a CI
+do PR #93; a linha de base local do critério 13 era de uma máquina sem
+PostgreSQL.
+
 Ponto de maior risco técnico, porque a trava no gatilho precisa da mesma
 leitura protegida contra corrida que o serviço faz (`FOR SHARE`, BL-456).
 

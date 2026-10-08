@@ -134,7 +134,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md) | Plano do módulo fiscal de out/2026 a 2028, com a reforma tributária, conciliado com a paridade fiscal | Planejada |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 tratada na DL-068 |
 | [DL-068](../planos/DL-068-prontidao-para-implantacao.md) | Prontidão para implantação: Django 6.1.2, limite no login do admin, `.dockerignore`, `DJANGO_AMBIENTE` (BL-82) e proxies `/0` (BL-577) | **Integrada (PR #91, squash `7c23894`, merge feito pelo Fred em 07/10/2026)** — auditoria e reconferência aprovadas com ressalvas; R1 com o Fred (BL-642) |
-| [DL-069](../planos/DL-069-travas-no-banco.md) | Travas no banco: livro-caixa imutável, período encerrado recusa INSERT, trilha imutável | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-069](../planos/DL-069-travas-no-banco.md) | Travas no banco: livro-caixa imutável, período encerrado recusa INSERT, trilha imutável | Situação em **[Próximo passo](#próximo-passo)** — fatias 1 e 2 integradas (PR #92 e #93); fatia 3 bloqueada na PE-77 |
+| [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md) | Melhorias do repositório com equipe multiagente (RC-160): entradas do acesso, consultas por linha, testes que faltavam | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -145,11 +146,25 @@ que não existe mais no remoto (medido em 07/10/2026), e não foi integrada — 
 
 ## Próximo passo
 
-**AGORA, em 07/10/2026: [DL-069](../planos/DL-069-travas-no-banco.md) — travas
-no banco, fatia 2 em validação** na branch `feat/DL-069-fatia-2`.
+**AGORA, em 08/10/2026: [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md)
+— melhorias do repositório com equipe multiagente, em desenvolvimento** na
+branch `ccr-bf4b4a55-hpqgbp`. Ordem do Fred (RC-160): orquestrador em Opus,
+desenvolvedores em Haiku em paralelo, auditor em Sonnet. Escopo restrito a
+nível 2 e 3 por causa do modelo de implementação: entradas do `/bootstrap/` e
+do convite que davam 500 (BL-645 a BL-647, BL-651), consultas por linha na
+API (BL-648, BL-649), testes que faltavam (BL-600, BL-602, BL-619) e
+comentários (BL-575, BL-591). Nenhuma regra contábil muda.
 
-**Origem:** ordem do Fred, *"Próxima etapa"* (RC-158). A interpretação é do
-arquiteto: é a etapa que a análise do dia recomendou depois da DL-068.
+**Linha de base desta sessão (08/10/2026, contêiner Linux, Python 3.13.16,
+PostgreSQL 16 local, sobre `79ff2e5`):** `ruff check` e `ruff format --check`
+limpos (375 arquivos), `manage.py check` e `makemigrations --check` sem
+mudança; `pytest` completo **4.987 aprovados, 1 reprovado, 53 pulados** em
+368 s. A reprovação é a conhecida de ambiente
+(`test_versao_minima_python.py`, que exige Python 3.14).
+
+**[DL-069](../planos/DL-069-travas-no-banco.md) — travas no banco.** Origem:
+ordem do Fred, *"Próxima etapa"* (RC-158). A interpretação é do arquiteto: é
+a etapa que a análise do dia recomendou depois da DL-068.
 
 **Fatias:**
 1. **Livro-caixa imutável no PostgreSQL — INTEGRADA** pelo
@@ -163,8 +178,11 @@ arquiteto: é a etapa que a análise do dia recomendou depois da DL-068.
    [reconferência](../auditorias/2026-10-07-dl-069-fatia-1-reconferencia.md)
    saiu **APROVADA COM RESSALVAS** (R1 e R2 corrigidas sem terceira rodada);
    o ciclo do §3.1 está encerrado.
-2. **Período encerrado recusa INSERT no banco — em validação** na branch
-   `feat/DL-069-fatia-2`, com os critérios de aceite escritos no
+2. **Período encerrado recusa INSERT no banco — INTEGRADA** pelo PR #93,
+   merge `79ff2e5` em 07/10/2026 (conferido no Git em 08/10/2026; até então
+   este arquivo a dizia "em validação"). O commit cita a correção dos achados
+   A1, R1 e R2 da auditoria da fatia 2, mas **o relatório dessa auditoria não
+   está em `docs/auditorias/`** — lacuna de registro. Critérios no
    [plano](../planos/DL-069-travas-no-banco.md). A competência é achada pela
    data; a entrega da competência não se desfaz (RC-101); o ponto de risco —
    refazer no gatilho a leitura protegida contra corrida que o serviço faz
@@ -176,17 +194,9 @@ arquiteto: é a etapa que a análise do dia recomendou depois da DL-068.
    excluído, inclusive por pedido de LGPD. A fatia continua bloqueada pela
    PE-77 (prazo de retenção), com o Fred.
 
-**Linha de base para a não regressão:** a do contêiner Linux/CI é 4.895
-aprovados, 1 reprovado de ambiente (Python 3.13) e 53 pulados, medida em
-07/10/2026 sobre a versão da DL-068. **Medida local da fatia 2 (07/10/2026,
-Windows, SQLite, Python 3.14.7, sem PostgreSQL — o `postgres.exe` está
-bloqueado por política da máquina):** 4.687 aprovados, 165 reprovados e 149
-pulados em 454,68s (segunda rodada 4.683/169/149 em 495,25s; a flutuação de 4
-testes é de concorrência em SQLite). Os reprovados são pré-existentes e de
-ambiente (`diag` do psycopg, threads, Chromium, poppler, permissões
-POSIX/umask, `ruff` fora do PATH). **Os gatilhos novos só rodam na CI**
-(`postgres:16-alpine`): localmente os testes de recusa são pulados com motivo,
-e a evidência que vale para merge é a da CI.
+A linha de base vigente para não regressão é a de 08/10/2026, acima, já com
+a fatia 2 integrada e com os gatilhos rodando em PostgreSQL local. As medidas
+anteriores (07/10, Windows/SQLite) estão no histórico do Git deste arquivo.
 
 **DL-068 — prontidão para implantação: integrada** pelo
 [PR #91](https://github.com/fredabsd-svg/DataLedger/pull/91), squash

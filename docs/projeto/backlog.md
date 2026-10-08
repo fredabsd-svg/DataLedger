@@ -2175,9 +2175,9 @@ alterações).
 
 | ID | Item | Responsável | Depende de | Estado | Critério de aceite |
 | --- | --- | --- | --- | --- | --- |
-| BL-632 | **A1 (MÉDIO)** — `/admin/login/` não tem limite de tentativas. Reproduzido: 30 senhas erradas e depois a correta entrou. **Comportamento aceito (N6 da rodada 1):** usuário sem `is_staff` que acerta a senha no admin conta como falha, e cinco tentativas travam também o `/login/` dele por 15 min. Devolver a tentativa faria do admin um oráculo ilimitado de senha certa. Informação para o suporte | `desenvolvedor-pleno` | — | **em validação — DL-068** | Critérios 2 a 6 da DL-068 |
-| BL-633 | **A3(b) (MÉDIO)** — não existe `.dockerignore`, e `COPY . .` leva o `.env` real e o `.git` para a imagem | `desenvolvedor-pleno` | — | **em validação — DL-068** | Critério 7 da DL-068 |
-| BL-634 | **A2 (MÉDIO)** — Django 6.1.1 sem as correções do 6.1.2 (4 CVEs, entre eles o CVE-2026-84429, negação de serviço sem login) | `arquiteto-senior` | — | **em validação — DL-068** | Critério 1 da DL-068 |
+| BL-632 | **A1 (MÉDIO)** — `/admin/login/` não tem limite de tentativas. Reproduzido: 30 senhas erradas e depois a correta entrou. **Comportamento aceito (N6 da rodada 1):** usuário sem `is_staff` que acerta a senha no admin conta como falha, e cinco tentativas travam também o `/login/` dele por 15 min. Devolver a tentativa faria do admin um oráculo ilimitado de senha certa. Informação para o suporte | `desenvolvedor-pleno` | — | **fechado** — integrado pela DL-068 (PR #91, squash `7c23894`, 07/10/2026) | Critérios 2 a 6 da DL-068 |
+| BL-633 | **A3(b) (MÉDIO)** — não existe `.dockerignore`, e `COPY . .` leva o `.env` real e o `.git` para a imagem | `desenvolvedor-pleno` | — | **fechado** — integrado pela DL-068 (PR #91, squash `7c23894`, 07/10/2026) | Critério 7 da DL-068 |
+| BL-634 | **A2 (MÉDIO)** — Django 6.1.1 sem as correções do 6.1.2 (4 CVEs, entre eles o CVE-2026-84429, negação de serviço sem login) | `arquiteto-senior` | — | **fechado** — integrado pela DL-068 (PR #91, squash `7c23894`, 07/10/2026) | Critério 1 da DL-068 |
 | BL-635 | **A4 (BAIXO)** — `Escritorio.ativo=False` não tem efeito: o escritório inativo continua acessível pela web e pela API | `desenvolvedor-pleno` | Fred (o que "inativo" significa) | aberta | Escritório inativo recusa acesso, com teste web e API |
 | BL-636 | **A5 (BAIXO)** — os eventos de login vão para a trilha com `escritorio=NULL`, e o administrador do escritório não os vê em `/api/auditoria/` | `desenvolvedor-pleno` | — | aberta | O login aparece na trilha do escritório ativo do usuário |
 | BL-637 | **A6 (BAIXO)** — excluir escritório pelo admin dá 500 (`IntegrityError` da trilha), e, se a FK for corrigida, o `token` do convite iria em claro para `valores_anteriores` | `desenvolvedor-pleno` | — | aberta | Exclusão sem 500 e sem token na trilha |
@@ -2188,3 +2188,19 @@ alterações).
 | BL-642 | **R1 da reconferência da DL-068 (baixa)** — a recusa de proxy confiável vale só para a cobertura **exata** de uma família. Uma lista que cobre "tudo menos" uma faixa que nenhum cliente ocupa (por exemplo, tudo menos `0.0.0.0/8`) sobe e só avisa, e o IP da trilha volta a ser forjável. Exige configuração deliberada de quem já controla o servidor | `arquiteto-senior` | Fred (piso da HI-51) | aberta — **decisão do Fred** | Com o piso aprovado, recusar rede de prefixo menor que ele, com teste parametrizado |
 | BL-643 | **R2 da reconferência da DL-068 (baixa)** — extensões de segredo em maiúscula (`.PFX`, `.KEY`, `PROD.ENV`) escapavam do `.dockerignore` e do `.gitignore` | `arquiteto-senior` | — | **corrigida na DL-068** (classes de caracteres `[pP][fF][xX]`; mutação morta) | Casos em maiúscula e caixa mista no teste do `.dockerignore` |
 | BL-644 | **A1 da auditoria da DL-069, fatia 1 (baixa)** — nenhuma verificação cruza os nomes `CONSTRAINT = '…'` dos gatilhos nas migrações com `MENSAGENS_DE_RESTRICAO_DE_GATILHO`. Hoje nenhuma porta faz UPDATE ou DELETE em `LancamentoCaixa`/`FechamentoMesCaixa`, então a recusa nunca chega ao usuário; uma tela futura que o faça sem `restricao_como_400` daria 500 | `arquiteto-senior` | — | aberta — **decisão: sem guarda nova** (§3.1); o aviso está no comentário da migração `0011` do livro-caixa | Se surgir a primeira porta que altere essas tabelas, ela traduz a recusa e tem teste de tela |
+
+## DL-070 — melhorias com equipe multiagente, 08/10/2026
+
+Origem: análise do repositório de 08/10/2026 por dois `auxiliar-pesquisa`
+(triagem do backlog aberto e varredura independente), com reprodução em
+PostgreSQL 16. Plano: [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md).
+
+| ID | Item | Responsável | Depende de | Estado | Critério de aceite |
+| --- | --- | --- | --- | --- | --- |
+| BL-645 | **MÉDIA** — `POST /bootstrap/` grava o CNPJ do escritório sem validar: `abc` é gravado; CNPJ com máscara dá 500 (`DataError`, coluna de 14); CNPJ já cadastrado dá 500 (`IntegrityError`). O cadastro público valida; o bootstrap não | `desenvolvedor-pleno` | — | **em desenvolvimento — DL-070** | Critério 1 da DL-070 |
+| BL-646 | **MÉDIA** — `nome` com mais de 200 caracteres no `/bootstrap/` dá 500 (`DataError`) | `desenvolvedor-pleno` | — | **em desenvolvimento — DL-070** | Critério 2 da DL-070 |
+| BL-647 | **MÉDIA** — `POST /convites/emitir/` aceita e-mail malformado e dá 500 com e-mail acima de 254 caracteres | `desenvolvedor-pleno` | — | **em desenvolvimento — DL-070** | Critério 3 da DL-070 |
+| BL-648 | **BAIXA** — `GET /empresas/api/empresas/` faz uma consulta por empresa para o regime vigente (2 empresas: 9 consultas; 20: 27) | `desenvolvedor-pleno` | — | **em desenvolvimento — DL-070** | Critério 5 da DL-070 |
+| BL-649 | **BAIXA** — `GET /api/auditoria/` faz uma consulta por registro para o usuário (2: 9; 20: 27). A falta de paginação continua no BL-35 | `desenvolvedor-pleno` | — | **em desenvolvimento — DL-070** | Critério 6 da DL-070 |
+| BL-650 | **BAIXA** — histórico do livro-caixa que começa com `=`, `+`, `-` ou `@` sai assim no CSV do carnê-leão e pode virar fórmula ao abrir na planilha. Escapar altera o dado dentro de leiaute oficial | `arquiteto-senior` | Fred | aberta | Decisão do Fred: recusar o caractere na entrada, escapar na saída, ou aceitar o risco |
+| BL-651 | **BAIXA** — `POST /convites/emitir/` responde diferente para id de escritório inexistente e para id de escritório alheio: oráculo de existência. A autorização em si está correta no serviço | `desenvolvedor-pleno` | — | **em desenvolvimento — DL-070** | Critério 4 da DL-070 |
