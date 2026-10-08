@@ -158,7 +158,14 @@ def test_a_derivacao_encontrou_as_vinte_e_quatro_rotas_web_e_as_vinte_da_api():
     # download do modelo `.xlsx` da importação por planilha). Passa pelo mesmo
     # `get_empresa()` das irmãs, então a varredura de livro-caixa cobre também ela.
     # 25 -> 26 do lado da API. Nenhuma rota de tela nesta frente.
-    assert len(ROTAS_WEB) == 26, ROTAS_WEB
+    #
+    # DL-077, fatia 1 (frente C, tela): QUATRO rotas novas na tela do plano de contas
+    # em arquivo — "plano_importar" (GET formulário, POST prévia), "plano_importar_aplicar"
+    # (POST, única que grava), "plano_modelo_excel" (GET, download) e "plano_exportar"
+    # (GET, formulário ou arquivo). Cada uma recusa livro-caixa ANTES de ler o formulário
+    # (ver `_sem_contabilidade_para_livro_caixa` em `views_web.py`). 26 -> 30 do lado da
+    # tela. A API continua em 26.
+    assert len(ROTAS_WEB) == 30, ROTAS_WEB
     assert len(ROTAS_API) == 26, ROTAS_API
 
 

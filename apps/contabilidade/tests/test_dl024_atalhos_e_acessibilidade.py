@@ -1297,6 +1297,21 @@ def _nomes_de_rota_do_produto(urlconf="config.urls"):
     return nomes
 
 
+# DL-077, fatia 1 (frente C): as quatro telas do plano de contas em arquivo. Ficam
+# AQUI, e não em `universo_de_telas.py`, porque aquele arquivo não entrou no escopo
+# desta frente. Por isso a moldura delas é conferida explicitamente em
+# `apps/contabilidade/tests/test_dl077_telas.py`, com `assert_pagina_acessivel`
+# (a mesma guarda das telas de contabilidade), e não pela varredura do universo.
+# "plano_importar_aplicar" é POST: nunca renderiza a própria tela com sucesso, mas
+# responde com a prévia quando recusa, por isso está na cobertura e não nas exclusões.
+NOMES_DE_TELA_DO_PLANO_EM_ARQUIVO = {
+    "plano_importar": "contabilidade_web:plano_importar",
+    "plano_importar_aplicar": "contabilidade_web:plano_importar_aplicar",
+    "plano_modelo_excel": "contabilidade_web:plano_modelo_excel",
+    "plano_exportar": "contabilidade_web:plano_exportar",
+}
+
+
 def test_toda_rota_do_produto_esta_coberta_ou_excluida():
     """BL-334: a guarda do próprio conjunto de telas. Rota nova, nomeada,
     alcançável a partir de `config/urls.py`, sem entrada em
@@ -1309,6 +1324,7 @@ def test_toda_rota_do_produto_esta_coberta_ou_excluida():
     cobertas = (
         set(NOMES_DE_TELA_FORA_DA_CONTABILIDADE)
         | set(NOMES_DE_TELA_DE_CONTABILIDADE.values())
+        | set(NOMES_DE_TELA_DO_PLANO_EM_ARQUIVO.values())
         | set(NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE)
         | set(NOMES_DE_TELA_LIVRO_CAIXA_FORA_DA_CONTABILIDADE)
     )

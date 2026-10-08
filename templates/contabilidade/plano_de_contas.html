@@ -19,10 +19,18 @@ governa a ação primária "Nova conta" — quem só lê não ganha o botão,
 mesma regra de servidor de antes, só reposicionada.
 {% endcomment %}
 {% block titulo_pagina %}<h1>Plano de contas</h1>{% endblock %}
+{% comment %}
+DL-077, fatia 1 (frente C): "Importar" e "Exportar" são AÇÕES do plano, como
+"Nova conta" — por isso ficam aqui e não no menu da Contabilidade (que lista
+telas de destino). Importar exige escrita (`pode_escriturar`); exportar segue a
+leitura, que esta tela já exige para renderizar.
+{% endcomment %}
 {% block acoes_pagina %}
     {% if pode_escriturar %}
         <a class="botao botao--primario" href="{% url 'contabilidade_web:conta_nova' empresa.id %}">Nova conta</a>
+        <a class="botao botao--secundario" href="{% url 'contabilidade_web:plano_importar' empresa.id %}">Importar plano</a>
     {% endif %}
+    <a class="botao botao--secundario" href="{% url 'contabilidade_web:plano_exportar' empresa.id %}">Exportar plano</a>
 {% endblock %}
 
 {% block content %}

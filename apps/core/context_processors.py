@@ -61,6 +61,12 @@ ROTULOS_DE_TELA = {
     ("empresas", "criar"): "Nova empresa",
     ("contabilidade_web", "plano_de_contas"): "Plano de contas",
     ("contabilidade_web", "conta_nova"): "Nova conta",
+    # DL-077, fatia 1 (frente C): as telas do plano em arquivo. A aplicação responde
+    # com a própria tela de importação quando recusa, por isso o mesmo rótulo.
+    ("contabilidade_web", "plano_importar"): "Importar plano de contas",
+    ("contabilidade_web", "plano_importar_aplicar"): "Importar plano de contas",
+    ("contabilidade_web", "plano_exportar"): "Exportar plano de contas",
+    ("contabilidade_web", "plano_modelo_excel"): "Modelo da planilha do plano",
     ("contabilidade_web", "lancamento_novo"): "Novo lançamento",
     ("contabilidade_web", "lancamento_detalhe"): "Lançamento",
     ("contabilidade_web", "diario"): "Diário",

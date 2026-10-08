@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block titulo %}Exportar plano de contas — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% comment %}
+DL-077, fatia 1 (frente C): formulário de exportação. O arquivo sai pelo próprio
+GET, com os filtros na querystring (como a API), e nada é gravado. Os avisos de
+cada formato ficam na tela porque o arquivo não os carrega: o da ECD diz que o
+arquivo NÃO é a ECD, e o do sistema de referência diz que o código reduzido não
+é estável. Não há nenhum "ECD" nem "SPED" no nome do arquivo gerado.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Exportar plano de contas</h1>{% endblock %}
+
+{% block content %}
+    <p><a class="botao botao--secundario" href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">‹ Voltar para o plano de contas</a></p>
+
+    {% if erros %}
+        <div class="mensagem mensagem-error" role="alert">
+            {% for mensagem in erros.values %}<p>{{ mensagem }}</p>{% endfor %}
+        </div>
+    {% endif %}
+
+    <p class="texto-apoio">
+        Exporta o plano de contas cadastrado agora, sem gravar nada. O nome do arquivo traz
+        o documento da empresa e a data.
+    </p>
+
+    <form method="get" action="{% url 'contabilidade_web:plano_exportar' empresa.id %}"
+          class="formulario" novalidate>
+        <fieldset class="campo campo-radio">
+            <legend>Formato do arquivo</legend>
+            <div class="campo-radio__opcoes">
+                {% for formato in formatos %}
+                    <label class="campo-radio__opcao">
+                        <input type="radio" name="formato" value="{{ formato.valor }}"{% if formato.valor == valores.formato %} checked{% endif %}>
+                        {{ formato.rotulo }}
+                    </label>
+                {% endfor %}
+            </div>
+        </fieldset>
+
+        {% for formato in formatos %}
+            {% if formato.aviso %}
+                <div class="mensagem mensagem-warning">
+                    <p><strong>{{ formato.rotulo }}.</strong> {{ formato.aviso }}</p>
+                </div>
+            {% endif %}
+        {% endfor %}
+
+        <fieldset class="campo campo-radio">
+            <legend>Quais contas sair</legend>
+            <div class="campo-radio__opcoes">
+                {% for valor, rotulo in filtros.items %}
+                    <label class="campo-radio__opcao">
+                        <input type="radio" name="filtro" value="{{ valor }}"{% if valor == valores.filtro %} checked{% endif %}>
+                        {{ rotulo }}
+                    </label>
+                {% endfor %}
+            </div>
+        </fieldset>
+
+        <div class="campo">
+            <label for="id_inicio">Início do período (obrigatório em “Só as contas com movimento”)</label>
+            <input type="date" id="id_inicio" name="inicio" value="{{ valores.inicio }}" aria-describedby="id_periodo_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_fim">Fim do período</label>
+            <input type="date" id="id_fim" name="fim" value="{{ valores.fim }}" aria-describedby="id_periodo_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_data_alteracao">Data de alteração do plano (obrigatória no formato ECD: é o campo DT_ALT do I050)</label>
+            <input type="date" id="id_data_alteracao" name="data_alteracao" value="{{ valores.data_alteracao }}">
+        </div>
+        <p class="texto-apoio ajuda-formato-data" id="id_periodo_ajuda">
+            O formato dos campos de data é do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
+        </p>
+
+        <button type="submit">Baixar o arquivo</button>
+    </form>
+{% endblock %}

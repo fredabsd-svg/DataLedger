@@ -35,6 +35,12 @@ from apps.contabilidade.views_web import (
     parametro_contabil_encerrar,
     parametros_contabeis,
     plano_de_contas,
+    # DL-077, fatia 1 (frente C): plano de contas em arquivo — prévia e aplicação da
+    # importação, exportação e modelo da planilha. Só ações e formulários do plano.
+    plano_exportar,
+    plano_importar,
+    plano_importar_aplicar,
+    plano_modelo_excel,
     razao,
     relatorios,
     zeramento_do_periodo,
@@ -61,6 +67,29 @@ urlpatterns = [
         "empresas/<int:empresa_id>/plano-de-contas/nova/",
         conta_nova,
         name="conta_nova",
+    ),
+    # DL-077, fatia 1 (frente C): mesmo padrão curto do plano ("nova/", acima). A
+    # importação tem UMA rota para o formulário (GET) e para a prévia (POST); a
+    # aplicação é outra, só POST, porque é a única que grava.
+    path(
+        "empresas/<int:empresa_id>/plano-de-contas/importar/",
+        plano_importar,
+        name="plano_importar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/plano-de-contas/importar/aplicar/",
+        plano_importar_aplicar,
+        name="plano_importar_aplicar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/plano-de-contas/importar/modelo-excel/",
+        plano_modelo_excel,
+        name="plano_modelo_excel",
+    ),
+    path(
+        "empresas/<int:empresa_id>/plano-de-contas/exportar/",
+        plano_exportar,
+        name="plano_exportar",
     ),
     # DL-045, correção da rodada 1 de auditoria (A7): classificar (ou
     # reclassificar, ou remover) a Linha da DRE de uma conta EXISTENTE —
