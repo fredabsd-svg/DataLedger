@@ -2358,6 +2358,11 @@ class MarcacaoDmplView(EmpresaEscopadaContabilMixin, APIView):
     **Nada confia em id recebido sem conferir a empresa:** a empresa vem da
     URL (revalidada contra o escritório ativo pelo mixin) e o lançamento é
     buscado DENTRO dela — igual a `EstornarLancamentoView`.
+
+    **Período fechado (DL-071, BL-655):** `PUT` e `DELETE` respondem **409**
+    quando alguma DMPL que lê o lançamento é de competência encerrada ou
+    entregue (o serviço decide e diz qual); a consulta de período só acontece
+    DEPOIS de o lançamento ser achado na empresa, então id alheio continua 404.
     """
 
     permission_classes = [TemEscritorioAtivo]
@@ -2399,6 +2404,12 @@ class MarcacaoDmplView(EmpresaEscopadaContabilMixin, APIView):
                 usuario=request.user,
                 request=request,
             )
+        except ClassificacaoAlteraPeriodoFechado as exc:
+            # DL-071 (BL-655): 409, pelo mesmo motivo e com a mesma tradução
+            # das classificações de conta (DL-065) — o que recusa é o ESTADO
+            # do período que a DMPL leria, não o corpo enviado. Nada foi
+            # gravado: a recusa vem antes de qualquer escrita do serviço.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except MarcacaoDmplInvalida as exc:
             raise DRFValidationError(str(exc)) from exc
 
@@ -2409,7 +2420,12 @@ class MarcacaoDmplView(EmpresaEscopadaContabilMixin, APIView):
         _recusar_dado_nao_contratado(request, CONTRATO_DELETE_MARCACAO_DMPL)
         lancamento = self._lancamento_da_empresa(empresa, lancamento_id)
 
-        remover_marcacoes_da_dmpl(lancamento=lancamento, usuario=request.user, request=request)
+        try:
+            remover_marcacoes_da_dmpl(lancamento=lancamento, usuario=request.user, request=request)
+        except ClassificacaoAlteraPeriodoFechado as exc:
+            # DL-071 (BL-655): remover também é reclassificar a leitura (o
+            # veto da DMPL volta a valer), então a trava é a mesma do PUT.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         return Response(_marcacoes_da_dmpl_para_json(lancamento), status=status.HTTP_200_OK)
 
 

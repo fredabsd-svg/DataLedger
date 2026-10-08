@@ -151,8 +151,17 @@ class ChaveIdempotenciaConflitante(Exception):
 
 
 class ClassificacaoAlteraPeriodoFechado(Exception):
-    """Reclassificação de conta recusada: mudaria a demonstração de uma
-    competência já encerrada ou entregue (DL-065, BL-550).
+    """Reclassificação recusada: mudaria a demonstração de uma competência já
+    encerrada ou entregue (DL-065, BL-550).
+
+    Vale para os dois atos de classificação das demonstrações: a de CONTA
+    (`classificar_conta_na_*`) e, desde a DL-071 (BL-655), a marcação manual
+    da DMPL POR LANÇAMENTO (`salvar_marcacoes_da_dmpl` /
+    `remover_marcacoes_da_dmpl`). É a mesma exceção, e não uma irmã, porque é
+    a mesma recusa com o mesmo desfecho — 409 na API, mensagem na tela — e
+    uma segunda classe obrigaria toda porta a traduzir duas vezes o mesmo
+    fato. O que muda de um uso para o outro é só a mensagem, escrita junto da
+    regra que recusa.
 
     Mesmo motivo de `CompetenciaEncerrada` e `ChaveIdempotenciaConflitante` para
     ser uma classe própria, e a mesma tradução: **409**, não 400. O que recusa
@@ -161,10 +170,13 @@ class ClassificacaoAlteraPeriodoFechado(Exception):
     corrigir o corpo; o pedido está certo, e a resposta honesta é que o
     período está fechado.
 
-    A regra mora em `Conta.clean()` (uma só implementação, que fecha também o
-    admin — E1 do plano); esta exceção existe só para a TRADUÇÃO: os serviços
-    de classificação leem o `code` do `ValidationError` e relançam aqui, com
-    a mesma mensagem. A mensagem é escrita no modelo e nunca duplicada.
+    A regra da classificação de conta mora em `Conta.clean()` (uma só
+    implementação, que fecha também o admin — E1 do plano); esta exceção
+    existe só para a TRADUÇÃO: os serviços de classificação leem o `code` do
+    `ValidationError` e relançam aqui, com a mesma mensagem. A mensagem é
+    escrita no modelo e nunca duplicada. A da marcação da DMPL mora em
+    `_recusar_marcacao_da_dmpl_em_periodo_fechado` (a `MarcacaoDmpl` não tem
+    admin, então não há `clean()` a reaproveitar).
     """
 
 
@@ -8339,6 +8351,154 @@ def _instancias_de_marcacao(*, lancamento, marcacoes, usuario):
     return instancias
 
 
+def _competencias_por_extenso(meses, ano):
+    """`[2, 3]` e `2026` -> `"02/2026 e 03/2026"` (vírgulas e "e" no fim)."""
+    rotulos = [f"{mes:02d}/{ano}" for mes in meses]
+    if len(rotulos) <= 1:
+        return "".join(rotulos)
+    return f"{', '.join(rotulos[:-1])} e {rotulos[-1]}"
+
+
+def _recusar_marcacao_da_dmpl_em_periodo_fechado(lancamento):
+    """Recusa (`ClassificacaoAlteraPeriodoFechado`) gravar, trocar ou remover
+    a marcação da DMPL de `lancamento` quando alguma DMPL que LÊ esse
+    lançamento pertence a uma competência encerrada ou entregue (DL-071,
+    BL-655). Não devolve nada quando pode prosseguir.
+
+    **Por que existe.** A DL-065 (BL-550) fixou que a demonstração de um
+    período encerrado ou entregue não muda retroativamente por ato de
+    classificação. A marcação manual é um ato de classificação POR
+    LANÇAMENTO, com o mesmo efeito, e ficou fora da trava: medido em
+    08/10/2026, com a competência fechada, trocar a marcação movia 1.000,00
+    entre linhas, remover derrubava `pode_emitir` e marcar pela primeira vez
+    o acendia. É a rede para as DUAS direções: a DMPL entregue não pode
+    mudar de conteúdo, e o veto dela não pode nascer nem sumir depois.
+
+    **Quais competências.** A DMPL de `(ano, mes)` lê o exercício de 01/01
+    até o último dia de `mes` (`apurar_dmpl`: `data_inicio = date(ano, 1, 1)`,
+    `data_fim = date(ano, mes, último_dia)`; o exercício é o ano civil, HI-28,
+    e não vem de parâmetro por empresa). Então um lançamento de data `D` é
+    lido pelas DMPL de `(D.ano, m)` para todo `m >= D.mes`, e por nenhuma de
+    outro ano. Daí o filtro `ano = D.ano, mes >= D.mes`. A consequência é
+    deliberada: lançamento de fevereiro com MARÇO encerrado é recusado mesmo
+    com fevereiro aberto — a DMPL de março o contém. O teste
+    `test_criterio3_a_fronteira_da_guarda_e_a_da_apuracao` mede essa janela
+    contra `apurar_dmpl`, não a presume (guarda que filtra por critério
+    diferente do da apuração é guarda que se contorna, lição A1 da DL-065).
+
+    **A competência é achada pela DATA**, nunca por
+    `LancamentoContabil.competencia` — a FK é anulável em dado legado, e a
+    apuração lê o movimento pela data (A1 da DL-065).
+
+    **Sem exceção para "nada mudou".** A guarda não compara o conjunto novo
+    com o gravado: repetir o PUT idêntico, ou remover quando nada existe,
+    também é recusado em período fechado. Uma exceção aí seria uma segunda
+    regra para manter e um caminho de gravação (a trilha) dentro de um
+    período que se declarou imutável.
+
+    **Concorrência (A2 da DL-065).** A competência ABERTA é lida sob `FOR
+    SHARE`, pelo primitivo do módulo (`_travar_competencia_em_modo_compartilhado`,
+    o mesmo de `criar_lancamento`): o fechamento concorrente (`FOR UPDATE`)
+    espera esta transação, ou esta espera o fechamento e acorda vendo o
+    estado novo — nunca o período fecha por cima de uma marcação já decidida.
+    O estado que vale é o devolvido PELA consulta travada, não o lido antes
+    dela. Competência já fechada não precisa de trava (fechada continua
+    fechada; se for reaberta no meio, a recusa é só conservadora). A trava
+    fica até o fim da transação do chamador — por isso `salvar_marcacoes_da_
+    dmpl` chama isto cedo e `@transaction.atomic` a sustenta.
+
+    ⚠️ Limite declarado: competência que ainda NÃO TEM linha (nunca tocada)
+    não tem o que travar, e o fechamento concorrente que a CRIA e a fecha na
+    mesma transação não é visto. É a mesma janela que a DL-065 aceitou; criar
+    até doze linhas `aberta` só para travá-las poluiria a lista de
+    competências. A trava de aplicação não substitui um gatilho de banco para
+    a tabela da marcação (fora do escopo da DL-071).
+
+    **Custo.** Uma consulta para as competências da janela, mais uma trava
+    por competência ABERTA dela (no máximo doze, as de janeiro a dezembro). Não cresce com
+    o histórico de períodos fechados: o filtro por ano e mês já o descarta.
+
+    **`lock_timeout` estourado** (lição N1) vira a mesma exceção com a
+    orientação de tentar de novo — 409/mensagem, nunca 500 — e a mensagem NÃO
+    diz que a competência está encerrada, que seria falso.
+
+    Precisa rodar dentro de uma transação (o `FOR SHARE` só vale nela);
+    `salvar_marcacoes_da_dmpl` garante. Não verifica empresa nem permissão:
+    quem chama resolve o escopo, como o resto do serviço.
+    """
+    data = lancamento.data
+    empresa = lancamento.empresa
+    barram = []  # (mes, entregue) das competências da janela que não estão abertas
+    for competencia in Competencia.objects.filter(
+        empresa_id=lancamento.empresa_id, ano=data.year, mes__gte=data.month
+    ).order_by("mes"):
+        estado, entregue_em = competencia.estado, competencia.entregue_em
+        if estado == EstadoCompetencia.ABERTA:
+            try:
+                estado, entregue_em = _travar_competencia_em_modo_compartilhado(
+                    competencia, ano=competencia.ano, mes=competencia.mes, empresa=empresa
+                )
+            except CompetenciaOcupada as exc:
+                # Só atributos escalares aqui dentro: a transação foi abortada
+                # pelo estouro, e qualquer consulta nova (como seguir uma FK)
+                # a substituiria por um `InternalError` (BL-470).
+                raise ClassificacaoAlteraPeriodoFechado(
+                    "Não foi possível verificar o período desta marcação agora: outra "
+                    f"operação está em curso na competência {competencia.mes:02d}/"
+                    f"{competencia.ano}. Tente de novo em instantes."
+                ) from exc
+        if estado != EstadoCompetencia.ABERTA:
+            barram.append((competencia.mes, entregue_em is not None))
+    if not barram:
+        return
+
+    inicio = (
+        "Não é possível alterar as marcações da DMPL deste lançamento (de "
+        f"{data:%d/%m/%Y}): a DMPL de "
+    )
+    entregues = [mes for mes, entregue in barram if entregue]
+    if entregues:
+        # A3 da DL-065: competência ENTREGUE não se reabre — `reabrir_
+        # competencia` recusa sempre (RC-101). Havendo UMA entregue na janela,
+        # reabrir as demais não destrava nada, então a mensagem fala só do
+        # caminho que existe: o ajuste na competência aberta.
+        lista = _competencias_por_extenso(entregues, data.year)
+        if len(entregues) > 1:
+            situacao = (
+                f"as competências {lista} já foram entregues ao cliente e não podem ser reabertas"
+            )
+        else:
+            situacao = f"a competência {lista} já foi entregue ao cliente e não pode ser reaberta"
+        mensagem = (
+            f"{inicio}{lista} acumula o exercício desde janeiro e inclui este lançamento, "
+            f"e {situacao}: a demonstração entregue não muda retroativamente. A correção "
+            "é um lançamento de ajuste na competência aberta; a marcação deste "
+            "lançamento não pode mudar."
+        )
+    else:
+        # `EM_ENCERRAMENTO` é reservado e inalcançável (ver `EstadoCompetencia`):
+        # tudo que não é aberto nem entregue é, na prática, "encerrada".
+        lista = _competencias_por_extenso([mes for mes, _entregue in barram], data.year)
+        if len(barram) > 1:
+            situacao = f"as competências {lista} estão encerradas"
+            reabrir = (
+                f"Reabra as competências {lista} para corrigir a marcação; "
+                "enquanto estiverem fechadas"
+            )
+        else:
+            situacao = f"a competência {lista} está encerrada"
+            reabrir = (
+                f"Reabra a competência {lista} para corrigir a marcação; enquanto estiver fechada"
+            )
+        mensagem = (
+            f"{inicio}{lista} acumula o exercício desde janeiro e inclui este lançamento, "
+            f"mas {situacao} — a demonstração daquele período mudaria retroativamente, "
+            f"depois de o período ter sido fechado. {reabrir}, a demonstração do período "
+            "não pode mudar."
+        )
+    raise ClassificacaoAlteraPeriodoFechado(mensagem)
+
+
 @transaction.atomic
 def salvar_marcacoes_da_dmpl(*, lancamento, marcacoes, usuario, request=None):
     """Substitui, de uma vez e em UMA transação, o conjunto de marcações
@@ -8386,12 +8546,26 @@ def salvar_marcacoes_da_dmpl(*, lancamento, marcacoes, usuario, request=None):
     (`get_object_or_404(..., empresa=empresa)`); a consistência marcação ×
     lançamento é `MarcacaoDmpl.clean()`.
 
-    Levanta `MarcacaoDmplInvalida` (a view traduz para 400). Devolve a lista
-    de `MarcacaoDmpl` já gravada, em ordem de entrada.
+    **Período fechado (DL-071, BL-655).** Gravar, trocar ou remover a marcação
+    é recusado quando alguma DMPL que lê o lançamento é de competência
+    encerrada ou entregue — ver `_recusar_marcacao_da_dmpl_em_periodo_fechado`,
+    que também diz qual é a janela. Vale para `remover_marcacoes_da_dmpl` (que
+    passa por aqui) e para a lista vazia.
+
+    Levanta `MarcacaoDmplInvalida` (a view traduz para 400) e
+    `ClassificacaoAlteraPeriodoFechado` (a view traduz para 409). Devolve a
+    lista de `MarcacaoDmpl` já gravada, em ordem de entrada.
     """
     # Trava do lançamento como MUTEX do conjunto: duas substituições
     # concorrentes serializam aqui, e a segunda vê o resultado da primeira.
     LancamentoContabil.objects.select_for_update().get(pk=lancamento.pk)
+
+    # DL-071: o estado do período vem ANTES da validação do conteúdo. Período
+    # fechado é fato que independe do que foi enviado, e responder 400 sobre o
+    # conteúdo de uma marcação que não poderia entrar de qualquer jeito
+    # mandaria o contador corrigir o que não adianta corrigir. A trava `FOR
+    # SHARE` da guarda dura até o fim desta transação.
+    _recusar_marcacao_da_dmpl_em_periodo_fechado(lancamento)
 
     instancias = _instancias_de_marcacao(
         lancamento=lancamento, marcacoes=marcacoes, usuario=usuario
