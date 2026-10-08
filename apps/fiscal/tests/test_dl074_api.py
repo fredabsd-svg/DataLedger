@@ -79,6 +79,7 @@ def test_empresa_de_outro_escritorio_responde_404_em_todas_as_rotas(
         "M.",
         "S.",
         _usuario(escritorio_a, Papel.GESTOR, "gestor-dl074-a-iso"),
+        situacao_iss="proprio_municipio",
     )
     client.force_login(usuario_gestor_b)
 
@@ -106,7 +107,16 @@ def test_receita_de_outra_empresa_do_mesmo_escritorio_responde_404(
 ):
     # empresa_a2 é do MESMO escritório. A receita da empresa A não pode ser alcançada pela URL dela.
     receita = servico.lancar_receita_informada(
-        empresa, 2026, 5, "interno", "10", "ajuste", "M.", "S.", usuario_gestor_a
+        empresa,
+        2026,
+        5,
+        "interno",
+        "10",
+        "ajuste",
+        "M.",
+        "S.",
+        usuario_gestor_a,
+        situacao_iss="proprio_municipio",
     )
     client.force_login(usuario_gestor_a)
 
@@ -139,6 +149,7 @@ def test_cliente_nao_le_nem_escreve(client, empresa, usuario_cliente_a):
                 "ano": 2026,
                 "mes": 5,
                 "mercado": "interno",
+                "situacao_iss": "proprio_municipio",
                 "valor": "10",
                 "origem": "ajuste",
                 "motivo": "M.",
@@ -193,6 +204,7 @@ def test_gestor_e_analista_escrevem(client, empresa, usuario_gestor_a, usuario_a
                 "ano": 2026,
                 "mes": 5,
                 "mercado": "interno",
+                "situacao_iss": "proprio_municipio",
                 "valor": "10",
                 "origem": "ajuste",
                 "motivo": "M.",
@@ -238,6 +250,7 @@ def test_valor_invalido_e_400_pelo_contrato(
             "ano": 2026,
             "mes": 5,
             "mercado": "interno",
+            "situacao_iss": "proprio_municipio",
             "valor": valor,
             "origem": "ajuste",
             "motivo": "M.",
@@ -259,6 +272,7 @@ def test_origem_historico_depois_do_inicio_de_uso_e_400(client, empresa, usuario
             "ano": 2025,
             "mes": 3,
             "mercado": "interno",
+            "situacao_iss": "proprio_municipio",
             "valor": "10",
             "origem": "historico_pre_sistema",
             "motivo": "M.",
@@ -288,6 +302,7 @@ def test_fluxo_completo_pela_api(client, empresa, escritorio_a, usuario_gestor_a
             "ano": 2026,
             "mes": 5,
             "mercado": "interno",
+            "situacao_iss": "proprio_municipio",
             "valor": "200.50",
             "origem": "outras_receitas_atividade",
             "motivo": "Outras receitas.",

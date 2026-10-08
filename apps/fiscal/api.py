@@ -47,6 +47,7 @@ from apps.fiscal.models import (
     NaturezaOperacao,
     OrigemReceitaInformada,
     ReceitaInformada,
+    SituacaoIssReceitaInformada,
     VinculoDocumentoEmpresa,
 )
 from apps.fiscal.permissoes import (
@@ -337,6 +338,7 @@ CONTRATO_POST_RECEITA_INFORMADA = ContratoDeRequisicao(
         "motivo",
         "documento_suporte",
         "atividade",
+        "situacao_iss",
     },
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="no lançamento da receita informada",
@@ -384,6 +386,7 @@ class ReceitaInformadaSerializer(serializers.ModelSerializer):
             "motivo",
             "documento_suporte",
             "atividade",
+            "situacao_iss",
             "estado",
             "confirmada_em",
             "estornada_em",
@@ -408,6 +411,14 @@ class ReceitaInformadaEntradaSerializer(serializers.Serializer):
     # DL-075: atividade opcional (sem ela, vale a padrão do mês). Id de atividade da
     # MESMA empresa; outra empresa responde 404 na view, nunca vaza o registro.
     atividade = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    # DL-075 (HI-80): situação do ISS. Obrigatória no mercado interno e vazia na exportação;
+    # a regra é do serviço (`lancar_receita_informada`), com recusa nomeada. Sem valor padrão.
+    situacao_iss = serializers.ChoiceField(
+        choices=SituacaoIssReceitaInformada.choices,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+    )
 
 
 class MesEntradaSerializer(serializers.Serializer):
@@ -596,6 +607,7 @@ class ReceitasInformadasView(EmpresaEscopadaMixin, APIView):
                 usuario=request.user,
                 request=request,
                 atividade=atividade,
+                situacao_iss=dados.get("situacao_iss"),
             )
         except receita_servico.EntradaInvalidaReceita as exc:
             raise DRFValidationError(exc.mensagem) from exc

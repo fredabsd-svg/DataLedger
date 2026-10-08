@@ -76,7 +76,16 @@ def test_delete_de_receita_confirmada_e_recusado(receita_confirmada):
 
 def test_save_e_delete_de_rascunho_sao_permitidos(empresa_a, usuario_gestor_a):
     rascunho = servico.lancar_receita_informada(
-        empresa_a, 2026, 5, MercadoReceita.INTERNO, "10", "ajuste", "M.", "S.", usuario_gestor_a
+        empresa_a,
+        2026,
+        5,
+        MercadoReceita.INTERNO,
+        "10",
+        "ajuste",
+        "M.",
+        "S.",
+        usuario_gestor_a,
+        situacao_iss="proprio_municipio",
     )
 
     rascunho.delete()
@@ -139,7 +148,16 @@ def test_receita_estornada_nao_muda_mais_pelo_banco(receita_confirmada, usuario_
 def test_mercado_fora_do_catalogo_e_recusado_pelo_banco(empresa_a, usuario_gestor_a):
     # Rascunho pode ser alterado pelo banco, então o catálogo é checado pela restrição.
     receita = servico.lancar_receita_informada(
-        empresa_a, 2026, 5, MercadoReceita.INTERNO, "10", "ajuste", "M.", "S.", usuario_gestor_a
+        empresa_a,
+        2026,
+        5,
+        MercadoReceita.INTERNO,
+        "10",
+        "ajuste",
+        "M.",
+        "S.",
+        usuario_gestor_a,
+        situacao_iss="proprio_municipio",
     )
 
     _recusa_do_banco(

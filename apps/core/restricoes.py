@@ -171,6 +171,17 @@ MENSAGENS_DE_RESTRICAO = {
         "Colunas do ato (confirmação e estorno) fora de sincronia com o estado da "
         "receita informada."
     ),
+    # DL-075 (HI-80): situação do ISS. O serviço recusa antes de gravar (mensagem nomeada);
+    # estas restrições são a última barreira. A regra "interno exige situação" NÃO está
+    # aqui: linhas anteriores à migração 0005 não a cumprem, e o pré-DAS a trata.
+    "receita_informada_situacao_iss_valida": (
+        "Situação do ISS da receita informada fora do catálogo (próprio município, outro "
+        "município ou retido)."
+    ),
+    "receita_informada_iss_so_no_interno": (
+        "Receita informada de exportação com situação do ISS: a exportação não tem essa "
+        "situação. Deixe o campo em branco."
+    ),
     "confirmacao_mes_valido": (
         "Confirmação de receita mensal com competência fora de 1970-2999 ou mês fora de 1 a 12."
     ),

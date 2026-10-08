@@ -343,6 +343,7 @@ def test_rascunho_de_receita_nao_entra_no_pre_das(empresa_a, usuario_gestor_a):
         "Rascunho sintético.",
         SUPORTE_SINTETICO,
         usuario_gestor_a,
+        situacao_iss="proprio_municipio",
     )
     servico_receita.confirmar_mes(empresa, 2026, 6, usuario_gestor_a)
 

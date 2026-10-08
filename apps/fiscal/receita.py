@@ -34,6 +34,11 @@ confirmação e o estorno não se intercalam. A ordem é a mesma nos dois sentid
 por isso não há impasse entre eles.
 
 Valores: `Decimal`, duas casas (DE-010). Nenhum arredondamento de cálculo aqui.
+
+Situação do ISS (DL-075, HI-80): a receita informada do mercado INTERNO exige a
+situação do ISS (próprio município, outro município, retido); a da EXPORTAÇÃO não
+tem situação. O serviço recusa as duas faltas antes de gravar. Quem não tem a
+situação não entra no pré-DAS: a recusa é nomeada, e nunca se presume "próprio".
 """
 
 from __future__ import annotations
@@ -58,6 +63,7 @@ from apps.fiscal.models import (
     OpcaoRegimeCaixaSimples,
     OrigemReceitaInformada,
     ReceitaInformada,
+    SituacaoIssReceitaInformada,
     mercado_da_natureza,
 )
 
@@ -221,11 +227,17 @@ def composicao_do_mes(empresa: Empresa, ano: int, mes: int) -> Composicao:
 
 @dataclass(frozen=True)
 class LancamentoInformado:
-    """Uma soma de receita informada confirmada, por mercado e atividade (None = padrão)."""
+    """Uma soma de receita informada confirmada, por mercado, atividade e situação do ISS.
+
+    `atividade_id` None = atividade padrão. `situacao_iss` é None na exportação e,
+    no interno, só aparece quando a receita é antiga (sem situação; ver HI-80): o
+    pré-DAS recusa essa soma, nomeando cada receita.
+    """
 
     mercado: str
     atividade_id: int | None
     valor: Decimal
+    situacao_iss: str | None = None
 
 
 @dataclass(frozen=True)
@@ -234,7 +246,8 @@ class LancamentosDoMes:
 
     `documento_por_natureza`: total de cada natureza efetivada (o pré-DAS segrega
     ISS retido, outro município e exportação por natureza). `informados`: cada
-    mercado e atividade. Somados por mercado, os dois batem com `composicao_do_mes`.
+    mercado, atividade e situação do ISS. Somados por mercado, os dois batem com
+    `composicao_do_mes`.
     """
 
     documento_por_natureza: dict[str, Decimal]
@@ -242,7 +255,7 @@ class LancamentosDoMes:
 
 
 def lancamentos_do_mes(empresa: Empresa, ano: int, mes: int) -> LancamentosDoMes:
-    """Lançamentos do mês abertos por natureza e por atividade (consumidor: pré-DAS)."""
+    """Lançamentos do mês abertos por natureza, atividade e situação do ISS (pré-DAS)."""
     por_natureza: dict[str, Decimal] = {}
     for linha in (
         _escrituracoes_efetivadas_do_mes(empresa, ano, mes)
@@ -253,13 +266,28 @@ def lancamentos_do_mes(empresa: Empresa, ano: int, mes: int) -> LancamentosDoMes
         por_natureza[linha["natureza"]] = linha["total"] or ZERO
 
     informados = tuple(
-        LancamentoInformado(linha["mercado"], linha["atividade"], linha["total"] or ZERO)
+        LancamentoInformado(
+            linha["mercado"], linha["atividade"], linha["total"] or ZERO, linha["situacao_iss"]
+        )
         for linha in _informadas_confirmadas_do_mes(empresa, ano, mes)
-        .values("mercado", "atividade")
+        .values("mercado", "atividade", "situacao_iss")
         .annotate(total=Sum("valor"))
-        .order_by("mercado", "atividade")
+        .order_by("mercado", "atividade", "situacao_iss")
     )
     return LancamentosDoMes(documento_por_natureza=por_natureza, informados=informados)
+
+
+def receitas_informadas_sem_situacao_iss(empresa: Empresa, ano: int, mes: int):
+    """Receitas informadas CONFIRMADAS do mercado interno sem situação do ISS (HI-80).
+
+    Receitas antigas, anteriores à regra. Lista inteira, para o pré-DAS nomear cada uma
+    (competência, valor e documento de suporte) na recusa. Só lê a empresa dada.
+    """
+    return list(
+        _informadas_confirmadas_do_mes(empresa, ano, mes)
+        .filter(mercado=MercadoReceita.INTERNO, situacao_iss__isnull=True)
+        .order_by("id")
+    )
 
 
 def confirmacao_do_mes(empresa: Empresa, ano: int, mes: int, *, travar: bool = False):
@@ -377,6 +405,32 @@ def _motivo(motivo) -> str:
     return _texto_obrigatorio(motivo, "o motivo", MOTIVO_MAXIMO)
 
 
+def _situacao_iss_do_lancamento(mercado: str, situacao) -> str | None:
+    """Situação do ISS aceita para o mercado, ou recusa nomeada (HI-80).
+
+    Vazio e None são a mesma coisa: a tela e a API podem mandar "" quando o contador não
+    escolheu. Exportação: a situação tem de ficar vazia. Interno: tem de ser uma do catálogo.
+    """
+    vazia = situacao is None or (isinstance(situacao, str) and not situacao.strip())
+    if mercado == MercadoReceita.EXTERNO:
+        if not vazia:
+            raise EntradaInvalidaReceita(
+                "Receita de exportação não tem situação do ISS: a atividade de exportação não "
+                "oferece essa opção no PGDAS-D (Manual, item 9; rotina, não norma). Deixe a "
+                "situação em branco."
+            )
+        return None
+    if vazia:
+        raise EntradaInvalidaReceita(
+            "Informe a situação do ISS desta receita de mercado interno: ISS devido ao próprio "
+            "município, ISS devido a outro município ou ISS retido ou substituído pelo tomador "
+            "(LC 123, art. 18, § 4º-A; Res. CGSN 140, art. 25, § 9º; HI-80). Não há valor padrão."
+        )
+    if situacao not in SituacaoIssReceitaInformada.values:
+        raise EntradaInvalidaReceita(f"Situação do ISS fora do catálogo: {situacao!r}.")
+    return situacao
+
+
 # ---------------------------------------------------------------------------
 # Trilha e gravação
 # ---------------------------------------------------------------------------
@@ -410,6 +464,7 @@ def _snapshot_receita(receita: ReceitaInformada) -> dict:
         "mercado": receita.mercado,
         "valor": str(receita.valor),
         "origem": receita.origem,
+        "situacao_iss": receita.situacao_iss,
         "confirmada_em": _iso(receita.confirmada_em),
         "estornada_em": _iso(receita.estornada_em),
         "motivo_estorno": receita.motivo_estorno,
@@ -698,6 +753,7 @@ def lancar_receita_informada(
     usuario,
     request=None,
     atividade=None,
+    situacao_iss=None,
 ) -> ReceitaInformada:
     """Cria a receita informada em RASCUNHO. Rascunho não entra em nenhum total.
 
@@ -707,12 +763,18 @@ def lancar_receita_informada(
     `atividade` (DL-075, HI-68) é opcional: sem ela, o pré-DAS usa a atividade
     padrão vigente no mês. Se informada, tem de ser desta empresa e cobrir o mês
     inteiro. Não altera o total do mês nem o RBT12: só o anexo do pré-DAS.
+
+    `situacao_iss` (DL-075, HI-80) é OBRIGATÓRIA no mercado interno e PROIBIDA na
+    exportação. Não há valor padrão: "próprio município" presumido duplica o ISS retido
+    ou o destina ao ente errado (LC 123, art. 18, § 4º-A; Res. CGSN 140, art. 25, § 9º).
+    Recusa antes de qualquer gravação.
     """
     validar_competencia(ano, mes)
     if mercado not in MercadoReceita.values:
         raise EntradaInvalidaReceita(f"Mercado desconhecido: {mercado!r}.")
     if origem not in OrigemReceitaInformada.values:
         raise EntradaInvalidaReceita(f"Origem fora do catálogo: {origem!r}.")
+    situacao_limpa = _situacao_iss_do_lancamento(mercado, situacao_iss)
     valor_decimal = _valor_positivo(valor)
     motivo_limpo = _motivo(motivo)
     suporte = _texto_obrigatorio(
@@ -774,6 +836,7 @@ def lancar_receita_informada(
         estado=EstadoReceitaInformada.RASCUNHO,
         criado_por=usuario,
         atividade=atividade,
+        situacao_iss=situacao_limpa,
     )
     receita.save()
     registrar(

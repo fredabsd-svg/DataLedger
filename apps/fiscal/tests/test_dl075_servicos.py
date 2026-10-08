@@ -114,6 +114,7 @@ def test_atividade_em_uso_por_receita_informada_nao_se_exclui(empresa_a, usuario
         SUPORTE_SINTETICO,
         usuario_gestor_a,
         atividade=atividade,
+        situacao_iss="proprio_municipio",
     )
     with pytest.raises(servico.AtividadeConflito):
         servico.excluir_atividade(atividade, usuario_gestor_a)
@@ -138,6 +139,7 @@ def test_receita_informada_recusa_atividade_de_outra_empresa(
             SUPORTE_SINTETICO,
             usuario_gestor_a,
             atividade=outra,
+            situacao_iss="proprio_municipio",
         )
     assert "não pertence a esta empresa" in excecao.value.mensagem
 
@@ -159,6 +161,7 @@ def test_receita_informada_exige_atividade_vigente_no_mes_inteiro(empresa_a, usu
             SUPORTE_SINTETICO,
             usuario_gestor_a,
             atividade=encerrada,
+            situacao_iss="proprio_municipio",
         )
 
 
@@ -326,14 +329,15 @@ def test_fs12_com_12_meses_e_a_soma_da_folha(empresa_a, usuario_gestor_a):
 def test_fs12_no_ano_de_inicio_usa_media_vezes_12_dos_meses_de_atividade(
     empresa_a, usuario_gestor_a
 ):
-    """Abertura em 10/03/2026, Simples em 01/03/2026 (ano da opção 2026), PA 06/2026.
+    """Abertura em 10/03/2026, Simples a partir da própria abertura (ano da opção 2026), PA 06/2026.
 
-    Pelo art. 22 § 3º: meses de atividade anteriores ao PA = 03, 04 e 05 (3 meses);
-    FS12 = (soma / 3) × 12. Com 30.000 por mês: FS12 = 360.000. Não exige folha de
-    antes da abertura.
+    O início do Simples não pode ser anterior à abertura (DL-074, R4), então a fixture usa
+    a data da abertura. Pelo art. 22 § 3º: meses de atividade anteriores ao PA = 03, 04 e
+    05 (3 meses); FS12 = (soma / 3) × 12. Com 30.000 por mês: FS12 = 360.000. Não exige
+    folha de antes da abertura.
     """
     empresa = cenario_simples(
-        empresa_a, abertura=date(2026, 3, 10), inicio_simples=date(2026, 3, 1)
+        empresa_a, abertura=date(2026, 3, 10), inicio_simples=date(2026, 3, 10)
     )
     for mes in (3, 4, 5):
         folha_confirmada(empresa, usuario_gestor_a, 2026, mes, remuneracao="30000")

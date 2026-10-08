@@ -41,6 +41,7 @@ def test_r2_quatro_lancamentos_iguais_simultaneos_geram_uma_receita_so(empresa_a
                 "Motivo sintético.",
                 "NF 123 sintética",
                 usuario_gestor_a,
+                situacao_iss="proprio_municipio",
             )
             desfechos[indice] = "ok"
         except servico.ReceitaErro:

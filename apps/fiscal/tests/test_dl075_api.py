@@ -243,6 +243,7 @@ def test_excluir_atividade_em_uso_responde_409(client, empresa, usuario_gestor_a
         SUPORTE_SINTETICO,
         usuario_gestor_a,
         atividade=atividade,
+        situacao_iss="proprio_municipio",
     )
     client.force_login(usuario_gestor_a)
 
@@ -298,6 +299,7 @@ def test_receita_informada_com_atividade_de_outra_empresa_responde_404(
             "ano": 2026,
             "mes": 5,
             "mercado": "interno",
+            "situacao_iss": "proprio_municipio",
             "valor": "1000.00",
             "origem": "outras_receitas_atividade",
             "motivo": "Motivo sintético.",

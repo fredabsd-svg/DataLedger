@@ -106,6 +106,7 @@ from apps.fiscal.models import (
     OrigemReceitaInformada,
     PapelDocumento,
     ReceitaInformada,
+    SituacaoIssReceitaInformada,
     VinculoDocumentoEmpresa,
 )
 from apps.fiscal.permissoes import (
@@ -1411,6 +1412,7 @@ _CONTRATO_RECEITA_INFORMADA = ContratoDeRequisicao(
         "origem",
         "motivo",
         "documento_suporte",
+        "situacao_iss",
         "acao",
     },
     cabecalhos_ignorados=("Idempotency-Key",),
@@ -1773,6 +1775,8 @@ def _valores_do_lancamento(request):
         "mercado": MercadoReceita.INTERNO,
         "valor": "",
         "origem": "",
+        # HI-80: sem valor padrão. O contador escolhe; "próprio município" não é presumido.
+        "situacao_iss": "",
         "motivo": "",
         "documento_suporte": "",
     }
@@ -1786,6 +1790,7 @@ def _tela_de_lancar_receita(request, empresa, *, valores, status=200):
         "opcoes_mes": _MESES_DO_ANO,
         "opcoes_mercado": MercadoReceita.choices,
         "opcoes_origem": OrigemReceitaInformada.choices,
+        "opcoes_situacao_iss": SituacaoIssReceitaInformada.choices,
         "inicio_de_uso_rotulo": _mes_por_extenso(inicio_ano, inicio_mes),
         "motivo_maximo": servico_receita.MOTIVO_MAXIMO,
         "suporte_maximo": servico_receita.DOCUMENTO_SUPORTE_MAXIMO,
@@ -1797,7 +1802,17 @@ def _tela_de_lancar_receita(request, empresa, *, valores, status=200):
 
 
 def _lancar_receita_post(request, empresa):
-    campos = ("ano", "mes", "mercado", "valor", "origem", "motivo", "documento_suporte", "acao")
+    campos = (
+        "ano",
+        "mes",
+        "mercado",
+        "valor",
+        "origem",
+        "situacao_iss",
+        "motivo",
+        "documento_suporte",
+        "acao",
+    )
     valores = {campo: request.POST.get(campo, "") for campo in campos}
     try:
         recusar_dado_nao_contratado(request, _CONTRATO_RECEITA_INFORMADA)
@@ -1846,6 +1861,7 @@ def _lancar_receita_post(request, empresa):
                 valores["documento_suporte"],
                 usuario=request.user,
                 request=request,
+                situacao_iss=valores["situacao_iss"],
             )
             if valores["acao"] == "confirmar":
                 servico_receita.confirmar_receita_informada(

@@ -671,6 +671,21 @@ class EstadoReceitaInformada(models.TextChoices):
     ESTORNADA = "estornada", "Estornada"
 
 
+class SituacaoIssReceitaInformada(models.TextChoices):
+    """Situação do ISS de uma receita informada de serviço no mercado INTERNO (HI-80).
+
+    Obrigatória no mercado interno e proibida na exportação. Sem ela o pré-DAS não
+    sabe se o ISS é do DAS, de outro município ou retido, e a regra não presume:
+    presumir "próprio município" duplica o ISS retido ou o destina ao ente errado
+    (LC 123, art. 18, § 4º-A; Res. CGSN 140, art. 25, § 9º; consulta de 08/10/2026,
+    item 4). Os valores são o catálogo do PGDAS-D (Manual, itens 6.5 e 6.6).
+    """
+
+    PROPRIO_MUNICIPIO = "proprio_municipio", "ISS devido ao próprio município"
+    OUTRO_MUNICIPIO = "outro_municipio", "ISS devido a outro município"
+    RETIDO = "retido", "ISS retido ou substituído pelo tomador"
+
+
 class EstadoConfirmacaoMes(models.TextChoices):
     CONFIRMADA = "confirmada", "Confirmada"
     # Reaberta: o mês voltou a não estar completo. `a_retificar=True` quando a
@@ -773,6 +788,18 @@ class ReceitaInformada(models.Model):
         related_name="receitas_informadas",
         verbose_name="atividade",
     )
+    # DL-075 (HI-80): situação do ISS. Obrigatória no mercado interno e NULA na exportação,
+    # imposta pelo serviço (`apps.fiscal.receita.lancar_receita_informada`) e pelas duas
+    # restrições abaixo. `null=True` porque a migração 0005 não reescreve linhas antigas:
+    # uma receita interna confirmada sem situação é recusada pelo pré-DAS, nomeada, e o
+    # estorno com novo lançamento é o caminho (a receita confirmada é imutável).
+    situacao_iss = models.CharField(
+        "situação do ISS",
+        max_length=20,
+        choices=SituacaoIssReceitaInformada.choices,
+        null=True,
+        blank=True,
+    )
 
     class Meta:
         verbose_name = "receita informada"
@@ -797,6 +824,17 @@ class ReceitaInformada(models.Model):
             models.CheckConstraint(
                 condition=~Q(motivo="") & ~Q(documento_suporte=""),
                 name="receita_informada_campos_obrigatorios",
+            ),
+            # HI-80: a situação do ISS, quando há, é do catálogo fechado; e a exportação não
+            # tem situação de ISS (o PGDAS-D não oferece essa opção na atividade de exportação).
+            models.CheckConstraint(
+                condition=Q(situacao_iss__isnull=True)
+                | Q(situacao_iss__in=SituacaoIssReceitaInformada.values),
+                name="receita_informada_situacao_iss_valida",
+            ),
+            models.CheckConstraint(
+                condition=Q(mercado=MercadoReceita.INTERNO) | Q(situacao_iss__isnull=True),
+                name="receita_informada_iss_so_no_interno",
             ),
             # Coerência entre estado e colunas do ato, como em
             # `escrituracao_campos_coerentes_com_o_estado` (DL-072).

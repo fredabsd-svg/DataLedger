@@ -19,6 +19,7 @@ from apps.fiscal.models import (
     DocumentoFiscal,
     NaturezaOperacao,
     PapelDocumento,
+    SituacaoIssReceitaInformada,
     VinculoDocumentoEmpresa,
 )
 from apps.fiscal.tests.xml_sinteticos import identificador_nfse, xml_nfse
@@ -86,7 +87,13 @@ def escriturar(
 
 
 def informar_e_confirmar(empresa, usuario, ano: int, mes: int, valor, mercado="interno"):
-    """Receita informada de origem "outras receitas", já CONFIRMADA. Devolve a receita."""
+    """Receita informada de origem "outras receitas", já CONFIRMADA. Devolve a receita.
+
+    Fixture (HI-80): a receita do mercado INTERNO leva a situação do ISS "próprio
+    município", porque o serviço a exige; a da EXPORTAÇÃO não leva situação. Quem testa a
+    situação escolhe outra, passando `lancar_receita_informada` direto.
+    """
+    situacao = SituacaoIssReceitaInformada.PROPRIO_MUNICIPIO if mercado == "interno" else None
     receita = servico_receita.lancar_receita_informada(
         empresa,
         ano,
@@ -97,6 +104,7 @@ def informar_e_confirmar(empresa, usuario, ano: int, mes: int, valor, mercado="i
         "Lançamento sintético de teste.",
         "Extrato sintético de teste.",
         usuario,
+        situacao_iss=situacao,
     )
     return servico_receita.confirmar_receita_informada(receita, usuario)
 

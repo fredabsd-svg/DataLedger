@@ -27,15 +27,32 @@ Precisão: toda a cadeia (RBT12, alíquota efetiva, percentuais) é `Decimal` co
 dígitos e SEM arredondamento. Só o valor de cada tributo é arredondado. Nada aqui
 usa `float`.
 
-Segregação (HI-68, critério 4 e 5):
-- ISS retido (`prestado_iss_retido`): o ISS daquela receita sai do valor. Os demais
-  tributos ficam iguais ao cálculo normal, como manda o critério 4.
-- Exportação (`prestado_exportacao_servico`): PIS, Cofins e ISS saem do valor
-  (Res. CGSN 140 art. 25 § 3º). A alíquota usa o RBT12 do mercado externo, e os demais
-  tributos ficam iguais ao cálculo normal. HIPÓTESE a conferir no exemplo 6 do Manual,
-  que não foi lido (ver docs/projeto/consultas/2026-10-08-tabelas-simples-2026.md).
-- ISS a outro município: o ISS é o mesmo do normal; a divisão por município não é
-  calculada (o XML não traz `cLocIncid` no leitor atual).
+Segregação (HI-68, critérios 4 e 5; consulta de 08/10/2026, itens 1 a 3):
+- ISS retido (`prestado_iss_retido`, ou receita informada com situação `retido`,
+  HI-80): o PERCENTUAL do ISS é desconsiderado e os federais ficam como estão, sem
+  redistribuição (LC 123, art. 18, § 4º-A, II; Res. CGSN 140, art. 25, § 9º, II;
+  HI-78). Ver a ordem com teto, abaixo.
+- Exportação (`prestado_exportacao_servico`, ou receita informada do mercado externo):
+  desconsideram-se só PIS, Cofins e ISS, "tão somente" (LC 123, art. 18, § 14; Res. CGSN
+  140, art. 25, § 3º; exemplo 6 do Manual do PGDAS-D, lido pelo contador-senior na
+  consulta de 08/10/2026, item 2; HI-78). IRPJ, CSLL e CPP ficam com o cálculo normal, na
+  alíquota efetiva do RBT12 do mercado externo, sem redistribuição (HI-78). Anexo IV
+  continua sem CPP.
+- Ordem com o teto de 5% do ISS (HI-79; consulta, item 3): o teto e a redistribuição
+  aos federais (art. 21, por `percentuais_efetivos`) rodam PRIMEIRO; DEPOIS o ISS, que
+  na 5ª faixa vale 5%, é desconsiderado (art. 25). Os federais da exportação saem
+  com o excedente já incorporado. Não há exemplo oficial desta combinação: é inferência
+  textual, a conferir na primeira empresa real nessa situação.
+- ISS a outro município (`prestado_iss_outro_municipio`, ou receita informada com
+  situação `outro_municipio`): o ISS tem o mesmo percentual do normal e fica no DAS, só
+  muda o destino (LC 123, art. 18, § 4º-A, V; Res. CGSN 140, art. 25, § 9º, I; consulta,
+  item 7). A alíquota de ISS da lei municipal não entra no cálculo. A divisão do ISS
+  POR MUNICÍPIO não é feita: o XML do leitor atual não traz `cLocIncid` (HI-81; BL-668,
+  pendente).
+- Receita informada (HI-80): o mercado interno exige a situação do ISS. Sem ela, o
+  pré-DAS recusa e nomeia cada receita (LC 123, art. 18, § 4º-A; Res. CGSN 140, art. 25,
+  § 9º). Com ela, a situação escolhe o segmento: próprio município → normal; outro
+  município → ISS a outro município; retido → ISS retido. Nunca se presume "próprio".
 """
 
 from __future__ import annotations
@@ -59,6 +76,7 @@ from apps.fiscal.models import (
     EnquadramentoAtividade,
     MercadoReceita,
     NaturezaOperacao,
+    SituacaoIssReceitaInformada,
     mercado_da_natureza,
 )
 
@@ -107,7 +125,11 @@ DISP_EXPORTACAO = (
 DISP_RETIDO = (
     "Res. CGSN 140/2018, art. 25, § 9º (retenção: desconsidera o percentual do ISS); critério 4"
 )
-DISP_OUTRO_MUNICIPIO = "Res. CGSN 140/2018, art. 25, § 9º (município a que o ISS é devido)"
+DISP_OUTRO_MUNICIPIO = (
+    "Res. CGSN 140/2018, art. 25, § 9º, I (município a que o ISS é devido; ISS no DAS); "
+    "HI-81; BL-668 (detalhamento por município pendente)"
+)
+DISP_SITUACAO_ISS = "LC 123, art. 18, § 4º-A; Res. CGSN 140, art. 25, § 9º; HI-80"
 DISP_ANEXO_IV = "LC 123/2006, art. 18, § 5º-C; art. 13, VI (CPP fora do Simples, paga à parte)"
 
 DISPOSITIVO_DO_ENQUADRAMENTO = {
@@ -132,6 +154,16 @@ SEGMENTO_DA_NATUREZA = {
     NaturezaOperacao.PRESTADO_ISS_RETIDO: SEG_RETIDO,
     NaturezaOperacao.PRESTADO_ISS_OUTRO_MUNICIPIO: SEG_OUTRO_MUNICIPIO,
     NaturezaOperacao.PRESTADO_EXPORTACAO_SERVICO: SEG_EXPORTACAO,
+}
+
+# Receita informada do mercado INTERNO (HI-80): a situação do ISS escolhe o segmento,
+# do mesmo jeito que a natureza da nota escolhe no escriturado. Não há default: sem
+# situação a receita não chega aqui (o pré-DAS a recusa antes). A receita informada de
+# EXPORTAÇÃO não tem situação e vai ao segmento de exportação (ver `_segmento_informado`).
+SEGMENTO_DA_SITUACAO_ISS = {
+    SituacaoIssReceitaInformada.PROPRIO_MUNICIPIO: SEG_NORMAL,
+    SituacaoIssReceitaInformada.OUTRO_MUNICIPIO: SEG_OUTRO_MUNICIPIO,
+    SituacaoIssReceitaInformada.RETIDO: SEG_RETIDO,
 }
 
 # Naturezas FORA do primeiro corte: recusa nomeada, nunca cálculo silencioso.
@@ -596,6 +628,35 @@ def _situacao_em_texto(meses) -> str:
     return ", ".join(f"{m:02d}/{a}" for a, m, _s in meses)
 
 
+def _mensagem_sem_situacao_iss(receitas) -> str:
+    """Recusa nomeada: cada receita confirmada do interno sem situação, com o que a identifica.
+
+    A receita confirmada é imutável (DL-074): a correção é estornar e relançar com a
+    situação. A mensagem diz isso, em vez de sugerir uma alteração que o banco recusa.
+    """
+    itens = "; ".join(
+        f"receita nº {r.pk}, competência {_mes_rotulo(r.ano, r.mes)}, valor {r.valor}, "
+        f"documento de suporte '{r.documento_suporte}'"
+        for r in receitas
+    )
+    return (
+        "Receita informada confirmada do mercado interno sem a situação do ISS "
+        f"(HI-80): {itens}. Informe a situação do ISS (estorne e relance)."
+    )
+
+
+def _segmento_informado(lancamento) -> str:
+    """Segmento de uma soma de receita informada confirmada.
+
+    Exportação (mercado externo) vai ao segmento de exportação, como a nota de exportação:
+    desconsidera PIS, Cofins e ISS (HI-78). Interno: a situação do ISS escolhe o segmento
+    (HI-80); a situação ausente já foi recusada antes de chegar aqui.
+    """
+    if lancamento.mercado == MercadoReceita.EXTERNO:
+        return SEG_EXPORTACAO
+    return SEGMENTO_DA_SITUACAO_ISS[lancamento.situacao_iss]
+
+
 def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
     """Pré-DAS do mês, por mercado e anexo efetivo, com a memória de cálculo.
 
@@ -701,8 +762,23 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
         linhas.append(
             (mercado_da_natureza(natureza), SEGMENTO_DA_NATUREZA[natureza], enquadramento, valor)
         )
+    # HI-80: receita informada CONFIRMADA do mercado interno sem situação do ISS (receita de
+    # antes da regra). Recusa nomeando cada uma; nunca se presume "próprio município", que
+    # duplicaria o ISS retido ou o destinaria ao ente errado.
+    sem_situacao = receita_servico.receitas_informadas_sem_situacao_iss(empresa, ano, mes)
+    if sem_situacao:
+        bloqueios.append(
+            Bloqueio(
+                "receita_informada_sem_situacao_iss",
+                _mensagem_sem_situacao_iss(sem_situacao),
+                DISP_SITUACAO_ISS,
+            )
+        )
     for lancamento in lancamentos.informados:
         if lancamento.valor == 0:
+            continue
+        if lancamento.mercado == MercadoReceita.INTERNO and lancamento.situacao_iss is None:
+            # Recusada acima, com a lista de cada receita. Não entra em segmento nenhum.
             continue
         if lancamento.atividade_id is None:
             enquadramento = padrao.enquadramento if padrao is not None else None
@@ -719,7 +795,9 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
                 )
                 continue
             enquadramento = atividade.enquadramento
-        linhas.append((lancamento.mercado, SEG_NORMAL, enquadramento, lancamento.valor))
+        linhas.append(
+            (lancamento.mercado, _segmento_informado(lancamento), enquadramento, lancamento.valor)
+        )
 
     # 5. Fator r, só se alguma linha o exige, com folha confirmada nos meses da janela.
     precisa_fator_r = any(

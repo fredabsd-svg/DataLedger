@@ -49,6 +49,7 @@ def _lancar_igual(empresa, usuario):
         "Motivo sintético.",
         "NF 123 sintética",
         usuario,
+        situacao_iss="proprio_municipio",
     )
 
 

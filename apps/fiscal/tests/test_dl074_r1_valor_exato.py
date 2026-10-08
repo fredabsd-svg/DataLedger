@@ -36,6 +36,7 @@ def _lancar(empresa, usuario, valor):
         "Motivo sintético.",
         "Suporte sintético.",
         usuario,
+        situacao_iss="proprio_municipio",
     )
 
 
@@ -44,6 +45,7 @@ def _lancamento_valido(**sobrescritas):
         "ano": "2026",
         "mes": "05",
         "mercado": "interno",
+        "situacao_iss": "proprio_municipio",
         "valor": "100,00",
         "origem": ORIGEM_OUTRAS,
         "motivo": "Lançamento sintético de teste.",
@@ -171,6 +173,7 @@ def test_r1_api_recusa_forma_ambigua_com_400_e_nao_grava(
         "ano": 2026,
         "mes": 5,
         "mercado": "interno",
+        "situacao_iss": "proprio_municipio",
         "valor": valor,
         "origem": ORIGEM_OUTRAS,
         "motivo": "Lançamento sintético de teste.",
@@ -194,6 +197,7 @@ def test_r1_api_aceita_decimal_com_no_maximo_duas_casas(client, empresa_a, usuar
         "ano": 2026,
         "mes": 5,
         "mercado": "interno",
+        "situacao_iss": "proprio_municipio",
         "valor": valor,
         "origem": ORIGEM_OUTRAS,
         "motivo": "Lançamento sintético de teste.",
