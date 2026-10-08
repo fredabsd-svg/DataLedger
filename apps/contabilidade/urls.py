@@ -20,6 +20,9 @@ from apps.contabilidade.views import (
     LancamentoListCreateView,
     MarcacaoDmplView,
     ParametrosContabeisListCreateView,
+    PlanoDeContasExportacaoView,
+    PlanoDeContasImportacaoAplicarView,
+    PlanoDeContasImportacaoPreviaView,
     RazaoView,
     ReabrirCompetenciaView,
     ZerarResultadoView,
@@ -160,5 +163,22 @@ urlpatterns = [
         "empresas/<int:empresa_id>/lancamentos/<int:lancamento_id>/marcacao-dmpl/",
         MarcacaoDmplView.as_view(),
         name="marcacao-dmpl",
+    ),
+    # DL-077 (fatia 1): plano de contas em arquivo. A prévia lê e confere; a
+    # aplicação grava só o que a prévia revisou; a exportação devolve o arquivo.
+    path(
+        "empresas/<int:empresa_id>/plano-de-contas/importacao/previa/",
+        PlanoDeContasImportacaoPreviaView.as_view(),
+        name="plano-importacao-previa",
+    ),
+    path(
+        "empresas/<int:empresa_id>/plano-de-contas/importacao/aplicar/",
+        PlanoDeContasImportacaoAplicarView.as_view(),
+        name="plano-importacao-aplicar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/plano-de-contas/exportacao/",
+        PlanoDeContasExportacaoView.as_view(),
+        name="plano-exportacao",
     ),
 ]

@@ -1,0 +1,758 @@
+"""Conferência, aplicação e exportação do plano de contas (DL-077, fatia 1).
+
+TRÊS OPERAÇÕES, E A SEPARAÇÃO É PROPOSITAL.
+
+1. `conferir_plano` LÊ e decide. Não grava nada. Devolve a prévia: para cada
+   conta, a ação (criar, atualizar, sem mudança, recusada), o tipo e a natureza
+   FINAIS e de onde vieram, e as ocorrências com linha e campo.
+2. `aplicar_plano` GRAVA, e só se a prévia não tiver erro. Antes de gravar,
+   recalcula a conferência DENTRO de uma trava por empresa e compara com a
+   prévia que o contador viu (SHA-256 do arquivo e assinatura do plano). Se o
+   arquivo mudou, ou o cadastro mudou de forma que a conferência é outra, recusa.
+   Tudo é um único `transaction.atomic()`: falha no meio desfaz o resto.
+3. `exportar_plano` escreve o plano da empresa no formato pedido.
+
+REGRAS DA FATIA 1 (plano DL-077, consulta do contador-senior de 08/10/2026).
+- Políticas: `so_acrescentar` (padrão) e `acrescentar_e_atualizar_nome`.
+  Nenhuma política apaga conta, e nenhuma muda tipo, natureza, conta superior
+  ou caráter analítico de conta EXISTENTE. Só a segunda troca o NOME.
+- Conta superior deve existir no arquivo ou no cadastro, e ser SINTÉTICA.
+- Código repetido no arquivo: erro (a segunda ocorrência).
+- Tipo, nesta ordem: o do arquivo; senão o da conta superior; senão o prefixo
+  informado na prévia, o mais longo que casa com o código. Sem nenhum dos três:
+  erro (HI-87). O produto não adivinha tipo.
+  Quando o arquivo traz tipo e a conta superior tem outro: erro.
+- Natureza, nesta ordem: a do arquivo; senão presumida pelo tipo (HI-88),
+  com AVISO por conta, para o contador conferir as redutoras.
+- Conta existente com tipo, natureza ou caráter analítico diferente do arquivo:
+  erro. A conta superior diferente da cadastrada: erro.
+- Plano referencial (I051) lido e não gravado: aviso. O DataLedger ainda não
+  guarda o plano referencial nesta fatia.
+- Arquivo sem nenhuma conta: erro.
+"""
+
+import hashlib
+import json
+from collections import defaultdict
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+
+from django.db import transaction
+
+from apps.auditoria.services import registrar
+from apps.contabilidade.intercambio.canonico import (
+    NIVEL_AVISO,
+    NIVEL_ERRO,
+    ContaLida,
+    IntercambioRecusado,
+    Ocorrencia,
+    ResultadoLeitura,
+)
+from apps.contabilidade.intercambio.formatos import ESCRITORES
+from apps.contabilidade.intercambio.leitura import FormatoNaoSuportado
+from apps.contabilidade.models import (
+    NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO,
+    Conta,
+    ItemLancamento,
+    TipoConta,
+)
+from apps.contabilidade.services import (
+    ContaRecusadaNoCadastro,
+    _travar_empresa_para_operacao_de_zeramento,
+    criar_conta_pelo_plano,
+    renomear_conta_pelo_plano,
+)
+
+POLITICA_SO_ACRESCENTAR = "so_acrescentar"
+POLITICA_ACRESCENTAR_E_ATUALIZAR_NOME = "acrescentar_e_atualizar_nome"
+POLITICAS = (POLITICA_SO_ACRESCENTAR, POLITICA_ACRESCENTAR_E_ATUALIZAR_NOME)
+
+ACAO_CRIAR = "criar"
+ACAO_ATUALIZAR = "atualizar"
+ACAO_SEM_MUDANCA = "sem_mudanca"
+ACAO_RECUSADA = "recusada"
+
+ORIGEM_ARQUIVO = "arquivo"
+ORIGEM_CONTA_SUPERIOR = "conta_superior"
+ORIGEM_PREFIXO = "prefixo"
+ORIGEM_CADASTRO = "cadastro"
+ORIGEM_PRESUMIDA = "presumida_pelo_tipo"
+
+FILTROS_DE_EXPORTACAO = ("todas", "analiticas", "com_movimento")
+
+TAMANHO_MAXIMO_CODIGO = 20  # Conta.codigo
+TAMANHO_MAXIMO_NOME = 200  # Conta.nome
+
+
+class ParametroInvalido(IntercambioRecusado):
+    """Política, prefixo ou filtro fora do que a fatia aceita. A API responde 400."""
+
+
+class PlanoRecusado(IntercambioRecusado):
+    """O plano tem erro, ou o cadastro recusou alguma conta. Nada foi gravado."""
+
+
+class ArquivoAlteradoDesdeAPrevia(IntercambioRecusado):
+    """O SHA-256 do arquivo aplicado não é o da prévia. A API responde 409."""
+
+
+class PlanoAlteradoDesdeAPrevia(IntercambioRecusado):
+    """O arquivo é o mesmo, mas a conferência agora dá outro resultado (o cadastro
+    mudou). A API responde 409. Quem vê isso confere a prévia de novo."""
+
+
+@dataclass(frozen=True)
+class ItemDoPlano:
+    """O que a aplicação faria com UMA conta do arquivo, e por quê."""
+
+    linha: int
+    codigo: str
+    nome: str
+    codigo_pai: str | None
+    analitica: bool
+    acao: str
+    tipo: str | None
+    origem_tipo: str | None
+    natureza: str | None
+    origem_natureza: str | None
+    ocorrencias: tuple[Ocorrencia, ...] = ()
+
+
+@dataclass(frozen=True)
+class PreviaDoPlano:
+    """Resultado de `conferir_plano`. Não grava nada; é o que o contador revisa."""
+
+    resultado: ResultadoLeitura
+    politica: str
+    tipos_por_prefixo: tuple[tuple[str, str], ...]
+    itens: tuple[ItemDoPlano, ...]
+    ordem: tuple[str, ...]
+    ocorrencias: tuple[Ocorrencia, ...]
+    assinatura: str
+    contagens: dict = field(default_factory=dict)
+
+    @property
+    def sha256(self):
+        return self.resultado.sha256
+
+    @property
+    def tem_erro(self):
+        return any(o.nivel == NIVEL_ERRO for o in self.ocorrencias)
+
+
+@dataclass(frozen=True)
+class ResultadoDaAplicacao:
+    criadas: int
+    atualizadas: int
+    sem_mudanca: int
+    sha256: str
+    assinatura: str
+
+
+@dataclass(frozen=True)
+class ArquivoDoPlano:
+    """Saída de `exportar_plano`. `sha256` é o do arquivo gerado (vai para a trilha)."""
+
+    formato: str
+    filtro: str
+    conteudo: bytes
+    sha256: str
+    quantidade_contas: int
+    sinteticas_incluidas: int
+
+
+# -----------------------------------------------------------------------------
+# Parâmetros
+# -----------------------------------------------------------------------------
+
+
+def validar_politica(politica):
+    if politica not in POLITICAS:
+        raise ParametroInvalido(f"política '{politica}' não existe. Use: {', '.join(POLITICAS)}.")
+    return politica
+
+
+def validar_prefixos(tipos_por_prefixo):
+    """Confere o mapa prefixo -> tipo da prévia. Devolve um dict limpo.
+
+    O prefixo casa com o INÍCIO do código (`"3"` casa `"3.1.01"`). O tipo tem
+    que ser um valor de `TipoConta`. Nenhum prefixo é aplicado por ordem de
+    chegada: quem casa é sempre o mais longo.
+    """
+    if tipos_por_prefixo is None:
+        return {}
+    if not isinstance(tipos_por_prefixo, Mapping):
+        raise ParametroInvalido("os prefixos devem ser um mapa prefixo -> tipo.")
+    limpos = {}
+    validos = set(TipoConta.values)
+    for prefixo, tipo in tipos_por_prefixo.items():
+        if not isinstance(prefixo, str) or not prefixo.strip():
+            raise ParametroInvalido("prefixo vazio: informe o começo do código da conta.")
+        if tipo not in validos:
+            raise ParametroInvalido(
+                f"o tipo '{tipo}' do prefixo '{prefixo}' não existe. "
+                f"Use: {', '.join(sorted(validos))}."
+            )
+        limpos[prefixo.strip()] = tipo
+    return limpos
+
+
+def _prefixo_que_casa(codigo, tipos):
+    candidatos = [prefixo for prefixo in tipos if codigo.startswith(prefixo)]
+    return max(candidatos, key=len) if candidatos else None
+
+
+def _natureza_presumida(tipo):
+    """Natureza que o tipo carrega (HI-88). Mesma fonte do balanço (models)."""
+    return NATUREZA_NATURAL_PARA_O_TOTAL_DO_TIPO[TipoConta(tipo)].value
+
+
+# -----------------------------------------------------------------------------
+# Conferência
+# -----------------------------------------------------------------------------
+
+
+@dataclass
+class _Resolucao:
+    item: ItemDoPlano
+    tipo: str | None
+    natureza: str | None
+    analitica: bool
+    erro: bool
+
+
+class _Conferencia:
+    """Resolve cada conta do arquivo, com a conta superior antes da filha.
+
+    `em_curso` detecta ciclo na própria recursão. `memo` evita refazer conta já
+    resolvida. `ordem` guarda a ordem em que as contas ficaram prontas, que é a
+    ordem segura de criação: a superior sempre antes da filha.
+    """
+
+    def __init__(self, resultado, banco, politica, tipos):
+        self.arquivo = {}
+        for conta in resultado.contas:
+            if conta.codigo and conta.codigo not in self.arquivo:
+                self.arquivo[conta.codigo] = conta
+        self.banco = banco
+        self.politica = politica
+        self.tipos = tipos
+        self.memo = {}
+        self.ordem = []
+
+    def resolver(self, codigo, em_curso=frozenset()):
+        if codigo in self.memo:
+            return self.memo[codigo]
+        conta = self.arquivo[codigo]
+        ocorrencias = []
+
+        def erro(campo, mensagem):
+            ocorrencias.append(Ocorrencia(conta.linha, campo, NIVEL_ERRO, mensagem))
+
+        def aviso(campo, mensagem):
+            ocorrencias.append(Ocorrencia(conta.linha, campo, NIVEL_AVISO, mensagem))
+
+        if not conta.nome.strip():
+            erro("nome", "nome obrigatório.")
+        elif len(conta.nome) > TAMANHO_MAXIMO_NOME:
+            erro(
+                "nome", f"nome com {len(conta.nome)} caracteres; o máximo é {TAMANHO_MAXIMO_NOME}."
+            )
+        if len(codigo) > TAMANHO_MAXIMO_CODIGO:
+            erro(
+                "codigo",
+                f"código com {len(codigo)} caracteres; o máximo é {TAMANHO_MAXIMO_CODIGO}.",
+            )
+
+        # Conta superior (p. ex. ECD COD_CTA_SUP): precisa existir e ser sintética.
+        pai_tipo = None
+        pai_analitica = None
+        if conta.codigo_pai is not None:
+            if conta.codigo_pai == codigo or conta.codigo_pai in em_curso:
+                erro(
+                    "codigo_pai", f"a conta superior {conta.codigo_pai} forma ciclo na hierarquia."
+                )
+            elif conta.codigo_pai in self.arquivo:
+                pai = self.resolver(conta.codigo_pai, em_curso | {codigo})
+                if pai.erro:
+                    erro(
+                        "codigo_pai",
+                        f"a conta superior {conta.codigo_pai} tem erro "
+                        f"(linha {self.arquivo[conta.codigo_pai].linha}). Corrija-a antes.",
+                    )
+                pai_tipo = pai.tipo
+                pai_analitica = pai.analitica
+            elif conta.codigo_pai in self.banco:
+                cadastrada = self.banco[conta.codigo_pai]
+                pai_tipo = cadastrada.tipo
+                pai_analitica = cadastrada.aceita_lancamento
+            else:
+                erro(
+                    "codigo_pai",
+                    f"a conta superior {conta.codigo_pai} não está no arquivo nem no cadastro "
+                    "da empresa.",
+                )
+            if pai_analitica:
+                erro(
+                    "codigo_pai",
+                    f"a conta superior {conta.codigo_pai} é analítica, e só conta sintética "
+                    "recebe filha (REGRA_CONTA_NIVEL_SUPERIOR_NAO_SINTETICA, ECD p. 120).",
+                )
+
+        tipo = natureza = origem_tipo = origem_natureza = None
+        acao = ACAO_CRIAR
+
+        if codigo in self.banco:
+            cadastrada = self.banco[codigo]
+            acao = ACAO_SEM_MUDANCA
+            tipo, origem_tipo = cadastrada.tipo, ORIGEM_CADASTRO
+            natureza, origem_natureza = cadastrada.natureza, ORIGEM_CADASTRO
+            if conta.tipo is not None and conta.tipo != cadastrada.tipo:
+                erro(
+                    "tipo",
+                    f"o arquivo diz '{conta.tipo}', e a conta está cadastrada como "
+                    f"'{cadastrada.tipo}'. O produto não altera tipo de conta existente.",
+                )
+            if conta.natureza is not None and conta.natureza != cadastrada.natureza:
+                erro(
+                    "natureza",
+                    f"o arquivo diz '{conta.natureza}', e a conta está cadastrada como "
+                    f"'{cadastrada.natureza}'. O produto não altera natureza de conta existente.",
+                )
+            if conta.analitica != cadastrada.aceita_lancamento:
+                erro(
+                    "analitica",
+                    "a conta está cadastrada como "
+                    f"{'analítica' if cadastrada.aceita_lancamento else 'sintética'}, e o "
+                    "arquivo diz o contrário. O produto não altera isso em conta existente.",
+                )
+            superior_cadastrada = (
+                cadastrada.conta_pai.codigo if cadastrada.conta_pai_id is not None else None
+            )
+            if conta.codigo_pai != superior_cadastrada:
+                erro(
+                    "codigo_pai",
+                    f"a conta superior no arquivo ({conta.codigo_pai or 'raiz'}) difere da "
+                    f"cadastrada ({superior_cadastrada or 'raiz'}). O produto não reestrutura "
+                    "conta existente.",
+                )
+            if conta.nome != cadastrada.nome:
+                if self.politica == POLITICA_ACRESCENTAR_E_ATUALIZAR_NOME:
+                    acao = ACAO_ATUALIZAR
+                else:
+                    aviso(
+                        "nome",
+                        f"o arquivo traz '{conta.nome}'; mantido o cadastrado "
+                        f"'{cadastrada.nome}' (política só acrescentar).",
+                    )
+        else:
+            if conta.tipo is not None:
+                tipo, origem_tipo = conta.tipo, ORIGEM_ARQUIVO
+                if pai_tipo is not None and pai_tipo != conta.tipo:
+                    erro(
+                        "tipo",
+                        f"tipo '{conta.tipo}' é incompatível com o da conta superior "
+                        f"('{pai_tipo}').",
+                    )
+            elif pai_tipo is not None:
+                tipo, origem_tipo = pai_tipo, ORIGEM_CONTA_SUPERIOR
+            else:
+                prefixo = _prefixo_que_casa(codigo, self.tipos)
+                if prefixo is not None:
+                    tipo, origem_tipo = self.tipos[prefixo], ORIGEM_PREFIXO
+                else:
+                    erro(
+                        "tipo",
+                        "sem tipo: o arquivo não diz, a conta superior não tem tipo, e nenhum "
+                        "prefixo informado casa com este código. Informe o prefixo na prévia "
+                        "(ex.: 3 para receita). O produto não adivinha tipo (HI-87).",
+                    )
+
+            if conta.natureza is not None:
+                natureza, origem_natureza = conta.natureza, ORIGEM_ARQUIVO
+            elif tipo is not None:
+                natureza, origem_natureza = _natureza_presumida(tipo), ORIGEM_PRESUMIDA
+                aviso(
+                    "natureza",
+                    f"natureza '{natureza}' presumida pelo tipo '{tipo}' (o arquivo não diz). "
+                    "Confira: contas redutoras, como depreciação acumulada no ativo, são "
+                    "credoras (HI-88).",
+                )
+
+        if conta.referencial is not None:
+            aviso(
+                "referencial",
+                "plano referencial lido, mas o DataLedger ainda não guarda o plano referencial "
+                "nesta fatia: não foi gravado.",
+            )
+
+        tem_erro = any(o.nivel == NIVEL_ERRO for o in ocorrencias)
+        if tem_erro:
+            acao = ACAO_RECUSADA
+        item = ItemDoPlano(
+            linha=conta.linha,
+            codigo=codigo,
+            nome=conta.nome,
+            codigo_pai=conta.codigo_pai,
+            analitica=conta.analitica,
+            acao=acao,
+            tipo=tipo,
+            origem_tipo=origem_tipo,
+            natureza=natureza,
+            origem_natureza=origem_natureza,
+            ocorrencias=tuple(ocorrencias),
+        )
+        resolucao = _Resolucao(
+            item=item,
+            tipo=tipo,
+            natureza=natureza,
+            analitica=conta.analitica,
+            erro=tem_erro,
+        )
+        self.memo[codigo] = resolucao
+        self.ordem.append(codigo)
+        return resolucao
+
+
+def _assinatura(itens):
+    """SHA-256 do plano conferido: o que o contador revisou, em forma canônica.
+
+    JSON com a lista ordenada, para que nome com `|` ou quebra de linha não
+    produza a mesma assinatura por acidente.
+    """
+    linhas = sorted(
+        [
+            item.codigo,
+            item.acao,
+            item.tipo or "",
+            item.natureza or "",
+            item.codigo_pai or "",
+            "A" if item.analitica else "S",
+            item.nome,
+        ]
+        for item in itens
+    )
+    return hashlib.sha256(json.dumps(linhas, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def conferir_plano(empresa, resultado, politica, tipos_por_prefixo=None):
+    """Confere o plano lido contra o cadastro da empresa. Não grava nada.
+
+    `resultado` é o `ResultadoLeitura` de um leitor (ver `leitura.ler_arquivo`).
+    `tipos_por_prefixo` é o mapa prefixo -> tipo que o contador informou na
+    prévia (p. ex. `{"3": "receita", "4": "despesa"}`).
+    """
+    politica = validar_politica(politica)
+    tipos = validar_prefixos(tipos_por_prefixo)
+    banco = {
+        conta.codigo: conta
+        for conta in Conta.objects.filter(empresa=empresa).select_related("conta_pai")
+    }
+
+    conferencia = _Conferencia(resultado, banco, politica, tipos)
+    itens = []
+    primeira_linha = {}
+    for conta in resultado.contas:
+        if not conta.codigo:
+            itens.append(
+                ItemDoPlano(
+                    linha=conta.linha,
+                    codigo=conta.codigo,
+                    nome=conta.nome,
+                    codigo_pai=conta.codigo_pai,
+                    analitica=conta.analitica,
+                    acao=ACAO_RECUSADA,
+                    tipo=None,
+                    origem_tipo=None,
+                    natureza=None,
+                    origem_natureza=None,
+                    ocorrencias=(
+                        Ocorrencia(conta.linha, "codigo", NIVEL_ERRO, "código obrigatório."),
+                    ),
+                )
+            )
+            continue
+        if conta.codigo in primeira_linha:
+            itens.append(
+                ItemDoPlano(
+                    linha=conta.linha,
+                    codigo=conta.codigo,
+                    nome=conta.nome,
+                    codigo_pai=conta.codigo_pai,
+                    analitica=conta.analitica,
+                    acao=ACAO_RECUSADA,
+                    tipo=None,
+                    origem_tipo=None,
+                    natureza=None,
+                    origem_natureza=None,
+                    ocorrencias=(
+                        Ocorrencia(
+                            conta.linha,
+                            "codigo",
+                            NIVEL_ERRO,
+                            f"código '{conta.codigo}' repetido no arquivo (primeira ocorrência "
+                            f"na linha {primeira_linha[conta.codigo]}).",
+                        ),
+                    ),
+                )
+            )
+            continue
+        primeira_linha[conta.codigo] = conta.linha
+        itens.append(conferencia.resolver(conta.codigo).item)
+
+    if not resultado.contas:
+        ocorrencias_do_arquivo = [
+            Ocorrencia(0, "arquivo", NIVEL_ERRO, "o arquivo não traz nenhuma conta do plano.")
+        ]
+    else:
+        ocorrencias_do_arquivo = []
+
+    ocorrencias = sorted(
+        [
+            *resultado.ocorrencias,
+            *ocorrencias_do_arquivo,
+            *(o for item in itens for o in item.ocorrencias),
+        ],
+        key=lambda o: (o.linha, o.campo),
+    )
+    contagens = {
+        "criar": sum(1 for i in itens if i.acao == ACAO_CRIAR),
+        "atualizar": sum(1 for i in itens if i.acao == ACAO_ATUALIZAR),
+        "sem_mudanca": sum(1 for i in itens if i.acao == ACAO_SEM_MUDANCA),
+        "recusada": sum(1 for i in itens if i.acao == ACAO_RECUSADA),
+    }
+    return PreviaDoPlano(
+        resultado=resultado,
+        politica=politica,
+        tipos_por_prefixo=tuple(sorted(tipos.items())),
+        itens=tuple(itens),
+        ordem=tuple(conferencia.ordem),
+        ocorrencias=tuple(ocorrencias),
+        assinatura=_assinatura(itens),
+        contagens=contagens,
+    )
+
+
+# -----------------------------------------------------------------------------
+# Aplicação
+# -----------------------------------------------------------------------------
+
+
+def aplicar_plano(empresa, previa, usuario, request=None, *, sha256_esperado, assinatura_esperada):
+    """Grava o plano conferido, de forma atômica, só se não houver erro.
+
+    `previa` é a prévia de `conferir_plano` calculada sobre o arquivo que chegou
+    AGORA. `sha256_esperado` e `assinatura_esperada` são o que o contador viu
+    na prévia: se qualquer um for diferente, recusa (arquivo mudou, ou a
+    conferência de agora não é a que foi revisada).
+
+    Dentro da trava da empresa, a conferência é refeita e comparada com
+    `assinatura_esperada`. Só então grava. Erro em qualquer conta desfaz tudo.
+    """
+    if previa.sha256 != sha256_esperado:
+        raise ArquivoAlteradoDesdeAPrevia(
+            "o arquivo enviado não é o que foi conferido na prévia. Refaça a conferência."
+        )
+    if previa.tem_erro:
+        raise PlanoRecusado(
+            "o plano tem erro. Nada foi gravado: corrija o arquivo e confira de novo.",
+            [o for o in previa.ocorrencias if o.nivel == NIVEL_ERRO],
+        )
+
+    with transaction.atomic():
+        # ATENÇÃO: o nome da função diz "zeramento", mas a trava é POR EMPRESA e
+        # compartilhada por todas as operações que mudam o cadastro da empresa
+        # (zeramento, parâmetro contábil e esta aplicação do plano). Reusada aqui
+        # por decisão do arquiteto-senior (DL-077). Ela impede que duas operações
+        # da mesma empresa conferiam contra um cadastro que a outra está mudando.
+        _travar_empresa_para_operacao_de_zeramento(empresa)
+        fresca = conferir_plano(
+            empresa, previa.resultado, previa.politica, dict(previa.tipos_por_prefixo)
+        )
+        if fresca.assinatura != assinatura_esperada:
+            raise PlanoAlteradoDesdeAPrevia(
+                "o cadastro mudou desde a prévia e o resultado agora é outro. "
+                "Nada foi gravado: confira o plano de novo."
+            )
+        if fresca.tem_erro:
+            raise PlanoRecusado(
+                "o plano tem erro frente ao cadastro atual. Nada foi gravado.",
+                [o for o in fresca.ocorrencias if o.nivel == NIVEL_ERRO],
+            )
+
+        por_codigo = {item.codigo: item for item in fresca.itens}
+        criadas = atualizadas = 0
+        for codigo in fresca.ordem:
+            item = por_codigo[codigo]
+            try:
+                if item.acao == ACAO_CRIAR:
+                    criar_conta_pelo_plano(
+                        empresa=empresa,
+                        codigo=item.codigo,
+                        nome=item.nome,
+                        tipo=item.tipo,
+                        natureza=item.natureza,
+                        codigo_pai=item.codigo_pai,
+                        analitica=item.analitica,
+                        usuario=usuario,
+                        request=request,
+                    )
+                    criadas += 1
+                elif item.acao == ACAO_ATUALIZAR:
+                    conta = Conta.objects.get(empresa=empresa, codigo=item.codigo)
+                    renomear_conta_pelo_plano(
+                        conta=conta, nome=item.nome, usuario=usuario, request=request
+                    )
+                    atualizadas += 1
+            except ContaRecusadaNoCadastro as exc:
+                raise PlanoRecusado(
+                    f"o cadastro recusou a conta {item.codigo} (linha {item.linha}). "
+                    "Nada foi gravado.",
+                    [Ocorrencia(item.linha, "codigo", NIVEL_ERRO, m) for m in exc.mensagens],
+                ) from exc
+
+        sem_mudanca = fresca.contagens["sem_mudanca"]
+        registrar(
+            acao="plano_de_contas.importado",
+            objeto=empresa,
+            escritorio=empresa.escritorio,
+            usuario=usuario,
+            request=request,
+            detalhes={
+                "formato": fresca.resultado.formato,
+                "politica": fresca.politica,
+                "nome_arquivo": fresca.resultado.nome_arquivo,
+                "sha256": fresca.sha256,
+                "assinatura": fresca.assinatura,
+                "criadas": criadas,
+                "atualizadas": atualizadas,
+                "sem_mudanca": sem_mudanca,
+                "registros_ignorados": dict(fresca.resultado.registros_ignorados),
+            },
+        )
+
+    return ResultadoDaAplicacao(
+        criadas=criadas,
+        atualizadas=atualizadas,
+        sem_mudanca=sem_mudanca,
+        sha256=fresca.sha256,
+        assinatura=fresca.assinatura,
+    )
+
+
+# -----------------------------------------------------------------------------
+# Exportação
+# -----------------------------------------------------------------------------
+
+
+def _ordenar_em_arvore(contas):
+    """Ordem de saída: cada conta logo depois da sua superior, irmãs por código.
+
+    Conta cuja superior não está na lista sai como raiz, e conta em ciclo sai
+    no fim, sem ordem: o escritor é quem recusa o ciclo.
+    """
+    por_codigo = {conta.codigo: conta for conta in contas}
+    filhas = defaultdict(list)
+    raizes = []
+    for conta in contas:
+        if conta.codigo_pai is None or conta.codigo_pai not in por_codigo:
+            raizes.append(conta)
+        else:
+            filhas[conta.codigo_pai].append(conta)
+
+    saida = []
+    visitadas = set()
+
+    def visitar(conta):
+        if conta.codigo in visitadas:
+            return
+        visitadas.add(conta.codigo)
+        saida.append(conta)
+        for filha in sorted(filhas[conta.codigo], key=lambda c: c.codigo):
+            visitar(filha)
+
+    for raiz in sorted(raizes, key=lambda c: c.codigo):
+        visitar(raiz)
+    saida.extend(conta for conta in contas if conta.codigo not in visitadas)
+    return saida
+
+
+def exportar_plano(*, empresa, formato, filtro="todas", inicio=None, fim=None, data_alteracao=None):
+    """Gera o arquivo do plano da `empresa` no `formato`, com o `filtro` pedido.
+
+    Filtros:
+    - `todas`: todo o plano.
+    - `analiticas`: só as analíticas, MAIS as sintéticas que elas precisam como
+      conta superior. Sem elas, o arquivo não se reimporta (a conta superior
+      precisa existir, ECD p. 118-120).
+    - `com_movimento`: contas com partida entre `inicio` e `fim` (datas
+      inclusive), MAIS suas superiores, pelo mesmo motivo.
+
+    Isolamento: toda consulta é filtrada por `empresa`. Nunca se lê conta de
+    outra empresa, nem para achar superior.
+    """
+    if formato not in ESCRITORES:
+        raise FormatoNaoSuportado(
+            f"formato '{formato}' não suportado para exportação. "
+            f"Use: {', '.join(sorted(ESCRITORES))}."
+        )
+    if filtro not in FILTROS_DE_EXPORTACAO:
+        raise ParametroInvalido(
+            f"filtro '{filtro}' não existe. Use: {', '.join(FILTROS_DE_EXPORTACAO)}."
+        )
+    if filtro == "com_movimento":
+        if inicio is None or fim is None:
+            raise ParametroInvalido("o filtro com movimento exige o período (início e fim).")
+        if inicio > fim:
+            raise ParametroInvalido("o início do período é posterior ao fim.")
+
+    contas = list(Conta.objects.filter(empresa=empresa).select_related("conta_pai"))
+    por_id = {conta.id: conta for conta in contas}
+
+    if filtro == "todas":
+        escolhidas = set(por_id)
+    elif filtro == "analiticas":
+        escolhidas = {conta.id for conta in contas if conta.aceita_lancamento}
+    else:
+        com_movimento = set(
+            ItemLancamento.objects.filter(
+                lancamento__empresa=empresa,
+                lancamento__data__gte=inicio,
+                lancamento__data__lte=fim,
+            ).values_list("conta_id", flat=True)
+        )
+        escolhidas = com_movimento & set(por_id)
+
+    incluidas = set(escolhidas)
+    for conta_id in escolhidas:
+        atual = por_id[conta_id].conta_pai_id
+        while atual is not None and atual in por_id and atual not in incluidas:
+            incluidas.add(atual)
+            atual = por_id[atual].conta_pai_id
+    sinteticas_incluidas = len(incluidas - escolhidas)
+
+    registros = [
+        ContaLida(
+            linha=0,
+            codigo=conta.codigo,
+            nome=conta.nome,
+            codigo_pai=conta.conta_pai.codigo if conta.conta_pai_id is not None else None,
+            analitica=conta.aceita_lancamento,
+            tipo=conta.tipo,
+            natureza=conta.natureza,
+            codigo_origem=None,
+            referencial=None,
+        )
+        for conta in (por_id[i] for i in incluidas)
+    ]
+    registros = _ordenar_em_arvore(registros)
+
+    conteudo = ESCRITORES[formato](registros, data_alteracao=data_alteracao)
+    return ArquivoDoPlano(
+        formato=formato,
+        filtro=filtro,
+        conteudo=conteudo,
+        sha256=hashlib.sha256(conteudo).hexdigest(),
+        quantidade_contas=len(registros),
+        sinteticas_incluidas=sinteticas_incluidas,
+    )
