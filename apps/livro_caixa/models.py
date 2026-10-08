@@ -976,9 +976,10 @@ class FechamentoMesCaixa(models.Model):
 
     A trava em si mora em `apps.livro_caixa.services` (toda gravação de
     `LancamentoCaixa` passa por `criar_lancamento_caixa`); este modelo só
-    guarda o estado. Não há gatilho de banco impedindo o INSERT de um
-    lançamento em mês encerrado por SQL direto — fora do escopo da DL-053
-    (decisão 6).
+    guarda o estado. Desde a DL-069, fatia 2 (migração 0012), o BANCO também
+    recusa o INSERT de lançamento em mês encerrado — ou anterior a mês
+    encerrado do mesmo ano (encadeamento da DL-054) — por SQL direto; em
+    SQLite (só desenvolvimento local) a trava continua só na aplicação.
     """
 
     empresa = models.ForeignKey(

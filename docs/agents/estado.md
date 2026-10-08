@@ -146,39 +146,47 @@ que não existe mais no remoto (medido em 07/10/2026), e não foi integrada — 
 ## Próximo passo
 
 **AGORA, em 07/10/2026: [DL-069](../planos/DL-069-travas-no-banco.md) — travas
-no banco, fatia 1 em validação** na branch `ccr-9e799dfb-48okf5`.
+no banco, fatia 2 em validação** na branch `feat/DL-069-fatia-2`.
 
 **Origem:** ordem do Fred, *"Próxima etapa"* (RC-158). A interpretação é do
 arquiteto: é a etapa que a análise do dia recomendou depois da DL-068.
 
 **Fatias:**
-1. **Livro-caixa imutável no PostgreSQL**, no padrão da `0013` da
-   contabilidade. Implementada em `9713aa9`. A
+1. **Livro-caixa imutável no PostgreSQL — INTEGRADA** pelo
+   [PR #92](https://github.com/fredabsd-svg/DataLedger/pull/92), merge
+   `a610c70` feito em 07/10/2026. Padrão da `0013` da contabilidade. A
    [auditoria](../auditorias/2026-10-07-dl-069-fatia-1-rodada-1.md) saiu
    **APROVADA COM RESSALVAS**, sem achado grave: nenhum caminho legítimo foi
-   recusado, inclusive tela e API de ponta a ponta. A suíte deu 4.936
-   aprovados, 1 reprovado de ambiente e 53 pulados. A correção única trata
+   recusado, inclusive tela e API de ponta a ponta. A correção única tratou
    A1 (texto, BL-644), A2 (8 testes; a mutação que sobrevivia agora morre) e
-   A3 (limite declarado).
-
-   A [reconferência](../auditorias/2026-10-07-dl-069-fatia-1-reconferencia.md)
-   saiu **APROVADA COM RESSALVAS**, com 4.944 aprovados e nenhum defeito
-   introduzido. O ciclo do §3.1 está encerrado. As ressalvas R1 (texto do
-   critério 4) e R2 (3 testes das colunas da transição oposta, com as três
-   mutações mortas) foram corrigidas sem terceira rodada. **PR
-   [#92](https://github.com/fredabsd-svg/DataLedger/pull/92)** aberto em
-   07/10/2026. Falta: os quatro checks verdes e o merge, que é do Fred.
-2. **Período encerrado recusa INSERT no banco.** A competência é achada pela
-   data. O ponto de risco é refazer no gatilho a leitura protegida contra
-   corrida que o serviço faz (BL-456). Ainda não iniciada.
+   A3 (limite declarado). A
+   [reconferência](../auditorias/2026-10-07-dl-069-fatia-1-reconferencia.md)
+   saiu **APROVADA COM RESSALVAS** (R1 e R2 corrigidas sem terceira rodada);
+   o ciclo do §3.1 está encerrado.
+2. **Período encerrado recusa INSERT no banco — em validação** na branch
+   `feat/DL-069-fatia-2`, com os critérios de aceite escritos no
+   [plano](../planos/DL-069-travas-no-banco.md). A competência é achada pela
+   data; a entrega da competência não se desfaz (RC-101); o ponto de risco —
+   refazer no gatilho a leitura protegida contra corrida que o serviço faz
+   (BL-456) — está resolvido por `FOR SHARE` na contabilidade e pelo lock
+   consultivo do mês no livro-caixa, com a decisão e o limite restante
+   documentados nas migrações 0023 (contabilidade) e 0012 (livro-caixa).
 3. **Trilha imutável no banco.** A PE-76 foi respondida pelo Fred em
    07/10/2026 (RC-159): a trilha é **preservada** mesmo quando o escritório é
    excluído, inclusive por pedido de LGPD. A fatia continua bloqueada pela
    PE-77 (prazo de retenção), com o Fred.
 
-**Linha de base para a não regressão:** 4.895 aprovados, 1 reprovado de
-ambiente (Python 3.13) e 53 pulados, medida em 07/10/2026 sobre a versão da
-DL-068.
+**Linha de base para a não regressão:** a do contêiner Linux/CI é 4.895
+aprovados, 1 reprovado de ambiente (Python 3.13) e 53 pulados, medida em
+07/10/2026 sobre a versão da DL-068. **Medida local da fatia 2 (07/10/2026,
+Windows, SQLite, Python 3.14.7, sem PostgreSQL — o `postgres.exe` está
+bloqueado por política da máquina):** 4.687 aprovados, 165 reprovados e 149
+pulados em 454,68s (segunda rodada 4.683/169/149 em 495,25s; a flutuação de 4
+testes é de concorrência em SQLite). Os reprovados são pré-existentes e de
+ambiente (`diag` do psycopg, threads, Chromium, poppler, permissões
+POSIX/umask, `ruff` fora do PATH). **Os gatilhos novos só rodam na CI**
+(`postgres:16-alpine`): localmente os testes de recusa são pulados com motivo,
+e a evidência que vale para merge é a da CI.
 
 **DL-068 — prontidão para implantação: integrada** pelo
 [PR #91](https://github.com/fredabsd-svg/DataLedger/pull/91), squash

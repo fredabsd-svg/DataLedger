@@ -413,10 +413,18 @@ def test_fechada_mostra_historico_reabertura_so_permitida_e_nao_entregue(client,
     competencia.save(update_fields=["entregue_em"])
     home = client.get(_url(), parametros).context["home"]
     assert home["fila"][0]["cta"] == "Ver histórico"
-    competencia.entregue_em = None
-    competencia.save(update_fields=["entregue_em"])
+    # DL-069 fatia 2 (migração 0023): a entrega não se desfaz — o banco recusa
+    # `entregue_em` voltando a NULL. O caso "encerrada, NÃO entregue e sem
+    # permissão de reabrir" é montado numa competência própria (8/2026, nunca
+    # entregue) em vez de desfazer a entrega da 9/2026. O que este teste prova
+    # é o mesmo de antes: sem permissão, a home oferece "Ver histórico" mesmo
+    # sem entrega — quem tira o "Reabrir" é o papel, não a entrega.
+    Competencia.objects.create(
+        empresa=cenario["empresa"], ano=2026, mes=8, estado=EstadoCompetencia.ENCERRADA
+    )
     cenario["vinculo"].papel = Papel.ANALISTA
     cenario["vinculo"].save(update_fields=["papel"])
+    parametros = {"empresa": cenario["empresa"].pk, "competencia": "2026-08"}
     assert client.get(_url(), parametros).context["home"]["fila"][0]["cta"] == "Ver histórico"
 
 

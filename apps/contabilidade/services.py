@@ -983,7 +983,9 @@ def criar_lancamento(
             # `objects.create` direto). **Esse sinal nunca existiu** —
             # `apps/contabilidade/` não tem `signals.py` nem `AppConfig.
             # ready()`. Quem não passar por `criar_lancamento` não tem
-            # competência nem trava nenhuma; não há rede de segurança.
+            # competência criada por ninguém; a única rede que existe é o
+            # gatilho da DL-069 fatia 2 (migração 0023), que recusa o INSERT
+            # em competência que não está `aberta` — e só isso.
             competencia = obter_ou_criar_competencia(empresa=empresa, ano=data.year, mes=data.month)
 
             # DL-016 fatia 1 (RC-57, RC-101, RC-103; critérios 1 e 2 do

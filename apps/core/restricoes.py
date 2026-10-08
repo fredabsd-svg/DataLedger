@@ -238,6 +238,45 @@ MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
         "O fechamento de mês do livro-caixa não pode ser excluído e só muda por encerramento "
         "ou reabertura do mês, com o motivo registrado."
     ),
+    # DL-069 (fatia 2), migrações 0023 de `contabilidade` e 0012 de
+    # `livro_caixa` — gatilhos só em PostgreSQL que espelham no BANCO as
+    # regras de período dos serviços: lançamento novo só em competência/mês
+    # ABERTO (a competência achada pela DATA, nunca pela FK — a FK é anulável
+    # em dado legado), e a entrega da competência ao cliente como fato datado
+    # que não se desfaz (RC-19/RC-101). As mensagens REGISTRADAS abaixo contam
+    # a mesma história dos serviços (`criar_lancamento`,
+    # `_recusar_se_mes_caixa_encerrado`, `reabrir_competencia`) em forma
+    # genérica — o registro é estático e não carrega mês, ano nem nome da
+    # empresa. O texto exato de cada recusa está no `RAISE` da migração
+    # correspondente, igual ao do serviço menos o nome da empresa (que o
+    # gatilho não tem). O que importa para API/admin é não contarem duas
+    # histórias diferentes do mesmo motivo (DE-026) — mesmo quando é o BANCO,
+    # não o Python, quem recusou. NENHUMA porta de escrita do produto alcança essas
+    # recusas hoje (os serviços recusam antes, com a mensagem da
+    # competência/mês); as mensagens existem para que, se uma alcançar, o erro
+    # seja legível e traduzível por `restricao_como_400`, e não um 500 cru.
+    "dl069_lancamento_contabil_so_em_competencia_aberta": (
+        "O lançamento cai em uma competência que não está aberta (encerrada ou já entregue ao "
+        "cliente); não é possível gravá-lo. Reabra a competência, se ela ainda não foi "
+        "entregue, ou lance o ajuste em uma competência aberta, com histórico apontando para a "
+        "competência de origem."
+    ),
+    "dl069_lancamento_caixa_so_em_mes_aberto": (
+        "O mês do lançamento no livro-caixa está encerrado, ou um mês seguinte do mesmo ano "
+        "está encerrado e o carnê-leão dele depende deste mês; não é possível gravar o "
+        "lançamento. Reabra o mês (informando o motivo), ou os meses encerrados seguintes do "
+        "ano, ou lance em um mês aberto."
+    ),
+    "dl069_competencia_entregue_nao_volta_a_null": (
+        "A competência já foi entregue ao cliente: a data da entrega é um fato datado e não "
+        "volta a ficar em branco. Para registrar uma entrega posterior, marque a competência "
+        "como entregue de novo."
+    ),
+    "dl069_competencia_entregue_nao_reabre": (
+        "A competência já foi entregue ao cliente e não volta a aberta (RC-101); lance o "
+        "ajuste em uma competência aberta, com histórico apontando para a competência de "
+        "origem."
+    ),
 }
 
 
