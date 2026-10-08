@@ -18,6 +18,7 @@ from apps.contabilidade.views import (
     EntregarCompetenciaView,
     EstornarLancamentoView,
     LancamentoListCreateView,
+    LancamentosExportacaoView,
     MarcacaoDmplView,
     ParametrosContabeisListCreateView,
     PlanoDeContasExportacaoView,
@@ -188,5 +189,12 @@ urlpatterns = [
         "empresas/<int:empresa_id>/plano-de-contas/importacao/modelo-excel/",
         PlanoDeContasModeloExcelView.as_view(),
         name="plano-modelo-excel",
+    ),
+    # DL-077 (fatia 2): exportação de lançamentos e saldos, com o relatório de conferência
+    # nos cabeçalhos `X-DataLedger-*`. Não é a ECD (ver `intercambio/lancamentos.py`).
+    path(
+        "empresas/<int:empresa_id>/lancamentos/exportacao/",
+        LancamentosExportacaoView.as_view(),
+        name="lancamentos-exportacao",
     ),
 ]

@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block titulo %}Exportar lançamentos — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% comment %}
+DL-077, fatia 2: exportação de lançamentos e saldos, em DUAS etapas. Primeiro a conferência
+(este formulário com os parâmetros na querystring): mostra o relatório, sem gravar nada e
+sem entrar na trilha. Depois o download, que só entrega o arquivo se o SHA-256 ainda for o
+conferido. Os avisos de cada formato ficam sempre na tela, porque o arquivo não os carrega.
+O aviso do leiaute da ECD diz que o arquivo NÃO é a ECD, e ele aparece em qualquer escolha.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Exportar lançamentos</h1>{% endblock %}
+
+{% block content %}
+    <p><a class="botao botao--secundario" href="{% url 'contabilidade_web:diario' empresa.id %}">‹ Voltar para o diário</a></p>
+
+    {% if erros %}
+        <div class="mensagem mensagem-error" role="alert">
+            {% for mensagem in erros.values %}<p>{{ mensagem }}</p>{% endfor %}
+        </div>
+    {% endif %}
+
+    <p class="texto-apoio">
+        Confere os lançamentos do período antes de gerar o arquivo. Nada é gravado, e o arquivo
+        só sai pelo botão “Baixar o arquivo”, que aparece depois da conferência.
+    </p>
+
+    <form method="get" action="{% url 'contabilidade_web:lancamentos_exportar' empresa.id %}"
+          class="formulario" novalidate>
+        <fieldset class="campo campo-radio">
+            <legend>Formato do arquivo</legend>
+            <div class="campo-radio__opcoes">
+                {% for formato in formatos %}
+                    <label class="campo-radio__opcao">
+                        <input type="radio" name="formato" value="{{ formato.valor }}"{% if formato.valor == valores.formato %} checked{% endif %}>
+                        {{ formato.rotulo }}
+                    </label>
+                {% endfor %}
+            </div>
+        </fieldset>
+
+        {% for formato in formatos %}
+            {% if formato.aviso %}
+                <div class="mensagem mensagem-warning">
+                    <p><strong>{{ formato.rotulo }}.</strong> {{ formato.aviso }}</p>
+                </div>
+            {% endif %}
+        {% endfor %}
+
+        <div class="campo">
+            <label for="id_inicio">Data inicial (obrigatória)</label>
+            <input type="date" id="id_inicio" name="inicio" value="{{ valores.inicio }}" aria-describedby="id_periodo_ajuda" required>
+        </div>
+        <div class="campo">
+            <label for="id_fim">Data final (obrigatória)</label>
+            <input type="date" id="id_fim" name="fim" value="{{ valores.fim }}" aria-describedby="id_periodo_ajuda" required>
+        </div>
+        <p class="texto-apoio" id="id_periodo_ajuda">
+            O intervalo tem no máximo um ano (366 dias). A data inicial não pode ser posterior à final.
+            Toda data exibida pelo sistema é dd/mm/aaaa.
+        </p>
+
+        <div class="campo campo-checkbox">
+            <label class="campo-checkbox__opcao">
+                <input type="checkbox" name="incluir_saldos" value="true"{% if valores.incluir_saldos %} checked{% endif %} aria-describedby="id_saldos_ajuda">
+                Incluir saldos mensais (I150 e I155)
+            </label>
+            <p class="texto-apoio" id="id_saldos_ajuda">
+                Só no leiaute da ECD, e só com meses inteiros: a data inicial é o dia 1 e a final é o último dia do mês.
+            </p>
+        </div>
+
+        <div class="campo campo-checkbox">
+            <label class="campo-checkbox__opcao">
+                <input type="checkbox" name="omitir_nao_representaveis" value="true"{% if valores.omitir_nao_representaveis %} checked{% endif %} aria-describedby="id_omitir_ajuda">
+                Omitir os lançamentos que o sistema de referência não representa
+            </label>
+            <p class="texto-apoio" id="id_omitir_ajuda">
+                Só no sistema de referência: lançamento com mais de um débito e mais de um crédito.
+                Sem marcar, a exportação é recusada se existir algum; com a marca, eles saem do arquivo
+                e aparecem na conferência.
+            </p>
+        </div>
+
+        <button type="submit">Conferir o arquivo</button>
+    </form>
+
+    {% if relatorio %}
+        <section class="relatorio-conferencia" aria-labelledby="id_conferencia_titulo">
+            <h2 id="id_conferencia_titulo">Conferência do arquivo</h2>
+
+            <dl class="relatorio-conferencia__dados">
+                <dt>Formato</dt><dd>{{ relatorio.formato_rotulo }}</dd>
+                <dt>Período</dt><dd>{{ relatorio.inicio|date:"d/m/Y" }} a {{ relatorio.fim|date:"d/m/Y" }}</dd>
+                <dt>Lançamentos no arquivo</dt><dd>{{ relatorio.quantidade_lancamentos }}</dd>
+                <dt>Partidas no arquivo</dt><dd>{{ relatorio.quantidade_partidas }}</dd>
+                <dt>Lançamentos de zeramento</dt><dd>{{ relatorio.quantidade_zeramentos }}</dd>
+                <dt>Lançamentos de estorno</dt><dd>{{ relatorio.quantidade_estornos }}</dd>
+                <dt>Soma dos débitos</dt><dd class="valor-monetario">{{ relatorio.soma_debitos }}</dd>
+                <dt>Soma dos créditos</dt><dd class="valor-monetario">{{ relatorio.soma_creditos }}</dd>
+                <dt>Débitos e créditos conferem</dt><dd>{% if relatorio.conferem %}Sim{% else %}Não{% endif %}</dd>
+                {% if relatorio.incluir_saldos %}
+                    <dt>Meses com saldo (I150)</dt><dd>{{ relatorio.quantidade_meses }}</dd>
+                {% endif %}
+                <dt>Contas usadas</dt><dd>{{ relatorio.contas_usadas|length }}</dd>
+                <dt>Lançamentos omitidos</dt><dd>{{ relatorio.omitidos|length }}</dd>
+                <dt>SHA-256 do arquivo</dt><dd><code>{{ relatorio.sha256 }}</code></dd>
+                <dt>Nome do arquivo</dt><dd><code>{{ relatorio.nome_do_arquivo }}</code></dd>
+                <dt>Gerado por</dt><dd>{{ relatorio.autor }}</dd>
+                <dt>Gerado em</dt><dd>{{ relatorio.gerado_em|date:"d/m/Y H:i" }}</dd>
+            </dl>
+
+            {% for aviso in relatorio.avisos %}
+                <div class="mensagem mensagem-warning">
+                    <p>{{ aviso }}</p>
+                </div>
+            {% endfor %}
+
+            {% if relatorio.omitidos %}
+                <h3>Lançamentos omitidos</h3>
+                <p class="texto-apoio">Eles não estão no arquivo, porque o leiaute do sistema de referência não os representa sem ambiguidade.</p>
+                <table>
+                    <caption>Lançamentos fora do arquivo</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Número</th>
+                            <th scope="col">Data</th>
+                            <th scope="col">Histórico</th>
+                            <th scope="col">Débitos</th>
+                            <th scope="col">Créditos</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for omitido in relatorio.omitidos %}
+                            <tr>
+                                <td>{{ omitido.numero }}</td>
+                                <td>{{ omitido.data|date:"d/m/Y" }}</td>
+                                <td>{{ omitido.historico }}</td>
+                                <td>{{ omitido.quantidade_debitos }}</td>
+                                <td>{{ omitido.quantidade_creditos }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% endif %}
+
+            {% if relatorio.contas_usadas %}
+                <details>
+                    <summary>Contas usadas ({{ relatorio.contas_usadas|length }})</summary>
+                    <table>
+                        <caption>Contas com partida no arquivo</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Código</th>
+                                <th scope="col">Nome</th>
+                                <th scope="col">Código reduzido</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for conta in relatorio.contas_usadas %}
+                                <tr>
+                                    <td>{{ conta.codigo }}</td>
+                                    <td>{{ conta.nome }}</td>
+                                    <td>{% if conta.codigo_reduzido %}{{ conta.codigo_reduzido }}{% else %}—{% endif %}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </details>
+            {% endif %}
+
+            <p>
+                <a class="botao botao--primario" href="{{ link_do_arquivo }}">Baixar o arquivo</a>
+            </p>
+        </section>
+    {% endif %}
+{% endblock %}

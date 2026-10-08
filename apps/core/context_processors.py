@@ -67,6 +67,9 @@ ROTULOS_DE_TELA = {
     ("contabilidade_web", "plano_importar_aplicar"): "Importar plano de contas",
     ("contabilidade_web", "plano_exportar"): "Exportar plano de contas",
     ("contabilidade_web", "plano_modelo_excel"): "Modelo da planilha do plano",
+    # DL-077, fatia 2: a conferência e o download da exportação de lançamentos.
+    ("contabilidade_web", "lancamentos_exportar"): "Exportar lançamentos",
+    ("contabilidade_web", "lancamentos_exportar_arquivo"): "Exportar lançamentos",
     ("contabilidade_web", "lancamento_novo"): "Novo lançamento",
     ("contabilidade_web", "lancamento_detalhe"): "Lançamento",
     ("contabilidade_web", "diario"): "Diário",

@@ -26,6 +26,7 @@ import re
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
+from urllib.parse import urlencode
 
 from django import forms
 from django.contrib import messages
@@ -52,6 +53,7 @@ from django.views.decorators.http import require_http_methods, require_safe
 from apps.auditoria.services import registrar
 from apps.contabilidade.intercambio.canonico import NIVEL_ERRO, IntercambioRecusado
 from apps.contabilidade.intercambio.formatos import LEITORES, ecd, excel, proprio, referencia
+from apps.contabilidade.intercambio.lancamentos import exportar_lancamentos
 from apps.contabilidade.intercambio.leitura import TAMANHO_MAXIMO_ARQUIVO_BYTES, ler_arquivo
 from apps.contabilidade.intercambio.plano import (
     ACAO_ATUALIZAR,
@@ -8197,4 +8199,262 @@ def plano_exportar(request, empresa_id):
     resposta = HttpResponse(arquivo.conteudo, content_type=tipo_do_conteudo)
     nome = _nome_do_arquivo_exportado(empresa, arquivo.formato, timezone.localdate())
     resposta["Content-Disposition"] = f'attachment; filename="{nome}"'
+    return resposta
+
+
+# ---------------------------------------------------------------------------
+# DL-077 (fatia 2): tela de exportação de lançamentos e saldos.
+#
+# DUAS ETAPAS, de propósito. A primeira (`lancamentos_exportar`) lê, confere e MOSTRA o
+# relatório (contagens, somas, SHA-256, autor, data e hora, contas usadas, omitidos e
+# avisos). Nada sai da tela ainda, então não entra na trilha. A segunda
+# (`lancamentos_exportar_arquivo`) é o download: refaz a exportação e só entrega o arquivo
+# se o SHA-256 bater com o que a conferência mostrou. Se não bater, os lançamentos mudaram,
+# e a resposta é 409, pedindo nova conferência. Só o download entra na trilha
+# `lancamentos.exportados`.
+# ---------------------------------------------------------------------------
+
+AVISO_DA_EXPORTACAO_DE_LANCAMENTOS_ECD = (
+    "Este arquivo não é a ECD. Ele traz só os registros de lançamentos e saldos (I150, I155, "
+    "I200 e I250): não tem registro 0000, bloco J, termos, assinatura nem validação do programa "
+    "da Receita. Não substitui a escrituração contábil digital."
+)
+AVISO_DA_EXPORTACAO_DE_LANCAMENTOS_REFERENCIA = (
+    "Código reduzido sequencial pela ordem do código: ele muda quando o plano muda, e o arquivo "
+    "só vale com o plano desta data. O DataLedger não tem código reduzido próprio. Não é a ECD."
+)
+# Chaves = `FORMATOS_DE_EXPORTACAO_DE_LANCAMENTOS` do núcleo (um teste confere).
+FORMATOS_DE_EXPORTACAO_DE_LANCAMENTOS_NA_TELA = {
+    ecd.FORMATO: (
+        "Leiaute da ECD: registros I200/I250 (e I150/I155, se marcado). Não é a ECD",
+        AVISO_DA_EXPORTACAO_DE_LANCAMENTOS_ECD,
+    ),
+    referencia.FORMATO: (
+        "Sistema de referência: leiaute com separador (6000/6100)",
+        AVISO_DA_EXPORTACAO_DE_LANCAMENTOS_REFERENCIA,
+    ),
+    proprio.FORMATO: ("DataLedger: TXT próprio, com ponto e vírgula e cabeçalho", ""),
+}
+CAMPOS_DA_TELA_DE_LANCAMENTOS = frozenset(
+    {"formato", "inicio", "fim", "incluir_saldos", "omitir_nao_representaveis"}
+)
+CAMPOS_DO_DOWNLOAD_DE_LANCAMENTOS = CAMPOS_DA_TELA_DE_LANCAMENTOS | {"sha256"}
+MENSAGEM_CONFERENCIA_DESATUALIZADA = (
+    "Os lançamentos mudaram desde a conferência que você viu. Confira o arquivo de novo."
+)
+
+
+def _valores_da_exportacao_de_lancamentos(get):
+    """Valores do formulário de lançamentos, como texto e booleano (vazio quando não vieram)."""
+
+    def marcado(nome):
+        return (get.get(nome) or "").strip().lower() in ("true", "on", "1")
+
+    return {
+        "formato": (get.get("formato") or "").strip(),
+        "inicio": (get.get("inicio") or "").strip(),
+        "fim": (get.get("fim") or "").strip(),
+        "incluir_saldos": marcado("incluir_saldos"),
+        "omitir_nao_representaveis": marcado("omitir_nao_representaveis"),
+    }
+
+
+def _exportacao_de_lancamentos_pedida(empresa, valores, usuario):
+    """Chama o núcleo com os valores da tela. Levanta `DataInvalida` ou `IntercambioRecusado`."""
+    inicio = para_data(valores["inicio"]) if valores["inicio"] else None
+    fim = para_data(valores["fim"]) if valores["fim"] else None
+    return exportar_lancamentos(
+        empresa=empresa,
+        formato=valores["formato"],
+        data_inicial=inicio,
+        data_final=fim,
+        incluir_saldos=valores["incluir_saldos"],
+        omitir_nao_representaveis=valores["omitir_nao_representaveis"],
+        usuario=usuario,
+    )
+
+
+def _link_do_arquivo_de_lancamentos(empresa, valores, sha256):
+    """URL do download com os mesmos parâmetros, e o SHA-256 que a conferência mostrou."""
+    parametros = {"formato": valores["formato"], "inicio": valores["inicio"], "fim": valores["fim"]}
+    if valores["incluir_saldos"]:
+        parametros["incluir_saldos"] = "true"
+    if valores["omitir_nao_representaveis"]:
+        parametros["omitir_nao_representaveis"] = "true"
+    parametros["sha256"] = sha256
+    destino = reverse("contabilidade_web:lancamentos_exportar_arquivo", args=[empresa.id])
+    return f"{destino}?{urlencode(parametros)}"
+
+
+def _relatorio_para_tela(relatorio):
+    """O relatório de conferência já em texto pt-BR, para o template não fazer conta."""
+    return {
+        "formato_rotulo": FORMATOS_DE_EXPORTACAO_DE_LANCAMENTOS_NA_TELA[relatorio.formato][0],
+        "inicio": relatorio.inicio,
+        "fim": relatorio.fim,
+        "incluir_saldos": relatorio.incluir_saldos,
+        "quantidade_lancamentos": relatorio.quantidade_lancamentos,
+        "quantidade_partidas": relatorio.quantidade_partidas,
+        "quantidade_zeramentos": relatorio.quantidade_zeramentos,
+        "quantidade_estornos": relatorio.quantidade_estornos,
+        "soma_debitos": _valor_ptbr(relatorio.soma_debitos),
+        "soma_creditos": _valor_ptbr(relatorio.soma_creditos),
+        "conferem": relatorio.soma_debitos == relatorio.soma_creditos,
+        "quantidade_meses": relatorio.quantidade_meses,
+        "contas_usadas": relatorio.contas_usadas,
+        "omitidos": relatorio.omitidos,
+        "sha256": relatorio.sha256,
+        "nome_do_arquivo": relatorio.nome_do_arquivo,
+        "autor": relatorio.autor,
+        "gerado_em": relatorio.gerado_em,
+        "avisos": relatorio.avisos,
+    }
+
+
+def _renderizar_exportacao_de_lancamentos(
+    request, empresa, *, valores=None, erros=None, relatorio=None, link=None, status=200
+):
+    contexto = {
+        "empresa": empresa,
+        "formatos": [
+            {"valor": valor, "rotulo": rotulo, "aviso": aviso}
+            for valor, (rotulo, aviso) in FORMATOS_DE_EXPORTACAO_DE_LANCAMENTOS_NA_TELA.items()
+        ],
+        "valores": valores or _valores_da_exportacao_de_lancamentos({}),
+        "erros": erros or {},
+        "relatorio": _relatorio_para_tela(relatorio) if relatorio is not None else None,
+        "link_do_arquivo": link,
+    }
+    return render(request, "contabilidade/lancamentos_exportar.html", contexto, status=status)
+
+
+@login_required
+@require_safe
+def lancamentos_exportar(request, empresa_id):
+    """Formulário da exportação de lançamentos, ou a conferência do arquivo (com `formato`).
+
+    A conferência não grava nada e não entra na trilha. O arquivo sai pela rota de download.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(request, MENSAGEM_SEM_PERMISSAO_EXPORTAR)
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+    try:
+        recusar_campos_nao_contratados(
+            request.GET,
+            CAMPOS_DA_TELA_DE_LANCAMENTOS,
+            contexto="na exportação de lançamentos",
+        )
+    except DadoNaoContratado as exc:
+        return _renderizar_exportacao_de_lancamentos(
+            request,
+            empresa,
+            erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
+            status=400,
+        )
+
+    if "formato" not in request.GET:
+        return _renderizar_exportacao_de_lancamentos(request, empresa)
+
+    valores = _valores_da_exportacao_de_lancamentos(request.GET)
+    if not valores["formato"]:
+        return _renderizar_exportacao_de_lancamentos(
+            request,
+            empresa,
+            valores=valores,
+            erros={"geral": "Escolha o formato do arquivo a exportar."},
+            status=400,
+        )
+    try:
+        arquivo = _exportacao_de_lancamentos_pedida(empresa, valores, request.user)
+    except (DataInvalida, IntercambioRecusado) as exc:
+        mensagem = exc.mensagem if isinstance(exc, IntercambioRecusado) else str(exc)
+        return _renderizar_exportacao_de_lancamentos(
+            request, empresa, valores=valores, erros={"geral": mensagem}, status=400
+        )
+    return _renderizar_exportacao_de_lancamentos(
+        request,
+        empresa,
+        valores=valores,
+        relatorio=arquivo.relatorio,
+        link=_link_do_arquivo_de_lancamentos(empresa, valores, arquivo.sha256),
+    )
+
+
+@login_required
+@require_safe
+def lancamentos_exportar_arquivo(request, empresa_id):
+    """Entrega o arquivo de lançamentos, se o SHA-256 ainda bate com a conferência.
+
+    Grava a trilha `lancamentos.exportados` (SHA-256, intervalo e contagens) só quando o
+    arquivo sai. Sem `sha256`, a rota entrega do mesmo jeito, como a API.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(request, MENSAGEM_SEM_PERMISSAO_EXPORTAR)
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+    try:
+        recusar_campos_nao_contratados(
+            request.GET,
+            CAMPOS_DO_DOWNLOAD_DE_LANCAMENTOS,
+            contexto="no download da exportação de lançamentos",
+        )
+    except DadoNaoContratado as exc:
+        return _renderizar_exportacao_de_lancamentos(
+            request,
+            empresa,
+            erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
+            status=400,
+        )
+
+    valores = _valores_da_exportacao_de_lancamentos(request.GET)
+    if not valores["formato"]:
+        return _renderizar_exportacao_de_lancamentos(
+            request,
+            empresa,
+            valores=valores,
+            erros={"geral": "Escolha o formato do arquivo a exportar."},
+            status=400,
+        )
+    try:
+        arquivo = _exportacao_de_lancamentos_pedida(empresa, valores, request.user)
+    except (DataInvalida, IntercambioRecusado) as exc:
+        mensagem = exc.mensagem if isinstance(exc, IntercambioRecusado) else str(exc)
+        return _renderizar_exportacao_de_lancamentos(
+            request, empresa, valores=valores, erros={"geral": mensagem}, status=400
+        )
+
+    sha_conferido = (request.GET.get("sha256") or "").strip().lower()
+    if sha_conferido and sha_conferido != arquivo.sha256:
+        return _renderizar_exportacao_de_lancamentos(
+            request,
+            empresa,
+            valores=valores,
+            erros={"geral": MENSAGEM_CONFERENCIA_DESATUALIZADA},
+            status=409,
+        )
+
+    relatorio = arquivo.relatorio
+    registrar(
+        acao="lancamentos.exportados",
+        objeto=empresa,
+        escritorio=empresa.escritorio,
+        usuario=request.user,
+        request=request,
+        detalhes=relatorio.para_trilha(),
+    )
+    if relatorio.formato == proprio.FORMATO:
+        tipo_do_conteudo = "text/plain; charset=utf-8"
+    else:
+        tipo_do_conteudo = "text/plain; charset=iso-8859-1"
+    resposta = HttpResponse(arquivo.conteudo, content_type=tipo_do_conteudo)
+    resposta["Content-Disposition"] = f'attachment; filename="{relatorio.nome_do_arquivo}"'
     return resposta

@@ -32,6 +32,10 @@ from apps.contabilidade.views_web import (
     # GET renderiza a guia dentro do detalhe.
     lancamento_marcacao_dmpl,
     lancamento_novo,
+    # DL-077, fatia 2: exportação de lançamentos e saldos — a conferência (GET com
+    # `formato`) e o download (GET com o SHA-256 conferido).
+    lancamentos_exportar,
+    lancamentos_exportar_arquivo,
     parametro_contabil_encerrar,
     parametros_contabeis,
     plano_de_contas,
@@ -90,6 +94,18 @@ urlpatterns = [
         "empresas/<int:empresa_id>/plano-de-contas/exportar/",
         plano_exportar,
         name="plano_exportar",
+    ),
+    # DL-077, fatia 2: exportação de lançamentos e saldos. A conferência (formulário ou
+    # relatório) e o download são rotas separadas, para que o download seja um GET de arquivo.
+    path(
+        "empresas/<int:empresa_id>/lancamentos/exportar/",
+        lancamentos_exportar,
+        name="lancamentos_exportar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/lancamentos/exportar/arquivo/",
+        lancamentos_exportar_arquivo,
+        name="lancamentos_exportar_arquivo",
     ),
     # DL-045, correção da rodada 1 de auditoria (A7): classificar (ou
     # reclassificar, ou remover) a Linha da DRE de uma conta EXISTENTE —

@@ -165,8 +165,17 @@ def test_a_derivacao_encontrou_as_vinte_e_quatro_rotas_web_e_as_vinte_da_api():
     # (GET, formulário ou arquivo). Cada uma recusa livro-caixa ANTES de ler o formulário
     # (ver `_sem_contabilidade_para_livro_caixa` em `views_web.py`). 26 -> 30 do lado da
     # tela. A API continua em 26.
-    assert len(ROTAS_WEB) == 30, ROTAS_WEB
-    assert len(ROTAS_API) == 26, ROTAS_API
+    #
+    # DL-077, fatia 2 (API): UMA rota nova — "lancamentos-exportacao" (GET, arquivo de
+    # lançamentos e saldos com o relatório nos cabeçalhos). Passa pelo mesmo `get_empresa()`
+    # das irmãs, então a varredura de livro-caixa cobre também ela. 26 -> 27 do lado da API.
+    #
+    # DL-077, fatia 2 (tela): DUAS rotas novas — "lancamentos_exportar" (GET, formulário e
+    # conferência) e "lancamentos_exportar_arquivo" (GET, download com SHA-256 conferido).
+    # Cada uma recusa livro-caixa antes de ler o formulário, como as irmãs. 30 -> 32 do lado
+    # da tela.
+    assert len(ROTAS_WEB) == 32, ROTAS_WEB
+    assert len(ROTAS_API) == 27, ROTAS_API
 
 
 @pytest.fixture

@@ -40,6 +40,14 @@ em base.css), então o título continua saindo no documento.
 {% endcomment %}
 {% block titulo_pagina %}<h1>Diário</h1>{% endblock %}
 
+{% comment %}
+DL-077, fatia 2: "Exportar lançamentos" é ação do Diário, que é a lista de lançamentos.
+A tela de exportação confere o arquivo antes de gerá-lo (ver lancamentos_exportar.html).
+{% endcomment %}
+{% block acoes_pagina %}
+    <a class="botao botao--secundario" href="{% url 'contabilidade_web:lancamentos_exportar' empresa.id %}">Exportar lançamentos</a>
+{% endblock %}
+
 {% block content %}
     {% comment %}
     BL-282: mesmo timbre de impressão do Balancete — ver o comentário

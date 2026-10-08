@@ -19,6 +19,7 @@ from rest_framework.views import APIView
 from apps.auditoria.services import registrar
 from apps.contabilidade.intercambio.canonico import IntercambioRecusado
 from apps.contabilidade.intercambio.formatos import LEITORES, excel, referencia
+from apps.contabilidade.intercambio.lancamentos import exportar_lancamentos
 from apps.contabilidade.intercambio.leitura import (
     TAMANHO_MAXIMO_ARQUIVO_BYTES,
     ArquivoGrandeDemais,
@@ -2905,4 +2906,115 @@ class PlanoDeContasExportacaoView(EmpresaEscopadaContabilMixin, APIView):
         # "; ". Ausente quando o formato não tem aviso.
         if arquivo.avisos:
             resposta["X-DataLedger-Avisos"] = "; ".join(arquivo.avisos)
+        return resposta
+
+
+# ---------------------------------------------------------------------------
+# DL-077 (fatia 2): exportação de lançamentos e saldos.
+#
+# Uma rota de API (GET), com o arquivo no corpo e o relatório de conferência nos
+# cabeçalhos `X-DataLedger-*`. O parâmetro `sha256`, opcional, é o SHA-256 que a tela
+# mostrou na conferência: se os lançamentos mudaram desde então, o arquivo gerado é outro,
+# e a API responde 409 em vez de entregar um arquivo que o contador não conferiu.
+# Exportar exige o papel que lê a contabilidade (`PodeLerContabilidade`). Empresa em modo
+# livro-caixa é recusada pela mixin, como nas demais rotas da contabilidade (DL-038).
+# ---------------------------------------------------------------------------
+
+CAMPOS_QUERYSTRING_EXPORTACAO_LANCAMENTOS = frozenset(
+    {
+        "formato",
+        "inicio",
+        "fim",
+        "incluir_saldos",
+        "omitir_nao_representaveis",
+        "sha256",
+    }
+)
+
+
+class ConferenciaDesatualizada(APIException):
+    """Os lançamentos mudaram desde a conferência que o contador viu (HTTP 409)."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Os lançamentos mudaram desde a conferência. Confira o arquivo de novo."
+    default_code = "conferencia_desatualizada"
+
+
+def _booleano_da_querystring(parametros, nome):
+    """`true`/`1` ou `false`/`0` (ou ausente, que é false). Qualquer outro valor é erro."""
+    valor = (parametros.get(nome) or "").strip().lower()
+    if valor in ("", "false", "0"):
+        return False
+    if valor in ("true", "1"):
+        return True
+    raise DRFValidationError({nome: [f"valor '{valor}' inválido: use true ou false."]})
+
+
+class LancamentosExportacaoView(EmpresaEscopadaContabilMixin, APIView):
+    """Exporta os lançamentos (e saldos, na ECD) da empresa no intervalo pedido."""
+
+    permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            recusar_campos_nao_contratados(
+                request.query_params,
+                CAMPOS_QUERYSTRING_EXPORTACAO_LANCAMENTOS,
+                contexto="na exportação de lançamentos",
+            )
+        except DadoNaoContratado as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+
+        empresa = self.get_empresa()
+        parametros = request.query_params
+        formato = (parametros.get("formato") or "").strip()
+        try:
+            inicio = para_data(parametros["inicio"]) if parametros.get("inicio") else None
+            fim = para_data(parametros["fim"]) if parametros.get("fim") else None
+        except DataInvalida as exc:
+            raise DRFValidationError({"data": [str(exc)]}) from exc
+        incluir_saldos = _booleano_da_querystring(parametros, "incluir_saldos")
+        omitir = _booleano_da_querystring(parametros, "omitir_nao_representaveis")
+        sha_conferido = (parametros.get("sha256") or "").strip().lower() or None
+
+        try:
+            arquivo = exportar_lancamentos(
+                empresa=empresa,
+                formato=formato,
+                data_inicial=inicio,
+                data_final=fim,
+                incluir_saldos=incluir_saldos,
+                omitir_nao_representaveis=omitir,
+                usuario=request.user,
+            )
+        except IntercambioRecusado as exc:
+            raise DRFValidationError({"lancamentos": [exc.mensagem]}) from exc
+
+        if sha_conferido is not None and sha_conferido != arquivo.sha256:
+            raise ConferenciaDesatualizada()
+
+        relatorio = arquivo.relatorio
+        registrar(
+            acao="lancamentos.exportados",
+            objeto=empresa,
+            escritorio=empresa.escritorio,
+            usuario=request.user,
+            request=request,
+            detalhes=relatorio.para_trilha(),
+        )
+
+        if formato == "proprio":
+            tipo_do_conteudo = "text/plain; charset=utf-8"
+        else:
+            tipo_do_conteudo = "text/plain; charset=iso-8859-1"
+        resposta = HttpResponse(arquivo.conteudo, content_type=tipo_do_conteudo)
+        resposta["Content-Disposition"] = f'attachment; filename="{relatorio.nome_do_arquivo}"'
+        resposta["X-DataLedger-Sha256"] = relatorio.sha256
+        resposta["X-DataLedger-Lancamentos"] = str(relatorio.quantidade_lancamentos)
+        resposta["X-DataLedger-Partidas"] = str(relatorio.quantidade_partidas)
+        resposta["X-DataLedger-Soma-Debitos"] = str(relatorio.soma_debitos)
+        resposta["X-DataLedger-Soma-Creditos"] = str(relatorio.soma_creditos)
+        resposta["X-DataLedger-Omitidos"] = str(relatorio.quantidade_omitidos)
+        if relatorio.avisos:
+            resposta["X-DataLedger-Avisos"] = "; ".join(relatorio.avisos)
         return resposta

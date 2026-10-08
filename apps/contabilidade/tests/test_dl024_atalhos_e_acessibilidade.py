@@ -1311,6 +1311,15 @@ NOMES_DE_TELA_DO_PLANO_EM_ARQUIVO = {
     "plano_exportar": "contabilidade_web:plano_exportar",
 }
 
+# DL-077, fatia 2 (frente de tela): a exportação de lançamentos e saldos. A conferência
+# (GET com formulário) entra na moldura de acessibilidade. O download é GET de arquivo,
+# como o `plano_exportar`. A cobertura dele é conferida pela guarda abaixo, e o
+# comportamento é testado em `test_dl077_exportacao_lancamentos_api_tela.py`.
+NOMES_DE_TELA_DA_EXPORTACAO_DE_LANCAMENTOS = {
+    "lancamentos_exportar": "contabilidade_web:lancamentos_exportar",
+    "lancamentos_exportar_arquivo": "contabilidade_web:lancamentos_exportar_arquivo",
+}
+
 
 def test_toda_rota_do_produto_esta_coberta_ou_excluida():
     """BL-334: a guarda do próprio conjunto de telas. Rota nova, nomeada,
@@ -1325,6 +1334,7 @@ def test_toda_rota_do_produto_esta_coberta_ou_excluida():
         set(NOMES_DE_TELA_FORA_DA_CONTABILIDADE)
         | set(NOMES_DE_TELA_DE_CONTABILIDADE.values())
         | set(NOMES_DE_TELA_DO_PLANO_EM_ARQUIVO.values())
+        | set(NOMES_DE_TELA_DA_EXPORTACAO_DE_LANCAMENTOS.values())
         | set(NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE)
         | set(NOMES_DE_TELA_LIVRO_CAIXA_FORA_DA_CONTABILIDADE)
     )
