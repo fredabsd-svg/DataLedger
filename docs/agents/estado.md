@@ -266,7 +266,11 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
      do lote do leiaute de referência sumia em silêncio). Regra de parada do
      §3.1: sem terceira rodada — **a efetivação parcial foi suspensa**
      (BL-676; só "tudo ou nada", que estava protegido), R2 vira erro, e o
-     aceite é pelos testes do próprio auditor. Em andamento.
+     aceite é pelos testes do próprio auditor. Feito (`5a84b27`): T-R1 do
+     auditor passando nas duas políticas, cada mutante derrubando o seu
+     teste, e os fuzzers do auditor com **0 violações** nos quatro leitores
+     (inclusive linhas em branco, que o fuzzer original não sorteava).
+     HI-92 e BL-677 registrados. **Próximo: PR, CI e merge (RC-169).**
      Suíte completa: 7.091 aprovados, 1 reprovado (ambiente). Teto de 2.000
      lançamentos por arquivo (efetivar 2.000 leva ~21 s; o servidor padrão
      corta em 30 s).
