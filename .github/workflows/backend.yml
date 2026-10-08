@@ -17,7 +17,11 @@ jobs:
   test:
     name: Lint e testes
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 08/10/2026: era 10 min. A suíte passou de ~6.800 testes e leva 8 a 10 min no
+    # executor; a execução do evento `pull_request` dos PRs #99 e #100 foi CANCELADA
+    # por tempo (a do `push`, do mesmo conteúdo, passou). Execução cancelada não é
+    # verde: o limite subiu para não esconder o resultado.
+    timeout-minutes: 20
     services:
       db:
         image: postgres:16-alpine

@@ -1,18 +1,41 @@
 import hashlib
+import json
 import re
 from datetime import date
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics, status
+from rest_framework.exceptions import APIException
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.auditoria.services import registrar
+from apps.contabilidade.intercambio.canonico import IntercambioRecusado
+from apps.contabilidade.intercambio.formatos import LEITORES, excel, referencia
+from apps.contabilidade.intercambio.leitura import (
+    TAMANHO_MAXIMO_ARQUIVO_BYTES,
+    ArquivoGrandeDemais,
+    ler_arquivo,
+)
+from apps.contabilidade.intercambio.plano import (
+    POLITICA_SO_ACRESCENTAR,
+    ArquivoAlteradoDesdeAPrevia,
+    ParametroInvalido,
+    PlanoAlteradoDesdeAPrevia,
+    PlanoRecusado,
+    aplicar_plano,
+    conferir_plano,
+    exportar_plano,
+    validar_politica,
+    validar_prefixos,
+)
 from apps.contabilidade.models import (
     Conta,
     LancamentoContabil,
@@ -2534,3 +2557,352 @@ class ConferenciaLotesDesbalanceadosView(EmpresaEscopadaContabilMixin, APIView):
                 ),
             }
         )
+
+
+# ---------------------------------------------------------------------------
+# DL-077 (fatia 1): importação e exportação do plano de contas em arquivo.
+#
+# Três rotas, e a separação é de propósito: a PRÉVIA lê e confere sem gravar; a
+# APLICAÇÃO recebe o arquivo de novo e recusa se ele não for o que foi revisado
+# (SHA-256 e assinatura da prévia); a EXPORTAÇÃO devolve o arquivo. Importar e
+# aplicar exigem o mesmo papel que escreve o plano (`PodeEscriturar`); exportar
+# exige o papel que lê a contabilidade. CLIENTE não passa em nenhuma das três.
+# ---------------------------------------------------------------------------
+
+# Contratos declarados por campo (política dos cinco dicionários, BL-196): o
+# arquivo é aceito por ser multipart, e nenhum outro campo de corpo ou URL passa.
+CONTRATO_POST_IMPORTACAO_PLANO = ContratoDeRequisicao(
+    campos={"arquivo", "formato", "politica", "prefixos"},
+    aceita_arquivo=True,
+    contexto="na conferência do plano de contas",
+)
+CONTRATO_POST_APLICACAO_PLANO = ContratoDeRequisicao(
+    campos={"arquivo", "formato", "politica", "prefixos", "sha256", "assinatura"},
+    aceita_arquivo=True,
+    contexto="na aplicação do plano de contas",
+)
+CAMPOS_QUERYSTRING_EXPORTACAO_PLANO = frozenset(
+    {"formato", "filtro", "inicio", "fim", "data_alteracao"}
+)
+
+
+class ArquivoAcimaDoLimite(APIException):
+    """Arquivo acima do limite de tamanho ou de linhas (HTTP 413)."""
+
+    status_code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+    default_detail = "Arquivo acima do limite."
+    default_code = "arquivo_acima_do_limite"
+
+
+# Campos de TEXTO do multipart da importação (A7/A10). Enviados como arquivo, o `.strip()`
+# da view estourava em 500 (BL-196/R6-2). A recusa sai antes de qualquer leitura, no campo.
+_CAMPOS_DE_TEXTO_DA_IMPORTACAO = ("formato", "politica", "prefixos", "sha256", "assinatura")
+
+
+def _entrada_da_importacao(request, *, com_token):
+    """Lê e valida os campos do multipart. Devolve (formato, política, prefixos, arquivo).
+
+    `com_token=True` (aplicação) exige também `sha256` e `assinatura`, os dois
+    valores que a prévia devolveu. Erro de campo vira 400 com o nome do campo.
+    """
+    erros_de_texto = {
+        campo: [f"o campo '{campo}' é texto: não envie arquivo nele."]
+        for campo in _CAMPOS_DE_TEXTO_DA_IMPORTACAO
+        if campo in request.FILES
+    }
+    if erros_de_texto:
+        raise DRFValidationError(erros_de_texto)
+
+    arquivo = request.FILES.get("arquivo")
+    erros = {}
+    if arquivo is None:
+        erros["arquivo"] = ["Envie o plano no campo 'arquivo' (multipart)."]
+
+    formato = (request.data.get("formato") or "").strip()
+    if formato not in LEITORES:
+        erros["formato"] = [
+            f"formato '{formato}' não suportado nesta versão. Use: {', '.join(sorted(LEITORES))}."
+        ]
+
+    politica = (request.data.get("politica") or POLITICA_SO_ACRESCENTAR).strip()
+    try:
+        validar_politica(politica)
+    except ParametroInvalido as exc:
+        erros["politica"] = [exc.mensagem]
+
+    prefixos = {}
+    try:
+        prefixos = validar_prefixos(json.loads(request.data.get("prefixos") or "{}"))
+    except (ValueError, TypeError):
+        erros["prefixos"] = ['prefixos deve ser um objeto JSON, por exemplo {"3": "receita"}.']
+    except ParametroInvalido as exc:
+        erros["prefixos"] = [exc.mensagem]
+
+    if com_token:
+        for campo in ("sha256", "assinatura"):
+            if not (request.data.get(campo) or "").strip():
+                erros[campo] = ["Informe o valor devolvido pela prévia."]
+
+    # Excel: só `.xlsx`. O conteúdo é conferido de novo no leitor (macro, .xls,
+    # CSV renomeado), mas o nome é a primeira barreira e a mensagem mais clara.
+    if formato == excel.FORMATO and arquivo is not None:
+        if not arquivo.name.lower().endswith(".xlsx"):
+            erros["arquivo"] = [
+                "a planilha precisa ser .xlsx, sem macros (.xlsm não é aceito). "
+                "Use o modelo para baixar."
+            ]
+
+    if erros:
+        raise DRFValidationError(erros)
+    # A11 (limite de corpo): esta checagem vem DEPOIS de o Django receber o corpo inteiro, e
+    # é por isso que não basta. O limite de corpo da requisição (ex.: `client_max_body_size`
+    # no proxy à frente) é de implantação e não está no repositório: o proxy DEVE limitar o
+    # corpo antes do aplicativo, senão o servidor grava um arquivo grande em disco antes do 413.
+    if arquivo.size > TAMANHO_MAXIMO_ARQUIVO_BYTES:
+        raise ArquivoAcimaDoLimite(
+            f"arquivo com {arquivo.size} bytes; o limite é "
+            f"{TAMANHO_MAXIMO_ARQUIVO_BYTES // (1024 * 1024)} MB."
+        )
+    return formato, politica, prefixos, arquivo
+
+
+def _ler_e_conferir(empresa, arquivo, formato, politica, prefixos):
+    """Lê o arquivo com o leitor do formato e confere contra o cadastro. Não grava.
+
+    A conferência do CNPJ/CPF declarado no arquivo é do NÚCLEO (`conferir_plano`), não
+    desta view: assim vale para qualquer porta que use o plano, e não só esta API.
+    """
+    try:
+        resultado = ler_arquivo(formato, arquivo.read(), nome_arquivo=arquivo.name)
+    except ArquivoGrandeDemais as exc:
+        raise ArquivoAcimaDoLimite(exc.mensagem) from exc
+    except IntercambioRecusado as exc:
+        raise DRFValidationError({"arquivo": [exc.mensagem]}) from exc
+    try:
+        return conferir_plano(empresa, resultado, politica, prefixos)
+    except ArquivoGrandeDemais as exc:
+        # Teto de contas por importação (A6): é o núcleo que recusa, e a API responde 413.
+        raise ArquivoAcimaDoLimite(exc.mensagem) from exc
+
+
+def _ocorrencia_como_dict(ocorrencia):
+    return {
+        "linha": ocorrencia.linha,
+        "campo": ocorrencia.campo,
+        "nivel": ocorrencia.nivel,
+        "mensagem": ocorrencia.mensagem,
+    }
+
+
+def _previa_como_dict(previa):
+    """Forma da prévia na API: o que o contador revisa, conta a conta."""
+    return {
+        "formato": previa.resultado.formato,
+        "politica": previa.politica,
+        "nome_arquivo": previa.resultado.nome_arquivo,
+        "codificacao": previa.resultado.codificacao,
+        "sha256": previa.sha256,
+        "assinatura": previa.assinatura,
+        "pode_aplicar": not previa.tem_erro,
+        "contagens": previa.contagens,
+        "registros_ignorados": previa.resultado.registros_ignorados,
+        "itens": [
+            {
+                "linha": item.linha,
+                "codigo": item.codigo,
+                "nome": item.nome,
+                "codigo_pai": item.codigo_pai,
+                "analitica": item.analitica,
+                "acao": item.acao,
+                "tipo": item.tipo,
+                "origem_tipo": item.origem_tipo,
+                "natureza": item.natureza,
+                "origem_natureza": item.origem_natureza,
+                "ocorrencias": [_ocorrencia_como_dict(o) for o in item.ocorrencias],
+            }
+            for item in previa.itens
+        ],
+        "ocorrencias": [_ocorrencia_como_dict(o) for o in previa.ocorrencias],
+    }
+
+
+class PlanoDeContasImportacaoPreviaView(EmpresaEscopadaContabilMixin, APIView):
+    """Prévia da importação: lê o arquivo e confere. Não grava nada."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturar]
+
+    def post(self, request, *args, **kwargs):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_IMPORTACAO_PLANO)
+        empresa = self.get_empresa()
+        formato, politica, prefixos, arquivo = _entrada_da_importacao(request, com_token=False)
+        previa = _ler_e_conferir(empresa, arquivo, formato, politica, prefixos)
+        return Response(_previa_como_dict(previa))
+
+
+class PlanoDeContasImportacaoAplicarView(EmpresaEscopadaContabilMixin, APIView):
+    """Aplica o plano. Recebe o arquivo de novo e exige o SHA-256 e a assinatura da prévia.
+
+    409 se o arquivo ou o cadastro mudaram desde a prévia; 400 com as ocorrências
+    se o plano tem erro. Nada é gravado em nenhum desses casos.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturar]
+
+    def post(self, request, *args, **kwargs):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_APLICACAO_PLANO)
+        empresa = self.get_empresa()
+        formato, politica, prefixos, arquivo = _entrada_da_importacao(request, com_token=True)
+        previa = _ler_e_conferir(empresa, arquivo, formato, politica, prefixos)
+        try:
+            aplicado = aplicar_plano(
+                empresa,
+                previa,
+                request.user,
+                request,
+                sha256_esperado=request.data["sha256"].strip(),
+                assinatura_esperada=request.data["assinatura"].strip(),
+            )
+        except (ArquivoAlteradoDesdeAPrevia, PlanoAlteradoDesdeAPrevia) as exc:
+            return Response({"plano": [exc.mensagem]}, status=status.HTTP_409_CONFLICT)
+        except PlanoRecusado as exc:
+            return Response(
+                {
+                    "plano": [exc.mensagem],
+                    "ocorrencias": [_ocorrencia_como_dict(o) for o in exc.ocorrencias],
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except CompetenciaOperacaoRecusada as exc:
+            # Outra operação de zeramento ou parâmetro está em curso na empresa:
+            # conflito de estado, não entrada malformada.
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response(
+            {
+                "aplicado": True,
+                "criadas": aplicado.criadas,
+                "atualizadas": aplicado.atualizadas,
+                "sem_mudanca": aplicado.sem_mudanca,
+                "sha256": aplicado.sha256,
+                "assinatura": aplicado.assinatura,
+            }
+        )
+
+
+class PlanoDeContasModeloExcelView(EmpresaEscopadaContabilMixin, APIView):
+    """Baixa o modelo `.xlsx` da importação do plano (aba `plano` e aba `instrucoes`).
+
+    O modelo não depende da empresa, mas a rota passa por `get_empresa()` mesmo assim:
+    é o que aplica o isolamento por escritório e a recusa do modo livro-caixa (DL-038)
+    a esta rota, como a todas as outras da contabilidade.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturar]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            recusar_campos_nao_contratados(
+                request.query_params,
+                frozenset(),
+                contexto="no modelo do plano de contas",
+            )
+        except DadoNaoContratado as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        self.get_empresa()
+        resposta = HttpResponse(excel.gerar_modelo(), content_type=TIPO_DE_CONTEUDO_XLSX)
+        resposta["Content-Disposition"] = 'attachment; filename="modelo-plano-de-contas.xlsx"'
+        return resposta
+
+
+# Sufixo do nome do arquivo por leiaute. Nenhum deles usa "ECD" nem "SPED": o arquivo
+# não é a ECD, e o nome não pode dizer que é (ver `formatos/ecd.py`).
+_SUFIXO_DO_ARQUIVO_EXPORTADO = {
+    "ecd": "registros-I050",
+    referencia.FORMATO: "leiaute-com-separador",
+}
+# Leiaute em ISO-8859-1 (ECD e leiaute com separador). O formato próprio é UTF-8.
+_FORMATOS_EM_ISO_8859_1 = frozenset({"ecd", referencia.FORMATO})
+TIPO_DE_CONTEUDO_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _nome_do_arquivo_exportado(empresa, formato, hoje):
+    """`plano-<documento>-<aaaammdd>-<sufixo>.txt`, sem as palavras ECD nem SPED.
+
+    Decisão do arquiteto-senior (DL-077): o arquivo no leiaute da ECD se chama
+    `registros-I050`, que diz o que ele contém (registros I050/I051), e não que
+    ele é a ECD: não tem bloco J, termos nem assinatura (ver `formatos/ecd.py`).
+    """
+    documento = re.sub(r"[^0-9A-Za-z]", "", empresa.cnpj or empresa.cpf or "") or "sem-documento"
+    sufixo = _SUFIXO_DO_ARQUIVO_EXPORTADO.get(formato, "formato-dataledger")
+    return f"plano-{documento}-{hoje:%Y%m%d}-{sufixo}.txt"
+
+
+class PlanoDeContasExportacaoView(EmpresaEscopadaContabilMixin, APIView):
+    """Exporta o plano da empresa. Filtros: todas | analiticas | com_movimento."""
+
+    permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            recusar_campos_nao_contratados(
+                request.query_params,
+                CAMPOS_QUERYSTRING_EXPORTACAO_PLANO,
+                contexto="na exportação do plano de contas",
+            )
+        except DadoNaoContratado as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+
+        empresa = self.get_empresa()
+        parametros = request.query_params
+        formato = (parametros.get("formato") or "").strip()
+        filtro = (parametros.get("filtro") or "todas").strip()
+        try:
+            inicio = para_data(parametros["inicio"]) if "inicio" in parametros else None
+            fim = para_data(parametros["fim"]) if "fim" in parametros else None
+            data_alteracao = (
+                para_data(parametros["data_alteracao"]) if "data_alteracao" in parametros else None
+            )
+        except DataInvalida as exc:
+            raise DRFValidationError({"data": [str(exc)]}) from exc
+
+        try:
+            arquivo = exportar_plano(
+                empresa=empresa,
+                formato=formato,
+                filtro=filtro,
+                inicio=inicio,
+                fim=fim,
+                data_alteracao=data_alteracao,
+            )
+        except IntercambioRecusado as exc:
+            raise DRFValidationError({"plano": [exc.mensagem]}) from exc
+
+        registrar(
+            acao="plano_de_contas.exportado",
+            objeto=empresa,
+            escritorio=empresa.escritorio,
+            usuario=request.user,
+            request=request,
+            detalhes={
+                "formato": arquivo.formato,
+                "filtro": arquivo.filtro,
+                "inicio": inicio.isoformat() if inicio else None,
+                "fim": fim.isoformat() if fim else None,
+                "quantidade_contas": arquivo.quantidade_contas,
+                "sinteticas_incluidas": arquivo.sinteticas_incluidas,
+                "sha256": arquivo.sha256,
+                "avisos": list(arquivo.avisos),
+            },
+        )
+
+        if formato in _FORMATOS_EM_ISO_8859_1:
+            tipo_do_conteudo = "text/plain; charset=iso-8859-1"
+        else:
+            tipo_do_conteudo = "text/plain; charset=utf-8"
+        resposta = HttpResponse(arquivo.conteudo, content_type=tipo_do_conteudo)
+        nome = _nome_do_arquivo_exportado(empresa, arquivo.formato, timezone.localdate())
+        resposta["Content-Disposition"] = f'attachment; filename="{nome}"'
+        # Avisos do formato (ASCII, por isso cabem em cabeçalho HTTP). Juntos, separados por
+        # "; ". Ausente quando o formato não tem aviso.
+        if arquivo.avisos:
+            resposta["X-DataLedger-Avisos"] = "; ".join(arquivo.avisos)
+        return resposta

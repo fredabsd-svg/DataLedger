@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block titulo %}Importar plano de contas — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% comment %}
+DL-077, fatia 1 (frente C): formulário de documento (arquétipo B) que leva o
+arquivo à conferência. Esta tela NÃO grava nada: o botão daqui só lê o arquivo e
+mostra a prévia (`plano_importar_previa.html`). A gravação é outra rota, que
+exige a prévia revisada. As regras (tipo, natureza, recusas) são do núcleo
+(`apps.contabilidade.intercambio`), nunca desta tela.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Importar plano de contas</h1>{% endblock %}
+
+{% block content %}
+    <p><a class="botao botao--secundario" href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">‹ Voltar para o plano de contas</a></p>
+
+    {% if erros %}
+        <div class="mensagem mensagem-error" role="alert">
+            {% for mensagem in erros.values %}<p>{{ mensagem }}</p>{% endfor %}
+        </div>
+    {% endif %}
+
+    <p class="texto-apoio">
+        {{ texto_fixo }} Primeiro o sistema lê o arquivo e mostra a prévia. Nada é
+        gravado antes de você aplicar a prévia.
+    </p>
+
+    <p>
+        <a class="botao botao--secundario" href="{% url 'contabilidade_web:plano_modelo_excel' empresa.id %}">Baixar o modelo da planilha Excel</a>
+    </p>
+
+    <form method="post" enctype="multipart/form-data"
+          action="{% url 'contabilidade_web:plano_importar' empresa.id %}"
+          class="formulario" novalidate>
+        {% csrf_token %}
+
+        <fieldset class="campo campo-radio">
+            <legend>Formato do arquivo</legend>
+            <div class="campo-radio__opcoes">
+                {% for valor, rotulo in formatos.items %}
+                    <label class="campo-radio__opcao">
+                        <input type="radio" name="formato" value="{{ valor }}"{% if valor == formato_escolhido %} checked{% endif %}>
+                        {{ rotulo }}
+                    </label>
+                {% endfor %}
+            </div>
+        </fieldset>
+
+        <fieldset class="campo campo-radio">
+            <legend>Política de importação</legend>
+            <div class="campo-radio__opcoes">
+                {% for valor, rotulo in politicas.items %}
+                    <label class="campo-radio__opcao">
+                        <input type="radio" name="politica" value="{{ valor }}"{% if valor == politica_escolhida %} checked{% endif %}>
+                        {{ rotulo }}
+                    </label>
+                {% endfor %}
+            </div>
+        </fieldset>
+
+        <div class="campo">
+            <label for="id_arquivo">Arquivo do plano de contas</label>
+            <input type="file" name="arquivo" id="id_arquivo" accept=".txt,.csv,.xlsx"
+                   aria-describedby="id_arquivo_ajuda">
+            <p class="texto-apoio" id="id_arquivo_ajuda">
+                Para a planilha, envie um .xlsx (nunca .xlsm). O arquivo não fica guardado
+                no servidor: para conferir de novo ou aplicar, você o envia outra vez.
+            </p>
+        </div>
+
+        <button type="submit">Conferir o arquivo</button>
+    </form>
+{% endblock %}

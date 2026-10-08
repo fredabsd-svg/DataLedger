@@ -9041,3 +9041,124 @@ def localizar_inconsistencias_de_hierarquia(*, empresa):
         visitado.update(caminho)
 
     return mensagens
+
+
+# ---------------------------------------------------------------------------
+# DL-077 (fatia 1): criação e renomeação de conta pela importação do plano.
+#
+# Não havia serviço de criação de conta: o cadastro passa pela tela
+# (`views_web.conta_nova`) e pela API (`ContaSerializer`, que NÃO chama
+# `full_clean()` — DE-008). A importação precisa das MESMAS validações nos dois
+# caminhos e não pode gravar direto no ORM. Por isso passa por aqui:
+# `full_clean()` roda `Conta.clean()` inteira (hierarquia, ciclo, livro-caixa,
+# classificações) e a trilha fica no mesmo `transaction.atomic()` que grava a
+# conta (BL-14). Quem chama é `apps.contabilidade.intercambio.plano`, que já
+# conferiu tudo; estas funções são a última linha, não a única.
+# ---------------------------------------------------------------------------
+
+
+class ContaRecusadaNoCadastro(Exception):
+    """`Conta.clean()` ou a constraint de código recusaram a gravação."""
+
+    def __init__(self, mensagens):
+        super().__init__("; ".join(mensagens))
+        self.mensagens = tuple(mensagens)
+
+
+def criar_conta_pelo_plano(
+    *,
+    empresa,
+    codigo,
+    nome,
+    tipo,
+    natureza,
+    codigo_pai,
+    analitica,
+    usuario=None,
+    request=None,
+    pai=None,
+):
+    """Cria uma conta da empresa, com `full_clean()` e trilha `conta.criada`.
+
+    `codigo_pai` é o código da conta superior NA MESMA empresa, ou `None` para
+    conta raiz. `analitica=True` grava `aceita_lancamento=True`. `pai`, quando
+    vier, é a instância da superior já carregada pela aplicação em lote (evita
+    uma consulta por conta); sem ele, a superior é buscada aqui. Levanta
+    `ContaRecusadaNoCadastro` se qualquer validação do modelo recusar; nada fica
+    gravado nesse caso (o `atomic` desfaz).
+    """
+    # Defesa (A1): NUL e controles não cabem no PostgreSQL e quebram a exportação. O núcleo
+    # já recusa na conferência; esta checagem vale para qualquer outro caminho que chegue aqui.
+    mensagens_de_controle = [
+        f"{rotulo} com caractere de controle (00 a 31, ou 127), não permitido"
+        for rotulo, valor in (("código", codigo), ("nome", nome))
+        if any(ord(caractere) < 32 or ord(caractere) == 127 for caractere in valor or "")
+    ]
+    if mensagens_de_controle:
+        raise ContaRecusadaNoCadastro(mensagens_de_controle)
+    if pai is None and codigo_pai is not None:
+        pai = Conta.objects.filter(empresa=empresa, codigo=codigo_pai).first()
+    if codigo_pai is not None and pai is None:
+        raise ContaRecusadaNoCadastro([f"a conta superior {codigo_pai} não existe nesta empresa"])
+    conta = Conta(
+        empresa=empresa,
+        codigo=codigo,
+        nome=nome,
+        tipo=tipo,
+        natureza=natureza,
+        conta_pai=pai,
+        aceita_lancamento=analitica,
+    )
+    with transaction.atomic():
+        try:
+            # `validate_constraints=False`: as quatro CheckConstraint de classificação
+            # (`classificacao_*` diferente de vazio) custam um savepoint e uma consulta
+            # CADA por conta. A importação nunca grava essas classificações (ficam None),
+            # então elas não podem falhar aqui. Continuam como defesa de banco (DE-008).
+            # `validate_unique` (código único por empresa), `clean()` e as FKs seguem.
+            conta.full_clean(validate_constraints=False)
+            # `validate_constraints=False` deixa de conferir também a UNICIDADE do código por
+            # empresa, que é uma UniqueConstraint sem condição. Sem esta linha, código repetido
+            # chegaria ao banco e viraria IntegrityError (500). Uma consulta, não uma por CHECK.
+            for restricao in Conta._meta.constraints:
+                if restricao.name == "codigo_unico_por_empresa":
+                    restricao.validate(Conta, conta)
+        except DjangoValidationError as exc:
+            raise ContaRecusadaNoCadastro(mensagens_da_validacao_django(exc)) from exc
+        conta.save()
+        registrar(
+            acao="conta.criada",
+            objeto=conta,
+            escritorio=empresa.escritorio,
+            usuario=usuario,
+            request=request,
+            detalhes={"origem": "importacao_de_plano"},
+        )
+    return conta
+
+
+def renomear_conta_pelo_plano(*, conta, nome, usuario=None, request=None):
+    """Troca só o nome de uma conta existente, com `full_clean()` e trilha.
+
+    Nome não entra em nenhuma regra de saldo nem de período fechado, então
+    trocá-lo em conta COM movimento é seguro. Tipo, natureza, conta superior e
+    analítica NÃO são tocados aqui, nunca: a importação não altera nada disso
+    em conta existente (ver `plano.conferir_plano`).
+    """
+    nome_anterior = conta.nome
+    conta.nome = nome
+    with transaction.atomic():
+        try:
+            conta.full_clean()
+        except DjangoValidationError as exc:
+            raise ContaRecusadaNoCadastro(mensagens_da_validacao_django(exc)) from exc
+        conta.save(update_fields=["nome"])
+        registrar(
+            acao="conta.nome_alterado",
+            objeto=conta,
+            escritorio=conta.empresa.escritorio,
+            usuario=usuario,
+            request=request,
+            detalhes={"origem": "importacao_de_plano", "nome_anterior": nome_anterior},
+        )
+    return conta

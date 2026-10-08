@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+
+{% block titulo %}Prévia da importação — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% comment %}
+DL-077, fatia 1 (frente C): a prévia é a caixa de conferência (arquétipo C). Cada
+conta mostra a ação, o tipo e a natureza FINAIS e de onde vieram, e as
+ocorrências com linha e campo. O botão Aplicar só existe quando não há erro:
+com erro, a tela explica o que falta, sem oferecer a gravação. Os números vêm do
+núcleo; esta tela só os apresenta.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Prévia da importação do plano</h1>{% endblock %}
+
+{% block content %}
+    <p><a class="botao botao--secundario" href="{% url 'contabilidade_web:plano_de_contas' empresa.id %}">‹ Voltar para o plano de contas</a></p>
+
+    {% if mensagem %}
+        <div class="mensagem mensagem-error" role="alert">
+            <p>{{ mensagem }}</p>
+        </div>
+    {% endif %}
+
+    <div class="painel-etapa">
+        <h2 id="veredito-da-previa">
+            {% if pode_aplicar %}Pode aplicar: não há erro{% else %}Não pode aplicar: há erro{% endif %}
+        </h2>
+        {% if pode_aplicar %}
+            <p>Confira os avisos e as contas abaixo antes de aplicar. Aplicar grava de uma vez; se algo falhar, nada é gravado.</p>
+        {% else %}
+            <p>
+                Há {{ erros_total }} {% if erros_total == 1 %}erro{% else %}erros{% endif %}.
+                Nada será gravado: corrija o arquivo e confira de novo.
+            </p>
+        {% endif %}
+
+        <dl class="lista-de-definicao">
+            <div><dt>Arquivo</dt><dd class="valor-quebravel">{{ nome_arquivo }}</dd></div>
+            <div><dt>Formato</dt><dd>{{ formato_rotulo }}</dd></div>
+            <div><dt>Política</dt><dd>{{ politica_rotulo }}</dd></div>
+            <div><dt>Contas a criar</dt><dd class="valor-monetario">{{ contagens.criar }}</dd></div>
+            <div><dt>Contas com nome a atualizar</dt><dd class="valor-monetario">{{ contagens.atualizar }}</dd></div>
+            <div><dt>Contas já existentes sem mudança</dt><dd class="valor-monetario">{{ contagens.sem_mudanca }}</dd></div>
+            <div><dt>Contas recusadas</dt><dd class="valor-monetario">{{ contagens.recusada }}</dd></div>
+            <div><dt>Erros</dt><dd class="valor-monetario">{{ erros_total }}</dd></div>
+            <div><dt>Avisos</dt><dd class="valor-monetario">{{ avisos_total }}</dd></div>
+        </dl>
+        {% if prefixos_aplicados %}
+            <p>
+                Prefixos de tipo usados nesta prévia:
+                {% for prefixo, rotulo in prefixos_aplicados %}{{ prefixo }} → {{ rotulo }}{% if not forloop.last %}; {% endif %}{% endfor %}.
+            </p>
+        {% endif %}
+        <p class="texto-apoio">
+            Identificação do arquivo (SHA-256): <span class="valor-quebravel">{{ sha256 }}</span>
+        </p>
+    </div>
+
+    {% if ocorrencias_do_arquivo %}
+        <div class="painel-etapa">
+            <h2>Ocorrências do arquivo inteiro</h2>
+            <ul>
+                {% for ocorrencia in ocorrencias_do_arquivo %}
+                    <li>{{ ocorrencia.nivel }}: {{ ocorrencia.mensagem }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
+    {% if contas_para_conferir_natureza %}
+        <div class="mensagem mensagem-warning">
+            <p>
+                <strong>Conferir a natureza.</strong> Estas contas não dizem a natureza no arquivo.
+                A natureza foi presumida pelo tipo. Confira as contas redutoras (por exemplo,
+                depreciação acumulada no ativo, que é credora):
+            </p>
+            <ul>
+                {% for item in contas_para_conferir_natureza %}
+                    <li>{{ item.codigo }} — {{ item.nome }}: {{ item.natureza }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
+    {% if contas_inativas %}
+        <div class="mensagem mensagem-warning">
+            <p><strong>Contas inativas no arquivo.</strong> Elas entram inativas, e a situação de conta já existente não muda:</p>
+            <ul>
+                {% for item in contas_inativas %}
+                    <li>{{ item.codigo }} — {{ item.nome }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
+    {% if aviso_do_formato %}
+        <div class="mensagem mensagem-warning">
+            <p>{{ aviso_do_formato }}</p>
+        </div>
+    {% endif %}
+
+    {% if registros_ignorados %}
+        <p class="texto-apoio">
+            Registros do arquivo que o plano não usa (contados, não gravados):
+            {% for registro, quantidade in registros_ignorados.items %}{{ registro }} ({{ quantidade }}){% if not forloop.last %}, {% endif %}{% endfor %}.
+        </p>
+    {% endif %}
+
+    <div class="cartao-tabela">
+        <div class="cartao-tabela__cabecalho">
+            <p class="texto-apoio">
+                Cada conta como ficaria no cadastro. Recusada: não entra, e o arquivo não
+                pode ser aplicado enquanto houver erro. Entre parênteses, de onde veio o tipo
+                e a natureza.
+            </p>
+        </div>
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Contas do arquivo, com a ação e as ocorrências de cada uma</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Linha</th>
+                    <th scope="col">Código</th>
+                    <th scope="col">Nome</th>
+                    <th scope="col">Conta superior</th>
+                    <th scope="col">Analítica</th>
+                    <th scope="col">Tipo</th>
+                    <th scope="col">Natureza</th>
+                    <th scope="col">Situação</th>
+                    <th scope="col">Ação</th>
+                    <th scope="col">Ocorrências</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in itens %}
+                    <tr>
+                        <td class="valor-monetario">{{ item.linha }}</td>
+                        <td>{{ item.codigo }}</td>
+                        <td>{{ item.nome }}</td>
+                        <td>{{ item.codigo_pai }}</td>
+                        <td>{{ item.analitica }}</td>
+                        <td>{{ item.tipo }}{% if item.origem_tipo %} <span class="texto-apoio">({{ item.origem_tipo }})</span>{% endif %}</td>
+                        <td>{{ item.natureza }}{% if item.origem_natureza %} <span class="texto-apoio">({{ item.origem_natureza }})</span>{% endif %}</td>
+                        <td>{{ item.situacao }}</td>
+                        <td>{{ item.acao }}</td>
+                        <td>
+                            {% for ocorrencia in item.ocorrencias %}
+                                <p>{{ ocorrencia.nivel }} em {{ ocorrencia.campo }}: {{ ocorrencia.mensagem }}</p>
+                            {% empty %}
+                                —
+                            {% endfor %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if precisa_prefixos %}
+        <div class="painel-etapa">
+            <h2>Tipo por prefixo</h2>
+            <p class="texto-apoio">
+                Há contas sem tipo: o arquivo não diz, a conta superior não tem tipo, e nenhum
+                prefixo casa com o código. Informe o começo do código e o tipo. Cada conta recebe
+                o tipo do prefixo mais longo que casa com ela. O sistema não adivinha tipo.
+            </p>
+            <form method="post" enctype="multipart/form-data"
+                  action="{% url 'contabilidade_web:plano_importar' empresa.id %}"
+                  class="formulario" novalidate>
+                {% csrf_token %}
+                <input type="hidden" name="formato" value="{{ formato }}">
+                <input type="hidden" name="politica" value="{{ politica }}">
+                <div class="campo">
+                    <label for="id_arquivo_prefixos">Reenvie o mesmo arquivo</label>
+                    <input type="file" name="arquivo" id="id_arquivo_prefixos" accept=".txt,.csv,.xlsx" required>
+                </div>
+                {% for linha in linhas_de_prefixo %}
+                    <div class="campo">
+                        <label for="id_{{ linha.nome_prefixo }}">Começo do código {{ forloop.counter }}</label>
+                        <input type="text" id="id_{{ linha.nome_prefixo }}" name="{{ linha.nome_prefixo }}" value="{{ linha.prefixo }}">
+                    </div>
+                    <div class="campo">
+                        <label for="id_{{ linha.nome_tipo }}">Tipo do começo {{ forloop.counter }}</label>
+                        <select id="id_{{ linha.nome_tipo }}" name="{{ linha.nome_tipo }}">
+                            <option value="">— nenhum —</option>
+                            {% for valor, rotulo in tipos %}
+                                <option value="{{ valor }}"{% if valor == linha.tipo %} selected{% endif %}>{{ rotulo }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                {% endfor %}
+                <button type="submit">Conferir de novo com os prefixos</button>
+            </form>
+        </div>
+    {% endif %}
+
+    {% if pode_aplicar %}
+        <div class="painel-etapa">
+            <h2>Aplicar o plano</h2>
+            <p class="texto-apoio">
+                {{ texto_fixo }} Para aplicar, reenvie o mesmo arquivo. O sistema confere o
+                SHA-256 e a conferência com a prévia que você viu. Se o arquivo ou o cadastro
+                mudou, nada é gravado.
+            </p>
+            <form method="post" enctype="multipart/form-data"
+                  action="{% url 'contabilidade_web:plano_importar_aplicar' empresa.id %}"
+                  class="formulario" novalidate>
+                {% csrf_token %}
+                <input type="hidden" name="formato" value="{{ formato }}">
+                <input type="hidden" name="politica" value="{{ politica }}">
+                <input type="hidden" name="sha256" value="{{ sha256 }}">
+                <input type="hidden" name="assinatura" value="{{ assinatura }}">
+                {% for prefixo in prefixos_ocultos %}
+                    <input type="hidden" name="{{ prefixo.nome_prefixo }}" value="{{ prefixo.prefixo }}">
+                    <input type="hidden" name="{{ prefixo.nome_tipo }}" value="{{ prefixo.tipo }}">
+                {% endfor %}
+                <div class="campo">
+                    <label for="id_arquivo_aplicar">Reenvie o mesmo arquivo</label>
+                    <input type="file" name="arquivo" id="id_arquivo_aplicar" accept=".txt,.csv,.xlsx" required>
+                </div>
+                <button type="submit">Aplicar plano de contas</button>
+            </form>
+        </div>
+    {% else %}
+        <div class="painel-etapa">
+            <h2>Aplicar o plano</h2>
+            <p>
+                Aplicar fica indisponível enquanto houver erro. Corrija o arquivo, confira de
+                novo e só então aplique.
+            </p>
+        </div>
+    {% endif %}
+{% endblock %}

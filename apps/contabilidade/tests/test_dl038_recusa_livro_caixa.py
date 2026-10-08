@@ -145,8 +145,28 @@ def test_a_derivacao_encontrou_as_vinte_e_quatro_rotas_web_e_as_vinte_da_api():
     # demonstração, com `?ano=&mes=` por querystring) — 24 -> 26 do lado da
     # tela. As duas caem na varredura derivada abaixo: as views usam o MESMO
     # recuso de livro-caixa das irmãs.
-    assert len(ROTAS_WEB) == 26, ROTAS_WEB
-    assert len(ROTAS_API) == 22, ROTAS_API
+    #
+    # DL-077, fatia 1 (frente A, API): TRÊS rotas novas na API do plano de contas
+    # em arquivo — "plano-importacao-previa" (POST, conferência sem gravar),
+    # "plano-importacao-aplicar" (POST, aplicação com SHA-256 e assinatura) e
+    # "plano-exportacao" (GET). 22 -> 25 do lado da API. Nenhuma rota de tela
+    # nesta frente (a tela é a frente C). Autorizado pelo arquiteto-senior, que
+    # classificou a mudança como inventário: a varredura de recusa do livro-caixa
+    # cobre as três rotas novas, e o que muda aqui é só a contagem.
+    #
+    # DL-077, fatia 1 (frente B, API): UMA rota nova — "plano-modelo-excel" (GET,
+    # download do modelo `.xlsx` da importação por planilha). Passa pelo mesmo
+    # `get_empresa()` das irmãs, então a varredura de livro-caixa cobre também ela.
+    # 25 -> 26 do lado da API. Nenhuma rota de tela nesta frente.
+    #
+    # DL-077, fatia 1 (frente C, tela): QUATRO rotas novas na tela do plano de contas
+    # em arquivo — "plano_importar" (GET formulário, POST prévia), "plano_importar_aplicar"
+    # (POST, única que grava), "plano_modelo_excel" (GET, download) e "plano_exportar"
+    # (GET, formulário ou arquivo). Cada uma recusa livro-caixa ANTES de ler o formulário
+    # (ver `_sem_contabilidade_para_livro_caixa` em `views_web.py`). 26 -> 30 do lado da
+    # tela. A API continua em 26.
+    assert len(ROTAS_WEB) == 30, ROTAS_WEB
+    assert len(ROTAS_API) == 26, ROTAS_API
 
 
 @pytest.fixture

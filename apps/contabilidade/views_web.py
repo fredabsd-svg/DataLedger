@@ -32,6 +32,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -49,6 +50,31 @@ from django.utils.formats import date_format
 from django.views.decorators.http import require_http_methods, require_safe
 
 from apps.auditoria.services import registrar
+from apps.contabilidade.intercambio.canonico import NIVEL_ERRO, IntercambioRecusado
+from apps.contabilidade.intercambio.formatos import LEITORES, ecd, excel, proprio, referencia
+from apps.contabilidade.intercambio.leitura import TAMANHO_MAXIMO_ARQUIVO_BYTES, ler_arquivo
+from apps.contabilidade.intercambio.plano import (
+    ACAO_ATUALIZAR,
+    ACAO_CRIAR,
+    ACAO_RECUSADA,
+    ACAO_SEM_MUDANCA,
+    ORIGEM_ARQUIVO,
+    ORIGEM_CADASTRO,
+    ORIGEM_CONTA_SUPERIOR,
+    ORIGEM_PREFIXO,
+    ORIGEM_PRESUMIDA,
+    POLITICA_ACRESCENTAR_E_ATUALIZAR_NOME,
+    POLITICA_SO_ACRESCENTAR,
+    POLITICAS,
+    ArquivoAlteradoDesdeAPrevia,
+    ParametroInvalido,
+    PlanoAlteradoDesdeAPrevia,
+    PlanoRecusado,
+    aplicar_plano,
+    conferir_plano,
+    exportar_plano,
+    validar_prefixos,
+)
 from apps.contabilidade.models import (
     # DL-061/CTB-14: coluna da DMPL (NBC TG 51, item 111A) — quarto campo do
     # mesmo padrão. Usada pela tela `dmpl` e pela tela de classificar conta
@@ -279,12 +305,16 @@ from apps.contabilidade.services import (
 #   entregar competência — reaproveitada aqui pelo mesmo motivo de
 #   PodeEscriturar: não existe uma segunda lista de papéis "só para a tela".
 from apps.contabilidade.views import (
+    _FORMATOS_EM_ISO_8859_1,
     _PADRAO_NIVEL_SIMPLES,
+    CAMPOS_QUERYSTRING_EXPORTACAO_PLANO,
     LIMITE_MAGNITUDE_VALOR,
     TAMANHO_MAXIMO_CHAVE_IDEMPOTENCIA,
     TAMANHO_MAXIMO_HISTORICO,
+    TIPO_DE_CONTEUDO_XLSX,
     PodeEscriturar,
     PodeFecharCompetencia,
+    _nome_do_arquivo_exportado,
     _saldo_absoluto_com_natureza,
 )
 
@@ -341,6 +371,7 @@ from apps.core.requisicao import (
     DICIONARIO_QUERYSTRING,
     ContratoDeRequisicao,
     DadoNaoContratado,
+    recusar_campos_nao_contratados,
     recusar_dado_nao_contratado,
 )
 from apps.empresas.models import Empresa
@@ -7553,3 +7584,617 @@ def zeramento_do_periodo(request, empresa_id):
         "etapa2": etapa2,
     }
     return render(request, "contabilidade/zerar_resultado.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# DL-077, fatia 1 (frente C): importar e exportar o plano de contas em arquivo.
+#
+# A TELA NÃO DECIDE NADA DO PLANO. Ler o arquivo, conferir contra o cadastro,
+# decidir tipo e natureza, recusar, aplicar e exportar são do núcleo
+# (`apps.contabilidade.intercambio`). Aqui só se lê o formulário, se chama o
+# núcleo e se escolhe a resposta: página, arquivo ou recusa.
+#
+# O ARQUIVO NÃO FICA GUARDADO, nem no servidor nem na sessão. Para conferir de
+# novo (prefixos de tipo) e para aplicar, o contador envia o arquivo outra vez.
+# A aplicação recebe o SHA-256 e a assinatura da prévia que ele revisou e confere
+# os dois, pelo mesmo mecanismo de `plano-importacao-aplicar` da API: se o
+# arquivo ou o cadastro mudou, nada é gravado.
+#
+# Ordem das recusas, igual à das outras telas deste módulo: escritório ativo
+# (sem escritório, outra tela), empresa do escritório (404), papel (403) e modo
+# livro-caixa (403). Permissões iguais às da API: importar e aplicar exigem
+# `PodeEscriturar`; exportar exige a leitura da contabilidade; o modelo da
+# planilha segue a importação (`PodeEscriturar`).
+# ---------------------------------------------------------------------------
+
+# Quantas linhas "prefixo -> tipo" a prévia oferece. É limite do FORMULÁRIO, não
+# da regra: o núcleo (`validar_prefixos`) aceita quantos prefixos vierem. Seis
+# cobre os grupos de um plano comum; se faltar, o contador confere o arquivo.
+PREFIXOS_POR_PREVIA = 6
+
+# Rótulos da importação. As chaves são as de `LEITORES` (um teste confere).
+FORMATOS_DE_IMPORTACAO = {
+    ecd.FORMATO: "ECD: registros I050 do bloco I",
+    referencia.FORMATO: "Sistema de referência: leiaute com separador (registros 0000 e 0200)",
+    proprio.FORMATO: "DataLedger: TXT próprio, com ponto e vírgula e cabeçalho",
+    excel.FORMATO: "Planilha Excel (.xlsx), no modelo da tela",
+}
+
+# Avisos fixos da exportação. O da ECD é o texto que o produto promete na tela: o
+# arquivo NÃO é a ECD. O do sistema de referência diz que o código reduzido não é
+# estável (o DataLedger não tem código reduzido próprio).
+AVISO_DA_EXPORTACAO_ECD = (
+    "Arquivo com os registros do plano no leiaute da ECD — não é a ECD: não tem os "
+    "demais blocos, termos nem assinatura e não passou pelo programa da Receita."
+)
+AVISO_DA_EXPORTACAO_REFERENCIA = (
+    "Código reduzido sequencial pela ordem do código: não é estável entre exportações. "
+    "O DataLedger não tem código reduzido próprio."
+)
+# Chaves = `ESCRITORES` (um teste confere). Excel não exporta: só importa.
+FORMATOS_DE_EXPORTACAO = {
+    ecd.FORMATO: ("ECD: registros I050 do bloco I", AVISO_DA_EXPORTACAO_ECD),
+    referencia.FORMATO: (
+        "Sistema de referência: leiaute com separador",
+        AVISO_DA_EXPORTACAO_REFERENCIA,
+    ),
+    proprio.FORMATO: ("DataLedger: TXT próprio, com ponto e vírgula e cabeçalho", ""),
+}
+
+FILTROS_DE_EXPORTACAO_NA_TELA = {
+    "todas": "Todas as contas do plano",
+    "analiticas": "Só as contas analíticas (saem junto as sintéticas que elas precisam)",
+    "com_movimento": "Só as contas com movimento no período (saem junto as superiores)",
+}
+
+POLITICAS_DE_IMPORTACAO_NA_TELA = {
+    POLITICA_SO_ACRESCENTAR: (
+        "Só acrescentar (padrão): cria as contas que faltam e não altera as existentes"
+    ),
+    POLITICA_ACRESCENTAR_E_ATUALIZAR_NOME: (
+        "Acrescentar e atualizar nome: além disso, troca o nome das contas existentes"
+    ),
+}
+
+TEXTO_FIXO_DA_IMPORTACAO = (
+    "A importação nunca apaga conta, e nunca muda tipo ou natureza de conta que já existe."
+)
+
+ACOES_NA_TELA = {
+    ACAO_CRIAR: "Criar",
+    ACAO_ATUALIZAR: "Atualizar nome",
+    ACAO_SEM_MUDANCA: "Sem mudança",
+    ACAO_RECUSADA: "Recusada",
+}
+
+ORIGENS_DO_TIPO_NA_TELA = {
+    ORIGEM_ARQUIVO: "do arquivo",
+    ORIGEM_CONTA_SUPERIOR: "da conta superior",
+    ORIGEM_PREFIXO: "pelo prefixo informado",
+    ORIGEM_CADASTRO: "do cadastro",
+}
+
+# "presumida pelo tipo" é o aviso HI-88: o contador confere as redutoras.
+ORIGENS_DA_NATUREZA_NA_TELA = {
+    ORIGEM_ARQUIVO: "do arquivo",
+    ORIGEM_PRESUMIDA: "presumida pelo tipo: conferir",
+    ORIGEM_CADASTRO: "do cadastro",
+}
+
+MENSAGEM_SEM_PERMISSAO_IMPORTAR = "Seu papel não permite importar o plano de contas desta empresa."
+MENSAGEM_SEM_PERMISSAO_EXPORTAR = "Seu papel não permite ler a contabilidade desta empresa."
+MENSAGEM_SEM_PERMISSAO_MODELO = (
+    "Seu papel não permite baixar o modelo do plano de contas desta empresa."
+)
+
+
+def _nomes_das_linhas_de_prefixo():
+    return [(f"prefixo_{i}", f"tipo_{i}") for i in range(1, PREFIXOS_POR_PREVIA + 1)]
+
+
+def _campos_do_formulario_de_importacao(*, com_assinatura):
+    campos = {"csrfmiddlewaretoken", "formato", "politica"}
+    for nome_prefixo, nome_tipo in _nomes_das_linhas_de_prefixo():
+        campos.update((nome_prefixo, nome_tipo))
+    if com_assinatura:
+        campos.update(("sha256", "assinatura"))
+    return frozenset(campos)
+
+
+# Contratos de requisição: a tela recusa o campo que não declara (não o ignora em
+# silêncio). A prévia não grava, então não recebe SHA-256 nem assinatura; a
+# aplicação recebe os dois, porque é a única que grava.
+_CONTRATO_DA_PREVIA_DO_PLANO = ContratoDeRequisicao(
+    campos=_campos_do_formulario_de_importacao(com_assinatura=False),
+    aceita_arquivo=True,
+    aceita_querystring=False,
+    contexto="na conferência da importação do plano de contas",
+)
+_CONTRATO_DA_APLICACAO_DO_PLANO = ContratoDeRequisicao(
+    campos=_campos_do_formulario_de_importacao(com_assinatura=True),
+    aceita_arquivo=True,
+    aceita_querystring=False,
+    contexto="na aplicação da importação do plano de contas",
+)
+
+
+def _prefixos_do_formulario(post):
+    """Converte as linhas `prefixo_N`/`tipo_N` no mapa prefixo -> tipo.
+
+    Linha vazia é ignorada. Prefixo sem tipo, tipo sem prefixo e prefixo repetido
+    são erros da própria linha. O mapa nunca guarda um prefixo "por ordem de
+    chegada": quem casa com a conta é sempre o prefixo mais longo, no núcleo.
+    """
+    mapa = {}
+    erros = []
+    for indice, (nome_prefixo, nome_tipo) in enumerate(_nomes_das_linhas_de_prefixo(), start=1):
+        prefixo = (post.get(nome_prefixo) or "").strip()
+        tipo = (post.get(nome_tipo) or "").strip()
+        if not prefixo and not tipo:
+            continue
+        if not prefixo or not tipo:
+            erros.append(f"linha {indice} dos prefixos: informe o começo do código e o tipo.")
+        elif prefixo in mapa:
+            erros.append(f"o prefixo '{prefixo}' aparece mais de uma vez.")
+        else:
+            mapa[prefixo] = tipo
+    return mapa, erros
+
+
+# Campos de TEXTO da tela de importação (os de prefixo são tratados à parte). Ver A10.
+_CAMPOS_DE_TEXTO_DA_TELA = ("formato", "politica", "sha256", "assinatura")
+
+
+def _entrada_da_importacao(request, *, com_assinatura):
+    """Lê e valida a FORMA do formulário de importação. Devolve (dados, erros).
+
+    `erros` é um dict campo -> mensagem, vazio quando dá para ler o arquivo. Aqui
+    só se confere a forma: arquivo presente, formato e política conhecidos, tamanho
+    e extensão da planilha. O CONTEÚDO do arquivo quem julga é o leitor do núcleo.
+    """
+    post = request.POST
+    arquivo = request.FILES.get("arquivo")
+    erros = {}
+    # A10 (BL-196): campo de TEXTO enviado como arquivo era descartado em silêncio (`post.get`
+    # não lê FILES). A recusa vai no campo, antes de qualquer leitura. `prefixo_N` e `tipo_N`
+    # são do formulário de prefixos, e o erro cai em "prefixos".
+    formato = (post.get("formato") or "").strip()
+    politica = (post.get("politica") or POLITICA_SO_ACRESCENTAR).strip()
+
+    if arquivo is None:
+        erros["arquivo"] = "Escolha o arquivo do plano de contas."
+    elif arquivo.size > TAMANHO_MAXIMO_ARQUIVO_BYTES:
+        # A11 (limite de corpo): checado DEPOIS de o Django receber o corpo. O proxy à frente
+        # DEVE limitar o corpo antes do aplicativo (`client_max_body_size` ou equivalente, de
+        # implantação; não está no repositório).
+        erros["arquivo"] = (
+            f"arquivo com {arquivo.size} bytes; o limite é "
+            f"{TAMANHO_MAXIMO_ARQUIVO_BYTES // (1024 * 1024)} MB."
+        )
+    elif formato == excel.FORMATO and not arquivo.name.lower().endswith(".xlsx"):
+        # O núcleo confere o conteúdo (macro, .xls, CSV renomeado). O nome é a
+        # primeira barreira e a mensagem mais clara, como na API.
+        erros["arquivo"] = (
+            "a planilha precisa ser .xlsx, sem macros (.xlsm não é aceito). "
+            "Use o modelo para baixar."
+        )
+
+    if formato not in LEITORES:
+        erros["formato"] = "Escolha o formato do arquivo."
+    if politica not in POLITICAS:
+        erros["politica"] = "Escolha a política de importação."
+
+    prefixos, erros_de_prefixo = _prefixos_do_formulario(post)
+    if erros_de_prefixo:
+        erros["prefixos"] = " ".join(erros_de_prefixo)
+    else:
+        try:
+            prefixos = validar_prefixos(prefixos)
+        except ParametroInvalido as exc:
+            erros["prefixos"] = exc.mensagem
+
+    sha256 = (post.get("sha256") or "").strip()
+    assinatura = (post.get("assinatura") or "").strip()
+    if com_assinatura and not (sha256 and assinatura):
+        # Só acontece com formulário montado à mão: a tela sempre devolve os dois.
+        erros["geral"] = (
+            "Faça a conferência de novo: a aplicação precisa do resumo da prévia que você revisou."
+        )
+
+    # Por último, para não ser trocada pelas mensagens de valor acima: campo de texto que chegou
+    # como arquivo é recusado no próprio campo (A10).
+    for nome_enviado in request.FILES:
+        if nome_enviado in _CAMPOS_DE_TEXTO_DA_TELA:
+            erros[nome_enviado] = f"o campo '{nome_enviado}' é texto: não envie arquivo nele."
+        elif nome_enviado.startswith(("prefixo_", "tipo_")):
+            erros["prefixos"] = f"o campo '{nome_enviado}' é texto: não envie arquivo nele."
+
+    dados = {
+        "arquivo": arquivo,
+        "formato": formato,
+        "politica": politica,
+        "prefixos": prefixos,
+        "sha256": sha256,
+        "assinatura": assinatura,
+    }
+    return dados, erros
+
+
+def _previa_do_arquivo(empresa, dados):
+    """Lê o arquivo com o leitor do formato e confere contra o cadastro. Não grava.
+
+    Levanta `IntercambioRecusado` (arquivo grande demais, formato, parâmetro); quem
+    chama mostra a mensagem na tela, sem 500.
+    """
+    resultado = ler_arquivo(
+        dados["formato"], dados["arquivo"].read(), nome_arquivo=dados["arquivo"].name
+    )
+    return conferir_plano(empresa, resultado, dados["politica"], dados["prefixos"])
+
+
+def _linha_da_previa(item, rotulos_de_tipo, rotulos_de_natureza):
+    """Uma conta da prévia, já em texto para a tela (o núcleo entrega os códigos)."""
+    return {
+        "linha": item.linha,
+        "codigo": item.codigo,
+        "nome": item.nome,
+        "codigo_pai": item.codigo_pai or "—",
+        "analitica": "Sim" if item.analitica else "Não",
+        "tipo": rotulos_de_tipo.get(item.tipo, "Sem tipo"),
+        "origem_tipo": ORIGENS_DO_TIPO_NA_TELA.get(item.origem_tipo, ""),
+        "natureza": rotulos_de_natureza.get(item.natureza, "—"),
+        "origem_natureza": ORIGENS_DA_NATUREZA_NA_TELA.get(item.origem_natureza, ""),
+        "situacao": "—" if item.ativa is None else ("Ativa" if item.ativa else "Inativa"),
+        "acao": ACOES_NA_TELA[item.acao],
+        "recusada": item.acao == ACAO_RECUSADA,
+        "natureza_presumida": item.origem_natureza == ORIGEM_PRESUMIDA,
+        "inativa": item.ativa is False,
+        "ocorrencias": [
+            {
+                "nivel": "Erro" if o.nivel == NIVEL_ERRO else "Aviso",
+                "campo": o.campo,
+                "mensagem": o.mensagem,
+            }
+            for o in item.ocorrencias
+        ],
+    }
+
+
+def _contexto_da_previa(empresa, previa):
+    rotulos_de_tipo = dict(TipoConta.choices)
+    rotulos_de_natureza = dict(NaturezaConta.choices)
+    itens = [_linha_da_previa(item, rotulos_de_tipo, rotulos_de_natureza) for item in previa.itens]
+    # `tipos_por_prefixo` traz o VALOR do tipo ("receita"); o rótulo é só para ler.
+    prefixos_aplicados = [
+        (prefixo, tipo, rotulos_de_tipo[tipo]) for prefixo, tipo in previa.tipos_por_prefixo
+    ]
+    # Linhas do formulário de prefixo: o que já foi aplicado nesta prévia aparece
+    # preenchido, e as linhas que sobram ficam vazias.
+    linhas_de_prefixo = []
+    for indice, (nome_prefixo, nome_tipo) in enumerate(_nomes_das_linhas_de_prefixo(), start=1):
+        prefixo, tipo = ("", "")
+        if indice <= len(prefixos_aplicados):
+            prefixo, tipo, _ = prefixos_aplicados[indice - 1]
+        linhas_de_prefixo.append(
+            {"nome_prefixo": nome_prefixo, "nome_tipo": nome_tipo, "prefixo": prefixo, "tipo": tipo}
+        )
+    # Os mesmos prefixos viajam como campos ocultos na aplicação: a conferência de lá
+    # precisa dos MESMOS prefixos que a prévia que o contador viu.
+    prefixos_ocultos = [
+        {"nome_prefixo": f"prefixo_{i}", "nome_tipo": f"tipo_{i}", "prefixo": p, "tipo": t}
+        for i, (p, t) in enumerate(previa.tipos_por_prefixo, start=1)
+    ]
+    return {
+        "empresa": empresa,
+        "previa": previa,
+        "formato_rotulo": FORMATOS_DE_IMPORTACAO[previa.resultado.formato],
+        "politica_rotulo": POLITICAS_DE_IMPORTACAO_NA_TELA[previa.politica],
+        "texto_fixo": TEXTO_FIXO_DA_IMPORTACAO,
+        "pode_aplicar": not previa.tem_erro,
+        "erros_total": sum(1 for o in previa.ocorrencias if o.nivel == NIVEL_ERRO),
+        "avisos_total": sum(1 for o in previa.ocorrencias if o.nivel != NIVEL_ERRO),
+        "contagens": previa.contagens,
+        "itens": itens,
+        # Linha 0 é o arquivo inteiro (ex.: arquivo sem conta, documento de outra empresa).
+        "ocorrencias_do_arquivo": [
+            {"nivel": "Erro" if o.nivel == NIVEL_ERRO else "Aviso", "mensagem": o.mensagem}
+            for o in previa.ocorrencias
+            if o.linha == 0
+        ],
+        "prefixos_aplicados": [(prefixo, rotulo) for prefixo, _, rotulo in prefixos_aplicados],
+        "contas_para_conferir_natureza": [i for i in itens if i["natureza_presumida"]],
+        "contas_inativas": [i for i in itens if i["inativa"]],
+        "precisa_prefixos": any(
+            o.campo == "tipo" and o.nivel == NIVEL_ERRO for o in previa.ocorrencias
+        ),
+        "linhas_de_prefixo": linhas_de_prefixo,
+        "prefixos_ocultos": prefixos_ocultos,
+        "tipos": TipoConta.choices,
+        "registros_ignorados": previa.resultado.registros_ignorados,
+        "aviso_do_formato": (
+            "O código reduzido do arquivo não é gravado no DataLedger: a conta fica com o "
+            "código da coluna Código."
+            if previa.resultado.formato == referencia.FORMATO
+            else ""
+        ),
+        "politica": previa.politica,
+        "formato": previa.resultado.formato,
+        "nome_arquivo": previa.resultado.nome_arquivo,
+        "sha256": previa.sha256,
+        "assinatura": previa.assinatura,
+    }
+
+
+def _renderizar_importacao(request, empresa, *, erros=None, status=200):
+    contexto = {
+        "empresa": empresa,
+        "formatos": FORMATOS_DE_IMPORTACAO,
+        "politicas": POLITICAS_DE_IMPORTACAO_NA_TELA,
+        "formato_escolhido": request.POST.get("formato", ""),
+        "politica_escolhida": request.POST.get("politica") or POLITICA_SO_ACRESCENTAR,
+        "erros": erros or {},
+        "texto_fixo": TEXTO_FIXO_DA_IMPORTACAO,
+    }
+    return render(request, "contabilidade/plano_importar.html", contexto, status=status)
+
+
+def _renderizar_previa(request, empresa, previa, *, mensagem=None, status=200):
+    contexto = _contexto_da_previa(empresa, previa)
+    contexto["mensagem"] = mensagem
+    return render(request, "contabilidade/plano_importar_previa.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def plano_importar(request, empresa_id):
+    """GET: formulário da importação. POST: prévia (lê e confere; não grava nada)."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, MENSAGEM_SEM_PERMISSAO_IMPORTAR)
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    if request.method == "GET":
+        return _renderizar_importacao(request, empresa)
+
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_DA_PREVIA_DO_PLANO)
+    except DadoNaoContratado as exc:
+        return _renderizar_importacao(
+            request,
+            empresa,
+            erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
+            status=400,
+        )
+    dados, erros = _entrada_da_importacao(request, com_assinatura=False)
+    if erros:
+        return _renderizar_importacao(request, empresa, erros=erros, status=400)
+    try:
+        previa = _previa_do_arquivo(empresa, dados)
+    except IntercambioRecusado as exc:
+        return _renderizar_importacao(request, empresa, erros={"geral": exc.mensagem}, status=400)
+    return _renderizar_previa(request, empresa, previa)
+
+
+@login_required
+@require_http_methods(["POST"])
+def plano_importar_aplicar(request, empresa_id):
+    """Grava o plano conferido. Recebe o arquivo de novo, o SHA-256 e a assinatura.
+
+    409 se o arquivo ou o cadastro mudaram desde a prévia (nada gravado). Se o plano
+    tiver erro, mostra a prévia com o motivo e responde 400 (nada gravado). Sucesso:
+    volta ao plano de contas com a contagem.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, MENSAGEM_SEM_PERMISSAO_IMPORTAR)
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_DA_APLICACAO_DO_PLANO)
+    except DadoNaoContratado as exc:
+        return _renderizar_importacao(
+            request,
+            empresa,
+            erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
+            status=400,
+        )
+    dados, erros = _entrada_da_importacao(request, com_assinatura=True)
+    if erros:
+        return _renderizar_importacao(request, empresa, erros=erros, status=400)
+    try:
+        previa = _previa_do_arquivo(empresa, dados)
+    except IntercambioRecusado as exc:
+        return _renderizar_importacao(request, empresa, erros={"geral": exc.mensagem}, status=400)
+
+    try:
+        aplicado = aplicar_plano(
+            empresa,
+            previa,
+            request.user,
+            request,
+            sha256_esperado=dados["sha256"],
+            assinatura_esperada=dados["assinatura"],
+        )
+    except (ArquivoAlteradoDesdeAPrevia, PlanoAlteradoDesdeAPrevia) as exc:
+        return _renderizar_importacao(
+            request,
+            empresa,
+            erros={
+                "geral": (
+                    f"{exc.mensagem} Nada foi gravado: faça a prévia de novo com o "
+                    "arquivo e confira o resultado."
+                )
+            },
+            status=409,
+        )
+    except PlanoRecusado as exc:
+        # Só chega aqui com formulário montado à mão: a prévia não mostra o botão
+        # Aplicar quando há erro. Mostra a prévia com o motivo, nada gravado.
+        return _renderizar_previa(request, empresa, previa, mensagem=exc.mensagem, status=400)
+    except CompetenciaOperacaoRecusada as exc:
+        return _renderizar_importacao(request, empresa, erros={"geral": str(exc)}, status=409)
+
+    messages.success(
+        request,
+        "Plano de contas aplicado. "
+        f"Contas criadas: {aplicado.criadas}. "
+        f"Nomes atualizados: {aplicado.atualizadas}. "
+        f"Já existiam sem mudança: {aplicado.sem_mudanca}.",
+    )
+    return redirect("contabilidade_web:plano_de_contas", empresa_id=empresa.id)
+
+
+@login_required
+@require_safe
+def plano_modelo_excel(request, empresa_id):
+    """Baixa o modelo `.xlsx` da importação por planilha (mesma permissão da importação)."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, MENSAGEM_SEM_PERMISSAO_MODELO)
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+    try:
+        recusar_campos_nao_contratados(
+            request.GET, frozenset(), contexto="no modelo do plano de contas"
+        )
+    except DadoNaoContratado as exc:
+        return _renderizar_importacao(
+            request,
+            empresa,
+            erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
+            status=400,
+        )
+    resposta = HttpResponse(excel.gerar_modelo(), content_type=TIPO_DE_CONTEUDO_XLSX)
+    resposta["Content-Disposition"] = 'attachment; filename="modelo-plano-de-contas.xlsx"'
+    return resposta
+
+
+def _valores_da_exportacao(get):
+    """Valores do formulário de exportação, como texto (vazio quando não vieram)."""
+    return {
+        "formato": (get.get("formato") or "").strip(),
+        "filtro": (get.get("filtro") or "todas").strip(),
+        "inicio": (get.get("inicio") or "").strip(),
+        "fim": (get.get("fim") or "").strip(),
+        "data_alteracao": (get.get("data_alteracao") or "").strip(),
+    }
+
+
+def _renderizar_exportacao(request, empresa, *, valores=None, erros=None, status=200):
+    contexto = {
+        "empresa": empresa,
+        "formatos": [
+            {"valor": valor, "rotulo": rotulo, "aviso": aviso}
+            for valor, (rotulo, aviso) in FORMATOS_DE_EXPORTACAO.items()
+        ],
+        "filtros": FILTROS_DE_EXPORTACAO_NA_TELA,
+        "valores": valores or _valores_da_exportacao({}),
+        "erros": erros or {},
+    }
+    return render(request, "contabilidade/plano_exportar.html", contexto, status=status)
+
+
+@login_required
+@require_safe
+def plano_exportar(request, empresa_id):
+    """Formulário da exportação (sem `formato`) ou o arquivo do plano (com `formato`).
+
+    O arquivo sai pelo GET com os filtros na querystring, como na API. Cada
+    exportação entra na trilha de auditoria com o SHA-256 do arquivo gerado.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(request, MENSAGEM_SEM_PERMISSAO_EXPORTAR)
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+    try:
+        recusar_campos_nao_contratados(
+            request.GET,
+            CAMPOS_QUERYSTRING_EXPORTACAO_PLANO,
+            contexto="na exportação do plano de contas",
+        )
+    except DadoNaoContratado as exc:
+        return _renderizar_exportacao(
+            request,
+            empresa,
+            erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
+            status=400,
+        )
+
+    if "formato" not in request.GET:
+        return _renderizar_exportacao(request, empresa)
+
+    valores = _valores_da_exportacao(request.GET)
+    if not valores["formato"]:
+        # Formulário enviado sem escolher o formato: pede a escolha, em vez da mensagem
+        # técnica do núcleo ("formato '' não suportado").
+        return _renderizar_exportacao(
+            request,
+            empresa,
+            valores=valores,
+            erros={"geral": "Escolha o formato do arquivo a exportar."},
+            status=400,
+        )
+    try:
+        inicio = para_data(valores["inicio"]) if valores["inicio"] else None
+        fim = para_data(valores["fim"]) if valores["fim"] else None
+        data_alteracao = para_data(valores["data_alteracao"]) if valores["data_alteracao"] else None
+    except DataInvalida as exc:
+        return _renderizar_exportacao(
+            request, empresa, valores=valores, erros={"geral": str(exc)}, status=400
+        )
+
+    try:
+        arquivo = exportar_plano(
+            empresa=empresa,
+            formato=valores["formato"],
+            filtro=valores["filtro"],
+            inicio=inicio,
+            fim=fim,
+            data_alteracao=data_alteracao,
+        )
+    except IntercambioRecusado as exc:
+        return _renderizar_exportacao(
+            request, empresa, valores=valores, erros={"geral": exc.mensagem}, status=400
+        )
+
+    registrar(
+        acao="plano_de_contas.exportado",
+        objeto=empresa,
+        escritorio=empresa.escritorio,
+        usuario=request.user,
+        request=request,
+        detalhes={
+            "formato": arquivo.formato,
+            "filtro": arquivo.filtro,
+            "inicio": inicio.isoformat() if inicio else None,
+            "fim": fim.isoformat() if fim else None,
+            "quantidade_contas": arquivo.quantidade_contas,
+            "sinteticas_incluidas": arquivo.sinteticas_incluidas,
+            "sha256": arquivo.sha256,
+            "avisos": list(arquivo.avisos),
+        },
+    )
+
+    if arquivo.formato in _FORMATOS_EM_ISO_8859_1:
+        tipo_do_conteudo = "text/plain; charset=iso-8859-1"
+    else:
+        tipo_do_conteudo = "text/plain; charset=utf-8"
+    resposta = HttpResponse(arquivo.conteudo, content_type=tipo_do_conteudo)
+    nome = _nome_do_arquivo_exportado(empresa, arquivo.formato, timezone.localdate())
+    resposta["Content-Disposition"] = f'attachment; filename="{nome}"'
+    return resposta
