@@ -17,8 +17,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.auditoria.services import registrar
+from apps.contabilidade.intercambio import importacao_lancamentos
 from apps.contabilidade.intercambio.canonico import IntercambioRecusado
 from apps.contabilidade.intercambio.formatos import LEITORES, excel, referencia
+from apps.contabilidade.intercambio.lancamentos import exportar_lancamentos
 from apps.contabilidade.intercambio.leitura import (
     TAMANHO_MAXIMO_ARQUIVO_BYTES,
     ArquivoGrandeDemais,
@@ -38,6 +40,8 @@ from apps.contabilidade.intercambio.plano import (
 )
 from apps.contabilidade.models import (
     Conta,
+    DeParaConta,
+    ImportacaoLancamentos,
     LancamentoContabil,
     MarcacaoDmpl,
     NaturezaConta,
@@ -2906,3 +2910,495 @@ class PlanoDeContasExportacaoView(EmpresaEscopadaContabilMixin, APIView):
         if arquivo.avisos:
             resposta["X-DataLedger-Avisos"] = "; ".join(arquivo.avisos)
         return resposta
+
+
+# ---------------------------------------------------------------------------
+# DL-077 (fatia 2): exportação de lançamentos e saldos.
+#
+# Uma rota de API (GET), com o arquivo no corpo e o relatório de conferência nos
+# cabeçalhos `X-DataLedger-*`. O parâmetro `sha256`, opcional, é o SHA-256 que a tela
+# mostrou na conferência: se os lançamentos mudaram desde então, o arquivo gerado é outro,
+# e a API responde 409 em vez de entregar um arquivo que o contador não conferiu.
+# Exportar exige o papel que lê a contabilidade (`PodeLerContabilidade`). Empresa em modo
+# livro-caixa é recusada pela mixin, como nas demais rotas da contabilidade (DL-038).
+# ---------------------------------------------------------------------------
+
+CAMPOS_QUERYSTRING_EXPORTACAO_LANCAMENTOS = frozenset(
+    {
+        "formato",
+        "inicio",
+        "fim",
+        "incluir_saldos",
+        "omitir_nao_representaveis",
+        "normalizar_texto",
+        "sha256",
+    }
+)
+
+
+class ConferenciaDesatualizada(APIException):
+    """Os lançamentos mudaram desde a conferência que o contador viu (HTTP 409)."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Os lançamentos mudaram desde a conferência. Confira o arquivo de novo."
+    default_code = "conferencia_desatualizada"
+
+
+def _booleano_da_querystring(parametros, nome):
+    """`true`/`1` ou `false`/`0` (ou ausente, que é false). Qualquer outro valor é erro."""
+    valor = (parametros.get(nome) or "").strip().lower()
+    if valor in ("", "false", "0"):
+        return False
+    if valor in ("true", "1"):
+        return True
+    raise DRFValidationError({nome: [f"valor '{valor}' inválido: use true ou false."]})
+
+
+class LancamentosExportacaoView(EmpresaEscopadaContabilMixin, APIView):
+    """Exporta os lançamentos (e saldos, na ECD) da empresa no intervalo pedido."""
+
+    permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
+
+    def get(self, request, *args, **kwargs):
+        try:
+            recusar_campos_nao_contratados(
+                request.query_params,
+                CAMPOS_QUERYSTRING_EXPORTACAO_LANCAMENTOS,
+                contexto="na exportação de lançamentos",
+            )
+        except DadoNaoContratado as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+
+        empresa = self.get_empresa()
+        parametros = request.query_params
+        formato = (parametros.get("formato") or "").strip()
+        try:
+            inicio = para_data(parametros["inicio"]) if parametros.get("inicio") else None
+            fim = para_data(parametros["fim"]) if parametros.get("fim") else None
+        except DataInvalida as exc:
+            raise DRFValidationError({"data": [str(exc)]}) from exc
+        incluir_saldos = _booleano_da_querystring(parametros, "incluir_saldos")
+        omitir = _booleano_da_querystring(parametros, "omitir_nao_representaveis")
+        normalizar = _booleano_da_querystring(parametros, "normalizar_texto")
+        sha_conferido = (parametros.get("sha256") or "").strip().lower() or None
+
+        try:
+            arquivo = exportar_lancamentos(
+                empresa=empresa,
+                formato=formato,
+                data_inicial=inicio,
+                data_final=fim,
+                incluir_saldos=incluir_saldos,
+                omitir_nao_representaveis=omitir,
+                normalizar_texto=normalizar,
+                usuario=request.user,
+            )
+        except IntercambioRecusado as exc:
+            raise DRFValidationError({"lancamentos": [exc.mensagem]}) from exc
+
+        if sha_conferido is not None and sha_conferido != arquivo.sha256:
+            raise ConferenciaDesatualizada()
+
+        relatorio = arquivo.relatorio
+        registrar(
+            acao="lancamentos.exportados",
+            objeto=empresa,
+            escritorio=empresa.escritorio,
+            usuario=request.user,
+            request=request,
+            detalhes=relatorio.para_trilha(),
+        )
+
+        if formato == "proprio":
+            tipo_do_conteudo = "text/plain; charset=utf-8"
+        else:
+            tipo_do_conteudo = "text/plain; charset=iso-8859-1"
+        resposta = HttpResponse(arquivo.conteudo, content_type=tipo_do_conteudo)
+        resposta["Content-Disposition"] = f'attachment; filename="{relatorio.nome_do_arquivo}"'
+        resposta["X-DataLedger-Sha256"] = relatorio.sha256
+        resposta["X-DataLedger-Lancamentos"] = str(relatorio.quantidade_lancamentos)
+        resposta["X-DataLedger-Partidas"] = str(relatorio.quantidade_partidas)
+        resposta["X-DataLedger-Soma-Debitos"] = str(relatorio.soma_debitos)
+        resposta["X-DataLedger-Soma-Creditos"] = str(relatorio.soma_creditos)
+        resposta["X-DataLedger-Omitidos"] = str(relatorio.quantidade_omitidos)
+        resposta["X-DataLedger-Textos-Normalizados"] = str(len(relatorio.textos_normalizados))
+        if relatorio.avisos:
+            resposta["X-DataLedger-Avisos"] = "; ".join(relatorio.avisos)
+        return resposta
+
+
+# ---------------------------------------------------------------------------
+# DL-077 (fatia 3, frente A): importação de lançamentos com área de conferência.
+#
+# Quem RECEBE, CONFERE, define o de-para, aceita avisos, EFETIVA e DESCARTA é quem escritura
+# (`PodeEscriturar`; efetivar é o mesmo papel que lança à mão). Quem LÊ a importação e o de-para é
+# quem lê a contabilidade (`PodeLerContabilidade`, que inclui PARALEGAL). CLIENTE não passa. Empresa
+# em livro-caixa é recusada pela mixin, como nas demais rotas (DL-038). Nada aqui grava no Diário
+# além da efetivação, e ela passa pelo serviço (`efetivar`), não pela view.
+# ---------------------------------------------------------------------------
+
+CONTRATO_POST_RECEBER_LANCAMENTOS = ContratoDeRequisicao(
+    campos={"arquivo", "formato"},
+    aceita_arquivo=True,
+    contexto="no envio de lançamentos",
+)
+CONTRATO_POST_EFETIVAR_LANCAMENTOS = ContratoDeRequisicao(
+    campos={"politica"}, contexto="na efetivação de lançamentos"
+)
+CONTRATO_POST_AVISOS_LANCAMENTOS = ContratoDeRequisicao(
+    campos={"numeros", "aceitar_arquivo"}, contexto="no aceite de avisos"
+)
+CONTRATO_POST_DESCARTE_LANCAMENTOS = ContratoDeRequisicao(
+    campos={"motivo"}, contexto="no descarte da importação"
+)
+CONTRATO_POST_DEPARA_LANCAMENTOS = ContratoDeRequisicao(
+    campos={"formato", "codigo_origem", "conta"}, contexto="no de-para de contas"
+)
+CAMPOS_QUERYSTRING_DETALHE_IMPORTACAO = frozenset({"pagina", "tamanho", "filtro"})
+CAMPOS_QUERYSTRING_DEPARA = frozenset({"formato"})
+TAMANHO_PADRAO_PAGINA_IMPORTACAO = 50
+TAMANHO_MAXIMO_PAGINA_IMPORTACAO = 200
+FILTROS_DA_IMPORTACAO = ("todos", "erros", "avisos")
+
+
+def _resposta_da_recusa(exc):
+    """Traduz a recusa do serviço em HTTP. Conflito de estado é 409; entrada ruim é 400."""
+    if isinstance(exc, importacao_lancamentos.ImportacaoJaExiste):
+        return Response(
+            {"detail": str(exc), "importacao_id": exc.importacao_id},
+            status=status.HTTP_409_CONFLICT,
+        )
+    if isinstance(exc, importacao_lancamentos.ImportacaoEmEstadoInvalido):
+        return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+    if isinstance(exc, (CompetenciaEncerrada, CompetenciaOperacaoRecusada)):
+        return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+    if isinstance(exc, importacao_lancamentos.ImportacaoNaoEfetivada):
+        return Response(
+            {"detail": str(exc), "ocorrencias": list(exc.ocorrencias)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if isinstance(exc, ArquivoGrandeDemais):
+        return Response({"detail": str(exc)}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+    return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _importacao_como_dict(importacao, *, com_ocorrencias=True):
+    """A importação como a API a devolve. As ocorrências do arquivo ficam FORA da lista (A8).
+
+    `ocorrencias_do_arquivo` traz no máximo 500 itens; `quantidade_ocorrencias_do_arquivo`, o total.
+    A lista de importações (`com_ocorrencias=False`) não as traz: uma importação com 190.000 linhas
+    inválidas faria a resposta da lista ter dezenas de MB.
+    """
+    dados = {
+        "id": importacao.pk,
+        "formato": importacao.formato,
+        "nome_arquivo": importacao.nome_arquivo,
+        "sha256": importacao.sha256,
+        "estado": importacao.estado,
+        "politica_de_efetivacao": importacao.politica_de_efetivacao,
+        "quantidade_lancamentos": importacao.quantidade_lancamentos,
+        "quantidade_com_erro": importacao.quantidade_com_erro,
+        "quantidade_com_aviso": importacao.quantidade_com_aviso,
+        "quantidade_efetivados": importacao.quantidade_efetivados,
+        "quantidade_nao_efetivados": importacao.quantidade_nao_efetivados,
+        "soma_debitos": str(importacao.soma_debitos),
+        "soma_creditos": str(importacao.soma_creditos),
+        "soma_debitos_efetivados": str(importacao.soma_debitos_efetivados),
+        "soma_creditos_efetivados": str(importacao.soma_creditos_efetivados),
+        "quantidade_ocorrencias_do_arquivo": importacao.quantidade_ocorrencias_do_arquivo,
+        "quantidade_erros_do_arquivo": importacao.quantidade_erros_do_arquivo,
+        "quantidade_erros_do_arquivo_inteiro": importacao.quantidade_erros_do_arquivo_inteiro,
+        "exige_aceite_do_arquivo": importacao.exige_aceite_do_arquivo,
+        "aceite_do_arquivo": importacao.aceite_do_arquivo,
+        "criado_em": importacao.criado_em.isoformat(),
+        "efetivada_em": importacao.efetivada_em.isoformat() if importacao.efetivada_em else None,
+        "descartada_em": importacao.descartada_em.isoformat() if importacao.descartada_em else None,
+        "motivo_do_descarte": importacao.motivo_do_descarte,
+    }
+    if com_ocorrencias:
+        dados["ocorrencias_do_arquivo"] = importacao.ocorrencias_do_arquivo
+    return dados
+
+
+def _lancamento_importado_como_dict(lancamento):
+    return {
+        "id": lancamento.pk,
+        "numero_origem": lancamento.numero_origem,
+        "linha": lancamento.linha,
+        "data": lancamento.data.isoformat(),
+        "historico": lancamento.historico,
+        "partidas": lancamento.partidas,
+        "ocorrencias": lancamento.ocorrencias,
+        "tem_erro": lancamento.tem_erro,
+        "tem_aviso": lancamento.tem_aviso,
+        "aceito_com_aviso": lancamento.aceito_com_aviso,
+        "lancamento_id": lancamento.lancamento_id,
+    }
+
+
+def _importacao_da_empresa(empresa, importacao_id):
+    """Busca a importação DENTRO da empresa da URL. Outra empresa responde 404, nunca o registro."""
+    return get_object_or_404(ImportacaoLancamentos, pk=importacao_id, empresa=empresa)
+
+
+class ImportacaoLancamentosListarEnviarView(EmpresaEscopadaContabilMixin, APIView):
+    """Lista as importações da empresa (GET) e recebe um arquivo em conferência (POST)."""
+
+    permission_classes = [TemEscritorioAtivo]
+
+    def get_permissions(self):
+        permissions = [permission() for permission in self.permission_classes]
+        if self.request.method == "POST":
+            permissions.append(PodeEscriturar())
+        else:
+            permissions.append(PodeLerContabilidade())
+        return permissions
+
+    def get(self, request, *args, **kwargs):
+        empresa = self.get_empresa()
+        importacoes = importacao_lancamentos.listar_importacoes(empresa)[:200]
+        return Response(
+            {"importacoes": [_importacao_como_dict(i, com_ocorrencias=False) for i in importacoes]}
+        )
+
+    def post(self, request, *args, **kwargs):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_RECEBER_LANCAMENTOS)
+        empresa = self.get_empresa()
+        arquivo = request.FILES.get("arquivo")
+        if arquivo is None:
+            raise DRFValidationError(
+                {"arquivo": ["Envie o arquivo no campo 'arquivo' (multipart)."]}
+            )
+        if arquivo.size > TAMANHO_MAXIMO_ARQUIVO_BYTES:
+            raise ArquivoAcimaDoLimite(
+                f"arquivo com {arquivo.size} bytes; o limite é "
+                f"{TAMANHO_MAXIMO_ARQUIVO_BYTES // (1024 * 1024)} MB."
+            )
+        formato = (request.data.get("formato") or "").strip()
+        try:
+            importacao = importacao_lancamentos.receber(
+                empresa=empresa,
+                formato=formato,
+                conteudo=arquivo.read(),
+                nome_arquivo=arquivo.name,
+                usuario=request.user,
+                request=request,
+            )
+        except IntercambioRecusado as exc:
+            return _resposta_da_recusa(exc)
+        # R2: a resposta do envio mostra os registros que a leitura ignorou (contados, como a prévia
+        # do plano). Não são gravados em campo; a trilha guarda a mesma contagem.
+        dados = _importacao_como_dict(importacao)
+        dados["registros_ignorados"] = importacao.registros_ignorados_da_leitura
+        return Response(dados, status=status.HTTP_201_CREATED)
+
+
+class ImportacaoLancamentosDetalheView(EmpresaEscopadaContabilMixin, APIView):
+    """A importação com os lançamentos da conferência, paginados, e as ocorrências do arquivo."""
+
+    permission_classes = [TemEscritorioAtivo, PodeLerContabilidade]
+
+    def get(self, request, importacao_id, *args, **kwargs):
+        try:
+            recusar_campos_nao_contratados(
+                request.query_params,
+                CAMPOS_QUERYSTRING_DETALHE_IMPORTACAO,
+                contexto="na conferência de lançamentos",
+            )
+        except DadoNaoContratado as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+
+        empresa = self.get_empresa()
+        importacao = _importacao_da_empresa(empresa, importacao_id)
+        parametros = request.query_params
+        try:
+            pagina = max(1, int(parametros.get("pagina") or 1))
+            tamanho = min(
+                TAMANHO_MAXIMO_PAGINA_IMPORTACAO,
+                max(1, int(parametros.get("tamanho") or TAMANHO_PADRAO_PAGINA_IMPORTACAO)),
+            )
+        except ValueError as exc:
+            raise DRFValidationError({"pagina": ["pagina e tamanho são inteiros."]}) from exc
+        filtro = (parametros.get("filtro") or "todos").strip()
+        if filtro not in FILTROS_DA_IMPORTACAO:
+            raise DRFValidationError(
+                {"filtro": [f"use um de: {', '.join(FILTROS_DA_IMPORTACAO)}."]}
+            )
+
+        lancamentos = importacao.lancamentos.all()
+        if filtro == "erros":
+            lancamentos = lancamentos.filter(tem_erro=True)
+        elif filtro == "avisos":
+            lancamentos = lancamentos.filter(tem_aviso=True)
+        total = lancamentos.count()
+        inicio = (pagina - 1) * tamanho
+        return Response(
+            {
+                "importacao": _importacao_como_dict(importacao),
+                "lancamentos": [
+                    _lancamento_importado_como_dict(lancamento)
+                    for lancamento in lancamentos[inicio : inicio + tamanho]
+                ],
+                "paginacao": {"pagina": pagina, "tamanho": tamanho, "total": total},
+            }
+        )
+
+
+class _AcaoSobreImportacaoView(EmpresaEscopadaContabilMixin, APIView):
+    """Base das rotas de ação (POST) sobre uma importação: papel de escrituração e empresa certa."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturar]
+
+    def _importacao(self, importacao_id):
+        return _importacao_da_empresa(self.get_empresa(), importacao_id)
+
+
+class ImportacaoLancamentosReconferirView(_AcaoSobreImportacaoView):
+    def post(self, request, importacao_id, *args, **kwargs):
+        _recusar_dado_nao_contratado(
+            request, ContratoDeRequisicao(campos=frozenset(), contexto="na reconferência")
+        )
+        importacao = self._importacao(importacao_id)
+        try:
+            atual = importacao_lancamentos.reconferir(
+                importacao, usuario=request.user, request=request
+            )
+        except (IntercambioRecusado, CompetenciaOperacaoRecusada) as exc:
+            return _resposta_da_recusa(exc)
+        return Response(_importacao_como_dict(atual))
+
+
+class ImportacaoLancamentosAvisosView(_AcaoSobreImportacaoView):
+    def post(self, request, importacao_id, *args, **kwargs):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_AVISOS_LANCAMENTOS)
+        importacao = self._importacao(importacao_id)
+        numeros = request.data.get("numeros", [])
+        if not isinstance(numeros, list):
+            raise DRFValidationError({"numeros": ["envie a lista de números de lançamento."]})
+        aceitar_arquivo = request.data.get("aceitar_arquivo", False)
+        if not isinstance(aceitar_arquivo, bool):
+            raise DRFValidationError({"aceitar_arquivo": ["use true ou false."]})
+        try:
+            quantidade = importacao_lancamentos.aceitar_avisos(
+                importacao,
+                numeros,
+                aceitar_arquivo=aceitar_arquivo,
+                usuario=request.user,
+                request=request,
+            )
+        except IntercambioRecusado as exc:
+            return _resposta_da_recusa(exc)
+        return Response({"aceitos": quantidade})
+
+
+class ImportacaoLancamentosEfetivarView(_AcaoSobreImportacaoView):
+    def post(self, request, importacao_id, *args, **kwargs):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_EFETIVAR_LANCAMENTOS)
+        importacao = self._importacao(importacao_id)
+        politica = (request.data.get("politica") or importacao_lancamentos.TUDO_OU_NADA).strip()
+        try:
+            resultado = importacao_lancamentos.efetivar(
+                importacao, politica=politica, usuario=request.user, request=request
+            )
+        except (
+            IntercambioRecusado,
+            LancamentoInvalido,
+            CompetenciaEncerrada,
+            CompetenciaOperacaoRecusada,
+        ) as exc:
+            return _resposta_da_recusa(exc)
+        return Response(
+            {
+                "efetivada": True,
+                "criados": resultado.criados,
+                "reaproveitados": resultado.reaproveitados,
+                "nao_efetivados": resultado.nao_efetivados,
+                "importacao": _importacao_como_dict(resultado.importacao),
+            }
+        )
+
+
+class ImportacaoLancamentosDescartarView(_AcaoSobreImportacaoView):
+    def post(self, request, importacao_id, *args, **kwargs):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_DESCARTE_LANCAMENTOS)
+        importacao = self._importacao(importacao_id)
+        try:
+            atual = importacao_lancamentos.descartar(
+                importacao, motivo=request.data.get("motivo"), usuario=request.user, request=request
+            )
+        except IntercambioRecusado as exc:
+            return _resposta_da_recusa(exc)
+        return Response(_importacao_como_dict(atual))
+
+
+class DeParaContaLancamentosView(EmpresaEscopadaContabilMixin, APIView):
+    """De-para de código de origem para conta, por empresa e formato (GET lê, POST grava)."""
+
+    permission_classes = [TemEscritorioAtivo]
+
+    def get_permissions(self):
+        permissions = [permission() for permission in self.permission_classes]
+        if self.request.method == "POST":
+            permissions.append(PodeEscriturar())
+        else:
+            permissions.append(PodeLerContabilidade())
+        return permissions
+
+    def get(self, request, *args, **kwargs):
+        try:
+            recusar_campos_nao_contratados(
+                request.query_params, CAMPOS_QUERYSTRING_DEPARA, contexto="no de-para de contas"
+            )
+        except DadoNaoContratado as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        empresa = self.get_empresa()
+        formato = (request.query_params.get("formato") or "").strip()
+        depara = DeParaConta.objects.filter(empresa=empresa).select_related("conta")
+        if formato:
+            depara = depara.filter(formato=formato)
+        return Response(
+            {
+                "de_para": [
+                    {
+                        "id": item.pk,
+                        "formato": item.formato,
+                        "codigo_origem": item.codigo_origem,
+                        "conta_id": item.conta_id,
+                        "conta_codigo": item.conta.codigo,
+                        "conta_nome": item.conta.nome,
+                    }
+                    for item in depara
+                ]
+            }
+        )
+
+    def post(self, request, *args, **kwargs):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_DEPARA_LANCAMENTOS)
+        empresa = self.get_empresa()
+        try:
+            conta_id = int(request.data.get("conta"))
+        except (TypeError, ValueError) as exc:
+            raise DRFValidationError(
+                {"conta": ["informe o identificador numérico da conta."]}
+            ) from exc
+        conta = get_object_or_404(Conta, pk=conta_id, empresa=empresa)
+        try:
+            depara = importacao_lancamentos.definir_de_para(
+                empresa=empresa,
+                formato=(request.data.get("formato") or "").strip(),
+                codigo_origem=request.data.get("codigo_origem"),
+                conta=conta,
+                usuario=request.user,
+                request=request,
+            )
+        except IntercambioRecusado as exc:
+            return _resposta_da_recusa(exc)
+        return Response(
+            {
+                "id": depara.pk,
+                "formato": depara.formato,
+                "codigo_origem": depara.codigo_origem,
+                "conta_id": depara.conta_id,
+                "conta_codigo": conta.codigo,
+            }
+        )

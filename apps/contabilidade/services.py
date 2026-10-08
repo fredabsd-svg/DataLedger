@@ -106,6 +106,10 @@ ESCALA_MAXIMA_LANCAMENTO_MANUAL = 2
 # zeramento por esta mesma porta, bloqueando o GESTOR.
 _PREFIXO_CHAVE_ZERAMENTO = "zeramento"
 
+# DL-077, fatia 3: prefixo de `chave_idempotencia` reservado à efetivação de importação de
+# lançamentos (ver `criar_lancamento` e `apps.contabilidade.intercambio.importacao_lancamentos`).
+_PREFIXO_CHAVE_IMPORTACAO = "importacao"
+
 
 def _prefixo_chave_zeramento_da_empresa(empresa_id):
     return f"{_PREFIXO_CHAVE_ZERAMENTO}:{empresa_id}:"
@@ -718,6 +722,7 @@ def criar_lancamento(
     estorno_de=None,
     chave_idempotencia=None,
     permitir_prefixo_reservado=False,
+    permitir_prefixo_da_importacao=False,
 ):
     """Cria um lançamento contábil validando a igualdade de partidas dobradas.
 
@@ -877,6 +882,21 @@ def criar_lancamento(
             f"A chave de idempotência não pode começar com '{_PREFIXO_CHAVE_ZERAMENTO}:' "
             "— esse prefixo é reservado para os lançamentos gerados pelo próprio "
             "zeramento do resultado."
+        )
+
+    # DL-077, fatia 3: o prefixo `importacao:` é reservado à EFETIVAÇÃO de uma importação de
+    # lançamentos (chave = `importacao:<SHA-256 do arquivo>:<número de origem>`). Mesma lógica
+    # do zeramento: só o próprio serviço de importação passa `permitir_prefixo_da_importacao`,
+    # e nenhuma API nem tela o expõe. Sem a recusa, um cliente que mandasse esse
+    # `Idempotency-Key` poderia gravar um lançamento que parece importado.
+    if (
+        chave_idempotencia
+        and not permitir_prefixo_da_importacao
+        and chave_idempotencia.lower().startswith(f"{_PREFIXO_CHAVE_IMPORTACAO}:")
+    ):
+        raise LancamentoInvalido(
+            f"A chave de idempotência não pode começar com '{_PREFIXO_CHAVE_IMPORTACAO}:' "
+            "— esse prefixo é reservado para a efetivação de importação de lançamentos."
         )
 
     # Sinal e escala são verificados ITEM A ITEM, e ANTES de somar débitos e

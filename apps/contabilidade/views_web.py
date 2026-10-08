@@ -24,13 +24,16 @@ Formatação é apresentação: todo valor monetário permanece `Decimal` até o
 import hashlib
 import re
 import uuid
+from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
+from urllib.parse import urlencode
 
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -50,8 +53,22 @@ from django.utils.formats import date_format
 from django.views.decorators.http import require_http_methods, require_safe
 
 from apps.auditoria.services import registrar
-from apps.contabilidade.intercambio.canonico import NIVEL_ERRO, IntercambioRecusado
-from apps.contabilidade.intercambio.formatos import LEITORES, ecd, excel, proprio, referencia
+from apps.contabilidade.intercambio import importacao_lancamentos as importacao_servico
+from apps.contabilidade.intercambio.canonico import (
+    LADO_DEBITO,
+    NIVEL_AVISO,
+    NIVEL_ERRO,
+    IntercambioRecusado,
+)
+from apps.contabilidade.intercambio.formatos import (
+    LEITORES,
+    ecd,
+    excel,
+    excel_lancamentos,
+    proprio,
+    referencia,
+)
+from apps.contabilidade.intercambio.lancamentos import exportar_lancamentos
 from apps.contabilidade.intercambio.leitura import TAMANHO_MAXIMO_ARQUIVO_BYTES, ler_arquivo
 from apps.contabilidade.intercambio.plano import (
     ACAO_ATUALIZAR,
@@ -116,8 +133,14 @@ from apps.contabilidade.models import (
     Competencia,
     Conta,
     EstadoCompetencia,
+    EstadoImportacaoLancamentos,
+    FormatoImportacaoLancamentos,
     GrupoDaDmpl,
     GrupoDaLei,
+    # DL-077, fatia 3 (frente B): a importação de lançamentos com área de conferência. A tela
+    # LÊ a importação e os lançamentos conferidos; quem grava é sempre o serviço
+    # (`apps.contabilidade.intercambio.importacao_lancamentos`).
+    ImportacaoLancamentos,
     LancamentoContabil,
     # DL-061, fatia 2 (BL-605): a marcação manual da DMPL guardada FORA do
     # livro (E15). A tela lê o conjunto atual para mostrá-lo na guia do
@@ -3399,7 +3422,14 @@ def diario(request, empresa_id):
         return recusa_livro_caixa
 
     inicio, fim, erro_periodo = _periodo_do_formulario(request)
-    contexto = {"empresa": empresa, "inicio": inicio, "fim": fim}
+    # DL-077, fatia 3: o link "Importar lançamentos" só aparece para quem escritura (o servidor
+    # recusa de qualquer forma; a tela só deixa de convidar quem seria recusado).
+    contexto = {
+        "empresa": empresa,
+        "inicio": inicio,
+        "fim": fim,
+        "pode_escriturar": _pode_escriturar(request),
+    }
     if erro_periodo:
         messages.error(request, erro_periodo)
         return render(request, "contabilidade/diario.html", contexto, status=400)
@@ -8198,3 +8228,1182 @@ def plano_exportar(request, empresa_id):
     nome = _nome_do_arquivo_exportado(empresa, arquivo.formato, timezone.localdate())
     resposta["Content-Disposition"] = f'attachment; filename="{nome}"'
     return resposta
+
+
+# ---------------------------------------------------------------------------
+# DL-077 (fatia 2): tela de exportação de lançamentos e saldos.
+#
+# DUAS ETAPAS, de propósito. A primeira (`lancamentos_exportar`) lê, confere e MOSTRA o
+# relatório (contagens, somas, SHA-256, autor, data e hora, contas usadas, omitidos e
+# avisos). Nada sai da tela ainda, então não entra na trilha. A segunda
+# (`lancamentos_exportar_arquivo`) é o download: refaz a exportação e só entrega o arquivo
+# se o SHA-256 bater com o que a conferência mostrou. Se não bater, os lançamentos mudaram,
+# e a resposta é 409, pedindo nova conferência. Só o download entra na trilha
+# `lancamentos.exportados`.
+# ---------------------------------------------------------------------------
+
+AVISO_DA_EXPORTACAO_DE_LANCAMENTOS_ECD = (
+    "Este arquivo não é a ECD. Ele traz só os registros de lançamentos e saldos (I150, I155, "
+    "I200 e I250): não tem registro 0000, bloco J, termos, assinatura nem validação do programa "
+    "da Receita. Não substitui a escrituração contábil digital."
+)
+AVISO_DA_EXPORTACAO_DE_LANCAMENTOS_REFERENCIA = (
+    "Código reduzido sequencial pela ordem do código: ele muda quando o plano muda, e o arquivo "
+    "só vale com o plano desta data. O DataLedger não tem código reduzido próprio. Não é a ECD."
+)
+# Chaves = `FORMATOS_DE_EXPORTACAO_DE_LANCAMENTOS` do núcleo (um teste confere).
+FORMATOS_DE_EXPORTACAO_DE_LANCAMENTOS_NA_TELA = {
+    ecd.FORMATO: (
+        "Leiaute da ECD: registros I200/I250 (e I150/I155, se marcado). Não é a ECD",
+        AVISO_DA_EXPORTACAO_DE_LANCAMENTOS_ECD,
+    ),
+    referencia.FORMATO: (
+        "Sistema de referência: leiaute com separador (6000/6100)",
+        AVISO_DA_EXPORTACAO_DE_LANCAMENTOS_REFERENCIA,
+    ),
+    proprio.FORMATO: ("DataLedger: TXT próprio, com ponto e vírgula e cabeçalho", ""),
+}
+CAMPOS_DA_TELA_DE_LANCAMENTOS = frozenset(
+    {
+        "formato",
+        "inicio",
+        "fim",
+        "incluir_saldos",
+        "omitir_nao_representaveis",
+        "normalizar_texto",
+    }
+)
+CAMPOS_DO_DOWNLOAD_DE_LANCAMENTOS = CAMPOS_DA_TELA_DE_LANCAMENTOS | {"sha256"}
+MENSAGEM_CONFERENCIA_DESATUALIZADA = (
+    "Os lançamentos mudaram desde a conferência que você viu. Confira o arquivo de novo."
+)
+
+
+def _valores_da_exportacao_de_lancamentos(get):
+    """Valores do formulário de lançamentos, como texto e booleano (vazio quando não vieram)."""
+
+    def marcado(nome):
+        return (get.get(nome) or "").strip().lower() in ("true", "on", "1")
+
+    return {
+        "formato": (get.get("formato") or "").strip(),
+        "inicio": (get.get("inicio") or "").strip(),
+        "fim": (get.get("fim") or "").strip(),
+        "incluir_saldos": marcado("incluir_saldos"),
+        "omitir_nao_representaveis": marcado("omitir_nao_representaveis"),
+        "normalizar_texto": marcado("normalizar_texto"),
+    }
+
+
+def _exportacao_de_lancamentos_pedida(empresa, valores, usuario):
+    """Chama o núcleo com os valores da tela. Levanta `DataInvalida` ou `IntercambioRecusado`."""
+    inicio = para_data(valores["inicio"]) if valores["inicio"] else None
+    fim = para_data(valores["fim"]) if valores["fim"] else None
+    return exportar_lancamentos(
+        empresa=empresa,
+        formato=valores["formato"],
+        data_inicial=inicio,
+        data_final=fim,
+        incluir_saldos=valores["incluir_saldos"],
+        omitir_nao_representaveis=valores["omitir_nao_representaveis"],
+        normalizar_texto=valores["normalizar_texto"],
+        usuario=usuario,
+    )
+
+
+def _link_do_arquivo_de_lancamentos(empresa, valores, sha256):
+    """URL do download com os mesmos parâmetros, e o SHA-256 que a conferência mostrou."""
+    parametros = {"formato": valores["formato"], "inicio": valores["inicio"], "fim": valores["fim"]}
+    if valores["incluir_saldos"]:
+        parametros["incluir_saldos"] = "true"
+    if valores["omitir_nao_representaveis"]:
+        parametros["omitir_nao_representaveis"] = "true"
+    if valores["normalizar_texto"]:
+        parametros["normalizar_texto"] = "true"
+    parametros["sha256"] = sha256
+    destino = reverse("contabilidade_web:lancamentos_exportar_arquivo", args=[empresa.id])
+    return f"{destino}?{urlencode(parametros)}"
+
+
+def _relatorio_para_tela(relatorio):
+    """O relatório de conferência já em texto pt-BR, para o template não fazer conta."""
+    return {
+        "formato_rotulo": FORMATOS_DE_EXPORTACAO_DE_LANCAMENTOS_NA_TELA[relatorio.formato][0],
+        "inicio": relatorio.inicio,
+        "fim": relatorio.fim,
+        "incluir_saldos": relatorio.incluir_saldos,
+        "quantidade_lancamentos": relatorio.quantidade_lancamentos,
+        "quantidade_partidas": relatorio.quantidade_partidas,
+        "quantidade_zeramentos": relatorio.quantidade_zeramentos,
+        "quantidade_estornos": relatorio.quantidade_estornos,
+        "soma_debitos": _valor_ptbr(relatorio.soma_debitos),
+        "soma_creditos": _valor_ptbr(relatorio.soma_creditos),
+        "conferem": relatorio.soma_debitos == relatorio.soma_creditos,
+        "quantidade_meses": relatorio.quantidade_meses,
+        "contas_usadas": relatorio.contas_usadas,
+        "omitidos": relatorio.omitidos,
+        "normalizar_texto": relatorio.normalizar_texto,
+        "textos_normalizados": relatorio.textos_normalizados,
+        "quantidade_textos_normalizados": len(relatorio.textos_normalizados),
+        "sha256": relatorio.sha256,
+        "nome_do_arquivo": relatorio.nome_do_arquivo,
+        "autor": relatorio.autor,
+        "gerado_em": relatorio.gerado_em,
+        "avisos": relatorio.avisos,
+    }
+
+
+def _renderizar_exportacao_de_lancamentos(
+    request, empresa, *, valores=None, erros=None, relatorio=None, link=None, status=200
+):
+    contexto = {
+        "empresa": empresa,
+        "formatos": [
+            {"valor": valor, "rotulo": rotulo, "aviso": aviso}
+            for valor, (rotulo, aviso) in FORMATOS_DE_EXPORTACAO_DE_LANCAMENTOS_NA_TELA.items()
+        ],
+        "valores": valores or _valores_da_exportacao_de_lancamentos({}),
+        "erros": erros or {},
+        "relatorio": _relatorio_para_tela(relatorio) if relatorio is not None else None,
+        "link_do_arquivo": link,
+    }
+    return render(request, "contabilidade/lancamentos_exportar.html", contexto, status=status)
+
+
+@login_required
+@require_safe
+def lancamentos_exportar(request, empresa_id):
+    """Formulário da exportação de lançamentos, ou a conferência do arquivo (com `formato`).
+
+    A conferência não grava nada e não entra na trilha. O arquivo sai pela rota de download.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(request, MENSAGEM_SEM_PERMISSAO_EXPORTAR)
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+    try:
+        recusar_campos_nao_contratados(
+            request.GET,
+            CAMPOS_DA_TELA_DE_LANCAMENTOS,
+            contexto="na exportação de lançamentos",
+        )
+    except DadoNaoContratado as exc:
+        return _renderizar_exportacao_de_lancamentos(
+            request,
+            empresa,
+            erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
+            status=400,
+        )
+
+    if "formato" not in request.GET:
+        return _renderizar_exportacao_de_lancamentos(request, empresa)
+
+    valores = _valores_da_exportacao_de_lancamentos(request.GET)
+    if not valores["formato"]:
+        return _renderizar_exportacao_de_lancamentos(
+            request,
+            empresa,
+            valores=valores,
+            erros={"geral": "Escolha o formato do arquivo a exportar."},
+            status=400,
+        )
+    try:
+        arquivo = _exportacao_de_lancamentos_pedida(empresa, valores, request.user)
+    except (DataInvalida, IntercambioRecusado) as exc:
+        mensagem = exc.mensagem if isinstance(exc, IntercambioRecusado) else str(exc)
+        return _renderizar_exportacao_de_lancamentos(
+            request, empresa, valores=valores, erros={"geral": mensagem}, status=400
+        )
+    return _renderizar_exportacao_de_lancamentos(
+        request,
+        empresa,
+        valores=valores,
+        relatorio=arquivo.relatorio,
+        link=_link_do_arquivo_de_lancamentos(empresa, valores, arquivo.sha256),
+    )
+
+
+@login_required
+@require_safe
+def lancamentos_exportar_arquivo(request, empresa_id):
+    """Entrega o arquivo de lançamentos, se o SHA-256 ainda bate com a conferência.
+
+    Grava a trilha `lancamentos.exportados` (SHA-256, intervalo e contagens) só quando o
+    arquivo sai. Sem `sha256`, a rota entrega do mesmo jeito, como a API.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if not _pode_ler(request):
+        return _resposta_sem_permissao(request, MENSAGEM_SEM_PERMISSAO_EXPORTAR)
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return recusa_livro_caixa
+    try:
+        recusar_campos_nao_contratados(
+            request.GET,
+            CAMPOS_DO_DOWNLOAD_DE_LANCAMENTOS,
+            contexto="no download da exportação de lançamentos",
+        )
+    except DadoNaoContratado as exc:
+        return _renderizar_exportacao_de_lancamentos(
+            request,
+            empresa,
+            erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
+            status=400,
+        )
+
+    valores = _valores_da_exportacao_de_lancamentos(request.GET)
+    if not valores["formato"]:
+        return _renderizar_exportacao_de_lancamentos(
+            request,
+            empresa,
+            valores=valores,
+            erros={"geral": "Escolha o formato do arquivo a exportar."},
+            status=400,
+        )
+    try:
+        arquivo = _exportacao_de_lancamentos_pedida(empresa, valores, request.user)
+    except (DataInvalida, IntercambioRecusado) as exc:
+        mensagem = exc.mensagem if isinstance(exc, IntercambioRecusado) else str(exc)
+        return _renderizar_exportacao_de_lancamentos(
+            request, empresa, valores=valores, erros={"geral": mensagem}, status=400
+        )
+
+    sha_conferido = (request.GET.get("sha256") or "").strip().lower()
+    if sha_conferido and sha_conferido != arquivo.sha256:
+        return _renderizar_exportacao_de_lancamentos(
+            request,
+            empresa,
+            valores=valores,
+            erros={"geral": MENSAGEM_CONFERENCIA_DESATUALIZADA},
+            status=409,
+        )
+
+    relatorio = arquivo.relatorio
+    registrar(
+        acao="lancamentos.exportados",
+        objeto=empresa,
+        escritorio=empresa.escritorio,
+        usuario=request.user,
+        request=request,
+        detalhes=relatorio.para_trilha(),
+    )
+    if relatorio.formato == proprio.FORMATO:
+        tipo_do_conteudo = "text/plain; charset=utf-8"
+    else:
+        tipo_do_conteudo = "text/plain; charset=iso-8859-1"
+    resposta = HttpResponse(arquivo.conteudo, content_type=tipo_do_conteudo)
+    resposta["Content-Disposition"] = f'attachment; filename="{relatorio.nome_do_arquivo}"'
+    return resposta
+
+
+# ---------------------------------------------------------------------------
+# DL-077, fatia 3 (frente B): telas da importação de lançamentos com área de conferência.
+#
+# Permissões iguais às da API (bloco "DL-077, fatia 3, frente A" de `apps.contabilidade.views`):
+# receber, reconferir, definir de-para, aceitar avisos, efetivar e descartar exigem `PodeEscriturar`
+# (`_pode_escriturar`). Ler a importação exige `papel_pode_ler_contabilidade` (`_pode_ler`), e isso
+# inclui PARALEGAL, que lê e não age. Cada view recusa, nesta ordem: escritório ausente, empresa de
+# outro escritório (404), papel e livro-caixa. Só depois lê o corpo da requisição.
+#
+# NENHUMA regra de conferência mora aqui. A tela mostra o que o serviço já gravou em
+# `ImportacaoLancamentos` e `LancamentoImportado`, e chama o serviço para cada ação. Há duas
+# leituras de APRESENTAÇÃO, marcadas no código: a contagem de "prontos" e o veredito da efetivação
+# (tudo ou nada), lidos das mesmas flags que o serviço usa para decidir. O serviço continua sendo a
+# autoridade: ele reconfere e recusa de novo na efetivação, e a tela só deixa de oferecer o
+# botão antes disso.
+# ---------------------------------------------------------------------------
+
+AVISO_DO_FORMATO_ECD = (
+    "O lançamento de encerramento (E) não entra: o zeramento do resultado é do DataLedger. "
+    "Sem o registro 0000, a empresa do arquivo não é conferida, e a conferência avisa."
+)
+AVISO_DO_FORMATO_REFERENCIA = (
+    "O código do arquivo é o reduzido, que o DataLedger não tem. Cada código precisa de um "
+    "de-para para uma conta analítica antes da efetivação."
+)
+AVISO_DO_FORMATO_PROPRIO = (
+    "Os códigos de conta precisam existir no plano desta empresa. O que não existir precisa de "
+    "um de-para antes da efetivação."
+)
+AVISO_DO_FORMATO_EXCEL = (
+    "Planilha .xlsx sem macros. A coluna conta é texto: use o modelo para baixar."
+)
+
+# Chaves = `LEITORES_DE_LANCAMENTOS` do serviço (um teste confere). O rótulo diz o leiaute; o aviso
+# diz o que o contador precisa saber antes de enviar.
+FORMATOS_DE_IMPORTACAO_DE_LANCAMENTOS_NA_TELA = {
+    FormatoImportacaoLancamentos.ECD: ("ECD: registros I200 e I250", AVISO_DO_FORMATO_ECD),
+    FormatoImportacaoLancamentos.REFERENCIA: (
+        "Sistema de referência: leiaute com registros 6000 e 6100",
+        AVISO_DO_FORMATO_REFERENCIA,
+    ),
+    FormatoImportacaoLancamentos.PROPRIO: (
+        "DataLedger: TXT próprio, com ponto e vírgula e cabeçalho",
+        AVISO_DO_FORMATO_PROPRIO,
+    ),
+    FormatoImportacaoLancamentos.EXCEL: (
+        "Planilha Excel (.xlsx), no modelo para baixar",
+        AVISO_DO_FORMATO_EXCEL,
+    ),
+}
+
+MENSAGEM_SEM_PERMISSAO_IMPORTAR_LANCAMENTOS = (
+    "Seu papel não permite importar lançamentos desta empresa."
+)
+MENSAGEM_SEM_PERMISSAO_LER_IMPORTACOES = "Seu papel não permite ler a contabilidade desta empresa."
+MENSAGEM_SEM_PERMISSAO_AGIR_NA_IMPORTACAO = (
+    "Seu papel pode ler esta importação, mas não confere, decide nem efetiva lançamentos."
+)
+MENSAGEM_CONFIRMACAO_DA_EFETIVACAO = (
+    "Marque a confirmação antes de efetivar: os lançamentos serão gravados no Diário e não "
+    "poderão ser alterados, só estornados."
+)
+
+TAMANHO_DA_PAGINA_DA_CONFERENCIA = 50
+LIMITE_DA_LISTA_DE_IMPORTACOES = 200
+LIMITE_DE_LANCAMENTOS_FORA_NA_TELA = 500
+FILTROS_DA_CONFERENCIA = {
+    "todos": "Todos os lançamentos",
+    "erros": "Só com erro",
+    "avisos": "Só com aviso",
+}
+CAMPOS_DA_CONFERENCIA = frozenset({"filtro", "pagina"})
+# Só tudo ou nada: a efetivação parcial ("só os válidos") está suspensa (BL-676) e não é oferecida.
+POLITICAS_DE_EFETIVACAO_NA_TELA = {
+    importacao_servico.TUDO_OU_NADA: "Tudo ou nada",
+}
+
+# Contratos das superfícies de escrita da tela: o corpo que cada formulário envia, e nada mais.
+CONTRATO_DO_ENVIO_DE_LANCAMENTOS = ContratoDeRequisicao(
+    campos=frozenset({"csrfmiddlewaretoken", "formato"}),
+    aceita_arquivo=True,
+    contexto="no envio de lançamentos",
+)
+CONTRATO_DO_DEPARA_DA_IMPORTACAO = ContratoDeRequisicao(
+    campos=frozenset({"csrfmiddlewaretoken", "codigo_origem", "conta"}),
+    contexto="no de-para da importação",
+)
+CONTRATO_DOS_AVISOS_DA_IMPORTACAO = ContratoDeRequisicao(
+    campos=frozenset({"csrfmiddlewaretoken", "numeros", "todos", "aceitar_arquivo"}),
+    contexto="no aceite de avisos",
+)
+CONTRATO_DA_RECONFERENCIA = ContratoDeRequisicao(
+    campos=frozenset({"csrfmiddlewaretoken"}), contexto="na reconferência"
+)
+CONTRATO_DA_EFETIVACAO_DA_IMPORTACAO = ContratoDeRequisicao(
+    campos=frozenset({"csrfmiddlewaretoken", "politica", "confirmar"}),
+    contexto="na efetivação de lançamentos",
+)
+CONTRATO_DO_DESCARTE_DA_IMPORTACAO = ContratoDeRequisicao(
+    campos=frozenset({"csrfmiddlewaretoken", "motivo"}),
+    contexto="no descarte da importação",
+)
+
+
+def _contado(quantidade, singular, plural):
+    return f"{quantidade} {singular if quantidade == 1 else plural}"
+
+
+def _entrada_das_importacoes(
+    request, empresa_id, *, escrever, mensagem_sem_escrita=MENSAGEM_SEM_PERMISSAO_AGIR_NA_IMPORTACAO
+):
+    """Recusas comuns das telas de importação, na ordem das outras telas deste módulo.
+
+    Devolve `(empresa, recusa)`: `recusa` é a resposta pronta quando a view não pode seguir, ou
+    `None`. `escrever=True` exige `PodeEscriturar`; `False` exige só a leitura da contabilidade.
+    """
+    if request.escritorio is None:
+        return None, _resposta_sem_escritorio(request)
+    empresa = _empresa_do_escritorio_ativo(request, empresa_id)
+    if escrever and not _pode_escriturar(request):
+        return None, _resposta_sem_permissao(request, mensagem_sem_escrita)
+    if not escrever and not _pode_ler(request):
+        return None, _resposta_sem_permissao(request, MENSAGEM_SEM_PERMISSAO_LER_IMPORTACOES)
+    recusa_livro_caixa = _sem_contabilidade_para_livro_caixa(request, empresa)
+    if recusa_livro_caixa is not None:
+        return None, recusa_livro_caixa
+    return empresa, None
+
+
+def _acao_sobre_importacao(request, empresa_id, importacao_id):
+    """Entrada de toda ação (POST) sobre uma importação: escrita, empresa certa e importação dela.
+
+    A importação é buscada DENTRO da empresa da URL: a de outra empresa, mesmo do mesmo escritório,
+    responde 404 e nunca é lida.
+    """
+    empresa, recusa = _entrada_das_importacoes(request, empresa_id, escrever=True)
+    if recusa is not None:
+        return None, None, recusa
+    importacao = get_object_or_404(ImportacaoLancamentos, pk=importacao_id, empresa=empresa)
+    return empresa, importacao, None
+
+
+def _erros_do_envio(formato, arquivo):
+    erros = {}
+    if arquivo is None:
+        erros["arquivo"] = "Escolha o arquivo de lançamentos."
+    elif arquivo.size > TAMANHO_MAXIMO_ARQUIVO_BYTES:
+        erros["arquivo"] = (
+            f"arquivo com {arquivo.size} bytes; o limite é "
+            f"{TAMANHO_MAXIMO_ARQUIVO_BYTES // (1024 * 1024)} MB."
+        )
+    elif formato == excel.FORMATO and not arquivo.name.lower().endswith(".xlsx"):
+        erros["arquivo"] = (
+            "a planilha precisa ser .xlsx, sem macros (.xlsm não é aceito). "
+            "Use o modelo para baixar."
+        )
+    if formato not in FORMATOS_DE_IMPORTACAO_DE_LANCAMENTOS_NA_TELA:
+        erros["formato"] = "Escolha o formato do arquivo."
+    return erros
+
+
+def _renderizar_formulario_de_importacao(
+    request, empresa, *, formato_escolhido="", erros=None, existente_id=None, status=200
+):
+    contexto = {
+        "empresa": empresa,
+        "formatos": [
+            {"valor": valor, "rotulo": rotulo, "aviso": aviso}
+            for valor, (rotulo, aviso) in FORMATOS_DE_IMPORTACAO_DE_LANCAMENTOS_NA_TELA.items()
+        ],
+        "formato_escolhido": formato_escolhido,
+        "erros": erros or {},
+        "existente_id": existente_id,
+    }
+    return render(request, "contabilidade/lancamentos_importar.html", contexto, status=status)
+
+
+# --- Apresentação da conferência -------------------------------------------------------------
+# Tudo abaixo LÊ o que o serviço gravou. Nenhuma linha recalcula conferência.
+
+ROTULO_DO_NIVEL = {NIVEL_ERRO: "Erro", NIVEL_AVISO: "Aviso"}
+# Quantos erros do arquivo inteiro a tela lista no veredito de só os válidos (o total vem antes).
+LIMITE_DE_ERROS_DO_ARQUIVO_NA_TELA = 50
+ROTULO_DA_ORIGEM_DA_CONTA = {"codigo": "código do plano", "depara": "de-para"}
+
+
+def _contagens_da_conferencia(importacao):
+    lancamentos = importacao.lancamentos
+    return {
+        "total": lancamentos.count(),
+        "com_erro": lancamentos.filter(tem_erro=True).count(),
+        "com_aviso_a_aceitar": lancamentos.filter(tem_aviso=True, aceito_com_aviso=False).count(),
+        "com_aviso_aceito": lancamentos.filter(tem_aviso=True, aceito_com_aviso=True).count(),
+        # APRESENTAÇÃO: sem erro e com avisos aceitos. É informação para o contador; a efetivação
+        # só aceita o todo (tudo ou nada), e o serviço recusa de novo se algo não estiver pronto.
+        "prontos": lancamentos.filter(tem_erro=False)
+        .exclude(tem_aviso=True, aceito_com_aviso=False)
+        .count(),
+    }
+
+
+def _veredito_da_efetivacao(importacao, contagens):
+    """O que a efetivação (tudo ou nada) precisa para gravar, e o que a impede quando não pode.
+
+    APRESENTAÇÃO. A efetivação é possível com ao menos um lançamento, sem erro do arquivo, sem erro
+    de lançamento e sem aviso por aceitar: é a condição que o serviço aplica. A efetivação parcial
+    ("só os válidos") está suspensa (BL-676) e não tem veredito: a tela não a oferece. O aviso de
+    empresa não declarada sem aceite também impede (A11). Sem lançamento nenhum, não há botão.
+    A lista de erros do arquivo vai no veredito, para o contador ver qual linha impede a gravação.
+    """
+    erros_do_arquivo = importacao.quantidade_erros_do_arquivo
+    aceite_pendente = importacao.exige_aceite_do_arquivo and not importacao.aceite_do_arquivo
+    pendencias = []
+    if erros_do_arquivo:
+        pendencias.append(_contado(erros_do_arquivo, "erro do arquivo", "erros do arquivo"))
+    if contagens["com_erro"]:
+        pendencias.append(
+            _contado(contagens["com_erro"], "lançamento com erro", "lançamentos com erro")
+        )
+    if contagens["com_aviso_a_aceitar"]:
+        pendencias.append(
+            _contado(contagens["com_aviso_a_aceitar"], "aviso a aceitar", "avisos a aceitar")
+        )
+    if aceite_pendente:
+        pendencias.append("o aviso de empresa não declarada precisa ser aceito")
+    total = contagens["total"]
+    if total == 0:
+        pendencias.append("não há lançamento para efetivar")
+    return {
+        "pode": not pendencias,
+        "pendencias": pendencias,
+        "quantidade": total,
+        # Os erros do arquivo que impedem a gravação, para a tela listar. A lista guardada prioriza
+        # os erros, então o corte de 500 não os tira de cena.
+        "erros_do_arquivo": [
+            _ocorrencia_na_tela(o)
+            for o in importacao.ocorrencias_do_arquivo
+            if o["nivel"] == NIVEL_ERRO
+        ][:LIMITE_DE_ERROS_DO_ARQUIVO_NA_TELA],
+    }
+
+
+def _situacao_na_tela(lancamento, importacao):
+    """Em que estado está o lançamento e o que falta, em texto (cor nunca é o único sinal)."""
+    if lancamento.lancamento_id is not None:
+        return "Efetivado no Diário"
+    if importacao.estado == EstadoImportacaoLancamentos.EFETIVADA:
+        # Efetivada, o motivo de ter ficado de fora é o que ainda está gravado na linha.
+        if lancamento.tem_erro:
+            return "Ficou de fora: com erro"
+        if lancamento.tem_aviso and not lancamento.aceito_com_aviso:
+            return "Ficou de fora: aviso não aceito"
+        return "Ficou de fora da efetivação"
+    if importacao.estado == EstadoImportacaoLancamentos.DESCARTADA:
+        return "Importação descartada: nada foi gravado"
+    if lancamento.tem_erro:
+        return "Com erro: não entra na efetivação"
+    if lancamento.tem_aviso and not lancamento.aceito_com_aviso:
+        return "Falta aceitar o aviso"
+    return "Pronto para efetivar"
+
+
+def _partida_na_tela(partida):
+    return {
+        "codigo_origem": partida["codigo_origem"],
+        "conta_codigo": partida.get("conta_codigo"),
+        "origem_da_conta": ROTULO_DA_ORIGEM_DA_CONTA.get(partida.get("origem_da_conta"), ""),
+        "lado_rotulo": "Débito" if partida["lado"] == LADO_DEBITO else "Crédito",
+        "valor_ptbr": _valor_ptbr(Decimal(partida["valor"])),
+    }
+
+
+def _ocorrencia_na_tela(ocorrencia):
+    return {
+        "nivel": ROTULO_DO_NIVEL.get(ocorrencia["nivel"], ocorrencia["nivel"]),
+        "campo": ocorrencia["campo"],
+        "mensagem": ocorrencia["mensagem"],
+    }
+
+
+def _lancamento_na_tela(lancamento, importacao):
+    return {
+        "id": lancamento.pk,
+        "numero": lancamento.numero_origem,
+        "linha": lancamento.linha,
+        "data": lancamento.data,
+        "historico": lancamento.historico,
+        "partidas": [_partida_na_tela(p) for p in lancamento.partidas],
+        "ocorrencias": [_ocorrencia_na_tela(o) for o in lancamento.ocorrencias],
+        "tem_erro": lancamento.tem_erro,
+        "aviso_a_aceitar": lancamento.tem_aviso and not lancamento.aceito_com_aviso,
+        "lancamento_id": lancamento.lancamento_id,
+        "situacao": _situacao_na_tela(lancamento, importacao),
+    }
+
+
+def _bloqueio_na_tela(bloqueio):
+    """Uma ocorrência que impede a efetivação, com o lançamento ou o arquivo inteiro."""
+    return {
+        "numero": bloqueio.get("numero") or "arquivo inteiro",
+        "linha": bloqueio["linha"],
+        "campo": bloqueio["campo"],
+        "mensagem": bloqueio["mensagem"],
+    }
+
+
+def _lancamentos_da_pagina(importacao, filtro, numero_da_pagina):
+    lancamentos = importacao.lancamentos.all()
+    if filtro == "erros":
+        lancamentos = lancamentos.filter(tem_erro=True)
+    elif filtro == "avisos":
+        lancamentos = lancamentos.filter(tem_aviso=True)
+    # `get_page` aceita número fora da faixa e devolve a última página, sem 404.
+    return Paginator(lancamentos, TAMANHO_DA_PAGINA_DA_CONFERENCIA).get_page(numero_da_pagina)
+
+
+def _codigos_sem_conta(importacao):
+    """Códigos de origem que não viraram conta (pedem de-para), com quantos lançamentos afetam."""
+    afetados = defaultdict(set)
+    for lancamento in importacao.lancamentos.filter(tem_erro=True):
+        for partida in lancamento.partidas:
+            if partida.get("conta_id") is None:
+                afetados[partida["codigo_origem"]].add(lancamento.numero_origem)
+    return [
+        {"codigo": codigo, "quantidade_de_lancamentos": len(numeros)}
+        for codigo, numeros in sorted(afetados.items())
+    ]
+
+
+def _lancamentos_que_ficam_de_fora(importacao):
+    """Efetivada, os lançamentos que não foram para o Diário. Em conferência, não há lista.
+
+    Sem efetivação parcial (BL-676), a conferência não separa "fica de fora": a efetivação é tudo
+    ou nada, e o que impede aparece no veredito e na própria linha.
+    """
+    if importacao.estado == EstadoImportacaoLancamentos.EFETIVADA:
+        return importacao.lancamentos.filter(lancamento__isnull=True)
+    return importacao.lancamentos.none()
+
+
+def _contexto_da_conferencia(
+    request, empresa, importacao, *, filtro, numero_da_pagina, erros=None, bloqueios=None
+):
+    em_conferencia = importacao.estado == EstadoImportacaoLancamentos.EM_CONFERENCIA
+    pode_escriturar = _pode_escriturar(request)
+    pode_agir = em_conferencia and pode_escriturar
+    contagens = _contagens_da_conferencia(importacao)
+    tudo = _veredito_da_efetivacao(importacao, contagens)
+    codigos = _codigos_sem_conta(importacao) if em_conferencia else []
+    # A lista de contas só é montada onde há de-para a fazer: é o único uso dela.
+    contas_analiticas = (
+        list(
+            Conta.objects.filter(empresa=empresa, aceita_lancamento=True, ativo=True)
+            .order_by("codigo")
+            .values_list("codigo", "nome")
+        )
+        if pode_agir and codigos
+        else []
+    )
+    pagina = _lancamentos_da_pagina(importacao, filtro, numero_da_pagina)
+    fora = _lancamentos_que_ficam_de_fora(importacao)
+    querystring = request.GET.copy()
+    querystring.pop("pagina", None)
+    return {
+        "empresa": empresa,
+        "importacao": importacao,
+        "formato_rotulo": importacao.get_formato_display(),
+        "estado_rotulo": importacao.get_estado_display(),
+        "em_conferencia": em_conferencia,
+        "efetivada": importacao.estado == EstadoImportacaoLancamentos.EFETIVADA,
+        "descartada": importacao.estado == EstadoImportacaoLancamentos.DESCARTADA,
+        "pode_escriturar": pode_escriturar,
+        "pode_agir": pode_agir,
+        "contagens": contagens,
+        "tudo_ou_nada": tudo,
+        "politica_tudo_ou_nada": importacao_servico.TUDO_OU_NADA,
+        "politica_rotulo": POLITICAS_DE_EFETIVACAO_NA_TELA.get(
+            importacao.politica_de_efetivacao, ""
+        ),
+        "soma_debitos_ptbr": _valor_ptbr(importacao.soma_debitos),
+        "soma_creditos_ptbr": _valor_ptbr(importacao.soma_creditos),
+        "conferem": importacao.soma_debitos == importacao.soma_creditos,
+        "ocorrencias_do_arquivo": [
+            _ocorrencia_na_tela(o) for o in importacao.ocorrencias_do_arquivo
+        ],
+        "ocorrencias_do_arquivo_total": importacao.quantidade_ocorrencias_do_arquivo,
+        "ocorrencias_do_arquivo_guardadas": len(importacao.ocorrencias_do_arquivo),
+        "aceite_do_arquivo_pendente": importacao.exige_aceite_do_arquivo
+        and not importacao.aceite_do_arquivo,
+        "texto_efetivados": _contado(
+            importacao.quantidade_efetivados, "lançamento gravado", "lançamentos gravados"
+        ),
+        "soma_debitos_efetivados_ptbr": _valor_ptbr(importacao.soma_debitos_efetivados),
+        "soma_creditos_efetivados_ptbr": _valor_ptbr(importacao.soma_creditos_efetivados),
+        "codigos_sem_conta": codigos,
+        "contas_analiticas": contas_analiticas,
+        "filtros": FILTROS_DA_CONFERENCIA,
+        "filtro": filtro,
+        "lancamentos": [
+            _lancamento_na_tela(lancamento, importacao) for lancamento in pagina.object_list
+        ],
+        "pagina": pagina,
+        "querystring_sem_pagina": querystring.urlencode(),
+        "ficam_de_fora": [
+            {
+                "numero": lancamento.numero_origem,
+                "linha": lancamento.linha,
+                "motivo": _situacao_na_tela(lancamento, importacao),
+            }
+            for lancamento in fora[:LIMITE_DE_LANCAMENTOS_FORA_NA_TELA]
+        ],
+        "ficam_de_fora_total": fora.count(),
+        "limite_de_fora": LIMITE_DE_LANCAMENTOS_FORA_NA_TELA,
+        "bloqueios": [_bloqueio_na_tela(b) for b in (bloqueios or [])],
+        "erros": erros or {},
+    }
+
+
+def _renderizar_conferencia(
+    request,
+    empresa,
+    importacao,
+    *,
+    filtro="todos",
+    numero_da_pagina=1,
+    erros=None,
+    bloqueios=None,
+    status=200,
+):
+    contexto = _contexto_da_conferencia(
+        request,
+        empresa,
+        importacao,
+        filtro=filtro,
+        numero_da_pagina=numero_da_pagina,
+        erros=erros,
+        bloqueios=bloqueios,
+    )
+    return render(request, "contabilidade/lancamentos_importacao.html", contexto, status=status)
+
+
+# Exceções do serviço que a conferência traduz em mensagem na própria tela (nunca 500).
+_RECUSAS_DA_CONFERENCIA = (
+    IntercambioRecusado,
+    LancamentoInvalido,
+    CompetenciaEncerrada,
+    CompetenciaOperacaoRecusada,
+)
+
+
+def _recusa_da_conferencia(request, empresa, importacao, exc):
+    """Mostra a recusa do serviço na conferência. 409 é estado ou período; o resto é entrada (400).
+
+    `refresh_from_db` porque a transação do serviço já foi desfeita: a tela mostra o que ficou
+    gravado, não o que a ação tentou gravar.
+    """
+    importacao.refresh_from_db()
+    de_estado = isinstance(
+        exc,
+        (
+            importacao_servico.ImportacaoEmEstadoInvalido,
+            CompetenciaEncerrada,
+            CompetenciaOperacaoRecusada,
+        ),
+    )
+    mensagem = exc.mensagem if isinstance(exc, IntercambioRecusado) else str(exc)
+    return _renderizar_conferencia(
+        request,
+        empresa,
+        importacao,
+        erros={"geral": mensagem},
+        bloqueios=getattr(exc, "ocorrencias", None),
+        status=409 if de_estado else 400,
+    )
+
+
+def _redirecionar_para_conferencia(empresa, importacao):
+    return redirect(
+        "contabilidade_web:lancamentos_importacao",
+        empresa_id=empresa.id,
+        importacao_id=importacao.id,
+    )
+
+
+def _mensagem_da_efetivacao(resultado):
+    gravados = _contado(
+        resultado.criados, "lançamento gravado no Diário", "lançamentos gravados no Diário"
+    )
+    mensagem = f"Efetivada: {gravados}."
+    if resultado.reaproveitados:
+        mensagem += (
+            f" {_contado(resultado.reaproveitados, 'já estava no Diário', 'já estavam no Diário')}."
+        )
+    if resultado.nao_efetivados:
+        mensagem += (
+            f" {_contado(len(resultado.nao_efetivados), 'lançamento ficou', 'lançamentos ficaram')}"
+            " de fora, como você escolheu."
+        )
+    return mensagem
+
+
+# --- Telas --------------------------------------------------------------------------------------
+
+
+@login_required
+@require_safe
+def lancamentos_importacoes(request, empresa_id):
+    """Lista as importações de lançamentos da empresa, da mais recente para a mais antiga."""
+    empresa, recusa = _entrada_das_importacoes(request, empresa_id, escrever=False)
+    if recusa is not None:
+        return recusa
+    importacoes = list(
+        importacao_servico.listar_importacoes(empresa)[:LIMITE_DA_LISTA_DE_IMPORTACOES]
+    )
+    contexto = {
+        "empresa": empresa,
+        "importacoes": importacoes,
+        "limite_da_lista": LIMITE_DA_LISTA_DE_IMPORTACOES,
+        "pode_escriturar": _pode_escriturar(request),
+    }
+    return render(request, "contabilidade/lancamentos_importacoes.html", contexto)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def lancamentos_importar(request, empresa_id):
+    """GET: formulário do envio. POST: recebe o arquivo e o deixa EM CONFERÊNCIA.
+
+    Nada entra no Diário aqui. A decisão é da conferência, na tela seguinte.
+    """
+    empresa, recusa = _entrada_das_importacoes(
+        request,
+        empresa_id,
+        escrever=True,
+        mensagem_sem_escrita=MENSAGEM_SEM_PERMISSAO_IMPORTAR_LANCAMENTOS,
+    )
+    if recusa is not None:
+        return recusa
+    if request.method == "GET":
+        return _renderizar_formulario_de_importacao(request, empresa)
+
+    try:
+        recusar_dado_nao_contratado(request, CONTRATO_DO_ENVIO_DE_LANCAMENTOS)
+    except DadoNaoContratado as exc:
+        return _renderizar_formulario_de_importacao(
+            request,
+            empresa,
+            erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
+            status=400,
+        )
+    formato = (request.POST.get("formato") or "").strip()
+    arquivo = request.FILES.get("arquivo")
+    erros = _erros_do_envio(formato, arquivo)
+    if erros:
+        return _renderizar_formulario_de_importacao(
+            request, empresa, formato_escolhido=formato, erros=erros, status=400
+        )
+    try:
+        importacao = importacao_servico.receber(
+            empresa=empresa,
+            formato=formato,
+            conteudo=arquivo.read(),
+            nome_arquivo=arquivo.name,
+            usuario=request.user,
+            request=request,
+        )
+    except importacao_servico.ImportacaoJaExiste as exc:
+        return _renderizar_formulario_de_importacao(
+            request,
+            empresa,
+            formato_escolhido=formato,
+            erros={"geral": exc.mensagem},
+            existente_id=exc.importacao_id,
+            status=409,
+        )
+    except IntercambioRecusado as exc:
+        return _renderizar_formulario_de_importacao(
+            request,
+            empresa,
+            formato_escolhido=formato,
+            erros={"geral": exc.mensagem},
+            status=400,
+        )
+    messages.success(
+        request,
+        "Arquivo recebido em conferência. Nada entrou no Diário: confira os lançamentos abaixo.",
+    )
+    # R2: registros que a leitura ignorou, contados e não gravados (a prévia do plano mostra igual).
+    registros = importacao.registros_ignorados_da_leitura
+    if registros:
+        texto = ", ".join(
+            f"{registro} ({quantidade})" for registro, quantidade in registros.items()
+        )
+        messages.info(
+            request,
+            f"Registros do arquivo que o DataLedger não usa (contados, não gravados): {texto}.",
+        )
+    return _redirecionar_para_conferencia(empresa, importacao)
+
+
+@login_required
+@require_safe
+def lancamentos_importar_modelo_excel(request, empresa_id):
+    """Baixa o modelo `.xlsx` de lançamentos (mesma permissão do envio, como o modelo do plano)."""
+    empresa, recusa = _entrada_das_importacoes(
+        request,
+        empresa_id,
+        escrever=True,
+        mensagem_sem_escrita=MENSAGEM_SEM_PERMISSAO_IMPORTAR_LANCAMENTOS,
+    )
+    if recusa is not None:
+        return recusa
+    try:
+        recusar_campos_nao_contratados(
+            request.GET, frozenset(), contexto="no modelo de lançamentos"
+        )
+    except DadoNaoContratado as exc:
+        return _renderizar_formulario_de_importacao(
+            request,
+            empresa,
+            erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
+            status=400,
+        )
+    resposta = HttpResponse(excel_lancamentos.gerar_modelo(), content_type=TIPO_DE_CONTEUDO_XLSX)
+    resposta["Content-Disposition"] = 'attachment; filename="modelo-lancamentos.xlsx"'
+    return resposta
+
+
+@login_required
+@require_safe
+def lancamentos_importacao(request, empresa_id, importacao_id):
+    """A conferência: resumo, veredito de cada política, de-para, avisos, efetivação e descarte."""
+    empresa, recusa = _entrada_das_importacoes(request, empresa_id, escrever=False)
+    if recusa is not None:
+        return recusa
+    importacao = get_object_or_404(ImportacaoLancamentos, pk=importacao_id, empresa=empresa)
+    try:
+        recusar_campos_nao_contratados(
+            request.GET, CAMPOS_DA_CONFERENCIA, contexto="na conferência de lançamentos"
+        )
+    except DadoNaoContratado as exc:
+        return _renderizar_conferencia(
+            request,
+            empresa,
+            importacao,
+            erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
+            status=400,
+        )
+    filtro = (request.GET.get("filtro") or "todos").strip()
+    if filtro not in FILTROS_DA_CONFERENCIA:
+        return _renderizar_conferencia(
+            request,
+            empresa,
+            importacao,
+            erros={"filtro": "Escolha um dos filtros da lista."},
+            status=400,
+        )
+    try:
+        numero_da_pagina = max(1, int(request.GET.get("pagina") or 1))
+    except ValueError:
+        return _renderizar_conferencia(
+            request,
+            empresa,
+            importacao,
+            erros={"pagina": "A página precisa ser um número inteiro."},
+            status=400,
+        )
+    return _renderizar_conferencia(
+        request, empresa, importacao, filtro=filtro, numero_da_pagina=numero_da_pagina
+    )
+
+
+# --- Ações (só POST; cada uma chama o serviço e volta para a conferência) -----------------------
+
+
+@login_required
+@require_http_methods(["POST"])
+def lancamentos_importacao_depara(request, empresa_id, importacao_id):
+    """Grava o de-para de um código de origem e refaz a conferência, na MESMA transação."""
+    empresa, importacao, recusa = _acao_sobre_importacao(request, empresa_id, importacao_id)
+    if recusa is not None:
+        return recusa
+    try:
+        recusar_dado_nao_contratado(request, CONTRATO_DO_DEPARA_DA_IMPORTACAO)
+    except DadoNaoContratado as exc:
+        return _renderizar_conferencia(
+            request,
+            empresa,
+            importacao,
+            erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
+            status=400,
+        )
+    codigo = (request.POST.get("codigo_origem") or "").strip()
+    conta_codigo = (request.POST.get("conta") or "").strip()
+    # A escolha vem da lista de contas analíticas ativas que a própria tela ofereceu. O serviço
+    # confere a conta (empresa); a lista é a forma de escolher, não uma regra nova.
+    conta = (
+        Conta.objects.filter(
+            empresa=empresa, codigo=conta_codigo, aceita_lancamento=True, ativo=True
+        ).first()
+        if conta_codigo
+        else None
+    )
+    if conta is None:
+        return _renderizar_conferencia(
+            request,
+            empresa,
+            importacao,
+            erros={
+                "geral": (
+                    f"Escolha da lista uma conta analítica ativa desta empresa para o código "
+                    f"'{codigo}'. Nada foi gravado."
+                )
+            },
+            status=400,
+        )
+    try:
+        with transaction.atomic():
+            importacao_servico.definir_de_para(
+                empresa=empresa,
+                formato=importacao.formato,
+                codigo_origem=codigo,
+                conta=conta,
+                usuario=request.user,
+                request=request,
+            )
+            atual = importacao_servico.reconferir(importacao, usuario=request.user, request=request)
+    except _RECUSAS_DA_CONFERENCIA as exc:
+        return _recusa_da_conferencia(request, empresa, importacao, exc)
+    messages.success(
+        request,
+        f"De-para salvo: {codigo} → {conta.codigo}. A conferência foi refeita: "
+        f"{_contado(atual.quantidade_com_erro, 'lançamento com erro', 'lançamentos com erro')}.",
+    )
+    return _redirecionar_para_conferencia(empresa, importacao)
+
+
+@login_required
+@require_http_methods(["POST"])
+def lancamentos_importacao_avisos(request, empresa_id, importacao_id):
+    """Aceita os avisos de lançamentos escolhidos, ou de todos os que têm aviso por aceitar."""
+    empresa, importacao, recusa = _acao_sobre_importacao(request, empresa_id, importacao_id)
+    if recusa is not None:
+        return recusa
+    try:
+        recusar_dado_nao_contratado(request, CONTRATO_DOS_AVISOS_DA_IMPORTACAO)
+    except DadoNaoContratado as exc:
+        return _renderizar_conferencia(
+            request,
+            empresa,
+            importacao,
+            erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
+            status=400,
+        )
+    aceitar_arquivo = bool(request.POST.get("aceitar_arquivo"))
+    if request.POST.get("todos"):
+        numeros = list(
+            importacao.lancamentos.filter(tem_aviso=True, aceito_com_aviso=False).values_list(
+                "numero_origem", flat=True
+            )
+        )
+        if not numeros and not aceitar_arquivo:
+            if importacao.estado != EstadoImportacaoLancamentos.EM_CONFERENCIA:
+                # Fora da conferência a resposta é o estado, e não "nada a aceitar".
+                return _renderizar_conferencia(
+                    request,
+                    empresa,
+                    importacao,
+                    erros={
+                        "geral": (
+                            f"A importação já está {importacao.get_estado_display().lower()}: "
+                            "nada foi alterado."
+                        )
+                    },
+                    status=409,
+                )
+            messages.info(request, "Não há avisos a aceitar: todos já foram aceitos.")
+            return redirect(
+                "contabilidade_web:lancamentos_importacao",
+                empresa_id=empresa.id,
+                importacao_id=importacao.id,
+            )
+    else:
+        numeros = request.POST.getlist("numeros")
+    try:
+        quantidade = importacao_servico.aceitar_avisos(
+            importacao,
+            numeros,
+            aceitar_arquivo=aceitar_arquivo,
+            usuario=request.user,
+            request=request,
+        )
+    except _RECUSAS_DA_CONFERENCIA as exc:
+        return _recusa_da_conferencia(request, empresa, importacao, exc)
+    partes = []
+    if quantidade:
+        partes.append(f"Avisos aceitos em {_contado(quantidade, 'lançamento', 'lançamentos')}")
+    if aceitar_arquivo:
+        partes.append("aceite do arquivo registrado: ele é desta empresa")
+    messages.success(request, "; ".join(partes) + ". Efetive quando a conferência estiver pronta.")
+    return _redirecionar_para_conferencia(empresa, importacao)
+
+
+@login_required
+@require_http_methods(["POST"])
+def lancamentos_importacao_reconferir(request, empresa_id, importacao_id):
+    """Refaz a conferência com o cadastro de agora (de-para, competências, contas)."""
+    empresa, importacao, recusa = _acao_sobre_importacao(request, empresa_id, importacao_id)
+    if recusa is not None:
+        return recusa
+    try:
+        recusar_dado_nao_contratado(request, CONTRATO_DA_RECONFERENCIA)
+    except DadoNaoContratado as exc:
+        return _renderizar_conferencia(
+            request,
+            empresa,
+            importacao,
+            erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
+            status=400,
+        )
+    try:
+        atual = importacao_servico.reconferir(importacao, usuario=request.user, request=request)
+    except _RECUSAS_DA_CONFERENCIA as exc:
+        return _recusa_da_conferencia(request, empresa, importacao, exc)
+    messages.success(
+        request,
+        "Conferência refeita: "
+        f"{_contado(atual.quantidade_lancamentos, 'lançamento', 'lançamentos')}, "
+        f"{_contado(atual.quantidade_com_erro, 'com erro', 'com erro')}, "
+        f"{_contado(atual.quantidade_com_aviso, 'com aviso', 'com aviso')}.",
+    )
+    return _redirecionar_para_conferencia(empresa, importacao)
+
+
+@login_required
+@require_http_methods(["POST"])
+def lancamentos_importacao_efetivar(request, empresa_id, importacao_id):
+    """Grava no Diário (tudo ou nada), depois de confirmação explícita.
+
+    Nada é gravado com erro. A efetivação parcial está suspensa (BL-676): se a política pedida for
+    outra, o serviço recusa com a mensagem nomeada, e a recusa volta para esta tela.
+    """
+    empresa, importacao, recusa = _acao_sobre_importacao(request, empresa_id, importacao_id)
+    if recusa is not None:
+        return recusa
+    try:
+        recusar_dado_nao_contratado(request, CONTRATO_DA_EFETIVACAO_DA_IMPORTACAO)
+    except DadoNaoContratado as exc:
+        return _renderizar_conferencia(
+            request,
+            empresa,
+            importacao,
+            erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
+            status=400,
+        )
+    politica = (request.POST.get("politica") or importacao_servico.TUDO_OU_NADA).strip()
+    if not request.POST.get("confirmar"):
+        return _renderizar_conferencia(
+            request,
+            empresa,
+            importacao,
+            erros={"confirmar": MENSAGEM_CONFIRMACAO_DA_EFETIVACAO},
+            status=400,
+        )
+    try:
+        resultado = importacao_servico.efetivar(
+            importacao, politica=politica, usuario=request.user, request=request
+        )
+    except _RECUSAS_DA_CONFERENCIA as exc:
+        return _recusa_da_conferencia(request, empresa, importacao, exc)
+    messages.success(request, _mensagem_da_efetivacao(resultado))
+    return _redirecionar_para_conferencia(empresa, importacao)
+
+
+@login_required
+@require_http_methods(["POST"])
+def lancamentos_importacao_descartar(request, empresa_id, importacao_id):
+    """Descarta a importação em conferência, com motivo. O arquivo pode ser recebido de novo."""
+    empresa, importacao, recusa = _acao_sobre_importacao(request, empresa_id, importacao_id)
+    if recusa is not None:
+        return recusa
+    try:
+        recusar_dado_nao_contratado(request, CONTRATO_DO_DESCARTE_DA_IMPORTACAO)
+    except DadoNaoContratado as exc:
+        return _renderizar_conferencia(
+            request,
+            empresa,
+            importacao,
+            erros={"geral": _mensagem_de_tela_para_dado_nao_contratado(exc)},
+            status=400,
+        )
+    try:
+        importacao_servico.descartar(
+            importacao,
+            motivo=request.POST.get("motivo"),
+            usuario=request.user,
+            request=request,
+        )
+    except _RECUSAS_DA_CONFERENCIA as exc:
+        return _recusa_da_conferencia(request, empresa, importacao, exc)
+    messages.success(
+        request,
+        "Importação descartada. Nada entrou no Diário, e o arquivo pode ser recebido de novo.",
+    )
+    return redirect("contabilidade_web:lancamentos_importacoes", empresa_id=empresa.id)

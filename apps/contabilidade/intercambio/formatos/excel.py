@@ -126,7 +126,7 @@ def _verificar_pacote(conteudo):
     if not conteudo.startswith(_ASSINATURA_ZIP):
         raise IntercambioRecusado(
             "o arquivo não é uma planilha .xlsx. Arquivo CSV renomeado não é aceito: baixe o "
-            "modelo e preencha a aba 'plano'."
+            "modelo do DataLedger e preencha a aba de dados que ele traz."
         )
     try:
         pacote = zipfile.ZipFile(io.BytesIO(conteudo))
@@ -138,7 +138,7 @@ def _verificar_pacote(conteudo):
         if len(partes) > MAXIMO_DE_ENTRADAS_NO_PACOTE:
             raise IntercambioRecusado(
                 f"o .xlsx tem {len(partes)} partes internas; o máximo é "
-                f"{MAXIMO_DE_ENTRADAS_NO_PACOTE}. Não é uma planilha de plano de contas."
+                f"{MAXIMO_DE_ENTRADAS_NO_PACOTE}. Não é uma planilha no modelo do DataLedger."
             )
         nomes = {parte.filename for parte in partes}
         # Macro é recusada pelo NOME da parte e pelo tipo da pasta, porque um .xlsm
@@ -192,17 +192,19 @@ def _limite_da_parte(nome):
     return TAMANHO_MAXIMO_PARTE_DE_APOIO_BYTES
 
 
-def _caminho_da_aba(formulas):
-    """Caminho da parte XML da aba `plano`. Recusa se ela não está em `xl/worksheets/`.
+def _caminho_da_aba(formulas, nome_da_aba):
+    """Caminho da parte XML da aba `nome_da_aba`. Recusa se ela não está em `xl/worksheets/`.
 
-    O limite por planilha vale pelo prefixo do caminho. Uma aba apontada para fora dele
-    escaparia do orçamento de células, então a recusa é nomeada e não a leitura.
+    Serve às duas planilhas: o plano (`plano`, passado por `ler` abaixo) e os lançamentos
+    (`lancamentos`, em `excel_lancamentos.ler`). O limite por planilha vale pelo prefixo do
+    caminho. Uma aba apontada para fora dele escaparia do orçamento de células, então a
+    recusa é nomeada e não a leitura.
     """
-    caminho = getattr(formulas[NOME_DA_ABA], "_worksheet_path", None)
+    caminho = getattr(formulas[nome_da_aba], "_worksheet_path", None)
     if not isinstance(caminho, str) or not caminho.startswith(_PREFIXO_DAS_PLANILHAS):
         raise IntercambioRecusado(
-            "a aba 'plano' não está em xl/worksheets/: estrutura de .xlsx não reconhecida. "
-            "Salve de novo no Excel como 'Pasta de Trabalho do Excel (.xlsx)'."
+            f"a aba '{nome_da_aba}' não está em xl/worksheets/: estrutura de .xlsx não "
+            "reconhecida. Salve de novo no Excel como 'Pasta de Trabalho do Excel (.xlsx)'."
         )
     return caminho
 
@@ -301,12 +303,13 @@ def _conferir_orcamento_das_planilhas(conteudo):
             if self.elementos > teto_da_parte:
                 raise ArquivoGrandeDemais(
                     f"a parte '{self.parte}' tem mais de {teto_da_parte} elementos XML. O limite "
-                    "é esse, e a parte é grande demais para um plano de contas."
+                    "é esse, e a parte é grande demais para o modelo do DataLedger."
                 )
             if self.elementos_no_pacote > MAXIMO_DE_ELEMENTOS_NO_PACOTE:
                 raise ArquivoGrandeDemais(
                     f"o .xlsx tem mais de {MAXIMO_DE_ELEMENTOS_NO_PACOTE} elementos XML somando "
-                    "as partes. O limite é esse, e o arquivo é grande demais para um plano."
+                    "as partes. O limite é esse, e o arquivo é grande demais para o modelo do "
+                    "DataLedger."
                 )
             if self.coletar_alvos and local == "Relationship":
                 self.alvos_do_workbook.append(
@@ -344,19 +347,20 @@ def _conferir_orcamento_das_planilhas(conteudo):
                     if coluna > MAXIMO_DE_COLUNAS_POR_LINHA:
                         raise IntercambioRecusado(
                             f"a célula {referencia} (linha {self.linha_atual}) está além da "
-                            f"coluna {MAXIMO_DE_COLUNAS_POR_LINHA}. O plano tem seis colunas: "
-                            "não é uma planilha de plano de contas."
+                            f"coluna {MAXIMO_DE_COLUNAS_POR_LINHA}. Não é uma planilha no modelo "
+                            "do DataLedger: baixe o modelo e use as colunas dele."
                         )
                 if self.celulas_na_linha > MAXIMO_DE_COLUNAS_POR_LINHA:
+                    # Serve ao plano e aos lançamentos: a mensagem não nomeia nenhum dos dois.
                     raise IntercambioRecusado(
                         f"a linha {self.linha_atual} da planilha tem mais de "
-                        f"{MAXIMO_DE_COLUNAS_POR_LINHA} células. O plano tem seis colunas: "
-                        "não é uma planilha de plano de contas."
+                        f"{MAXIMO_DE_COLUNAS_POR_LINHA} células. Não é uma planilha no modelo "
+                        "do DataLedger: baixe o modelo e use as colunas dele."
                     )
                 if self.celulas > MAXIMO_DE_CELULAS_LIDAS:
                     raise ArquivoGrandeDemais(
                         f"a planilha tem mais de {MAXIMO_DE_CELULAS_LIDAS} células. O limite é "
-                        "esse, e a planilha é grande demais para um plano de contas."
+                        "esse, e a planilha é grande demais para o modelo do DataLedger."
                     )
 
     def varrer(pacote, caminho, manipulador):
@@ -648,7 +652,7 @@ def ler(conteudo: bytes) -> ResultadoLeitura:
         try:
             if NOME_DA_ABA in formulas.sheetnames:
                 # A aba `plano` precisa estar em xl/worksheets/, onde o orçamento foi medido.
-                _caminho_da_aba(formulas)
+                _caminho_da_aba(formulas, NOME_DA_ABA)
                 # A dimensão declarada no XML só serve para o openpyxl montar a aba. Ela
                 # descartava, em silêncio, conteúdo além dela (a nota A4). Sem ela, cada célula
                 # é lida. A coluna já foi limitada na varredura, pela referência de cada célula.

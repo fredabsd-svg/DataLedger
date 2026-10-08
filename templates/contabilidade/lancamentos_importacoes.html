@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block titulo %}Importações de lançamentos — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% comment %}
+DL-077, fatia 3 (frente B): caixa de entrada das importações de lançamentos (arquétipo C). Cada
+linha mostra o ESTADO e as contagens em texto, e a duplicidade já aparece pelo estado "descartada"
+e pela mensagem de recusa do envio. Esta lista não grava nada: o envio e a conferência são as telas
+seguintes. Um arquivo só chega ao Diário pela efetivação, na conferência.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Importações de lançamentos</h1>{% endblock %}
+
+{% block acoes_pagina %}
+    {% if pode_escriturar %}
+        <a class="botao botao--primario" href="{% url 'contabilidade_web:lancamentos_importar' empresa.id %}">Importar arquivo</a>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    <p><a class="botao botao--secundario" href="{% url 'contabilidade_web:diario' empresa.id %}">‹ Voltar para o diário</a></p>
+
+    {% if not pode_escriturar %}
+        <p class="texto-apoio">
+            Seu papel lê as importações desta empresa. Quem escritura a contabilidade recebe o arquivo,
+            confere e efetiva os lançamentos.
+        </p>
+    {% endif %}
+
+    {% if importacoes %}
+        {% if importacoes|length >= limite_da_lista %}
+            <p class="texto-apoio">Mostrando as {{ limite_da_lista }} importações mais recentes.</p>
+        {% endif %}
+        <div class="cartao-tabela">
+            <table class="tabela-dados">
+                <caption class="visualmente-oculto">Importações de lançamentos desta empresa, da mais recente para a mais antiga</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Estado</th>
+                        <th scope="col">Formato</th>
+                        <th scope="col">Arquivo</th>
+                        <th scope="col">Recebido em</th>
+                        <th scope="col">Recebido por</th>
+                        <th scope="col">Lançamentos</th>
+                        <th scope="col">Com erro</th>
+                        <th scope="col">Com aviso</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for importacao in importacoes %}
+                        <tr>
+                            <td><span class="selo">{{ importacao.get_estado_display }}</span></td>
+                            <td>{{ importacao.get_formato_display }}</td>
+                            <td>{{ importacao.nome_arquivo|default:"—" }}</td>
+                            <td>{{ importacao.criado_em|date:"d/m/Y H:i" }}</td>
+                            <td>{{ importacao.criado_por.get_username|default:"—" }}</td>
+                            <td class="valor-monetario">{{ importacao.quantidade_lancamentos }}</td>
+                            <td class="valor-monetario">{{ importacao.quantidade_com_erro }}</td>
+                            <td class="valor-monetario">{{ importacao.quantidade_com_aviso }}</td>
+                            <td>
+                                <a class="botao botao--secundario botao--pequeno" href="{% url 'contabilidade_web:lancamentos_importacao' empresa.id importacao.id %}">Abrir<span class="visualmente-oculto"> a importação {{ importacao.id }}</span></a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="estado-vazio">
+            <p class="estado-vazio__titulo"><strong>Nenhum arquivo de lançamentos recebido nesta empresa.</strong></p>
+            <p class="estado-vazio__descricao">Um arquivo entra em conferência e só vai ao Diário depois que for efetivado.</p>
+            {% if pode_escriturar %}
+                <p><a class="botao botao--primario" href="{% url 'contabilidade_web:lancamentos_importar' empresa.id %}">Importar arquivo</a></p>
+            {% endif %}
+        </div>
+    {% endif %}
+{% endblock %}

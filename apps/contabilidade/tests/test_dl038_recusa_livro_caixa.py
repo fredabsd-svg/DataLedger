@@ -165,8 +165,30 @@ def test_a_derivacao_encontrou_as_vinte_e_quatro_rotas_web_e_as_vinte_da_api():
     # (GET, formulário ou arquivo). Cada uma recusa livro-caixa ANTES de ler o formulário
     # (ver `_sem_contabilidade_para_livro_caixa` em `views_web.py`). 26 -> 30 do lado da
     # tela. A API continua em 26.
-    assert len(ROTAS_WEB) == 30, ROTAS_WEB
-    assert len(ROTAS_API) == 26, ROTAS_API
+    #
+    # DL-077, fatia 2 (API): UMA rota nova — "lancamentos-exportacao" (GET, arquivo de
+    # lançamentos e saldos com o relatório nos cabeçalhos). Passa pelo mesmo `get_empresa()`
+    # das irmãs, então a varredura de livro-caixa cobre também ela. 26 -> 27 do lado da API.
+    #
+    # DL-077, fatia 2 (tela): DUAS rotas novas — "lancamentos_exportar" (GET, formulário e
+    # conferência) e "lancamentos_exportar_arquivo" (GET, download com SHA-256 conferido).
+    # Cada uma recusa livro-caixa antes de ler o formulário, como as irmãs. 30 -> 32 do lado
+    # da tela.
+    #
+    # DL-077, fatia 3 (frente A, API): SETE rotas novas de importação de lançamentos com área
+    # de conferência — "lancamentos-importacao" (GET lista, POST recebe), "-detalhe" (GET),
+    # "-reconferir", "-avisos", "-efetivar", "-descartar" (POST cada) e "-de-para" (GET/POST).
+    # Todas passam por `get_empresa()` da mixin, então a varredura de livro-caixa as cobre.
+    # 27 -> 34 do lado da API. Nenhuma rota de tela nesta frente (a tela é a frente B).
+    #
+    # DL-077, fatia 3 (frente B, tela): NOVE rotas novas de tela — "lancamentos_importacoes" (GET
+    # lista), "lancamentos_importar" (GET formulário, POST recebe), "lancamentos_importar_
+    # modelo_excel" (GET), "lancamentos_importacao" (GET conferência) e as cinco ações só de POST
+    # sob a importação
+    # ("-de-para", "-avisos", "-reconferir", "-efetivar", "-descartar"). Cada uma recusa livro-caixa
+    # antes de ler o corpo, como as irmãs. 32 -> 41 do lado da tela. API inalterada (34).
+    assert len(ROTAS_WEB) == 41, ROTAS_WEB
+    assert len(ROTAS_API) == 34, ROTAS_API
 
 
 @pytest.fixture

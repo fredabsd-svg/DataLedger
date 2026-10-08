@@ -8,6 +8,7 @@ from apps.contabilidade.views import (
     ContaClassificacaoDmplView,
     ContaClassificacaoDreView,
     ContaListCreateView,
+    DeParaContaLancamentosView,
     DfcView,
     DiarioView,
     DlpaView,
@@ -17,7 +18,14 @@ from apps.contabilidade.views import (
     EncerrarVigenciaParametroContabilView,
     EntregarCompetenciaView,
     EstornarLancamentoView,
+    ImportacaoLancamentosAvisosView,
+    ImportacaoLancamentosDescartarView,
+    ImportacaoLancamentosDetalheView,
+    ImportacaoLancamentosEfetivarView,
+    ImportacaoLancamentosListarEnviarView,
+    ImportacaoLancamentosReconferirView,
     LancamentoListCreateView,
+    LancamentosExportacaoView,
     MarcacaoDmplView,
     ParametrosContabeisListCreateView,
     PlanoDeContasExportacaoView,
@@ -188,5 +196,49 @@ urlpatterns = [
         "empresas/<int:empresa_id>/plano-de-contas/importacao/modelo-excel/",
         PlanoDeContasModeloExcelView.as_view(),
         name="plano-modelo-excel",
+    ),
+    # DL-077 (fatia 2): exportação de lançamentos e saldos, com o relatório de conferência
+    # nos cabeçalhos `X-DataLedger-*`. Não é a ECD (ver `intercambio/lancamentos.py`).
+    path(
+        "empresas/<int:empresa_id>/lancamentos/exportacao/",
+        LancamentosExportacaoView.as_view(),
+        name="lancamentos-exportacao",
+    ),
+    # DL-077 (fatia 3, frente A): importação de lançamentos com área de conferência. Nada
+    # aqui grava no Diário além da efetivação (ver `intercambio/importacao_lancamentos.py`).
+    path(
+        "empresas/<int:empresa_id>/lancamentos/importacao/",
+        ImportacaoLancamentosListarEnviarView.as_view(),
+        name="lancamentos-importacao",
+    ),
+    path(
+        "empresas/<int:empresa_id>/lancamentos/importacao/<int:importacao_id>/",
+        ImportacaoLancamentosDetalheView.as_view(),
+        name="lancamentos-importacao-detalhe",
+    ),
+    path(
+        "empresas/<int:empresa_id>/lancamentos/importacao/<int:importacao_id>/reconferir/",
+        ImportacaoLancamentosReconferirView.as_view(),
+        name="lancamentos-importacao-reconferir",
+    ),
+    path(
+        "empresas/<int:empresa_id>/lancamentos/importacao/<int:importacao_id>/avisos/",
+        ImportacaoLancamentosAvisosView.as_view(),
+        name="lancamentos-importacao-avisos",
+    ),
+    path(
+        "empresas/<int:empresa_id>/lancamentos/importacao/<int:importacao_id>/efetivar/",
+        ImportacaoLancamentosEfetivarView.as_view(),
+        name="lancamentos-importacao-efetivar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/lancamentos/importacao/<int:importacao_id>/descartar/",
+        ImportacaoLancamentosDescartarView.as_view(),
+        name="lancamentos-importacao-descartar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/lancamentos/importacao/de-para/",
+        DeParaContaLancamentosView.as_view(),
+        name="lancamentos-importacao-de-para",
     ),
 ]

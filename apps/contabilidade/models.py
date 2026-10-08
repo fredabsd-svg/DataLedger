@@ -2795,3 +2795,276 @@ class ParametroContabilEmpresa(models.Model):
             f"{self.empresa} — zeramento {self.get_periodicidade_zeramento_display()} "
             f"desde {self.vigencia_inicio}"
         )
+
+
+# -----------------------------------------------------------------------------
+# DL-077, fatia 3 (frente A): importação de lançamentos com área de conferência.
+# -----------------------------------------------------------------------------
+
+
+class ImportacaoLancamentosImutavel(Exception):
+    """Levantado ao tentar alterar ou excluir uma importação já efetivada ou descartada."""
+
+
+class FormatoImportacaoLancamentos(models.TextChoices):
+    ECD = "ecd", "ECD (I200/I250)"
+    PROPRIO = "proprio", "DataLedger (TXT próprio)"
+    EXCEL = "excel", "Excel (.xlsx)"
+    REFERENCIA = "referencia", "Sistema de referência (6000/6100)"
+
+
+class EstadoImportacaoLancamentos(models.TextChoices):
+    EM_CONFERENCIA = "em_conferencia", "Em conferência"
+    EFETIVADA = "efetivada", "Efetivada"
+    DESCARTADA = "descartada", "Descartada"
+
+
+class ImportacaoLancamentos(models.Model):
+    """Um arquivo de lançamentos recebido, conferido e, por fim, efetivado ou descartado.
+
+    A ÁREA DE CONFERÊNCIA da DL-077 (consulta de 08/10/2026, §5): nada desta tabela entra no
+    Diário. Só a EFETIVAÇÃO (`apps.contabilidade.intercambio.importacao_lancamentos.efetivar`)
+    chama `criar_lancamento`, um a um, numa transação. O lançamento efetivado é imutável (DL-052),
+    e por isso a conferência não pode ser o próprio Diário.
+
+    Imutável depois de efetivada ou descartada: `save()` recusa a mudança, `delete()` recusa
+    sempre, e o banco repete as duas regras por gatilho (migração 0024). Única por (empresa,
+    SHA-256) enquanto não descartada: o mesmo arquivo não entra duas vezes na conferência nem
+    na efetivação, e uma importação descartada libera o arquivo para nova conferência.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa, on_delete=models.PROTECT, related_name="importacoes_de_lancamentos"
+    )
+    formato = models.CharField(
+        "formato", max_length=20, choices=FormatoImportacaoLancamentos.choices
+    )
+    # Só o NOME do arquivo: o caminho do computador de quem enviou não é guardado.
+    nome_arquivo = models.CharField("nome do arquivo", max_length=255, blank=True, default="")
+    sha256 = models.CharField("SHA-256 do arquivo", max_length=64)
+    estado = models.CharField(
+        "estado",
+        max_length=20,
+        choices=EstadoImportacaoLancamentos.choices,
+        default=EstadoImportacaoLancamentos.EM_CONFERENCIA,
+    )
+    politica_de_efetivacao = models.CharField(
+        "política de efetivação", max_length=20, blank=True, default=""
+    )
+    quantidade_lancamentos = models.PositiveIntegerField("lançamentos lidos", default=0)
+    quantidade_com_erro = models.PositiveIntegerField("lançamentos com erro", default=0)
+    quantidade_com_aviso = models.PositiveIntegerField("lançamentos com aviso", default=0)
+    quantidade_efetivados = models.PositiveIntegerField("lançamentos efetivados", default=0)
+    quantidade_nao_efetivados = models.PositiveIntegerField("lançamentos não efetivados", default=0)
+    soma_debitos = models.DecimalField(
+        "soma dos débitos", max_digits=18, decimal_places=2, default=Decimal("0.00")
+    )
+    soma_creditos = models.DecimalField(
+        "soma dos créditos", max_digits=18, decimal_places=2, default=Decimal("0.00")
+    )
+    # Ocorrências que não pertencem a um lançamento (erro de arquivo, aviso de codificação...).
+    # GUARDADAS NO MÁXIMO 500, priorizando o erro do arquivo inteiro (DL-077 A8). Os totais abaixo
+    # são calculados sobre a lista INTEIRA no recebimento: é com eles que a efetivação decide o
+    # bloqueio, para que um corte da lista nunca esconda um erro.
+    ocorrencias_do_arquivo = models.JSONField("ocorrências do arquivo", default=list, blank=True)
+    quantidade_ocorrencias_do_arquivo = models.PositiveIntegerField(
+        "ocorrências do arquivo (total)", default=0
+    )
+    quantidade_erros_do_arquivo = models.PositiveIntegerField("erros do arquivo (total)", default=0)
+    quantidade_erros_do_arquivo_inteiro = models.PositiveIntegerField(
+        "erros do arquivo inteiro", default=0
+    )
+    # Aviso "o arquivo não declara a empresa": exige o aceite do contador antes de efetivar, nas
+    # duas políticas (DL-077 A11). `aceite_do_arquivo` é o aceite; só vale enquanto o aviso existe.
+    exige_aceite_do_arquivo = models.BooleanField("exige aceite do arquivo", default=False)
+    aceite_do_arquivo = models.BooleanField("aviso do arquivo aceito", default=False)
+    # Soma dos lançamentos EFETIVADOS (gravados no Diário). `soma_debitos`/`soma_creditos` são as
+    # LIDAS do arquivo (DL-077 A7). Com a efetivação parcial suspensa (BL-676), só "tudo ou
+    # nada" efetiva, e as duas coincidem; o campo continua para quando a parcial voltar.
+    soma_debitos_efetivados = models.DecimalField(
+        "soma dos débitos efetivados", max_digits=18, decimal_places=2, default=Decimal("0.00")
+    )
+    soma_creditos_efetivados = models.DecimalField(
+        "soma dos créditos efetivados", max_digits=18, decimal_places=2, default=Decimal("0.00")
+    )
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="recebido por",
+    )
+    criado_em = models.DateTimeField("recebido em", auto_now_add=True)
+    efetivada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="efetivada por",
+    )
+    efetivada_em = models.DateTimeField("efetivada em", null=True, blank=True)
+    descartada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="descartada por",
+    )
+    descartada_em = models.DateTimeField("descartada em", null=True, blank=True)
+    motivo_do_descarte = models.CharField(
+        "motivo do descarte", max_length=500, blank=True, default=""
+    )
+
+    class Meta:
+        verbose_name = "importação de lançamentos"
+        verbose_name_plural = "importações de lançamentos"
+        ordering = ["-criado_em", "-id"]
+        constraints = [
+            # Mesmo arquivo, mesma empresa: uma só importação viva. Descartada não conta.
+            models.UniqueConstraint(
+                fields=["empresa", "sha256"],
+                condition=~models.Q(estado="descartada"),
+                name="importacao_lancamentos_sha_unico_por_empresa",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    estado__in=[valor for valor, _rotulo in EstadoImportacaoLancamentos.choices]
+                ),
+                name="ck_importacao_lancamentos_estado_valido",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    formato__in=[valor for valor, _rotulo in FormatoImportacaoLancamentos.choices]
+                ),
+                name="ck_importacao_lancamentos_formato_valido",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Importação de lançamentos {self.pk} ({self.get_formato_display()}) — {self.estado}"
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            anterior = ImportacaoLancamentos.objects.only("estado").get(pk=self.pk)
+            if anterior.estado != EstadoImportacaoLancamentos.EM_CONFERENCIA:
+                raise ImportacaoLancamentosImutavel(
+                    "Importação já efetivada ou descartada não pode ser alterada."
+                )
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ImportacaoLancamentosImutavel(
+            "Importação de lançamentos não pode ser excluída; descarte-a com motivo."
+        )
+
+
+class LancamentoImportado(models.Model):
+    """Um lançamento de uma importação, como foi lido e conferido (DL-077, fatia 3).
+
+    `partidas` é JSON: uma entrada por partida, com a linha de origem, o código de origem, a
+    conta resolvida (`conta_id`, ou None), o lado (`debito`/`credito`), o valor como TEXTO com
+    duas casas (um `Decimal` não cabe em JSON sem perder a escala) e o histórico da partida.
+    `ocorrencias` é JSON: cada item traz `origem` (`leitura` ou `conferencia`), para que a
+    reconferência troque só as da conferência e mantenha as da leitura.
+
+    `lancamento` aponta para o lançamento do Diário, e só é preenchido pela efetivação. Único
+    por (importação, número de origem). Imutável enquanto a importação não for efetivada ou
+    descartada, pelas mesmas duas camadas de `ImportacaoLancamentos`.
+    """
+
+    importacao = models.ForeignKey(
+        ImportacaoLancamentos, on_delete=models.PROTECT, related_name="lancamentos"
+    )
+    numero_origem = models.CharField("número de origem", max_length=100)
+    linha = models.PositiveIntegerField("linha de origem")
+    data = models.DateField("data")
+    historico = models.TextField("histórico", blank=True, default="")
+    partidas = models.JSONField("partidas", default=list)
+    ocorrencias = models.JSONField("ocorrências", default=list, blank=True)
+    tem_erro = models.BooleanField("tem erro", default=False)
+    tem_aviso = models.BooleanField("tem aviso", default=False)
+    aceito_com_aviso = models.BooleanField("avisos aceitos", default=False)
+    lancamento = models.ForeignKey(
+        LancamentoContabil,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="origem_na_importacao",
+        verbose_name="lançamento efetivado",
+    )
+
+    class Meta:
+        verbose_name = "lançamento importado"
+        verbose_name_plural = "lançamentos importados"
+        ordering = ["linha", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["importacao", "numero_origem"],
+                name="lancamento_importado_numero_unico_por_importacao",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.importacao_id is not None:
+            estado = ImportacaoLancamentos.objects.only("estado").get(pk=self.importacao_id).estado
+            if estado != EstadoImportacaoLancamentos.EM_CONFERENCIA:
+                raise ImportacaoLancamentosImutavel(
+                    "Lançamento de importação já efetivada ou descartada não pode ser alterado."
+                )
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ImportacaoLancamentosImutavel(
+            "Lançamento importado não pode ser excluído: ele faz parte da trilha da importação."
+        )
+
+
+class DeParaConta(models.Model):
+    """Código de origem (de um arquivo) -> conta do DataLedger, por empresa e formato (DL-077).
+
+    Reutilizável: a mesma tabela serve a todas as importações da empresa no mesmo formato.
+    O código de origem é o que o ARQUIVO traz (código reduzido no sistema de referência; a
+    conta na ECD e no formato próprio, quando o código exato não existe no plano).
+    """
+
+    empresa = models.ForeignKey(
+        Empresa, on_delete=models.PROTECT, related_name="de_para_de_contas_de_importacao"
+    )
+    formato = models.CharField(
+        "formato", max_length=20, choices=FormatoImportacaoLancamentos.choices
+    )
+    codigo_origem = models.CharField("código de origem", max_length=100)
+    conta = models.ForeignKey(
+        Conta, on_delete=models.PROTECT, related_name="de_para_de_importacao", verbose_name="conta"
+    )
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="definido por",
+    )
+    criado_em = models.DateTimeField("definido em", auto_now_add=True)
+    atualizado_em = models.DateTimeField("atualizado em", auto_now=True)
+
+    class Meta:
+        verbose_name = "de-para de conta (importação)"
+        verbose_name_plural = "de-para de contas (importação)"
+        ordering = ["formato", "codigo_origem"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["empresa", "formato", "codigo_origem"],
+                name="depara_conta_unica_por_empresa_formato_origem",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(codigo_origem=""),
+                name="ck_depara_conta_codigo_origem_nao_vazio",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.formato}: {self.codigo_origem} -> {self.conta}"

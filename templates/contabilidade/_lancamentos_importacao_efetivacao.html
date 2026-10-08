@@ -1,0 +1,109 @@
+{% comment %}
+DL-077, fatia 3 (frente B): a efetivação, SÓ TUDO OU NADA. Grava todos os lançamentos, ou nenhum. O
+botão só é habilitado quando não há erro, nem erro do arquivo, nem aviso por aceitar. Quando não é
+possível, o botão aparece DESABILITADO com o motivo escrito ao lado (direção de arte, arquétipo B: nunca
+some). O formulário nem é renderizado nesse caso, para que a tela não ofereça a gravação que o servidor
+recusaria.
+
+A efetivação parcial ("só os válidos") está SUSPENSA (BL-676) e não é oferecida: ela falhou duas vezes em
+gravar lançamento incompleto num Diário imutável.
+
+A confirmação é explícita: a caixa precisa estar marcada, e o servidor confere isso de novo.
+O veredito é APRESENTAÇÃO (ver `_veredito_da_efetivacao` em views_web.py). O serviço reconfere e
+recusa de novo antes de gravar.
+{% endcomment %}
+<section class="painel-etapa" aria-labelledby="id_efetivacao_titulo">
+    <h2 id="id_efetivacao_titulo">Efetivar no Diário</h2>
+
+    {% if efetivada %}
+        <p>
+            Os lançamentos efetivados estão no Diário e não podem ser alterados, só estornados.
+            Política usada: {{ politica_rotulo|default:"—" }}. Efetivados: {{ importacao.quantidade_efetivados }}.
+            Ficaram de fora: {{ importacao.quantidade_nao_efetivados }}.
+            Gravado no Diário: débitos {{ soma_debitos_efetivados_ptbr }}, créditos {{ soma_creditos_efetivados_ptbr }}.
+            Lido do arquivo: débitos {{ soma_debitos_ptbr }}, créditos {{ soma_creditos_ptbr }}.
+            {% if importacao.efetivada_por %}Efetivada por {{ importacao.efetivada_por.get_username }}{% endif %}
+            {% if importacao.efetivada_em %}em {{ importacao.efetivada_em|date:"d/m/Y H:i" }}{% endif %}.
+        </p>
+        {% if ficam_de_fora_total %}
+            <h3>Lançamentos que ficaram de fora</h3>
+            <table class="tabela-dados">
+                <caption class="visualmente-oculto">Lançamentos desta importação que não foram para o Diário</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Número de origem</th>
+                        <th scope="col">Linha</th>
+                        <th scope="col">Motivo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in ficam_de_fora %}
+                        <tr>
+                            <td>{{ item.numero }}</td>
+                            <td class="valor-monetario">{{ item.linha }}</td>
+                            <td>{{ item.motivo }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    {% else %}
+        {% if pode_agir %}
+            <form method="post" action="{% url 'contabilidade_web:lancamentos_importacao_reconferir' empresa.id importacao.id %}" class="formulario">
+                {% csrf_token %}
+                <p class="texto-apoio">
+                    Reconfira depois de mudar um de-para ou de reabrir uma competência. A efetivação também
+                    reconfere antes de gravar.
+                </p>
+                <button type="submit" class="botao botao--secundario">Reconferir com o cadastro atual</button>
+            </form>
+        {% endif %}
+
+        <h3>Tudo ou nada</h3>
+        <p class="texto-apoio">
+            Grava todos os lançamentos, ou nenhum. Só é possível sem erro, sem erro do arquivo e sem aviso por aceitar.
+            Não há efetivação parcial: um lançamento com erro não entra sozinho.
+        </p>
+        {% if tudo_ou_nada.pode %}
+            {% if pode_agir %}
+                <form method="post" action="{% url 'contabilidade_web:lancamentos_importacao_efetivar' empresa.id importacao.id %}" class="formulario">
+                    {% csrf_token %}
+                    <input type="hidden" name="politica" value="{{ politica_tudo_ou_nada }}">
+                    <div class="campo campo-checkbox">
+                        <label class="campo-checkbox__opcao">
+                            <input type="checkbox" name="confirmar" value="sim" required>
+                            Os {{ tudo_ou_nada.quantidade }} lançamentos serão gravados no Diário e não poderão ser alterados — só estornados.
+                        </label>
+                    </div>
+                    <button type="submit" class="botao botao--primario">Efetivar {{ tudo_ou_nada.quantidade }} lançamentos (tudo ou nada)</button>
+                </form>
+            {% else %}
+                <p class="texto-apoio">Seu papel não efetiva lançamentos. Quem escritura a contabilidade faz esta ação.</p>
+            {% endif %}
+        {% else %}
+            <div class="mensagem mensagem-warning">
+                <p>
+                    <strong>Não é possível efetivar tudo:</strong>
+                    {% for pendencia in tudo_ou_nada.pendencias %}{{ pendencia }}{% if not forloop.last %}; {% endif %}{% endfor %}.
+                </p>
+                {% if contagens.total or tudo_ou_nada.erros_do_arquivo %}
+                    <p>Erro precisa ser corrigido no arquivo; se o arquivo não servir, descarte a importação. Depois de corrigir um de-para, reconfira.</p>
+                {% else %}
+                    <p>Não há lançamento neste arquivo: descarte a importação e envie outro.</p>
+                {% endif %}
+                {% if tudo_ou_nada.erros_do_arquivo %}
+                    <p>Erros do arquivo, que impedem a efetivação:</p>
+                    <ul>
+                        {% for erro in tudo_ou_nada.erros_do_arquivo %}
+                            <li>{{ erro.campo }}: {{ erro.mensagem }}</li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            </div>
+            {% if pode_agir and contagens.total %}
+                <button type="button" class="botao botao--primario" disabled aria-disabled="true">Efetivar tudo ou nada (indisponível)</button>
+            {% endif %}
+        {% endif %}
+
+    {% endif %}
+</section>

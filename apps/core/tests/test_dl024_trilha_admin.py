@@ -95,8 +95,11 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
     from apps.contabilidade.models import (
         Competencia,
         Conta,
+        DeParaConta,
+        ImportacaoLancamentos,
         ItemLancamento,
         LancamentoContabil,
+        LancamentoImportado,
         MarcacaoDmpl,
         ParametroContabilEmpresa,
     )
@@ -236,6 +239,11 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         # transação — um formulário de admin contornaria as duas coisas.
         # Cobertura "por padrão" (R1/DE-056), como os blocos acima.
         MarcacaoDmpl,
+        # DL-077 (fatia 3, frente A): importação de lançamentos com área de conferência. Os três
+        # modelos entram na cobertura pelo mesmo mecanismo "por padrão"; nenhum tem admin.
+        ImportacaoLancamentos,
+        LancamentoImportado,
+        DeParaConta,
     }
     assert cobertos == esperados_cobertos, (
         f"DL-030: cobertura da trilha divergente.\n"

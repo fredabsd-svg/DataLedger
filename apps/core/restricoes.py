@@ -224,6 +224,20 @@ MENSAGENS_DE_RESTRICAO = {
 # Python, quem recusou (a janela de corrida entre a checagem em Python e
 # o INSERT/UPDATE).
 MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
+    # DL-077 (fatia 3, frente A), gatilhos da migração 0024 de `apps.contabilidade`: a importação
+    # de lançamentos é área de conferência, e depois de efetivada ou descartada nenhuma linha muda.
+    "importacao_lancamentos_sem_exclusao": (
+        "Importação de lançamentos não pode ser excluída; descarte-a com motivo."
+    ),
+    "importacao_lancamentos_imutavel_depois_de_fechada": (
+        "Importação já efetivada ou descartada não pode ser alterada."
+    ),
+    "lancamento_importado_sem_exclusao": (
+        "Lançamento importado não pode ser excluído: ele faz parte da trilha da importação."
+    ),
+    "lancamento_importado_imutavel_depois_de_fechada": (
+        "Lançamento de importação já efetivada ou descartada não pode ser alterado."
+    ),
     "estabelecimento_empresa_nao_e_cpf": (
         "Não é possível cadastrar estabelecimento (matriz/filial) para uma "
         "empresa do tipo CPF: NIRE e estabelecimento são exclusivos de pessoa "
@@ -368,6 +382,18 @@ def mensagens_de_gatilho(*nomes):
 # elas traduzem para exceções de negócio DIFERENTES, com semântica de HTTP
 # diferente (409 de conflito de idempotência não é 400 de entrada inválida).
 RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
+    # DL-077 (fatia 3, frente A): as unicidades da importação de lançamentos são checadas pelo
+    # serviço antes de gravar (`receber` recusa o arquivo repetido com 409; o IntegrityError de
+    # corrida é reconvertido ali) e o de-para é gravado por `definir_de_para` (update_or_create).
+    "importacao_lancamentos_sha_unico_por_empresa": (
+        "apps.contabilidade.intercambio.importacao_lancamentos.receber"
+    ),
+    "lancamento_importado_numero_unico_por_importacao": (
+        "apps.contabilidade.intercambio.importacao_lancamentos.receber"
+    ),
+    "depara_conta_unica_por_empresa_formato_origem": (
+        "apps.contabilidade.intercambio.importacao_lancamentos.definir_de_para"
+    ),
     # DL-038: `empresas_empresa_cnpj_key` (índice implícito de `unique=True`
     # de campo) foi SUBSTITUÍDO por `empresa_cnpj_unico` — uma
     # `UniqueConstraint` condicional, porque a unicidade do CNPJ de
@@ -518,6 +544,19 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
 # nenhum. A forma como a restrição foi DECLARADA não muda o que acontece
 # quando ela é violada.
 RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
+    # DL-077 (fatia 3, frente A): restrições de domínio fechado escritas só pelo serviço.
+    "ck_importacao_lancamentos_estado_valido": (
+        "O estado da importação é escrito só pelo serviço de importação, com os três valores do "
+        "enum; nenhuma entrada do cliente chega a este campo."
+    ),
+    "ck_importacao_lancamentos_formato_valido": (
+        "O formato da importação vem de uma lista fechada, validada pelo serviço antes de gravar; "
+        "a entrada do cliente é recusada antes do INSERT."
+    ),
+    "ck_depara_conta_codigo_origem_nao_vazio": (
+        "O código de origem é aparado (strip) e conferido por `definir_de_para` antes do INSERT; "
+        "o campo não é gravado direto a partir de texto do cliente."
+    ),
     "unico_vinculo_usuario_escritorio": (
         "Vínculo usuário-escritório só é criado pelo admin do Django "
         "(apps/tenancy/admin.py) e por código de teste; não há rota de API nem "
