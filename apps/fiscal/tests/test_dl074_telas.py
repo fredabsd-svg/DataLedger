@@ -287,7 +287,7 @@ def test_rbt12_mostra_a_regra_aplicada_e_os_meses_pendentes(
 
     html = client.get(_url_painel(), _painel_de(empresa, 2026, 4)).content.decode()
 
-    assert "§ 3º (meses seguintes do ano de início)" in html
+    assert "§ 3º (2º ao 12º mês de atividade, abertura no ano da opção)" in html
     assert "10/03/2026" in html
     assert "03/2026 (Não confirmado)" in html
     assert "Não apurável." in html
