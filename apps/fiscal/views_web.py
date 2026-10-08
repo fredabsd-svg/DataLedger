@@ -1337,7 +1337,12 @@ _ROTULO_DO_MERCADO = {
 _REGRA_POR_EXTENSO = {
     "§ 1º": "§ 1º (regra geral): soma dos 12 meses anteriores ao período de apuração",
     "§ 2º": "§ 2º (primeiro mês de atividade): receita do próprio mês × 12",
-    "§ 3º": "§ 3º (meses seguintes do ano de início): média dos meses de atividade anteriores × 12",
+    # DL-074, HI-76: a proporcional vale nos 12 primeiros meses de atividade, mesmo
+    # atravessando a virada do ano — não só no ano de início.
+    "§ 3º": (
+        "§ 3º (2º ao 12º mês de atividade, abertura no ano da opção): "
+        "média dos meses de atividade anteriores × 12"
+    ),
     "§ 4º": (
         "§ 4º (abertura no ano anterior ao da opção): § 3º até o 12º mês de atividade, "
         "§ 1º a partir do 13º"
