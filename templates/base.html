@@ -849,6 +849,14 @@
                                                             <a href="{% url 'fiscal_web:conferencia_escrituracao' %}">Conferência</a>
                                                         {% endif %}
                                                     </li>
+                                                    {# DL-073: conformidade IBS/CBS das NFS-e recebidas (modo aviso); mesma permissão de consulta. #}
+                                                    <li>
+                                                        {% if pagina_atual == "conformidade_ibscbs" %}
+                                                            <span class="item-atual" aria-current="page">Conformidade IBS/CBS</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:conformidade_ibscbs' %}">Conformidade IBS/CBS</a>
+                                                        {% endif %}
+                                                    </li>
                                                 </ul>
                                             </div>
                                         {% endwith %}

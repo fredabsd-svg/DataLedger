@@ -96,6 +96,8 @@ ROTULOS_DE_TELA = {
     ("fiscal_web", "escriturar_nota"): "Escriturar nota",
     ("fiscal_web", "escrituracao_detalhe"): "Escrituração",
     ("fiscal_web", "escrituracao_estornar"): "Estornar escrituração",
+    # DL-073: conformidade IBS/CBS das NFS-e recebidas (modo aviso).
+    ("fiscal_web", "conformidade_ibscbs"): "Conformidade IBS/CBS",
     ("tenancy", "bootstrap-primeiro-acesso"): "Criar escritório",
     ("tenancy", "aceitar-convite"): "Aceitar convite",
 }
