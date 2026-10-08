@@ -136,8 +136,10 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-068](../planos/DL-068-prontidao-para-implantacao.md) | Prontidão para implantação: Django 6.1.2, limite no login do admin, `.dockerignore`, `DJANGO_AMBIENTE` (BL-82) e proxies `/0` (BL-577) | **Integrada (PR #91, squash `7c23894`, merge feito pelo Fred em 07/10/2026)** — auditoria e reconferência aprovadas com ressalvas; R1 com o Fred (BL-642) |
 | [DL-069](../planos/DL-069-travas-no-banco.md) | Travas no banco: livro-caixa imutável, período encerrado recusa INSERT, trilha imutável | Situação em **[Próximo passo](#próximo-passo)** — fatias 1 e 2 integradas (PR #92 e #93); fatia 3 bloqueada na PE-77 |
 | [DL-070](../planos/DL-070-melhorias-com-equipe-multiagente.md) | Melhorias do repositório com equipe multiagente (RC-160): entradas do acesso, consultas por linha, testes que faltavam | Integrada (PR #94, squash `76cb92a`) — auditoria e reconferência aprovadas com ressalvas; BL-652 a BL-654 abertos |
-| [DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) | A marcação manual da DMPL respeita o período fechado (BL-655) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) | A marcação manual da DMPL respeita o período fechado (BL-655) | Integrada (PR #95, squash `389aafe`) — auditoria e reconferência aprovadas com ressalvas; BL-656 a BL-659 abertos |
 | [DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) | Fiscal F1: escrituração das NFS-e prestadas (natureza, competência, estorno, conferência) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-073](../planos/DL-073-validador-ibscbs.md) | Fiscal: validador de conformidade IBS/CBS das NFS-e recebidas (modo aviso, HI-61) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) | Fiscal: receita mensal, receita informada, confirmação e RBT12 do Simples por mercado | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -161,8 +163,11 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 **AGORA, em 08/10/2026:**
 
 1. **[DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) — a
-   marcação manual da DMPL respeita o período fechado (BL-655): em revisão**
-   na branch `ccr-bf4b4a55-hpqgbp`, PR para a `main` a abrir. Nível 1.
+   marcação manual da DMPL respeita o período fechado (BL-655): INTEGRADA**
+   pelo [PR #95](https://github.com/fredabsd-svg/DataLedger/pull/95), squash
+   `389aafe`, em 08/10/2026, com os quatro checks verdes em todas as
+   execuções do último commit; merge feito pelo arquiteto sob a RC-164.
+   Nível 1.
    [Rodada 1](../auditorias/2026-10-08-dl-071-rodada-1.md) **APROVADA COM
    RESSALVAS**; correção única (`f4f2a72`, Haiku);
    [reconferência](../auditorias/2026-10-08-dl-071-reconferencia.md)
@@ -174,16 +179,32 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    exercícios anteriores para o Fred; BL-657 (limite aceito: competência sem
    linha não é travada); BL-658 e BL-659 (baixos).
 2. **[DL-072](../planos/DL-072-escrituracao-das-nfse-prestadas.md) — Fiscal
-   F1, escrituração das NFS-e prestadas: em desenvolvimento.** Frente A
-   (domínio, API) em cópia isolada (`/home/user/wt-dl072a`, branch
-   `dl072-frente-a`), para entrar depois do merge da DL-071; frente B (telas)
-   em seguida.
+   F1, escrituração das NFS-e prestadas — e
+   [DL-073](../planos/DL-073-validador-ibscbs.md) — validador de
+   conformidade IBS/CBS: em revisão** na branch `ccr-bf4b4a55-hpqgbp`, PR
+   para a `main` a abrir. Ciclo do §3.1 encerrado:
+   [rodada 1](../auditorias/2026-10-08-dl-072-dl-073-rodada-1.md) e
+   [reconferência](../auditorias/2026-10-08-dl-072-dl-073-reconferencia.md),
+   as duas **APROVADAS COM RESSALVAS** para as duas etapas; os achados novos
+   R1, R2, R4 e R5 da reconferência foram corrigidos depois (`5035bb8`), com
+   testes que derrubam os mutantes, sem nova rodada. R3 (a migração `0002`
+   foi editada antes de chegar a ambiente compartilhado — bancos locais
+   antigos precisam ser recriados) vai declarada no PR. Abertos: BL-660 a
+   BL-666.
+3. **[DL-074](../planos/DL-074-receita-e-rbt12-do-simples.md) — receita
+   mensal e RBT12 do Simples: em desenvolvimento.** Frentes A (domínio, API,
+   110 testes) e B (telas, 73 testes) prontas em cópia isolada
+   (`/home/user/wt-dl074int`, branch `dl074-int`), para integrar depois do
+   merge da DL-072/073 e seguir para auditoria. Segunda consulta ao
+   `contador-senior` em
+   [consultas/](../projeto/consultas/2026-10-08-contador-senior-rbt12.md);
+   HI-64 a HI-71.
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
-PostgreSQL 16 local, sobre `f4f2a72`, medida pelo auditor):** `pytest`
-completo **5.065 aprovados, 1 reprovado, 53 pulados**; a reprovação é a
+PostgreSQL 16 local, sobre `5035bb8`):** `pytest` completo **5.459
+aprovados, 1 reprovado, 53 pulados**; a reprovação é a
 conhecida de ambiente (`test_versao_minima_python.py`, exige Python 3.14).
-`ruff`, `check` e `makemigrations --check` limpos (381 arquivos).
+`ruff`, `check` e `makemigrations --check` limpos (395 arquivos).
 
 **Também achado em 08/10/2026:** o diagnóstico da DFC fatia 2 levantou, no
 texto oficial do CPC 03 (R2), Rev. 24, que a norma **não define "classe"** de

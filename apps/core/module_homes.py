@@ -947,6 +947,24 @@ def _dados_fiscal(request, escopo):
         atalhos[0] = {"rotulo": "Ocorrências deste grupo", "url": escopo.url("pendencias")}
     if pode_receber:
         atalhos.append({"rotulo": "Receber XML ou ZIP", "url": reverse("fiscal_web:recepcao")})
+    if papel_pode_consultar_documentos(getattr(request, "papel", None)):
+        # DL-072 (frente B): a lista de notas a escriturar pede UMA empresa e
+        # a competência do escopo; sem empresa única, a própria tela pede a
+        # escolha (nunca um filtro silencioso sobre várias empresas).
+        atalhos.append(
+            {
+                "rotulo": "Notas a escriturar",
+                "url": reverse("fiscal_web:notas_a_escriturar")
+                + "?"
+                + urlencode(
+                    {
+                        "ano": escopo.ano,
+                        "mes": escopo.mes,
+                        **({"empresa": empresas[0].pk} if len(empresas) == 1 else {}),
+                    }
+                ),
+            }
+        )
     return {
         "fontes": fontes,
         "kpis": kpis,

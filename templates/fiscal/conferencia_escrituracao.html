@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+
+{% block titulo %}Conferência da escrituração{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Competência</span>
+            <strong>{{ mes|stringformat:"02d" }}/{{ ano }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-072 (frente B), arquétipo C (conferência). Relatório de CONFERÊNCIA, classe 1
+de docs/projeto/personalizacao-de-relatorio.md: não é demonstração contábil nem
+livro. Só leitura: nenhum fechamento, nenhuma gravação (plano, item 6).
+{% endcomment %}
+{% block titulo_pagina %}<h1>Conferência da escrituração</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        <strong>Relatório de conferência</strong>, de uso interno do escritório. Não é demonstração
+        contábil nem livro contábil. Mostra as notas prestadas pela empresa na competência: quantas
+        foram recebidas, quantas estão escrituradas e quantas ficaram pendentes.
+    </p>
+
+    {% include "fiscal/_filtro_escrituracao.html" %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver a conferência.</strong></p>
+            <p class="estado-vazio__descricao">A conferência é sempre de uma empresa e de uma competência.</p>
+        </div>
+    {% else %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Resumo da conferência da escrituração da competência {{ mes|stringformat:"02d" }}/{{ ano }}</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Item</th>
+                    <th scope="col">Notas</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <th scope="row">Recebidas (prestadas pela empresa na competência)</th>
+                    <td class="valor-monetario">{{ recebidas }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">Escrituradas (efetivadas)</th>
+                    <td class="valor-monetario">{{ escrituradas }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">Pendentes</th>
+                    <td class="valor-monetario">{{ pendentes }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">Pendentes com bloqueio (exigem ação)</th>
+                    <td class="valor-monetario">{{ pendentes_com_bloqueio }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">Pendentes sem bloqueio (canceladas, sem o que escriturar)</th>
+                    <td class="valor-monetario">{{ pendentes_sem_bloqueio }}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        {% if fecha %}
+            <p class="mensagem mensagem-success" role="status">
+                <strong>Sucesso:</strong> a conferência fecha: {{ recebidas }} recebidas = {{ escrituradas }} escrituradas + {{ pendentes }} pendentes.
+            </p>
+        {% else %}
+            <p class="mensagem mensagem-error" role="alert">
+                <strong>Erro:</strong> a conferência não fecha: {{ recebidas }} recebidas, mas {{ escrituradas }} escrituradas + {{ pendentes }} pendentes. Comunique ao suporte antes de usar estes números.
+            </p>
+        {% endif %}
+
+        <h2>Valores em reais (valor do serviço)</h2>
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Valores do serviço das notas da competência, e a conciliação com a escrituração gravada</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Item</th>
+                    <th scope="col">Valor do serviço (R$)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <th scope="row">Recebidas</th>
+                    <td class="valor-monetario">{{ total_recebidas_ptbr }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">Escrituradas</th>
+                    <td class="valor-monetario">{{ total_escrituradas_ptbr }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">Pendentes</th>
+                    <td class="valor-monetario">{{ total_pendentes_ptbr }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">Conciliação: soma gravada nas escriturações efetivadas</th>
+                    <td class="valor-monetario">{{ soma_gravada_ptbr }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">Conciliação: soma dos documentos correspondentes</th>
+                    <td class="valor-monetario">{{ soma_documentos_ptbr }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">Diferença entre a gravada e o documento</th>
+                    <td class="valor-monetario">
+                        {{ diferenca_ptbr }}
+                        {% if diferenca_nula %}
+                            (sem diferença)
+                        {% else %}
+                            <span class="selo selo--atencao">Diferente de zero: verificar</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+        {% if not fecha_em_valor %}
+            <p class="mensagem mensagem-error" role="alert">
+                <strong>Erro:</strong> os valores em reais não fecham: recebidas é diferente de escrituradas somadas a pendentes. Comunique ao suporte antes de usar estes números.
+            </p>
+        {% endif %}
+
+        <h2>Bloqueios: notas que ainda exigem ação</h2>
+        {% if bloqueios %}
+            <table class="tabela-dados">
+                <caption class="visualmente-oculto">Notas sem escrituração efetivada, que exigem ação</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Número</th>
+                        <th scope="col">Emissão</th>
+                        <th scope="col">Competência</th>
+                        <th scope="col">Valor do serviço</th>
+                        <th scope="col">Situação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in bloqueios %}
+                        <tr>
+                            <td>
+                                <a href="{% url 'fiscal_web:documento_detalhe' linha.nota.documento.id %}">
+                                    {{ linha.nota.documento.numero|default:linha.nota.documento.identificador }}
+                                </a>
+                            </td>
+                            <td>{{ linha.nota.data_emissao|date:"d/m/Y"|default:"—" }}</td>
+                            <td>{{ linha.nota.documento.d_competencia|date:"m/Y" }}</td>
+                            <td class="valor-monetario">{{ linha.v_serv_ptbr }}</td>
+                            <td>
+                                {{ linha.situacao }}
+                                {% if linha.acao %}
+                                    <br><a class="botao botao--secundario botao--pequeno" href="{{ linha.acao.url }}">{{ linha.acao.rotulo }}</a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>Nenhuma nota exige ação nesta competência.</p>
+        {% endif %}
+
+        <h2>Natureza gravada diferente do XML</h2>
+        {% if divergencias %}
+            <p class="texto-apoio">
+                A natureza é a que o contador escolheu. O aviso só aponta a contradição com o XML,
+                para conferência; não impede a escrituração.
+            </p>
+            <table class="tabela-dados">
+                <caption class="visualmente-oculto">Notas cuja natureza gravada contradiz o XML</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Número</th>
+                        <th scope="col">Natureza gravada</th>
+                        <th scope="col">O que diverge</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in divergencias %}
+                        <tr>
+                            <td>
+                                <a href="{% url 'fiscal_web:documento_detalhe' linha.nota.documento.id %}">
+                                    {{ linha.nota.documento.numero|default:linha.nota.documento.identificador }}
+                                </a>
+                            </td>
+                            <td>{{ linha.natureza }}</td>
+                            <td>
+                                <ul>
+                                    {% for motivo in linha.nota.divergencias_de_natureza %}
+                                        <li>{{ motivo }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>Nenhuma natureza gravada contradiz o XML nesta competência.</p>
+        {% endif %}
+
+        <h2>Avisos: competência diferente do mês de emissão</h2>
+        {% if avisos %}
+            <p class="texto-apoio">
+                A escrituração segue a competência (dCompet). O aviso só mostra a diferença para conferência.
+            </p>
+            <table class="tabela-dados">
+                <caption class="visualmente-oculto">Notas com mês de competência diferente do mês de emissão</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Número</th>
+                        <th scope="col">Emissão</th>
+                        <th scope="col">Competência</th>
+                        <th scope="col">Situação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in avisos %}
+                        <tr>
+                            <td>
+                                <a href="{% url 'fiscal_web:documento_detalhe' linha.nota.documento.id %}">
+                                    {{ linha.nota.documento.numero|default:linha.nota.documento.identificador }}
+                                </a>
+                            </td>
+                            <td>{{ linha.nota.data_emissao|date:"d/m/Y"|default:"—" }}</td>
+                            <td>
+                                {{ linha.nota.documento.d_competencia|date:"m/Y" }}
+                                <br><span class="selo selo--atencao">Emitida em {{ linha.nota.data_emissao|date:"m/Y" }}</span>
+                            </td>
+                            <td>{{ linha.situacao }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>Nenhuma nota com competência diferente do mês de emissão.</p>
+        {% endif %}
+    {% endif %}
+{% endblock %}

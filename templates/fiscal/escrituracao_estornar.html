@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block titulo %}Estornar escrituração nº {{ escrituracao.id }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_detalhe }}">Escrituração nº {{ escrituracao.id }}</a></li>
+            <li aria-current="page">Estornar</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_detalhe }}">‹ Voltar para a escrituração</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-072 (frente B), arquétipo E (confirmação de ação sensível, direção de arte
+§2.E): diz o que vai acontecer e o que ainda dá para desfazer. O motivo é
+obrigatório e fica na trilha de auditoria; o estorno nunca apaga a linha.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Estornar escrituração nº {{ escrituracao.id }}</h1>{% endblock %}
+
+{% block content %}
+    {% if efetivada %}
+        <div class="painel-etapa painel-etapa--risco">
+            <h2>O que vai acontecer</h2>
+            <p>
+                A escrituração da nota {{ documento.numero|default:documento.identificador }}
+                (natureza: {{ natureza_rotulo }}, competência {{ escrituracao.data_competencia|date:"m/Y" }})
+                passa a estornada. A nota volta para <strong>a escriturar</strong> na mesma competência.
+            </p>
+            <p>
+                A linha não é apagada: o estorno, o motivo e quem estornou ficam registrados na trilha
+                de auditoria. Para escriturar de novo, é preciso efetivar outra vez.
+            </p>
+        </div>
+
+        <form method="post" action="{% url 'fiscal_web:escrituracao_estornar' empresa.id escrituracao.id %}" class="formulario">
+            {% csrf_token %}
+            <div class="campo">
+                <label for="id_motivo">Motivo do estorno</label>
+                <textarea id="id_motivo" name="motivo" required rows="3" maxlength="{{ motivo_maximo }}"
+                          aria-describedby="id_motivo_ajuda">{{ motivo }}</textarea>
+                <p class="texto-apoio" id="id_motivo_ajuda">
+                    Obrigatório. Fica na trilha de auditoria desta escrituração, com até {{ motivo_maximo }} caracteres.
+                </p>
+            </div>
+            <button type="submit" class="botao botao--perigoso">Estornar escrituração nº {{ escrituracao.id }}</button>
+        </form>
+    {% else %}
+        <p class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> só a escrituração efetivada pode ser estornada. Esta está "{{ estado_rotulo }}".
+        </p>
+        <p>
+            <a class="botao botao--secundario" href="{{ url_detalhe }}">Voltar para a escrituração</a>
+        </p>
+    {% endif %}
+{% endblock %}

@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block titulo %}Conformidade IBS/CBS das NFS-e{% endblock %}
+
+{% block titulo_pagina %}<h1>Conformidade IBS/CBS das NFS-e recebidas</h1>{% endblock %}
+
+{% comment %}
+DL-073 (modo AVISO, nível 2 do plano): relatório de CONFERÊNCIA — classe 1
+da personalização de relatório (docs/projeto/personalizacao-de-relatorio.md).
+Nada aqui rejeita nota, grava dado ou calcula guia. Cada aviso traz a
+fonte que o motivou, em texto (cor nunca é o único canal).
+{% endcomment %}
+
+{% block content %}
+    <form method="get" action="{% url 'fiscal_web:conformidade_ibscbs' %}"
+          class="formulario-periodo formulario-periodo--rotulo-acima">
+        <div class="campo">
+            <label for="id_empresa">Empresa (prestadora)</label>
+            <select id="id_empresa" name="empresa">
+                <option value="">Escolha a empresa</option>
+                {% for empresa in empresas_do_escritorio %}
+                    <option value="{{ empresa.id }}"{% if empresa_filtro_bruto == empresa.id|stringformat:"s" %} selected{% endif %}>
+                        {{ empresa.razao_social }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_ano">Ano da competência</label>
+            <input type="text" id="id_ano" name="ano" value="{{ ano_filtro }}" inputmode="numeric"
+                   maxlength="4" aria-describedby="id_competencia_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_mes">Mês da competência</label>
+            <input type="text" id="id_mes" name="mes" value="{{ mes_filtro }}" inputmode="numeric"
+                   maxlength="2" aria-describedby="id_competencia_ajuda">
+        </div>
+        <button type="submit">Conferir</button>
+        <p class="texto-apoio" id="id_competencia_ajuda">
+            Informe ano (AAAA) e mês (1 a 12). A conferência lista as notas em que a empresa é a prestadora.
+        </p>
+    </form>
+
+    <div class="texto-apoio">
+        <p><strong>Esta tela é uma CONFERÊNCIA, não uma declaração de conformidade.</strong>
+        Ela aponta indícios para revisão. No modo aviso, nenhuma nota é rejeitada, nenhum dado é gravado e nenhuma guia nem apuração é calculada.</p>
+        <p>A existência do cClassTrib na tabela oficial <strong>não é verificada nesta etapa</strong>: a tabela ainda não é importada. Um código com o formato certo pode não existir na tabela.</p>
+        <p>As alíquotas de teste e a fórmula da base de cálculo (E1530) são conferidas só para competência de 2026. Para 2027 em diante, nenhuma alíquota é conferida aqui.</p>
+        <p>O cronograma de obrigatoriedade do grupo IBS/CBS começa em {{ data_obrigatoriedade|date:"d/m/Y" }} para a maioria dos serviços da LC 116. O sistema não classifica a categoria do serviço, então o aviso de ausência cita as duas datas. Cada aviso traz a fonte que o motivou.</p>
+        <p><strong>Limite da NT 009.</strong> As regras da NT 009 (grupo de valores opcional quando o CST não exige tributação) ainda não estão no leiaute de produção; notas já emitidas no desenho da NT 009 podem receber avisos de elemento ausente.</p>
+        <p>Notas canceladas aparecem marcadas como "cancelada", sem avisos de conformidade.</p>
+    </div>
+
+    {% if consultado %}
+        <p>
+            {{ total_notas }} nota(s) de prestação de {{ empresa_selecionada.razao_social }} em {{ competencia_texto }}.
+            {{ total_com_aviso }} com aviso. {{ total_leiaute_sem_grupo }} no leiaute 1.00, que não tem o grupo IBS/CBS.
+        </p>
+
+        {% if pagina.object_list %}
+            <table class="tabela-dados">
+                <caption class="visualmente-oculto">Notas de prestação de {{ empresa_selecionada.razao_social }} na competência {{ competencia_texto }}, com a situação e os avisos de cada uma</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Número</th>
+                        <th scope="col">Emissão</th>
+                        <th scope="col">Tomador</th>
+                        <th scope="col">Situação</th>
+                        <th scope="col">Avisos</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for nota in pagina.object_list %}
+                        <tr>
+                            <td>{{ nota.documento.numero|default:"—" }}</td>
+                            <td>{{ nota.documento.dh_emissao|date:"d/m/Y H:i" }}</td>
+                            <td class="valor-quebravel">{{ nota.documento.tomador_nome|default:"(sem tomador no documento)" }}</td>
+                            <td>{% if nota.cancelada %}cancelada{% else %}{{ nota.situacao }}{% endif %}</td>
+                            <td>
+                                {% if nota.cancelada %}
+                                    Não conferida: nota cancelada.
+                                {% elif nota.avisos %}
+                                    <ul>
+                                        {% for aviso in nota.avisos %}
+                                            <li>
+                                                {{ aviso.mensagem }}
+                                                <br><span class="texto-apoio">Fonte: {{ aviso.fonte }}</span>
+                                                <br><span class="texto-apoio">Código: {{ aviso.codigo }}</span>
+                                            </li>
+                                        {% endfor %}
+                                    </ul>
+                                {% else %}
+                                    Sem aviso.
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% include "fiscal/_paginacao.html" %}
+        {% else %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo"><strong>Nenhuma nota de prestação desta empresa em {{ competencia_texto }}.</strong></p>
+                <p class="estado-vazio__descricao">
+                    Confira a competência ou a empresa. Só entram as notas em que a empresa é a prestadora.
+                </p>
+            </div>
+        {% endif %}
+    {% else %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha a empresa e a competência para conferir.</strong></p>
+            <p class="estado-vazio__descricao">
+                A conferência é feita sobre as NFS-e já recebidas pelo escritório.
+            </p>
+        </div>
+    {% endif %}
+{% endblock %}

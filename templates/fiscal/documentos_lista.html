@@ -96,6 +96,9 @@ removida daqui. Ver DE-083 para o detalhe completo.
                     <th scope="col">Tomador</th>
                     <th scope="col">Valor do serviço</th>
                     <th scope="col">Situação</th>
+                    {% if pode_escriturar %}
+                        <th scope="col">Escrituração</th>
+                    {% endif %}
                 </tr>
             </thead>
             <tbody>
@@ -127,6 +130,20 @@ removida daqui. Ver DE-083 para o detalhe completo.
                                 <span class="situacao-documento situacao-documento--valida">Válida</span>
                             {% endif %}
                         </td>
+                        {% if pode_escriturar %}
+                            <td>
+                                {% comment %}
+                                DL-072 (frente B): só quem escritura vê o link. Um
+                                link por empresa PRESTADORA do escritório; nota
+                                tomada e nota cancelada não recebem link aqui.
+                                {% endcomment %}
+                                {% for item in linha.links_para_escriturar %}
+                                    <a class="botao botao--secundario botao--pequeno" href="{{ item.url }}">Escriturar — {{ item.razao_social }}</a>
+                                {% empty %}
+                                    —
+                                {% endfor %}
+                            </td>
+                        {% endif %}
                     </tr>
                 {% endfor %}
             </tbody>

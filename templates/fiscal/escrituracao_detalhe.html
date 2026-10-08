@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block titulo %}Escrituração — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_lista }}">Notas a escriturar</a></li>
+            <li aria-current="page">Escrituração nº {{ escrituracao.id }}</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_lista }}">‹ Voltar para as notas a escriturar</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-072 (frente B), arquétipo A (detalhe). Mostra natureza, as três datas
+(emissão, competência e escrituração), os valores copiados do documento, o
+estado e quem efetivou e estornou, com o motivo do estorno quando houver.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Escrituração nº {{ escrituracao.id }}</h1>{% endblock %}
+
+{% block content %}
+    {% if cancelada_depois %}
+        <p class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> a nota foi cancelada depois desta escrituração. O estorno não é
+            automático: estorne abaixo, com motivo, se a escrituração deve sair.
+        </p>
+    {% endif %}
+
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Número da nota</dt>
+            <dd>
+                <a href="{% url 'fiscal_web:documento_detalhe' documento.id %}">
+                    {{ documento.numero|default:documento.identificador }}
+                </a>
+            </dd>
+        </div>
+        <div>
+            <dt>Natureza da operação</dt>
+            <dd>{{ natureza_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Estado</dt>
+            <dd>{{ estado_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Data de emissão (dia do dhEmi)</dt>
+            <dd>{{ escrituracao.data_emissao|date:"d/m/Y" }}</dd>
+        </div>
+        <div>
+            <dt>Data de competência (dCompet)</dt>
+            <dd>{{ escrituracao.data_competencia|date:"m/Y" }}</dd>
+        </div>
+        <div>
+            <dt>Data da escrituração</dt>
+            <dd>{{ escrituracao.efetivada_em|date:"d/m/Y H:i"|default:"—" }}</dd>
+        </div>
+        <div>
+            <dt>Valor do serviço</dt>
+            <dd class="valor-monetario">{{ valor_servico_ptbr }}</dd>
+        </div>
+        <div>
+            <dt>Valor líquido</dt>
+            <dd class="valor-monetario">{{ valor_liquido_ptbr }}</dd>
+        </div>
+        <div>
+            <dt>ISS retido (tpRetISSQN 2 ou 3)</dt>
+            <dd>{{ iss_retido_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Efetivada por</dt>
+            <dd>{{ escrituracao.efetivada_por.get_username|default:"—" }}</dd>
+        </div>
+        {% if escrituracao.estornada_em %}
+            <div>
+                <dt>Estornada em</dt>
+                <dd>{{ escrituracao.estornada_em|date:"d/m/Y H:i" }}</dd>
+            </div>
+            <div>
+                <dt>Estornada por</dt>
+                <dd>{{ escrituracao.estornada_por.get_username|default:"—" }}</dd>
+            </div>
+            <div>
+                <dt>Motivo do estorno</dt>
+                <dd>{{ escrituracao.motivo_estorno }}</dd>
+            </div>
+        {% endif %}
+    </dl>
+
+    {% if pode_estornar %}
+        <p>
+            <a class="botao botao--perigoso" href="{% url 'fiscal_web:escrituracao_estornar' empresa.id escrituracao.id %}">Estornar escrituração nº {{ escrituracao.id }}</a>
+        </p>
+    {% endif %}
+
+    <h2>Outras escriturações desta nota</h2>
+    {% if outras_escrituracoes %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Outras escriturações do mesmo vínculo, com link para cada uma</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Escrituração</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col">Natureza</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for outra in outras_escrituracoes %}
+                    <tr>
+                        <td><a href="{{ outra.url }}">Escrituração nº {{ outra.escrituracao.id }}</a></td>
+                        <td>{{ outra.escrituracao.get_estado_display }}</td>
+                        <td>{{ outra.escrituracao.get_natureza_display }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Esta nota não tem outra escrituração.</p>
+    {% endif %}
+
+    <h2>Trilha de auditoria desta escrituração</h2>
+    {% if trilha %}
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Atos registrados na trilha para esta escrituração, em ordem de data</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Quando</th>
+                    <th scope="col">Ato</th>
+                    <th scope="col">Quem</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for registro in trilha %}
+                    <tr>
+                        <td>{{ registro.quando|date:"d/m/Y H:i" }}</td>
+                        <td>{{ registro.acao }}</td>
+                        <td>{{ registro.usuario }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Nenhum ato registrado na trilha para esta escrituração.</p>
+    {% endif %}
+{% endblock %}

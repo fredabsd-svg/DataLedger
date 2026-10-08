@@ -1,0 +1,39 @@
+{% comment %}
+Filtro de empresa e competência das telas de escrituração (DL-072, frente B):
+"Notas a escriturar" e "Conferência". Mesmo formato de `fiscal/documentos_lista.html`
+(GET, rótulo acima de cada campo, sem JavaScript). `action` é o caminho da
+própria tela, sem querystring, para não acumular parâmetro de consulta anterior.
+
+A competência é a da `dCompet` da nota (HI-57), não a da emissão.
+
+Variáveis: `empresas_do_escritorio`, `empresa_filtro_bruto`, `ano_filtro`,
+`mes_filtro`.
+{% endcomment %}
+<form method="get" action="{{ request.path }}" class="formulario-periodo formulario-periodo--rotulo-acima">
+    <div class="campo">
+        <label for="id_empresa">Empresa</label>
+        <select id="id_empresa" name="empresa">
+            <option value="">Escolha uma empresa</option>
+            {% for empresa in empresas_do_escritorio %}
+                <option value="{{ empresa.id }}"{% if empresa_filtro_bruto == empresa.id|stringformat:"s" %} selected{% endif %}>
+                    {{ empresa.razao_social }}
+                </option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="campo">
+        <label for="id_ano">Ano da competência</label>
+        <input type="text" id="id_ano" name="ano" value="{{ ano_filtro }}" inputmode="numeric"
+               maxlength="4" aria-describedby="id_competencia_ajuda">
+    </div>
+    <div class="campo">
+        <label for="id_mes">Mês da competência</label>
+        <input type="text" id="id_mes" name="mes" value="{{ mes_filtro }}" inputmode="numeric"
+               maxlength="2" aria-describedby="id_competencia_ajuda">
+    </div>
+    <button type="submit">Consultar</button>
+    <p class="texto-apoio" id="id_competencia_ajuda">
+        Competência pela data de competência (dCompet) da nota. Informe ano (AAAA) e mês (1 a 12)
+        juntos; sem eles, a tela usa o mês corrente.
+    </p>
+</form>

@@ -826,6 +826,39 @@
                                                     </li>
                                                 </ul>
                                             </div>
+                                            {% comment %}
+                                            DL-072 (frente B): escrituração das NFS-e prestadas. Mesma
+                                            permissão de consulta do grupo acima (quem consulta
+                                            documentos vê as notas a escriturar, sem o botão de
+                                            escriturar); o servidor decide cada ação.
+                                            {% endcomment %}
+                                            <div class="menu-grupo">
+                                                <p class="menu-grupo__rotulo" id="grupo-escrituracao-fiscal">Escrituração</p>
+                                                <ul aria-labelledby="grupo-escrituracao-fiscal">
+                                                    <li>
+                                                        {% if pagina_atual == "notas_a_escriturar" %}
+                                                            <span class="item-atual" aria-current="page">Notas a escriturar</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:notas_a_escriturar' %}">Notas a escriturar</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "conferencia_escrituracao" %}
+                                                            <span class="item-atual" aria-current="page">Conferência</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:conferencia_escrituracao' %}">Conferência</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    {# DL-073: conformidade IBS/CBS das NFS-e recebidas (modo aviso); mesma permissão de consulta. #}
+                                                    <li>
+                                                        {% if pagina_atual == "conformidade_ibscbs" %}
+                                                            <span class="item-atual" aria-current="page">Conformidade IBS/CBS</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:conformidade_ibscbs' %}">Conformidade IBS/CBS</a>
+                                                        {% endif %}
+                                                    </li>
+                                                </ul>
+                                            </div>
                                         {% endwith %}
                                     </div>
                                 </details>

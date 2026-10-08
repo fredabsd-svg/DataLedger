@@ -11,6 +11,12 @@ profissional, que é do Fred (AGENTS.md §10). As hipóteses que viraram regra
 de produto estão numeradas em [requisitos.md](../requisitos.md) (HI-56 em
 diante).
 
+⚠️ **Correção posterior (08/10/2026):** a
+[segunda consulta](2026-10-08-contador-senior-rbt12.md), seção 7, corrigiu
+três artigos do item 9 abaixo — a exclusão por comunicação é o **art. 81** da
+Res. CGSN 140; o limite proporcional é o **art. 3º**; o sublimite proporcional
+é o **art. 12, § 2º**. O texto abaixo fica como foi respondido.
+
 Perguntas feitas: escrituração (acumulador × linha por tributo); competência
 da NFS-e; ISS retido para o prestador; IBS/CBS em 2026 (PE-39); conferência
 bloqueia ou avisa; prioridade de apuração; EFD-Contribuições e a NT 11/2026;
