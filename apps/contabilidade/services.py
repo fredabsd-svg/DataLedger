@@ -8351,12 +8351,26 @@ def _instancias_de_marcacao(*, lancamento, marcacoes, usuario):
     return instancias
 
 
+def _enumerar_por_extenso(itens):
+    """`["a", "b", "c"]` -> `"a, b e c"` (vírgulas e "e" no fim)."""
+    if len(itens) <= 1:
+        return "".join(itens)
+    return f"{', '.join(itens[:-1])} e {itens[-1]}"
+
+
 def _competencias_por_extenso(meses, ano):
     """`[2, 3]` e `2026` -> `"02/2026 e 03/2026"` (vírgulas e "e" no fim)."""
-    rotulos = [f"{mes:02d}/{ano}" for mes in meses]
-    if len(rotulos) <= 1:
-        return "".join(rotulos)
-    return f"{', '.join(rotulos[:-1])} e {rotulos[-1]}"
+    return _enumerar_por_extenso([f"{mes:02d}/{ano}" for mes in meses])
+
+
+def _concordancia_das_dmpls(meses):
+    """Sujeito e verbos da frase da marcação, conforme a quantidade de
+    competências listadas (B3 da auditoria da DL-071): uma só diz "a DMPL de
+    02/2026 acumula ... e inclui"; duas ou mais, "as DMPLs de 02/2026 e
+    03/2026 acumulam ... e incluem". Devolve `(sujeito, acumulam, incluem)`."""
+    if len(meses) > 1:
+        return "as DMPLs de", "acumulam", "incluem"
+    return "a DMPL de", "acumula", "inclui"
 
 
 def _recusar_marcacao_da_dmpl_em_periodo_fechado(lancamento):
@@ -8428,7 +8442,7 @@ def _recusar_marcacao_da_dmpl_em_periodo_fechado(lancamento):
     """
     data = lancamento.data
     empresa = lancamento.empresa
-    barram = []  # (mes, entregue) das competências da janela que não estão abertas
+    barram = []  # (mes, estado, entregue) das competências da janela que não estão abertas
     for competencia in Competencia.objects.filter(
         empresa_id=lancamento.empresa_id, ano=data.year, mes__gte=data.month
     ).order_by("mes"):
@@ -8448,21 +8462,21 @@ def _recusar_marcacao_da_dmpl_em_periodo_fechado(lancamento):
                     f"{competencia.ano}. Tente de novo em instantes."
                 ) from exc
         if estado != EstadoCompetencia.ABERTA:
-            barram.append((competencia.mes, entregue_em is not None))
+            barram.append((competencia.mes, estado, entregue_em is not None))
     if not barram:
         return
 
-    inicio = (
-        "Não é possível alterar as marcações da DMPL deste lançamento (de "
-        f"{data:%d/%m/%Y}): a DMPL de "
-    )
-    entregues = [mes for mes, entregue in barram if entregue]
+    # A frase nomeia a demonstração, e não o estado da competência: "a DMPL de
+    # 02/2026" ou "as DMPLs de 02/2026 e 03/2026" (B3).
+    inicio = f"Não é possível alterar as marcações da DMPL deste lançamento (de {data:%d/%m/%Y}): "
+    entregues = [mes for mes, _estado, entregue in barram if entregue]
     if entregues:
         # A3 da DL-065: competência ENTREGUE não se reabre — `reabrir_
         # competencia` recusa sempre (RC-101). Havendo UMA entregue na janela,
         # reabrir as demais não destrava nada, então a mensagem fala só do
         # caminho que existe: o ajuste na competência aberta.
         lista = _competencias_por_extenso(entregues, data.year)
+        sujeito, acumulam, incluem = _concordancia_das_dmpls(entregues)
         if len(entregues) > 1:
             situacao = (
                 f"as competências {lista} já foram entregues ao cliente e não podem ser reabertas"
@@ -8470,32 +8484,61 @@ def _recusar_marcacao_da_dmpl_em_periodo_fechado(lancamento):
         else:
             situacao = f"a competência {lista} já foi entregue ao cliente e não pode ser reaberta"
         mensagem = (
-            f"{inicio}{lista} acumula o exercício desde janeiro e inclui este lançamento, "
-            f"e {situacao}: a demonstração entregue não muda retroativamente. A correção "
-            "é um lançamento de ajuste na competência aberta; a marcação deste "
+            f"{inicio}{sujeito} {lista} {acumulam} o exercício desde janeiro e {incluem} "
+            f"este lançamento, e {situacao}: a demonstração entregue não muda retroativamente. "
+            "A correção é um lançamento de ajuste na competência aberta; a marcação deste "
             "lançamento não pode mudar."
         )
     else:
-        # `EM_ENCERRAMENTO` é reservado e inalcançável (ver `EstadoCompetencia`):
-        # tudo que não é aberto nem entregue é, na prática, "encerrada".
-        lista = _competencias_por_extenso([mes for mes, _entregue in barram], data.year)
-        if len(barram) > 1:
-            situacao = f"as competências {lista} estão encerradas"
-            reabrir = (
-                f"Reabra as competências {lista} para corrigir a marcação; "
-                "enquanto estiverem fechadas"
+        meses = [mes for mes, _estado, _entregue in barram]
+        lista = _competencias_por_extenso(meses, data.year)
+        sujeito, acumulam, incluem = _concordancia_das_dmpls(meses)
+        if all(estado == EstadoCompetencia.ENCERRADA for _mes, estado, _entregue in barram):
+            # Só ENCERRADA recebe a sugestão de reabrir: é o único estado que
+            # `reabrir_competencia` reabre. Com mais de uma, a sugestão lista
+            # todas, porque reabrir uma só não destrava a marcação.
+            if len(barram) > 1:
+                situacao = f"as competências {lista} estão encerradas"
+                reabrir = (
+                    f"Reabra as competências {lista} para corrigir a marcação; "
+                    "enquanto estiverem fechadas"
+                )
+            else:
+                situacao = f"a competência {lista} está encerrada"
+                reabrir = (
+                    f"Reabra a competência {lista} para corrigir a marcação; "
+                    "enquanto estiver fechada"
+                )
+            mensagem = (
+                f"{inicio}{sujeito} {lista} {acumulam} o exercício desde janeiro e {incluem} "
+                f"este lançamento, mas {situacao} — a demonstração daquele período mudaria "
+                f"retroativamente, depois de o período ter sido fechado. {reabrir}, a "
+                "demonstração do período não pode mudar."
             )
         else:
-            situacao = f"a competência {lista} está encerrada"
-            reabrir = (
-                f"Reabra a competência {lista} para corrigir a marcação; enquanto estiver fechada"
+            # B2 (lição A4 da DL-065): nomeia o estado GRAVADO, como `Conta.clean()`,
+            # e não diz "encerrada" para qualquer estado. Estado que não é
+            # encerrada (`EM_ENCERRAMENTO`, reservado e só alcançável por ORM) não
+            # recebe "Reabra": `reabrir_competencia` não o reabre, e mandar reabrir
+            # seria mandar o contador para um caminho que não leva a nada. Com
+            # estados misturados a sugestão também sai, pela mesma razão.
+            rotulos = dict(EstadoCompetencia.choices)
+            nomes = [
+                f"{mes:02d}/{data.year} ({rotulos.get(estado, estado).lower()})"
+                for mes, estado, _entregue in barram
+            ]
+            if len(barram) > 1:
+                situacao = f"as competências {_enumerar_por_extenso(nomes)} não estão abertas"
+            else:
+                situacao = (
+                    f"a competência {lista} está {rotulos.get(barram[0][1], barram[0][1]).lower()}"
+                )
+            mensagem = (
+                f"{inicio}{sujeito} {lista} {acumulam} o exercício desde janeiro e {incluem} "
+                f"este lançamento, mas {situacao} — a demonstração daquele período não muda "
+                "enquanto a competência não estiver aberta. A marcação só pode mudar com a "
+                "competência aberta."
             )
-        mensagem = (
-            f"{inicio}{lista} acumula o exercício desde janeiro e inclui este lançamento, "
-            f"mas {situacao} — a demonstração daquele período mudaria retroativamente, "
-            f"depois de o período ter sido fechado. {reabrir}, a demonstração do período "
-            "não pode mudar."
-        )
     raise ClassificacaoAlteraPeriodoFechado(mensagem)
 
 
@@ -8558,7 +8601,25 @@ def salvar_marcacoes_da_dmpl(*, lancamento, marcacoes, usuario, request=None):
     """
     # Trava do lançamento como MUTEX do conjunto: duas substituições
     # concorrentes serializam aqui, e a segunda vê o resultado da primeira.
-    LancamentoContabil.objects.select_for_update().get(pk=lancamento.pk)
+    #
+    # A2 da auditoria da DL-071: sob `lock_timeout` (ou deadlock), esta espera
+    # levantava o `OperationalError` cru e a API e a tela respondiam 500. Vira a
+    # mesma recusa de período (409 / mensagem na tela), com texto que NÃO diz
+    # que o período está encerrado. O `atomic` interno é um SAVEPOINT: o erro
+    # do PostgreSQL aborta a transação, e o savepoint a devolve ao estado
+    # anterior antes da exceção de domínio sair (lição N1 da DL-065). Só
+    # atributos escalares no `except` — qualquer consulta ali seria
+    # substituída por um `InternalError`.
+    try:
+        with transaction.atomic():
+            LancamentoContabil.objects.select_for_update().get(pk=lancamento.pk)
+    except OperationalError as exc:
+        if not (_e_estouro_de_lock_timeout(exc) or _e_deadlock(exc)):
+            raise
+        raise ClassificacaoAlteraPeriodoFechado(
+            "Não foi possível alterar as marcações agora: outra operação está "
+            "alterando este lançamento. Tente de novo em instantes."
+        ) from exc
 
     # DL-071: o estado do período vem ANTES da validação do conteúdo. Período
     # fechado é fato que independe do que foi enviado, e responder 400 sobre o

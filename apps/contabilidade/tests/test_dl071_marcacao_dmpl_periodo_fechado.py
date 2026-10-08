@@ -73,6 +73,7 @@ from apps.contabilidade.tests.test_dl061_dmpl import (
     _cnpj_sintetico,
     _dec,
     _empresa,
+    _gestor,
     _lancar,
     _lancar_itens,
     _plano_basico,
@@ -723,6 +724,86 @@ def test_criterio8_lock_timeout_vira_recusa_no_servico_na_api_e_na_tela(client):
     assert _marcacoes(p1)[0] == (LINHA_AQUISICAO, TESOURARIA, "-1500.00"), "recusa não grava"
 
 
+@pytest.mark.django_db(transaction=True)
+def test_a2_lock_timeout_na_trava_do_lancamento_vira_recusa_e_nao_500(client):
+    """A2 da auditoria da DL-071 (critério 8 por inteiro). A trava do
+    LANÇAMENTO (`select_for_update` em `salvar_marcacoes_da_dmpl`) roda ANTES
+    da guarda e, sob `lock_timeout`, deixava o `OperationalError` cru chegar
+    à view: 500 na API (PUT e DELETE) e na tela. Agora é a mesma recusa de
+    período (409 na API, mensagem na tela) com texto próprio — "tente de
+    novo", sem dizer que o período está encerrado — e NADA é gravado.
+
+    A ordem dos blocos importa: a API vem primeiro, então, antes da correção,
+    a falha aparece como `500 == 409`, que é a prova do dano."""
+    empresa, contas, gestor, p1, p2 = _cenario()
+    _autenticar(client, empresa.escritorio, "gestor-dl071-timeout-lancamento")
+    # Sem isto o cliente de teste relança a exceção em vez de devolver o 500
+    # que o usuário veria — e a medida precisa ser a resposta HTTP.
+    client.raise_request_exception = False
+    marcacoes_antes = _marcacoes(p1)
+    trilhas_antes = _trilhas()
+
+    segurando = threading.Event()
+    largar = threading.Event()
+    da_thread = {}
+
+    def _segurar_o_lancamento():
+        with transaction.atomic():
+            LancamentoContabil.objects.select_for_update().get(pk=p1.pk)
+            segurando.set()
+            largar.wait(timeout=60)
+
+    t = _na_thread(_segurar_o_lancamento, da_thread)
+    t.start()
+    try:
+        assert segurando.wait(timeout=30), "a outra transação não segurou o lançamento"
+        with connection.cursor() as cursor:
+            cursor.execute("SET lock_timeout = '200ms'")
+
+        resposta = _tentar_pela_api(client, "trocar", empresa, p1)
+        assert resposta.status_code == 409, resposta.content
+        assert "Tente de novo" in resposta.json()["detail"]
+        assert "encerrad" not in resposta.json()["detail"]
+
+        resposta = _tentar_pela_api(client, "remover", empresa, p1)
+        assert resposta.status_code == 409, resposta.content
+
+        dados = {
+            "acao": "salvar",
+            "linha": [LINHA_AQUISICAO],
+            "coluna": [TESOURARIA],
+            "valor": ["-500,00"],
+        }
+        resposta = client.post(_url_tela(empresa, p1), dados)
+        assert resposta.status_code == 200, resposta.content
+        assert "Tente de novo" in _texto(resposta.content.decode())
+
+        dados = {
+            "acao": "remover",
+            "linha": [LINHA_AQUISICAO],
+            "coluna": [TESOURARIA],
+            "valor": ["-500,00"],
+        }
+        resposta = client.post(_url_tela(empresa, p1), dados)
+        assert resposta.status_code == 200, resposta.content
+        assert "Tente de novo" in _texto(resposta.content.decode())
+
+        with pytest.raises(ClassificacaoAlteraPeriodoFechado) as erro:
+            _tentar_pelo_servico("trocar", p1, gestor)
+        assert "Tente de novo" in str(erro.value)
+        assert "encerrad" not in str(erro.value)
+        assert "entregue" not in str(erro.value)
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute("RESET lock_timeout")
+        largar.set()
+        t.join(timeout=60)
+    assert not t.is_alive(), "thread não concluiu"
+    assert "erro" not in da_thread, da_thread
+    assert _marcacoes(p1) == marcacoes_antes, "recusa por lock não pode gravar nem remover"
+    assert _trilhas() == trilhas_antes, "recusa por lock não pode gerar trilha"
+
+
 # ---------------------------------------------------------------------------
 # Critério 9 — isolamento: 404 antes de qualquer consulta de período
 # ---------------------------------------------------------------------------
@@ -801,6 +882,38 @@ def test_criterio9_lancamento_de_outro_escritorio_e_404_na_api_e_na_tela(client)
 # ---------------------------------------------------------------------------
 
 
+def test_competencia_fechada_de_outra_empresa_nao_trava_nem_e_travada():
+    """A3 da auditoria da DL-071: a guarda filtra as competências por
+    `empresa_id` do lançamento. Sem esse filtro, a marcação da empresa A seria
+    recusada por março fechado da empresa B e tomaria `FOR SHARE` na linha de
+    fevereiro aberto dela — nenhum teste acusava. Aqui a outra empresa tem, na
+    mesma janela do ano, fevereiro ABERTO (que a guarda travaria), março
+    ENCERRADO e abril ENTREGUE: qualquer vazamento de empresa aparece."""
+    empresa, contas, gestor, p1, p2 = _cenario()
+    outra = _empresa("Outra empresa DL-071")
+    gestor_outra = _gestor(outra, "gestor-dl071-outra-empresa")
+    _forcar_estado(outra, ANO, 2, EstadoCompetencia.ABERTA)
+    _fechar(outra, gestor_outra, 3)
+    _fechar(outra, gestor_outra, 4, entregue=True)
+    pks_da_outra = list(Competencia.objects.filter(empresa=outra).values_list("pk", flat=True))
+    assert len(pks_da_outra) == 3
+
+    with CaptureQueriesContext(connection) as consultas:
+        salvar_marcacoes_da_dmpl(
+            lancamento=p1,
+            marcacoes=[_marc(LINHA_AQUISICAO, TESOURARIA, "-500.00")],
+            usuario=gestor,
+        )
+
+    assert _marcacoes(p1) == [(LINHA_AQUISICAO, TESOURARIA, "-500.00")]
+    travas_alheias = [
+        c["sql"]
+        for c in consultas.captured_queries
+        if "FOR SHARE" in c["sql"] and any(f"= {pk} FOR SHARE" in c["sql"] for pk in pks_da_outra)
+    ]
+    assert not travas_alheias, f"a guarda travou competência de outra empresa: {travas_alheias}"
+
+
 def _consultas_da_guarda(lancamento):
     """Consultas pagas pela guarda sozinha. Importada aqui dentro para o
     arquivo carregar mesmo quando a guarda ainda não existe (a execução
@@ -857,6 +970,117 @@ def test_criterio10_o_custo_da_recusa_nao_cresce_com_as_competencias_que_barram(
     assert com_onze <= com_uma, (
         f"a recusa pagou {com_uma} consultas com 1 competência barrando e {com_onze} com 11"
     )
+
+
+# ---------------------------------------------------------------------------
+# Achados A4, B2 e B3 da auditoria da DL-071 (rodada 1)
+# ---------------------------------------------------------------------------
+
+
+def test_periodo_fechado_vem_antes_do_conteudo_invalido():
+    """A4 da auditoria: a guarda vem ANTES da validação do conteúdo. Valor
+    zero é conteúdo inválido (`MarcacaoDmplInvalida`), e com o período
+    fechado a resposta tem de ser a recusa de período — o contador não deve
+    ser mandado corrigir um conteúdo que não poderia entrar de qualquer jeito.
+    Com a ordem trocada (M7), a recusa de conteúdo sairia no lugar."""
+    empresa, contas, gestor, p1, p2 = _cenario()
+    _fechar(empresa, gestor, 2)
+    marcacoes_antes = _marcacoes(p1)
+
+    with pytest.raises(ClassificacaoAlteraPeriodoFechado):
+        salvar_marcacoes_da_dmpl(
+            lancamento=p1,
+            marcacoes=[_marc(LINHA_AQUISICAO, TESOURARIA, "0.00")],
+            usuario=gestor,
+        )
+    assert _marcacoes(p1) == marcacoes_antes
+
+
+def test_b2_estado_gravado_que_nao_e_encerrada_nem_entregue_e_nomeado_sem_reabra():
+    """B2 da auditoria (lição A4 da DL-065): a mensagem nomeia o estado que
+    está GRAVADO, como `Conta.clean()` faz, e não uma palavra fixa. `EM_
+    ENCERRAMENTO` é reservado e só existe por ORM. Só `ENCERRADA` recebe a
+    sugestão de reabrir; `reabrir_competencia` não reabre este estado, então
+    mandar reabrir seria mandar o contador a uma porta que o produto fecha."""
+    empresa, contas, gestor, p1, p2 = _cenario()
+    _forcar_estado(empresa, ANO, 2, EstadoCompetencia.EM_ENCERRAMENTO)
+
+    with pytest.raises(ClassificacaoAlteraPeriodoFechado) as erro:
+        _tentar_pelo_servico("trocar", p1, gestor)
+
+    mensagem = str(erro.value)
+    rotulo = EstadoCompetencia.EM_ENCERRAMENTO.label.lower()
+    assert "02/2026" in mensagem
+    assert f"está {rotulo}" in mensagem, mensagem
+    assert "Reabra" not in mensagem, mensagem
+    assert "encerrada" not in mensagem, mensagem
+    assert _marcacoes(p1)[0] == (LINHA_AQUISICAO, TESOURARIA, "-1500.00")
+
+
+def test_b2_estados_misturados_nomeiam_cada_um_e_nao_mandam_reabrir():
+    """B2 com dois estados que barram: a mensagem nomeia cada competência com
+    o próprio estado, e não manda reabrir — reabrir só a encerrada não
+    destrava a marcação, porque a outra continuaria barrando."""
+    empresa, contas, gestor, p1, p2 = _cenario()
+    _fechar(empresa, gestor, 3)
+    _forcar_estado(empresa, ANO, 2, EstadoCompetencia.EM_ENCERRAMENTO)
+
+    with pytest.raises(ClassificacaoAlteraPeriodoFechado) as erro:
+        _tentar_pelo_servico("trocar", p1, gestor)
+
+    mensagem = str(erro.value)
+    assert "02/2026 (em encerramento)" in mensagem, mensagem
+    assert "03/2026 (encerrada)" in mensagem, mensagem
+    assert "Reabra" not in mensagem, mensagem
+
+
+def test_b3_duas_competencias_encerradas_concordam_no_plural():
+    """B3 da auditoria: com duas competências, o sujeito e os verbos vão no
+    plural — "as DMPLs de ... acumulam ... e incluem". No singular (um teste
+    abaixo) continua "a DMPL de ... acumula ... e inclui"."""
+    empresa, contas, gestor, p1, p2 = _cenario()
+    _fechar(empresa, gestor, 2)
+    _fechar(empresa, gestor, 3)
+
+    with pytest.raises(ClassificacaoAlteraPeriodoFechado) as erro:
+        _tentar_pelo_servico("trocar", p1, gestor)
+
+    mensagem = str(erro.value)
+    assert (
+        "as DMPLs de 02/2026 e 03/2026 acumulam o exercício desde janeiro e incluem este lançamento"
+        in mensagem
+    ), mensagem
+    assert "a DMPL de 02/2026" not in mensagem
+
+
+def test_b3_duas_competencias_entregues_concordam_no_plural():
+    empresa, contas, gestor, p1, p2 = _cenario()
+    _fechar(empresa, gestor, 2, entregue=True)
+    _fechar(empresa, gestor, 3, entregue=True)
+
+    with pytest.raises(ClassificacaoAlteraPeriodoFechado) as erro:
+        _tentar_pelo_servico("trocar", p1, gestor)
+
+    mensagem = str(erro.value)
+    assert (
+        "as DMPLs de 02/2026 e 03/2026 acumulam o exercício desde janeiro e incluem este lançamento"
+        in mensagem
+    ), mensagem
+    assert "Reabra" not in mensagem
+
+
+def test_b3_uma_competencia_concorda_no_singular():
+    empresa, contas, gestor, p1, p2 = _cenario()
+    _fechar(empresa, gestor, 2)
+
+    with pytest.raises(ClassificacaoAlteraPeriodoFechado) as erro:
+        _tentar_pelo_servico("trocar", p1, gestor)
+
+    mensagem = str(erro.value)
+    assert (
+        "a DMPL de 02/2026 acumula o exercício desde janeiro e inclui este lançamento" in mensagem
+    ), mensagem
+    assert "as DMPLs" not in mensagem
 
 
 # ---------------------------------------------------------------------------
