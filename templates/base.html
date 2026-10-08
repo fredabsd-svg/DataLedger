@@ -874,6 +874,32 @@
                                                             <a href="{% url 'fiscal_web:receita_do_mes' %}">Receita do mês</a>
                                                         {% endif %}
                                                     </li>
+                                                    {% comment %}
+                                                    DL-075 (frente B): pré-DAS para conferência, atividades da empresa e folha
+                                                    para o fator r. Mesma permissão de consulta do grupo; o servidor decide cada
+                                                    ação (cadastrar, alterar, encerrar, lançar, confirmar, estornar) na própria tela.
+                                                    {% endcomment %}
+                                                    <li>
+                                                        {% if pagina_atual == "pre_das" %}
+                                                            <span class="item-atual" aria-current="page">Pré-DAS</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:pre_das' %}">Pré-DAS</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "atividades" %}
+                                                            <span class="item-atual" aria-current="page">Atividades</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:atividades' %}">Atividades</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "folhas_fator_r" %}
+                                                            <span class="item-atual" aria-current="page">Folha (fator r)</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:folhas_fator_r' %}">Folha (fator r)</a>
+                                                        {% endif %}
+                                                    </li>
                                                 </ul>
                                             </div>
                                         {% endwith %}

@@ -1166,6 +1166,33 @@ NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE = {
     "fiscal_web:regime_caixa": (
         "test_tela_regime_caixa_e_acessivel, test_regime_caixa_pela_tela_recusa_2027"
     ),
+    # DL-075 (frente B, apps/fiscal/tests/test_dl075_telas.py): pré-DAS para conferência,
+    # atividades da empresa e folha para o fator r. Ficam AQUI pelo mesmo motivo das de
+    # DL-074: as rotas precisam de ids do cenário (empresa, atividade, folha).
+    "fiscal_web:pre_das": (
+        "test_tela_pre_das_apurado_e_acessivel, test_tela_pre_das_recusado_e_acessivel, "
+        "test_tela_pre_das_sem_empresa_e_acessivel"
+    ),
+    "fiscal_web:atividades": "test_tela_atividades_e_acessivel",
+    "fiscal_web:atividade_nova": (
+        "test_tela_atividade_nova_e_acessivel, test_cadastrar_atividade_pela_tela"
+    ),
+    "fiscal_web:atividade_editar": (
+        "test_tela_atividade_editar_e_acessivel, test_alterar_atividade_pela_tela"
+    ),
+    "fiscal_web:atividade_encerrar": (
+        "test_tela_encerrar_atividade_e_acessivel, test_encerrar_atividade_pela_tela"
+    ),
+    "fiscal_web:folhas_fator_r": (
+        "test_tela_folhas_fator_r_e_acessivel, test_tela_folhas_fator_r_sem_empresa_e_acessivel"
+    ),
+    "fiscal_web:folha_nova": (
+        "test_tela_lancar_folha_e_acessivel, test_lancar_folha_pela_tela_recusa_sem_gravar"
+    ),
+    "fiscal_web:folha_confirmar": "test_confirmar_folha_pela_tela",
+    "fiscal_web:folha_estornar": (
+        "test_tela_estornar_folha_e_acessivel, test_estornar_folha_pela_tela_exige_motivo"
+    ),
 }
 
 # DL-046, fatia 1 (especialista-frontend): as SEIS telas HTML de

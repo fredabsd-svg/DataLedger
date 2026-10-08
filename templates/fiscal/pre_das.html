@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+
+{% block titulo %}Pré-DAS do Simples{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada and mes_rotulo %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Competência</span>
+            <strong>{{ mes_rotulo }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-075 (frente B), arquétipo D (painel de período, direção de arte §2.D), com a pergunta da
+FISCAL (§3): o documento confere com a memória de cálculo? É CONFERÊNCIA, classe 1 de
+docs/projeto/personalizacao-de-relatorio.md: o contador confere contra o PGDAS-D. Nada é
+gerado nem transmitido. A regra fica em apps.fiscal.pre_das; a tela só mostra o que o serviço
+calcula, com o dispositivo de cada passo, e mostra cada bloqueio quando o cálculo recusa.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Pré-DAS do Simples</h1>{% endblock %}
+
+{% block content %}
+    <p class="mensagem mensagem-info" role="status">
+        <strong>Pré-apuração para conferência contra o PGDAS-D.</strong>
+        {{ aviso_do_pre_das }}
+    </p>
+
+    {% include "fiscal/_filtro_simples.html" %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver o pré-DAS do mês.</strong></p>
+            <p class="estado-vazio__descricao">
+                O pré-DAS é sempre de uma empresa e de uma competência.
+            </p>
+        </div>
+    {% elif erro_competencia %}
+        <p class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> {{ erro_competencia }}
+        </p>
+    {% elif recusado %}
+        <div class="painel-etapa painel-etapa--risco">
+            <h2>Pré-DAS não calculado em {{ mes_rotulo }}</h2>
+            <p>
+                Há {{ bloqueios|length }} motivo(s) impedindo o cálculo. Cada um diz o que falta e onde
+                resolver. Nada foi gravado: o pré-DAS é cálculo sob demanda, a partir dos lançamentos.
+            </p>
+        </div>
+        <table class="tabela-dados">
+            <caption>Bloqueios do pré-DAS de {{ mes_rotulo }}, com o que falta e onde resolver</caption>
+            <thead>
+                <tr>
+                    <th scope="col">O que falta</th>
+                    <th scope="col">Dispositivo</th>
+                    <th scope="col">Onde resolver</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for bloqueio in bloqueios %}
+                    <tr>
+                        <td>{{ bloqueio.mensagem }}</td>
+                        <td class="texto-apoio">{{ bloqueio.dispositivo }}</td>
+                        <td>
+                            {% if bloqueio.url %}
+                                <a class="botao botao--secundario botao--pequeno" href="{{ bloqueio.url }}">{{ bloqueio.acao }}</a>
+                            {% else %}
+                                {{ bloqueio.sem_acao }}
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_receita }}">Ver a receita de {{ mes_rotulo }}</a>
+            <a class="botao botao--secundario" href="{{ url_atividades }}">Atividades da empresa</a>
+            <a class="botao botao--secundario" href="{{ url_folhas }}">Folha para o fator r</a>
+        </p>
+
+        <h2>Valor calculado de {{ mes_rotulo }}</h2>
+        <dl class="lista-de-definicao">
+            <div>
+                <dt>Total (conferir com o PGDAS-D)</dt>
+                <dd class="valor-monetario">{{ total }}</dd>
+            </div>
+        </dl>
+        <p class="texto-apoio">
+            Alíquotas e percentuais são mostrados com 4 casas decimais. O cálculo usa precisão total e
+            não arredonda: só o valor de cada tributo é arredondado a centavos (ROUND_HALF_UP).
+        </p>
+
+        <h2>RBT12 por mercado</h2>
+        <table class="tabela-dados">
+            <caption>RBT12 apurado por mercado, pela regra do art. 22 da Res. CGSN 140/2018</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Mercado</th>
+                    <th scope="col">RBT12 (R$)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for linha in rbt12_por_mercado %}
+                    <tr>
+                        <th scope="row">{{ linha.rotulo }}</th>
+                        <td class="valor-monetario">{{ linha.valor }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {% if fator_r %}
+            <h2>Fator r</h2>
+            <p class="texto-apoio">
+                Fator r = FS12 ÷ RBT12 conjunto (interno + externo), truncado em 2 casas. O dispositivo
+                que o escolhe entre os anexos está na memória de cálculo.
+            </p>
+            <dl class="lista-de-definicao">
+                <div>
+                    <dt>FS12 (folha dos 12 meses, R$)</dt>
+                    <dd class="valor-monetario">{{ fator_r.fs12 }}</dd>
+                </div>
+                <div>
+                    <dt>RBT12 conjunto (R$)</dt>
+                    <dd class="valor-monetario">{{ fator_r.rbt12_conjunto }}</dd>
+                </div>
+                <div>
+                    <dt>Fator r</dt>
+                    <dd class="valor-monetario">{{ fator_r.valor }}</dd>
+                </div>
+                <div>
+                    <dt>Regra de zero</dt>
+                    <dd>
+                        {% if fator_r.regra_zero %}
+                            {{ fator_r.regra_zero }}
+                        {% else %}
+                            Não aplicada
+                        {% endif %}
+                    </dd>
+                </div>
+            </dl>
+        {% endif %}
+
+        {% for anexo in anexos %}
+            <h2>{{ anexo.rotulo }}</h2>
+            <dl class="lista-de-definicao">
+                <div>
+                    <dt>RBT12 do mercado (R$)</dt>
+                    <dd class="valor-monetario">{{ anexo.rbt12 }}</dd>
+                </div>
+                <div>
+                    <dt>Faixa</dt>
+                    <dd>Faixa {{ anexo.faixa }}, até R$ <span class="valor-monetario">{{ anexo.limite_superior }}</span></dd>
+                </div>
+                <div>
+                    <dt>Alíquota nominal</dt>
+                    <dd class="valor-monetario">{{ anexo.aliquota_nominal }}</dd>
+                </div>
+                <div>
+                    <dt>Parcela a deduzir (R$)</dt>
+                    <dd class="valor-monetario">{{ anexo.parcela_a_deduzir }}</dd>
+                </div>
+                <div>
+                    <dt>Alíquota efetiva</dt>
+                    <dd class="valor-monetario">{{ anexo.aliquota_efetiva }}</dd>
+                </div>
+                <div>
+                    <dt>Teto de 5% do ISS</dt>
+                    <dd>{{ anexo.teto_iss }}</dd>
+                </div>
+                <div>
+                    <dt>Diferença centesimal</dt>
+                    <dd>{{ anexo.diferenca }}</dd>
+                </div>
+                <div>
+                    <dt>Total do anexo (R$)</dt>
+                    <dd class="valor-monetario">{{ anexo.total }}</dd>
+                </div>
+            </dl>
+
+            {% for segmento in anexo.segmentos %}
+                <h3>{{ segmento.rotulo }}</h3>
+                <table class="tabela-dados">
+                    <caption>Tributos sobre a receita deste segmento: percentual efetivo e valor</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Tributo</th>
+                            <th scope="col">Percentual efetivo</th>
+                            <th scope="col">Valor (R$)</th>
+                            <th scope="col">Situação</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for linha in segmento.linhas %}
+                            <tr>
+                                <th scope="row">{{ linha.tributo }}</th>
+                                <td class="valor-monetario">{{ linha.percentual }}</td>
+                                <td class="valor-monetario">{{ linha.valor }}</td>
+                                <td>{{ linha.situacao }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <th scope="row">Total da receita de {{ segmento.receita }} (R$)</th>
+                            <td></td>
+                            <td class="valor-monetario">{{ segmento.total }}</td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            {% endfor %}
+        {% endfor %}
+
+        <h2>Valor por tributo</h2>
+        <table class="tabela-dados">
+            <caption>Valor calculado por tributo, para conferir com o PGDAS-D, com o total</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Tributo</th>
+                    <th scope="col">Valor (R$)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for tributo in tributos %}
+                    <tr>
+                        <th scope="row">{{ tributo.rotulo }}</th>
+                        <td class="valor-monetario">{{ tributo.valor }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <th scope="row">Total do pré-DAS</th>
+                    <td class="valor-monetario">{{ total }}</td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <h2>Receita segregada</h2>
+        <table class="tabela-dados">
+            <caption>Receita do mês por mercado, anexo e tratamento, com os tributos de cada parcela</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Mercado</th>
+                    <th scope="col">Anexo</th>
+                    <th scope="col">Tratamento</th>
+                    <th scope="col">Receita (R$)</th>
+                    <th scope="col">Tributos (R$)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for parcela in segregacao %}
+                    <tr>
+                        <td>{{ parcela.mercado }}</td>
+                        <td>{{ parcela.anexo }}</td>
+                        <td>{{ parcela.segmento }}</td>
+                        <td class="valor-monetario">{{ parcela.receita }}</td>
+                        <td class="valor-monetario">{{ parcela.tributos }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <h2>Memória de cálculo</h2>
+        <p class="texto-apoio">
+            Cada passo, com o valor e o dispositivo que o fundamenta, para a conferência com o PGDAS-D.
+        </p>
+        <table class="tabela-dados">
+            <caption>Memória de cálculo do pré-DAS de {{ mes_rotulo }}, passo a passo</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Passo</th>
+                    <th scope="col">Descrição</th>
+                    <th scope="col">Valor</th>
+                    <th scope="col">Dispositivo</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for passo in memoria %}
+                    <tr>
+                        <th scope="row">{{ passo.ordem }}</th>
+                        <td>{{ passo.descricao }}</td>
+                        <td class="valor-monetario">{{ passo.valor }}</td>
+                        <td>{{ passo.dispositivo }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+{% endblock %}

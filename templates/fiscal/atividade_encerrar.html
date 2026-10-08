@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block titulo %}Encerrar atividade — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Atividades do Simples</a></li>
+            <li aria-current="page">Encerrar atividade</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para as atividades</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-075 (frente B), arquétipo E (ação sensível, direção de arte §2.E): diz o que vai acontecer
+e o que ainda dá para desfazer. Encerrar NÃO apaga a atividade: ela continua no histórico, com
+a data de fim. Antes do fim, o pré-DAS continua usando a atividade.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Encerrar atividade</h1>{% endblock %}
+
+{% block content %}
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Atividade</dt>
+            <dd>{{ atividade.descricao }}</dd>
+        </div>
+        <div>
+            <dt>Enquadramento</dt>
+            <dd>{{ atividade.enquadramento }} <span class="texto-apoio">({{ atividade.dispositivo }})</span></dd>
+        </div>
+        <div>
+            <dt>Início da vigência</dt>
+            <dd class="valor-monetario">{{ atividade.inicio }}</dd>
+        </div>
+        <div>
+            <dt>Fim da vigência</dt>
+            <dd class="valor-monetario">{{ atividade.fim }}</dd>
+        </div>
+    </dl>
+
+    {% if ja_encerrada %}
+        <p class="mensagem mensagem-warning" role="status">
+            <strong>Atividade já encerrada.</strong>
+            Para outra data de fim, altere a atividade.
+        </p>
+        <p>
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Voltar para as atividades</a>
+        </p>
+    {% else %}
+        <div class="painel-etapa painel-etapa--risco">
+            <h2>O que vai acontecer</h2>
+            <p>
+                A vigência da atividade passa a terminar na data informada. A linha não é apagada:
+                o fim, quem encerrou e quando ficam na trilha de auditoria.
+            </p>
+            <p>
+                Meses que começam depois do fim deixam de usar esta atividade. Se o pré-DAS de algum
+                mês depender dela, ele recusa e diz o que falta.
+            </p>
+        </div>
+
+        <form method="post" action="{{ url_envio }}" class="formulario">
+            {% csrf_token %}
+            <div class="campo">
+                <label for="id_fim">Fim da vigência</label>
+                <input type="text" id="id_fim" name="fim" value="{{ fim_digitado }}" inputmode="numeric"
+                       required maxlength="10" aria-describedby="id_fim_ajuda">
+                <p class="texto-apoio" id="id_fim_ajuda">Em dd/mm/aaaa. Não pode ser anterior ao início.</p>
+            </div>
+            <div class="acoes-formulario">
+                <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+                <button type="submit" class="botao botao--perigoso">Encerrar a atividade</button>
+            </div>
+        </form>
+    {% endif %}
+{% endblock %}

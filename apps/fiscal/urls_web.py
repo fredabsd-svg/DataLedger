@@ -18,6 +18,10 @@ from django.urls import path
 
 from apps.fiscal.views_conformidade import conformidade_ibscbs
 from apps.fiscal.views_web import (
+    atividade_editar,
+    atividade_encerrar,
+    atividade_nova,
+    atividades,
     conferencia_escrituracao,
     documento_detalhe,
     documento_xml,
@@ -26,7 +30,12 @@ from apps.fiscal.views_web import (
     escrituracao_estornar,
     escriturar_nota,
     evento_xml,
+    folha_confirmar,
+    folha_estornar,
+    folha_nova,
+    folhas_fator_r,
     notas_a_escriturar,
+    pre_das,
     receita_do_mes,
     receita_informada_confirmar,
     receita_informada_estornar,
@@ -115,5 +124,41 @@ urlpatterns = [
         "simples/empresas/<int:empresa_id>/regime-caixa/",
         regime_caixa,
         name="regime_caixa",
+    ),
+    # DL-075 (frente B): pré-DAS para conferência, atividades da empresa e folha para o fator
+    # r. Mesmo critério das rotas da DL-074: a tela de consulta leva a empresa na querystring
+    # (`?empresa=`), e as ações levam a empresa no caminho, com o registro buscado DENTRO dela.
+    path("simples/pre-das/", pre_das, name="pre_das"),
+    path("simples/atividades/", atividades, name="atividades"),
+    path(
+        "simples/empresas/<int:empresa_id>/atividades/nova/",
+        atividade_nova,
+        name="atividade_nova",
+    ),
+    path(
+        "simples/empresas/<int:empresa_id>/atividades/<int:atividade_id>/",
+        atividade_editar,
+        name="atividade_editar",
+    ),
+    path(
+        "simples/empresas/<int:empresa_id>/atividades/<int:atividade_id>/encerrar/",
+        atividade_encerrar,
+        name="atividade_encerrar",
+    ),
+    path("simples/folha/", folhas_fator_r, name="folhas_fator_r"),
+    path(
+        "simples/empresas/<int:empresa_id>/folha/nova/",
+        folha_nova,
+        name="folha_nova",
+    ),
+    path(
+        "simples/empresas/<int:empresa_id>/folha/<int:folha_id>/confirmar/",
+        folha_confirmar,
+        name="folha_confirmar",
+    ),
+    path(
+        "simples/empresas/<int:empresa_id>/folha/<int:folha_id>/estornar/",
+        folha_estornar,
+        name="folha_estornar",
     ),
 ]

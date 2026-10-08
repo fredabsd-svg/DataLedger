@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block titulo %}Estornar folha {{ competencia }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Folha para o fator r</a></li>
+            <li aria-current="page">Estornar folha</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para a folha</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-075 (frente B), arquétipo E (ação sensível, direção de arte §2.E): diz o que vai acontecer
+e o que ainda dá para desfazer. O motivo é obrigatório e fica na trilha; a folha não é apagada.
+Estornada, ela sai do FS12 dos meses que a cobriam. Só folha CONFIRMADA pode ser estornada.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Estornar folha de {{ competencia }}</h1>{% endblock %}
+
+{% block content %}
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Competência</dt>
+            <dd>{{ competencia }}</dd>
+        </div>
+        <div>
+            <dt>Estado</dt>
+            <dd>{{ estado }}</dd>
+        </div>
+        <div>
+            <dt>Total (R$)</dt>
+            <dd class="valor-monetario">{{ total }}</dd>
+        </div>
+        <div>
+            <dt>Documento de suporte</dt>
+            <dd>{{ documento }}</dd>
+        </div>
+    </dl>
+
+    {% if confirmada %}
+        <div class="painel-etapa painel-etapa--risco">
+            <h2>O que vai acontecer</h2>
+            <p>
+                A folha de {{ competencia }} deixa de entrar no FS12 dos meses que a cobriam. Ela passa a
+                estornada, com o motivo registrado.
+            </p>
+            <p>
+                A linha não é apagada: o estorno, o motivo e quem estornou ficam na trilha de auditoria.
+                Para corrigir o mês, lance outra folha depois do estorno.
+            </p>
+        </div>
+
+        <form method="post" action="{{ url_envio }}" class="formulario">
+            {% csrf_token %}
+            <div class="campo">
+                <label for="id_motivo">Motivo do estorno</label>
+                <textarea id="id_motivo" name="motivo" required rows="3" maxlength="{{ motivo_maximo }}"
+                          aria-describedby="id_motivo_ajuda">{{ motivo }}</textarea>
+                <p class="texto-apoio" id="id_motivo_ajuda">
+                    Obrigatório. Fica na trilha de auditoria, com até {{ motivo_maximo }} caracteres.
+                </p>
+            </div>
+            <div class="acoes-formulario">
+                <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+                <button type="submit" class="botao botao--perigoso">Estornar folha de {{ competencia }}</button>
+            </div>
+        </form>
+    {% else %}
+        <p class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> só folha confirmada pode ser estornada. Esta está "{{ estado }}".
+        </p>
+        <p>
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Voltar para a folha</a>
+        </p>
+    {% endif %}
+{% endblock %}

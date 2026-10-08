@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block titulo %}Atividades do Simples{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-075 (frente B), arquétipo A (tabela de consulta) com cadastro à parte (arquétipo B). O
+cadastro das atividades que a empresa presta é a entrada do fator r e da escolha do anexo
+(HI-68). Cada enquadramento mostra o dispositivo do catálogo, nunca uma alíquota.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Atividades do Simples</h1>{% endblock %}
+
+{% block content %}
+    {% include "fiscal/_filtro_simples.html" %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver as atividades.</strong></p>
+            <p class="estado-vazio__descricao">
+                Cada atividade tem vigência e enquadramento. Sem atividade padrão vigente no mês, o pré-DAS não é calculado.
+            </p>
+        </div>
+    {% else %}
+        <div class="acoes-formulario">
+            {% if pode_escriturar %}
+                <a class="botao botao--primario" href="{{ url_nova }}">Cadastrar atividade</a>
+            {% else %}
+                <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao">Cadastrar atividade</button>
+                <p class="texto-apoio" id="ajuda_sem_permissao">{{ mensagem_sem_permissao }}</p>
+            {% endif %}
+        </div>
+
+        {% if atividades %}
+            <table class="tabela-dados">
+                <caption>Atividades da empresa, com vigência, enquadramento e padrão</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Atividade</th>
+                        <th scope="col">Código do subitem</th>
+                        <th scope="col">Enquadramento</th>
+                        <th scope="col">Início</th>
+                        <th scope="col">Fim</th>
+                        <th scope="col">Padrão</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for atividade in atividades %}
+                        <tr>
+                            <td>{{ atividade.descricao }}</td>
+                            <td>{{ atividade.codigo_subitem }}</td>
+                            <td>
+                                {{ atividade.enquadramento }}
+                                <br><span class="texto-apoio">{{ atividade.dispositivo }}</span>
+                            </td>
+                            <td class="valor-monetario">{{ atividade.inicio }}</td>
+                            <td class="valor-monetario">{{ atividade.fim }}</td>
+                            <td>{{ atividade.padrao }}</td>
+                            <td>
+                                <div class="acoes-de-linha">
+                                    {% if atividade.pode_editar %}
+                                        <a class="botao botao--secundario botao--pequeno" href="{{ atividade.url_editar }}">Alterar</a>
+                                        {% if atividade.url_encerrar %}
+                                            <a class="botao botao--perigoso botao--pequeno" href="{{ atividade.url_encerrar }}">Encerrar</a>
+                                        {% endif %}
+                                    {% else %}
+                                        <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Alterar</button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo"><strong>Nenhuma atividade cadastrada para esta empresa.</strong></p>
+                <p class="estado-vazio__descricao">
+                    Cadastre a atividade que a empresa presta, com o enquadramento. Sem ela, o pré-DAS recusa e diz o que falta.
+                </p>
+            </div>
+        {% endif %}
+
+        <h2>Enquadramentos do catálogo</h2>
+        <table class="tabela-dados">
+            <caption>Enquadramentos que o cadastro aceita, com o dispositivo de cada um</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Enquadramento</th>
+                    <th scope="col">Dispositivo</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in catalogo %}
+                    <tr>
+                        <th scope="row">{{ item.rotulo }}</th>
+                        <td>{{ item.dispositivo }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+{% endblock %}

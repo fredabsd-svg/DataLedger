@@ -981,6 +981,22 @@ def _dados_fiscal(request, escopo):
                 ),
             }
         )
+        # DL-075 (frente B): pré-DAS para conferência. Mesma permissão de consulta; a tela
+        # pede UMA empresa, e sem ela a própria tela pede a escolha.
+        atalhos.append(
+            {
+                "rotulo": "Pré-DAS do Simples (conferência)",
+                "url": reverse("fiscal_web:pre_das")
+                + "?"
+                + urlencode(
+                    {
+                        "ano": escopo.ano,
+                        "mes": escopo.mes,
+                        **({"empresa": empresas[0].pk} if len(empresas) == 1 else {}),
+                    }
+                ),
+            }
+        )
     return {
         "fontes": fontes,
         "kpis": kpis,

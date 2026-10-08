@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+
+{% block titulo %}Folha para o fator r{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Ano</span>
+            <strong>{{ ano }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-075 (frente B), arquétipo A (tabela de consulta) com lançamento e ações (B). A pergunta da
+FISCAL (§3): a folha confere com o FS12 do mês? Rascunho não entra no FS12; a folha confirmada
+entra e não muda; para corrigir, estorna-se com motivo. Não há folha zero por omissão: cada
+componente é informado. O FS12 vem de apps.fiscal.folha_fator_r, pela janela do art. 22.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Folha para o fator r</h1>{% endblock %}
+
+{% block content %}
+    <p class="mensagem mensagem-info" role="status">
+        <strong>Folha informada para o fator r.</strong>
+        Rascunho não entra no FS12. A folha confirmada entra e não muda; para corrigir, estorne com
+        motivo e lance outra. Cada componente é informado, inclusive o zero.
+    </p>
+
+    {% include "fiscal/_filtro_simples.html" %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver a folha do fator r.</strong></p>
+            <p class="estado-vazio__descricao">
+                A folha é de uma empresa, mês a mês. O FS12 de cada mês aparece depois da escolha.
+            </p>
+        </div>
+    {% else %}
+        {% if not pode_escriturar %}
+            <p class="texto-apoio" id="ajuda_sem_permissao">{{ mensagem_sem_permissao }}</p>
+        {% endif %}
+
+        <div class="acoes-formulario">
+            {% if pode_escriturar %}
+                <a class="botao botao--primario" href="{{ url_nova }}">Lançar folha de um mês</a>
+            {% else %}
+                <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao">Lançar folha de um mês</button>
+            {% endif %}
+        </div>
+
+        <h2>Folhas lançadas em {{ ano }}</h2>
+        {% if folhas %}
+            <table class="tabela-dados">
+                <caption>Folhas do ano {{ ano }}, por mês, com estado, componentes, total e ação</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Competência</th>
+                        <th scope="col">Estado</th>
+                        {% for componente in componentes %}
+                            <th scope="col">{{ componente.rotulo }}</th>
+                        {% endfor %}
+                        <th scope="col">Total (R$)</th>
+                        <th scope="col">Documento de suporte</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for folha in folhas %}
+                        <tr>
+                            <th scope="row">{{ folha.competencia }}</th>
+                            <td>
+                                {{ folha.estado }}
+                                {% if folha.motivo_estorno %}
+                                    <br><span class="texto-apoio">Motivo: {{ folha.motivo_estorno }}</span>
+                                {% endif %}
+                            </td>
+                            {% for valor in folha.valores %}
+                                <td class="valor-monetario">{{ valor }}</td>
+                            {% endfor %}
+                            <td class="valor-monetario">{{ folha.total }}</td>
+                            <td>{{ folha.documento }}</td>
+                            <td>
+                                <div class="acoes-de-linha">
+                                    {% if folha.confirmar == "ativo" %}
+                                        <form method="post" action="{{ folha.url_confirmar }}">
+                                            {% csrf_token %}
+                                            <button type="submit" class="botao botao--secundario botao--pequeno">Confirmar folha</button>
+                                        </form>
+                                    {% elif folha.confirmar == "bloqueado" %}
+                                        <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Confirmar folha</button>
+                                    {% endif %}
+                                    {% if folha.estornar == "ativo" %}
+                                        <a class="botao botao--perigoso botao--pequeno" href="{{ folha.url_estornar }}">Estornar</a>
+                                    {% elif folha.estornar == "bloqueado" %}
+                                        <button type="button" class="botao botao--perigoso botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Estornar</button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo"><strong>Nenhuma folha lançada em {{ ano }}.</strong></p>
+                <p class="estado-vazio__descricao">
+                    Sem folha confirmada, o FS12 do mês não sai e o pré-DAS que depende do fator r recusa.
+                </p>
+            </div>
+        {% endif %}
+
+        <h2>FS12 de cada mês de {{ ano }}</h2>
+        <p class="texto-apoio">
+            FS12 é a folha dos 12 meses anteriores ao período de apuração, pela janela do RBT12 (art. 22 da
+            Res. CGSN 140/2018). O cálculo usa precisão total; a tela mostra 2 casas decimais.
+        </p>
+        <table class="tabela-dados">
+            <caption>FS12 do mês de apuração, com a folha confirmada do mês e a situação do cálculo</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Mês de apuração</th>
+                    <th scope="col">Folha confirmada do mês (R$)</th>
+                    <th scope="col">FS12 (R$)</th>
+                    <th scope="col">Regra</th>
+                    <th scope="col">Situação</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for linha in meses_fs12 %}
+                    <tr>
+                        <th scope="row">{{ linha.competencia }}</th>
+                        <td class="valor-monetario">{{ linha.folha_do_mes }}</td>
+                        <td class="valor-monetario">{{ linha.fs12 }}</td>
+                        <td>{{ linha.regra }}</td>
+                        <td>{{ linha.situacao }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+{% endblock %}
