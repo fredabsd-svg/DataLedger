@@ -193,6 +193,14 @@ def _texto(valor, nome: str, maximo: int, obrigatorio: bool = True) -> str:
     bruto = "" if valor is None else str(valor)
     if "\x00" in bruto:
         raise EntradaInvalidaPresumido(f"{nome}: caractere nulo não é aceito.")
+    # Caractere substituto solitário (por exemplo "\ud800" num JSON) não é UTF-8 válido e chegaria
+    # ao banco como erro de servidor (reconferência da DL-079, R1).
+    try:
+        bruto.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise EntradaInvalidaPresumido(
+            f"{nome}: caracteres substitutos não são permitidos."
+        ) from exc
     texto = bruto.strip()
     if obrigatorio and not texto:
         raise EntradaInvalidaPresumido(f"Informe {nome}.")
@@ -625,6 +633,12 @@ def declarar_receitas_integrais(
     observacao_limpa = _texto(observacao, "a observação", MOTIVO_MAXIMO, obrigatorio=False)
     travada = receita_servico.travar_empresa(empresa)
     total = _integrais_ativas(travada, ano, trimestre)
+    # Cada receita respeita o teto do campo, mas a SOMA pode passar dele (reconferência, R2).
+    if total > MAIOR_VALOR_MONETARIO:
+        raise EntradaInvalidaPresumido(
+            "O total das receitas integrais do trimestre passa do maior valor aceito "
+            f"({MAIOR_VALOR_MONETARIO}); confira os lançamentos antes de declarar."
+        )
     declaracao = DeclaracaoReceitasIntegrais(
         empresa=travada,
         ano=ano,
