@@ -2,7 +2,7 @@
 
 **Demanda:** ordem do Fred de 08/10/2026 (RC-164, reiterada na RC-170). Traz
 para o código as respostas delegadas da RC-172 sobre a rotina do Presumido.
-Executa depois da [DL-082](DL-082-pre-das-de-comercio-e-industria.md).
+Executa depois da [DL-082](DL-082-pre-das-de-comercio-e-industria.md). Ajustada pelas respostas do Fred da RC-173 (itens 1, 3, 5 e 6).
 **Estado:** [fonte única](../agents/estado.md). **Branch:**
 `ccr-bf4b4a55-hpqgbp` → `main`. **Risco:** nível 1 (§3.1), porque mexe no
 vencimento e na dedução das retenções. A auditoria faz uma rodada, uma
@@ -28,6 +28,12 @@ atualizadas pela RC-172.
      nacional.
 2. **Feriados locais.** Cada empresa tem uma tabela opcional de feriados
    estaduais e municipais, com data, descrição e fonte.
+   - A tabela **nasce preenchida para Palmas e o Tocantins** (RC-173, item
+     6).
+   - Entra só a data cuja lei for lida na fonte oficial (Diário Oficial,
+     Assembleia Legislativa ou Câmara Municipal), com a data da leitura.
+   - A pesquisa vai ao `contador-senior` antes da frente A. Data sem lei
+     lida fica fora, com pendência nomeada.
    - Quando o vencimento cai num deles, a tela mostra "antecipar: sem
      expediente bancário na praça".
    - A data normativa não muda.
@@ -47,11 +53,20 @@ atualizadas pela RC-172.
 5. **Competência ou parcela na receita informada** (HI-135). O campo entra na
    identidade contra duplicidade. A mensagem da recusa pede a competência
    quando for outra parcela do mesmo contrato.
-6. **Parâmetros por empresa** (HI-136): a forma de recolhimento padrão
-   (quota única ou quotas) e o padrão de combustível (para consumo, para
-   revenda ou sem padrão). O padrão de combustível sugere a natureza quando o
-   CFOP não decide.
-7. **Pendência de cadastro** (HI-136). A empresa do Presumido sem atividade
+6. **Parâmetros por empresa** (HI-136):
+   - **forma de recolhimento padrão:** o padrão do escritório é três
+     quotas, porque a grande maioria dos clientes paga assim (RC-173, item
+     5); cada empresa pode mudar;
+   - **padrão de combustível:** posto e TRR → "para consumo"; distribuidora
+     → sem padrão, e quem decide é o item (RC-173, item 3). O padrão sugere
+     a natureza quando o CFOP não decide.
+7. **Encerrar a medida judicial num trimestre** (BL-680, item 1; RC-173,
+   item 1: o escritório tem cliente com medida). Hoje revogar a medida a
+   tira de todos os trimestres, inclusive os já apurados. O ato novo encerra
+   a medida em (ano, trimestre), com trilha e sem apagar o histórico.
+   Reconferir no portal do STF o andamento das ADI 7936 e 7944 e atualizar
+   a data do aviso.
+8. **Pendência de cadastro** (HI-136). A empresa do Presumido sem atividade
    de presunção padrão vigente aparece na lista de pendências do mês.
 
 ## Critérios de aceite
@@ -66,9 +81,14 @@ atualizadas pela RC-172.
 5. Três mensalidades iguais com competências diferentes são aceitas; sem a
    competência, a segunda é recusada como hoje.
 6. Os parâmetros por empresa têm trilha, isolamento e permissão no servidor.
-7. Mutação: trocar a data da Páscoa, deduzir no trimestre seguinte e ignorar
+   A empresa nova abre em três quotas.
+7. A medida encerrada num trimestre continua valendo nos trimestres
+   anteriores e deixa de valer nos seguintes. A trilha mostra o
+   encerramento.
+8. Cada feriado local preenchido cita a lei e a data da leitura.
+9. Mutação: trocar a data da Páscoa, deduzir no trimestre seguinte e ignorar
    a competência na identidade derrubam teste.
-8. Regressão completa numa única invocação. Migração aditiva e reversível.
+10. Regressão completa numa única invocação. Migração aditiva e reversível.
 
 ## Divisão
 

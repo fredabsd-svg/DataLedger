@@ -150,6 +150,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md) | Fiscal: pré-DAS de comércio e indústria (Anexos I e II) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-083](../planos/DL-083-receita-de-nfe-no-presumido.md) | Fiscal: receita de NF-e no Lucro Presumido e regras de receita da RC-172 | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-084](../planos/DL-084-rotina-do-presumido.md) | Fiscal: rotina do Lucro Presumido (RC-172) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-085](../planos/DL-085-escrituracao-de-nfe-em-volume.md) | Fiscal: escrituração de NF-e e NFC-e em volume (RC-173) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -356,11 +357,30 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
     destinos:
     - [DL-083](../planos/DL-083-receita-de-nfe-no-presumido.md): receita de
       NF-e no Presumido; os dois bloqueios conservadores saem pela fórmula do
-      MOC; combustível em duas naturezas; receita de 2027 bloqueada. **É a
-      próxima a executar**, antes da DL-082.
+      MOC; combustível em duas naturezas; receita de 2027 bloqueada. **Em
+      execução** (frente A com o Haiku, cópia isolada `dl083` sobre
+      `ab40997`).
     - [DL-084](../planos/DL-084-rotina-do-presumido.md): rotina do Presumido,
       depois da DL-082.
     - BL-687: mudanças do leitor de NF-e, que dependem do BL-686.
+
+13. **Respostas do Fred à PE-88 (RC-173, 09/10/2026):**
+    - há cliente com medida judicial;
+    - NFC-e em **alto volume**;
+    - há os três clientes de combustível;
+    - devoluções também como nota própria de entrada;
+    - a grande maioria paga em quotas;
+    - o escritório já antecipou DARF por feriado municipal;
+    - há muitos clientes do Presumido com NF-e em 2026.
+
+    Consequências:
+    - nova [DL-085](../planos/DL-085-escrituracao-de-nfe-em-volume.md), a
+      escrituração em lote, porque nota a nota não fecha o mês de um posto;
+    - a DL-084 ganha três quotas como padrão, feriados de Palmas e do
+      Tocantins com lei lida, padrão de combustível por tipo de cliente e o
+      encerramento da medida judicial (BL-680).
+
+    **Ordem de execução:** DL-083 → DL-085 → DL-082 → DL-084.
 
 **Linha de base vigente (09/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `578ce9e` — conteúdo da `main` em `2911eb6` —,
