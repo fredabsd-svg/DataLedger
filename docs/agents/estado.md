@@ -372,8 +372,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
       Cálculo do Presumido ao centavo em quatro cenários independentes.
       [Consulta](../projeto/consultas/2026-10-09-contador-senior-frete-lubrificante-devolucao.md)
       sobre A1, A3 e A6, que gerou HI-138 a HI-140. A tabela de NCM vem do
-      Portal Único Siscomex. **Correção única em andamento** (Haiku, cópia
-      `dl083c` sobre `c66125a`). A5 e A10 foram para o BL-688.
+      Portal Único Siscomex. **Correção única integrada** (`123e0cd`,
+      `9224d8a`, `3f36a6d`; 8.765/1/53 medido pelo desenvolvedor). A5 e A10
+      foram para o BL-688. Próximo: a reconferência (Sonnet).
     - [DL-084](../planos/DL-084-rotina-do-presumido.md): rotina do Presumido,
       depois da DL-082.
     - BL-687: mudanças do leitor de NF-e, que dependem do BL-686.

@@ -207,6 +207,33 @@ Com base na [consulta do frete, do lubrificante e da devolução de combustível
 - **A8:** recusa própria para nota de 2027 e botão desabilitado na tela.
 - **A5 e A10:** vão para o BL-688.
 
+## Decisões tomadas na correção
+
+- **D1, aceita pelo arquiteto:** no item que não é receita, o resíduo é
+  diferente conforme o `indTot`.
+  - Com `indTot` 1, o resíduo é só frete, seguro e outras despesas. O `vProd`
+    do item bonificado nunca foi receita (HI-124), e o desconto dele abate o
+    próprio `vProd`.
+  - Com `indTot` 0, o resíduo é a `receita_do_item` inteira.
+  - A regra literal faria uma remessa de R$ 300 com `indTot` 1 virar receita
+    da venda.
+- **D2:** um terceiro bloqueio, para resíduo positivo sem base de rateio
+  (itens de receita somando zero).
+- **D3 e D4:** CFOP de combustível com NCM ausente ou fora das listas fica
+  sem sugestão. Exceção: x.660 e x.661 sem NCM sugerem `devolucao_venda`.
+- **D5, limitação aceita:** álcool ou diesel B devolvidos com CFOP genérico
+  ficam em `devolucao_venda`, sem aviso.
+- **D8:** `devolucao_por_atividade` na API é o valor **deduzido** por
+  atividade, e o nome pode enganar. Fica para a reconferência opinar.
+- **D9:** no Simples, a devolução de combustível para consumo deduz como
+  qualquer devolução. O pré-DAS já recusa combustível (HI-132).
+- **Coluna `natureza`:** passa de 24 para 29 caracteres, por causa do nome
+  novo.
+- **Testes existentes ajustados:** os da DL-081 e da DL-083 listados no
+  relatório da correção. Nenhum teste da DL-074, da DL-075 ou da DL-079 foi
+  tocado.
+- **Medido:** 8.765/1/53 numa única invocação (Python 3.13 local).
+
 ## Critérios de aceite
 
 1. Receita do item nos quatro casos (`indTot` 1 ou 0 × `indDeduzDeson` 1 ou
@@ -250,6 +277,13 @@ Com base na [consulta do frete, do lubrificante e da devolução de combustível
 ## Reversão
 
 Reverter o merge devolve os dois bloqueios e a recusa
-`receita_nfe_nao_integrada`. A natureza `combustivel_revenda`, se já tiver
-sido usada, impede a reversão da migração até o contador reclassificar os
-itens: a reversão recusa com o motivo, nunca apaga.
+`receita_nfe_nao_integrada`.
+
+A reversão da migração `fiscal 0012` funciona assim:
+- **recusa**, com o motivo, se houver item em rascunho ou efetivado com
+  `combustivel_revenda` ou `devolucao_combustivel_consumo`; o contador
+  estorna e reclassifica primeiro;
+- com itens só estornados, que são imutáveis, recria o CHECK antigo como
+  `NOT VALID`, que vale só para linhas novas;
+- a coluna fica com 29 caracteres;
+- nunca apaga dado.
