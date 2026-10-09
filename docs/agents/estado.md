@@ -359,8 +359,19 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
       NF-e no Presumido; os dois bloqueios conservadores saem pela fórmula do
       MOC; combustível em duas naturezas; receita de 2027 bloqueada.
       **Frentes A e B integradas na branch** (`6f86f7f`, `7c25044` com o
-      ajuste de integração da sugestão de combustível, `e1a0d67`). Próximo:
-      a auditoria da rodada 1 (Sonnet).
+      ajuste de integração da sugestão de combustível, `e1a0d67`).
+      [Rodada 1](../auditorias/2026-10-09-dl-083-rodada-1.md) **reprovada**:
+      - A1 (alta): a devolução de combustível recebida (CFOP 5.66x e
+        6.66x) escapa da recusa e deduz a 8%;
+      - A2: a reversão da migração 0012 fica impossível depois de um
+        estorno;
+      - A3: frete ou desconto em item que não é receita;
+      - A4: cinco mutantes sobreviventes;
+      - A5 a A10: baixos.
+
+      Cálculo do Presumido ao centavo em quatro cenários independentes.
+      Antes da correção única, A1, A3 e A6 (lubrificante no 1,6%) foram ao
+      `contador-senior`.
     - [DL-084](../planos/DL-084-rotina-do-presumido.md): rotina do Presumido,
       depois da DL-082.
     - BL-687: mudanças do leitor de NF-e, que dependem do BL-686.
