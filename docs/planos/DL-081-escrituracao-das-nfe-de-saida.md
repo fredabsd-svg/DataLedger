@@ -132,6 +132,46 @@ HI-117 a HI-124 e pendência PE-85.
 - **Serviço em NF-e conjugada** (natureza 14) entra no RBT12, que soma toda a
   receita bruta, e continua recusado no pré-DAS e no Presumido.
 
+## Decisões tomadas na correção (rodada 1)
+
+[Rodada 1](../auditorias/2026-10-09-dl-081-rodada-1.md): **reprovada** por A1
+(NF-e válida com IPI, só com ISSQN ou sem ICMS ficava ilegível), A2 (NF-e de
+um trimestre não deixava parciais os trimestres seguintes do Presumido) e A3
+(os itens de uma escrituração efetivada podiam ser alterados por SQL, mudando
+a receita). O cálculo bateu ao centavo com o do auditor. Correção única:
+
+- **Leitura dos itens** (A1): IPI com `cEnq` e os demais filhos do grupo;
+  ICMS opcional quando o item tem ISSQN ou o grupo de impostos vem vazio,
+  como permite o XSD. O leitor ganha versão: nota lida com versão anterior é
+  relida na próxima tentativa. Fixtures validadas contra o XSD.
+- **Presumido** (A2): a NF-e de qualquer trimestre do ano deixa parciais o
+  próprio trimestre e todos os seguintes, porque o limite da LC 224 se
+  propaga para a frente.
+- **Imutabilidade** (A3): gatilhos em `ItemNFe` e na leitura dos itens
+  recusam alteração e exclusão quando há escrituração efetivada ou
+  estornada da nota.
+- **Conferência com o `vNF`** (A4), pela regra W16 do MOC 7.0: o `vFCPST` é
+  subtraído; desconto, frete, seguro e outras despesas entram de todos os
+  itens. Item fora do total (`indTot` 0) com essas despesas, e ICMS
+  desonerado deduzido do total, bloqueiam com mensagem que nomeia o motivo
+  (decisão do Fred, PE-85).
+- **Valor acima do campo** (A5): nota ilegível com motivo, nunca erro de
+  servidor.
+- **Desempenho** (A6): saldo de devolução percorrido uma vez por janela;
+  situação de cancelamento anotada em lote; a nota única é buscada direto.
+- **Tela da receita do mês** (A7): colunas de NF-e e de devolução, e a soma
+  das colunas igual ao total.
+- **Devolução de exportação** (A8): CFOP iniciado por 3 deduz o mercado
+  externo.
+- **Testes** (A9) para os mutantes sobreviventes.
+- **Reclassificação** (A10): a confirmação compara o conjunto de notas da
+  prévia, não só as contagens.
+- **Sugestão** (A11): `idDest` 3 sugere exportação só para CFOP de venda
+  (7.1xx).
+- **Ajustes** (A12): o campo da conferência por CFOP é renomeado para valor
+  bruto; a conferência de valores é pública; a mensagem da API sai em pt-BR;
+  o filtro de CFOP com ponto é aceito.
+
 ## Critérios de aceite
 
 1. Os itens e os campos lidos batem com o XSD do PL 010f, com o caminho
