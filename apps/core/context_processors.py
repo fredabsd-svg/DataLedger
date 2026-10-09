@@ -110,6 +110,10 @@ ROTULOS_DE_TELA = {
     ("fiscal_web", "relatorio_envio"): "Relatório do envio",
     ("fiscal_web", "documentos_lista"): "Documentos",
     ("fiscal_web", "documento_detalhe"): "Documento",
+    # DL-080 (frente B): NF-e e NFC-e recebidas, a nota e os eventos cuja nota ainda não chegou.
+    ("fiscal_web", "nfe_recebidas"): "NF-e recebidas",
+    ("fiscal_web", "nfe_detalhe"): "NF-e",
+    ("fiscal_web", "nfe_eventos_orfaos"): "Eventos de NF-e sem nota",
     # DL-072 (frente B): escrituração das NFS-e prestadas.
     ("fiscal_web", "notas_a_escriturar"): "Notas a escriturar",
     ("fiscal_web", "conferencia_escrituracao"): "Conferência da escrituração",

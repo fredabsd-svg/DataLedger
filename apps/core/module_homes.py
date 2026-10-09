@@ -965,6 +965,12 @@ def _dados_fiscal(request, escopo):
                 ),
             }
         )
+        # DL-080 (frente B): NF-e e NFC-e recebidas. A lista pede UMA empresa; sem empresa única,
+        # a própria tela pede a escolha (nunca um filtro silencioso sobre várias empresas).
+        url_nfe = reverse("fiscal_web:nfe_recebidas")
+        if len(empresas) == 1:
+            url_nfe += "?" + urlencode({"empresa": empresas[0].pk})
+        atalhos.append({"rotulo": "NF-e recebidas", "url": url_nfe})
         # DL-074 (frente B): receita mensal do Simples. Mesma permissão de consulta; o
         # painel pede UMA empresa, e sem ela a própria tela pede a escolha.
         atalhos.append(

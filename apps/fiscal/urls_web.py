@@ -46,6 +46,9 @@ from apps.fiscal.views_web import (
     iss_regras_municipio,
     iss_retido_a_recolher,
     iss_retido_sofrido,
+    nfe_detalhe,
+    nfe_eventos_orfaos,
+    nfe_recebidas,
     notas_a_escriturar,
     pre_das,
     presumido_apuracao,
@@ -100,6 +103,17 @@ urlpatterns = [
     # XML original byte a byte (DE-074 item 1) e o detalhe do documento
     # (`documento_detalhe`) lista os eventos com link para este download.
     path("eventos/<int:evento_id>/xml/", evento_xml, name="evento_xml"),
+    # DL-080 (frente B): NF-e e NFC-e recebidas, só leitura. A lista pede a empresa na querystring
+    # (`?empresa=`), como Serviços tomados. O detalhe leva a empresa no caminho e busca a nota
+    # DENTRO do vínculo com ela (404 fora). Eventos sem nota é por escritório, com filtro opcional
+    # de empresa.
+    path("nfe/", nfe_recebidas, name="nfe_recebidas"),
+    path("nfe/eventos-sem-nota/", nfe_eventos_orfaos, name="nfe_eventos_orfaos"),
+    path(
+        "nfe/empresas/<int:empresa_id>/notas/<int:documento_id>/",
+        nfe_detalhe,
+        name="nfe_detalhe",
+    ),
     # DL-072 (frente B): escrituração das NFS-e prestadas. A lista é por
     # querystring (`?empresa=&ano=&mes=`) porque o menu do módulo não conhece
     # uma empresa; as telas de UMA nota ou de UMA escrituração levam a empresa

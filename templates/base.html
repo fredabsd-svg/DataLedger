@@ -824,6 +824,21 @@
                                                             <a href="{% url 'fiscal_web:documentos_lista' %}">Documentos</a>
                                                         {% endif %}
                                                     </li>
+                                                    {# DL-080 (frente B): NF-e e NFC-e recebidas, e os eventos cuja nota ainda não chegou. Mesma permissão de consulta. #}
+                                                    <li>
+                                                        {% if pagina_atual == "nfe_recebidas" %}
+                                                            <span class="item-atual" aria-current="page">NF-e recebidas</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:nfe_recebidas' %}">NF-e recebidas</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "nfe_eventos_orfaos" %}
+                                                            <span class="item-atual" aria-current="page">Eventos de NF-e sem nota</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:nfe_eventos_orfaos' %}">Eventos de NF-e sem nota</a>
+                                                        {% endif %}
+                                                    </li>
                                                 </ul>
                                             </div>
                                             {% comment %}

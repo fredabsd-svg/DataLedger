@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block titulo %}NF-e recebidas{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa.razao_social }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-080 (frente B), arquétipo A (tabela de consulta, direção de arte §2.A). A lista é de UMA empresa
+(a mesma regra da tela de Serviços tomados): nota de outra empresa do escritório não aparece aqui, e o
+menu desta tela não nomeia as outras empresas. A situação e a direção vêm do serviço e da API da frente
+A; a tela só traduz para texto. Cancelada aparece em TEXTO, nunca só pela cor.
+{% endcomment %}
+{% block titulo_pagina %}<h1>NF-e e NFC-e recebidas</h1>{% endblock %}
+
+{% block acoes_pagina %}
+    <a class="botao botao--secundario" href="{{ url_eventos_sem_nota }}">Eventos sem nota</a>
+{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Notas fiscais eletrônicas (modelo 55) e de consumidor (modelo 65) em que a empresa escolhida é
+        emitente ou destinatária. Esta tela mostra o que chegou: não escritura, não apura e não calcula
+        imposto.
+    </p>
+
+    <form method="get" action="{% url 'fiscal_web:nfe_recebidas' %}" class="formulario-periodo formulario-periodo--rotulo-acima">
+        {% if empresa %}
+            <input type="hidden" name="empresa" value="{{ empresa.pk }}">
+            <p>
+                <strong>Empresa:</strong> {{ empresa.razao_social }}
+                <a href="{{ url_trocar_empresa }}">Trocar de empresa</a>
+            </p>
+        {% else %}
+            <div class="campo">
+                <label for="id_empresa">Empresa</label>
+                <select id="id_empresa" name="empresa">
+                    <option value="">Escolha uma empresa</option>
+                    {% for item in empresas_do_escritorio %}
+                        <option value="{{ item.pk }}">{{ item.razao_social }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        {% endif %}
+        <div class="campo">
+            <label for="id_emissao_de">Emissão de (dd/mm/aaaa)</label>
+            <input type="text" id="id_emissao_de" name="emissao_de" value="{{ filtros_brutos.emissao_de }}"
+                   inputmode="numeric" maxlength="10" aria-describedby="id_periodo_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_emissao_ate">Emissão até (dd/mm/aaaa)</label>
+            <input type="text" id="id_emissao_ate" name="emissao_ate" value="{{ filtros_brutos.emissao_ate }}"
+                   inputmode="numeric" maxlength="10" aria-describedby="id_periodo_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_papel">Papel da empresa</label>
+            <select id="id_papel" name="papel">
+                <option value=""{% if not filtros_brutos.papel %} selected{% endif %}>Todos</option>
+                <option value="emitente"{% if filtros_brutos.papel == "emitente" %} selected{% endif %}>Emitente</option>
+                <option value="destinatario"{% if filtros_brutos.papel == "destinatario" %} selected{% endif %}>Destinatário</option>
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_modelo">Modelo</label>
+            <select id="id_modelo" name="modelo">
+                <option value=""{% if not filtros_brutos.modelo %} selected{% endif %}>Todos</option>
+                <option value="55"{% if filtros_brutos.modelo == "55" %} selected{% endif %}>55 (NF-e)</option>
+                <option value="65"{% if filtros_brutos.modelo == "65" %} selected{% endif %}>65 (NFC-e)</option>
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_situacao">Situação</label>
+            <select id="id_situacao" name="situacao">
+                <option value=""{% if not filtros_brutos.situacao %} selected{% endif %}>Todas</option>
+                <option value="valida"{% if filtros_brutos.situacao == "valida" %} selected{% endif %}>Autorizada</option>
+                <option value="cancelada"{% if filtros_brutos.situacao == "cancelada" %} selected{% endif %}>Cancelada</option>
+            </select>
+        </div>
+        <button type="submit">Consultar</button>
+        {% if algum_filtro_ativo %}
+            <a class="botao botao--fantasma" href="{% url 'fiscal_web:nfe_recebidas' %}{% if empresa %}?empresa={{ empresa.pk }}{% endif %}">Limpar filtros</a>
+        {% endif %}
+        <p class="texto-apoio" id="id_periodo_ajuda">
+            Período pela data de emissão (dhEmi). Preencha uma ou as duas datas, no formato dd/mm/aaaa.
+        </p>
+    </form>
+
+    {% if not empresa %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver as NF-e recebidas.</strong></p>
+            <p class="estado-vazio__descricao">A lista é sempre de uma empresa, para que a nota de uma não apareça na tela de outra.</p>
+        </div>
+    {% elif pagina is None %}
+        <p class="texto-apoio">Corrija o filtro indicado acima para ver a lista.</p>
+    {% else %}
+        <table class="tabela-dados">
+            <caption>Totais das NF-e recebidas pela empresa, por situação</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Situação</th>
+                    <th scope="col">Notas</th>
+                    <th scope="col">Soma de vNF</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <th scope="row">Autorizadas</th>
+                    <td>{{ totais.valida.quantidade }}</td>
+                    <td class="valor-monetario">{{ totais.valida.soma_ptbr }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">
+                        Canceladas
+                        <br><span class="texto-apoio">não entram no total das autorizadas</span>
+                    </th>
+                    <td>{{ totais.cancelada.quantidade }}</td>
+                    <td class="valor-monetario">{{ totais.cancelada.soma_ptbr }}</td>
+                </tr>
+            </tbody>
+        </table>
+        {% if totais.valida.sem_valor or totais.cancelada.sem_valor %}
+            <p class="texto-apoio">
+                Notas sem vNF no XML não entram na soma: {{ totais.valida.sem_valor }} autorizada(s) e
+                {{ totais.cancelada.sem_valor }} cancelada(s).
+            </p>
+        {% endif %}
+
+        {% if linhas %}
+            <table class="tabela-dados">
+                <caption class="visualmente-oculto">NF-e e NFC-e recebidas pela empresa, com papel, direção para o cliente, situação e valor</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Modelo</th>
+                        <th scope="col">Série</th>
+                        <th scope="col">Número</th>
+                        <th scope="col">Emissão</th>
+                        <th scope="col">Contraparte</th>
+                        <th scope="col">Papel</th>
+                        <th scope="col">Direção</th>
+                        <th scope="col">Situação</th>
+                        <th scope="col">Valor (vNF)</th>
+                        <th scope="col">IBS/CBS</th>
+                        <th scope="col">Transferência entre estabelecimentos</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in linhas %}
+                        <tr>
+                            <td>{{ linha.modelo }}</td>
+                            <td>{{ linha.serie }}</td>
+                            <td><a href="{{ linha.url }}">{{ linha.numero }}</a></td>
+                            <td>{{ linha.emissao|date:"d/m/Y H:i" }}</td>
+                            <td class="valor-quebravel">
+                                {{ linha.contraparte_nome|default:"Sem nome no XML" }}
+                                <br><span class="texto-apoio">{{ linha.contraparte_documento|default:"Não identificada no XML" }}</span>
+                            </td>
+                            <td>{{ linha.papel }}</td>
+                            <td>{{ linha.direcao }}</td>
+                            <td>
+                                {% comment %}
+                                Cancelada nunca pode parecer válida: o texto vem sempre, e a classe só reforça
+                                (direção de arte §4.3, cor nunca é o único canal).
+                                {% endcomment %}
+                                {% if linha.cancelada %}
+                                    <span class="situacao-documento situacao-documento--cancelada">Cancelada</span>
+                                {% else %}
+                                    <span class="situacao-documento situacao-documento--valida">Autorizada</span>
+                                {% endif %}
+                            </td>
+                            <td class="valor-monetario">{{ linha.v_nf_ptbr }}</td>
+                            <td>{% if linha.tem_ibscbs %}Sim{% else %}Não{% endif %}</td>
+                            <td>{% if linha.transferencia %}Sim{% else %}Não{% endif %}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% include "fiscal/_paginacao.html" %}
+        {% elif algum_filtro_ativo %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo"><strong>Nenhuma NF-e ou NFC-e encontrada com estes filtros.</strong></p>
+                <p class="estado-vazio__descricao">Tente ampliar o período, ou trocar o papel, o modelo e a situação.</p>
+                <a class="botao botao--secundario" href="{% url 'fiscal_web:nfe_recebidas' %}?empresa={{ empresa.pk }}">Limpar filtros</a>
+            </div>
+        {% else %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo"><strong>Nenhuma NF-e ou NFC-e recebida para esta empresa ainda.</strong></p>
+                <p class="estado-vazio__descricao">Envie os XML pela Recepção. Notas que não tenham esta empresa como emitente ou destinatária não entram aqui.</p>
+                <a class="botao botao--primario" href="{% url 'fiscal_web:recepcao' %}">Enviar documentos</a>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}
