@@ -318,10 +318,13 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 
 10. **[DL-081](../planos/DL-081-escrituracao-das-nfe-de-saida.md) —
     escrituração das NF-e de saída e da devolução de venda: frente A
-    entregue** (cópia isolada `dl081`, sobre a `main` com a DL-080; suíte do
+    entregue (cópia isolada `dl081`, sobre a `main` com a DL-080; suíte do
     desenvolvedor 8.383 aprovados, 1 reprovado de ambiente, 53 pulados; os
-    oito mutantes do critério 10 caem); frente B (telas) em desenvolvimento.
-    BL-685 registrado. Tabela oficial
+    oito mutantes do critério 10 caem); frente B entregue (`27724e4`: cinco
+    telas — a escriturar, escriturar com confirmação em bloco, estornar,
+    reclassificação em massa com prévia, conferência do mês; suíte do
+    desenvolvedor 8.477 aprovados, 1 reprovado de ambiente, 53 pulados); em
+    auditoria — rodada 1.** BL-685 registrado. Tabela oficial
     de CFOP do Portal da NF-e (IT 2023.002 v2.10) como dado com fonte.
     [Consulta ao contador-senior](../projeto/consultas/2026-10-09-contador-senior-escrituracao-nfe.md):
     receita bruta por item sem ICMS-ST e IPI, devolução no mês da devolução,
