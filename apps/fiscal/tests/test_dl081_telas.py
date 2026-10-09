@@ -784,15 +784,15 @@ def test_pre_das_mostra_legivel_a_recusa_por_receita_de_nfe(client, gestor, emit
     assert "receita_de_mercadoria" not in html
 
 
-def test_presumido_mostra_legivel_a_apuracao_parcial_por_receita_de_nfe(
+def test_presumido_mostra_legivel_a_apuracao_parcial_por_nfe_nao_escriturada(
     client, gestor, emitente, escritorio_a
 ):
-    """Item 7 da frente B: a apuração do Presumido fica parcial no trimestre com NF-e efetivada, e o
-    motivo chega à tela em português, sem o código interno. O cálculo não muda aqui."""
+    """Item 7 da frente B. DL-083: a NF-e EFETIVADA já entra no Presumido, e a recusa que sobra é a
+    NF-e do trimestre ainda NÃO escriturada (rascunho). O motivo chega à tela em português, sem o
+    código interno. O cálculo não muda aqui."""
     _logar(client, gestor)
     vinculo_ = _nota(escritorio_a, gestor, emitente, numero="1")
     _escriturar_com_o_exemplo(client, emitente, vinculo_)
-    client.post(_url_escriturar(emitente, vinculo_), {"acao": "efetivar"})
 
     html = _texto(
         client.get(
@@ -801,8 +801,8 @@ def test_presumido_mostra_legivel_a_apuracao_parcial_por_receita_de_nfe(
         )
     )
 
-    assert "receita de NF-e ainda não integrada ao Presumido" in html
-    assert "receita_nfe_nao_integrada" not in html
+    assert "NF-e do trimestre ainda não escriturada" in html
+    assert "nfe_nao_escriturada" not in html
 
 
 def test_avisos_de_ibscbs_aparecem_na_tela_so_no_caso_que_os_justifica(

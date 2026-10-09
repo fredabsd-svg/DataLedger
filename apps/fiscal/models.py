@@ -2642,7 +2642,8 @@ class NaturezaOperacaoNFe(models.TextChoices):
     REVENDA_ST_SUBSTITUIDO = "revenda_st_substituido", "Revenda com ICMS-ST, substituído"
     SUBSTITUTO_ST = "substituto_st", "Venda como substituto tributário (ST retida na saída)"
     MONOFASICO = "monofasico", "Venda de produto monofásico de PIS/Cofins"
-    COMBUSTIVEL = "combustivel", "Revenda de combustíveis"
+    COMBUSTIVEL = "combustivel", "Revenda de combustíveis para consumo (1,6% no IRPJ)"
+    COMBUSTIVEL_REVENDA = "combustivel_revenda", "Revenda de combustíveis para revenda (8% no IRPJ)"
     EXPORTACAO_DIRETA = "exportacao_direta", "Exportação direta"
     COMERCIAL_EXPORTADORA = "comercial_exportadora", "Venda a comercial exportadora"
     DEVOLUCAO_VENDA = "devolucao_venda", "Devolução de venda recebida"
@@ -2661,104 +2662,121 @@ class NaturezaNFeInfo:
     `papel`: "receita" (soma na receita bruta), "deducao" (subtrai no mês da devolução) ou
     "nao_receita" (soma zero). `mercado`: "interno" ou "externo". `segregacao` (Simples):
     "normal", "sujeita_st", "monofasico", "exportacao" ou None quando não compõe receita.
-    `anexo_simples` e `atividade_presumido` são INFORMAÇÃO para o contador, não cálculo:
-    o pré-DAS e a apuração do Presumido ainda não tratam mercadoria (HI-122).
+    `anexo_simples` é INFORMAÇÃO para o contador, não cálculo: o pré-DAS ainda não trata
+    mercadoria (HI-122).
+
+    `atividade_presumido` é o CÓDIGO da atividade de presunção (`presumido_tabelas`), e é a ÚNICA
+    fonte desse mapeamento (DL-083, HI-134). `None` quando a natureza não entra no Presumido (não
+    é receita nem dedução) ou não tem atividade a informar (serviço conjugado, recusado na
+    apuração). A devolução tem a atividade de comércio e indústria porque deduz dela.
     """
 
     papel: str
     mercado: str
     segregacao: str | None
     anexo_simples: str
-    atividade_presumido: str
+    atividade_presumido: str | None
 
 
 _NAO_RECEITA = "nao_receita"
+_COMERCIO = _tabelas_presumido.COMERCIO_INDUSTRIA_TRANSPORTE_CARGA
+_REVENDA_COMBUSTIVEIS = _tabelas_presumido.REVENDA_COMBUSTIVEIS
 
 CATALOGO_NATUREZA_NFE: dict[str, NaturezaNFeInfo] = {
     NaturezaOperacaoNFe.REVENDA: NaturezaNFeInfo(
-        "receita", "interno", "normal", "Anexo I (LC 123, art. 18, § 4º, I)", "comércio"
+        "receita", "interno", "normal", "Anexo I (LC 123, art. 18, § 4º, I)", _COMERCIO
     ),
     NaturezaOperacaoNFe.PRODUCAO_PROPRIA: NaturezaNFeInfo(
-        "receita", "interno", "normal", "Anexo II (LC 123, art. 18, § 4º, II)", "indústria"
+        "receita", "interno", "normal", "Anexo II (LC 123, art. 18, § 4º, II)", _COMERCIO
     ),
     NaturezaOperacaoNFe.REVENDA_ST_SUBSTITUIDO: NaturezaNFeInfo(
         "receita",
         "interno",
         "sujeita_st",
         "Anexo I ou II, segregada 'sujeita a ST' (Res. CGSN 140, art. 25, § 8º, I)",
-        "comércio",
+        _COMERCIO,
     ),
     NaturezaOperacaoNFe.SUBSTITUTO_ST: NaturezaNFeInfo(
         "receita",
         "interno",
         "normal",
         "Anexo I ou II; operação própria tributada, vST fora (Res. CGSN 140, art. 28, § 4º)",
-        "comércio",
+        _COMERCIO,
     ),
     NaturezaOperacaoNFe.MONOFASICO: NaturezaNFeInfo(
         "receita",
         "interno",
         "monofasico",
         "Segregada: PIS e Cofins desconsiderados (Res. CGSN 140, art. 25, §§ 6º e 7º)",
-        "comércio",
+        _COMERCIO,
     ),
+    # Combustível em duas naturezas (HI-118, PE-85.1): a alíquota do IRPJ depende da operação
+    # (Lei 9.249, art. 15, § 1º, I). Consumo: 1,6%. Revenda: 8%, comércio e indústria. A CSLL é 12%
+    # nas duas. A sugestão pelo CFOP está em `escrituracao_nfe`, com os CFOP citados.
     NaturezaOperacaoNFe.COMBUSTIVEL: NaturezaNFeInfo(
         "receita",
         "interno",
         "normal",
         "ICMS monofásico/ST fora do DAS (LC 123, art. 13, § 1º, XIII, a)",
-        "revenda de combustíveis (1,6% exige 'revenda, para consumo', Lei 9.249, art. 15, § 1º, I)",
+        _REVENDA_COMBUSTIVEIS,
+    ),
+    NaturezaOperacaoNFe.COMBUSTIVEL_REVENDA: NaturezaNFeInfo(
+        "receita",
+        "interno",
+        "normal",
+        "ICMS monofásico/ST fora do DAS (LC 123, art. 13, § 1º, XIII, a)",
+        _COMERCIO,
     ),
     NaturezaOperacaoNFe.EXPORTACAO_DIRETA: NaturezaNFeInfo(
         "receita",
         "externo",
         "exportacao",
         "Segregada: Cofins, PIS, IPI, ICMS e ISS desconsiderados (Res. CGSN 140, art. 25, § 3º)",
-        "comércio",
+        _COMERCIO,
     ),
     NaturezaOperacaoNFe.COMERCIAL_EXPORTADORA: NaturezaNFeInfo(
         "receita",
         "externo",
         "exportacao",
         "Mesma segregação da exportação (LC 123, art. 18, § 4º-A, IV)",
-        "comércio",
+        _COMERCIO,
     ),
     NaturezaOperacaoNFe.DEVOLUCAO_VENDA: NaturezaNFeInfo(
         "deducao",
         "interno",
         None,
         "Deduz no mês da devolução (Res. CGSN 140, art. 17)",
-        "deduz do trimestre (Lei 9.430, art. 25, I)",
+        _COMERCIO,
     ),
     NaturezaOperacaoNFe.REMESSA_RETORNO: NaturezaNFeInfo(
-        _NAO_RECEITA, "interno", None, "fora da base", "fora da base"
+        _NAO_RECEITA, "interno", None, "fora da base", None
     ),
     NaturezaOperacaoNFe.TRANSFERENCIA: NaturezaNFeInfo(
-        _NAO_RECEITA, "interno", None, "fora da base", "fora da base"
+        _NAO_RECEITA, "interno", None, "fora da base", None
     ),
     NaturezaOperacaoNFe.BONIFICACAO: NaturezaNFeInfo(
         _NAO_RECEITA,
         "interno",
         None,
         "fora, se incondicional (Res. CGSN 140, art. 2º, § 5º, III)",
-        "fora (hipótese, prática)",
+        None,
     ),
     NaturezaOperacaoNFe.CUPOM_NFCE: NaturezaNFeInfo(
         _NAO_RECEITA,
         "interno",
         None,
         "fora: a receita já entrou pela NFC-e (risco de duplicidade)",
-        "fora: idem",
+        None,
     ),
     NaturezaOperacaoNFe.SERVICO_CONJUGADA: NaturezaNFeInfo(
         "receita",
         "interno",
         None,
         "serviço (Anexo III, IV ou V e ISS); fora do pré-DAS deste corte",
-        "serviços",
+        None,
     ),
     NaturezaOperacaoNFe.AJUSTE: NaturezaNFeInfo(
-        _NAO_RECEITA, "interno", None, "fora da receita (ajuste)", "fora da receita"
+        _NAO_RECEITA, "interno", None, "fora da receita (ajuste)", None
     ),
 }
 
@@ -2811,7 +2829,8 @@ class EscrituracaoNFe(models.Model):
 
     Os totais (`valor_nf`, `receita_bruta`, `devolucao`, `soma_itens`) são copiados na efetivação,
     a partir dos itens lidos do XML guardado. A composição da receita lê as naturezas por item
-    (`NaturezaItemNFe`) e a receita de cada item (`ItemNFe.receita_bruta_item`), não estes totais.
+    (`NaturezaItemNFe`) e a receita de cada item (`itens_nfe.receita_do_item`, DL-083), não estes
+    totais.
 
     Imutabilidade, em três camadas (como na DL-072): `save()` recusa alterar linha efetivada ou
     estornada; os serviços mudam estado com `update()` condicionado; e o BANCO (gatilhos da
@@ -2854,7 +2873,8 @@ class EscrituracaoNFe(models.Model):
     valor_nf = models.DecimalField(
         "valor da nota (vNF)", max_digits=15, decimal_places=2, null=True, blank=True
     )
-    # Soma da receita dos itens com indTot 1, de qualquer natureza (a conferência com vNF).
+    # Soma da receita de TODOS os itens (`receita_do_item`, DL-083), de qualquer natureza. É a
+    # conferência com o vNF: vNF − vST − vFCPST − vIPI − vII − vIPIDevol.
     soma_itens = models.DecimalField(
         "soma da receita dos itens", max_digits=15, decimal_places=2, null=True, blank=True
     )
@@ -2992,8 +3012,12 @@ class ItemNFe(models.Model):
     apuração do ICMS (etapa própria) vai ler daqui, sem reabrir o XML.
 
     Valores em `Decimal`, com a escala do padrão TDec do XSD (ver `itens_nfe`). Os totais de
-    item são gravados com a escala do próprio campo (DE-010). `receita_bruta_item` é derivado,
-    gravado para a composição e a conferência não recalcularem o item a cada consulta.
+    item são gravados com a escala do próprio campo (DE-010).
+
+    `receita_bruta_item` é o VALOR BRUTO do item (vProd − vDesc + vFrete + vSeg + vOutro), gravado
+    como derivado. NÃO é a receita: ela depende de `indTot` e de `vICMSDeson` e sai de
+    `apps.fiscal.itens_nfe.receita_do_item` (DL-083). O nome do campo fica por compatibilidade, e a
+    versão do leitor não sobe (decisão do arquiteto, DL-083).
     """
 
     documento = models.ForeignKey(
@@ -3047,7 +3071,7 @@ class ItemNFe(models.Model):
         "ICMS desonerado (vICMSDeson)", max_digits=15, decimal_places=2, null=True, blank=True
     )
     # indDeduzDeson (grupo ICMS do item, leiauteNFe_v4.00.xsd:2586): "1" = o vICMSDeson deduz do
-    # total da NF-e. A conferência com o vNF bloqueia esse caso (DL-081, correção A4; PE-85).
+    # total da NF-e. A receita do item deduz esse valor (DL-083, `itens_nfe.receita_do_item`).
     ind_deduz_deson = models.CharField(
         "indicador de dedução do ICMS desonerado (indDeduzDeson)",
         max_length=1,

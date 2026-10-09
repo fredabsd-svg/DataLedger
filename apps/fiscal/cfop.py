@@ -105,3 +105,23 @@ def cfop(codigo: str) -> Cfop | None:
         return None
     limpo = codigo.replace(".", "")
     return _tabela().get(f"{limpo[0]}.{limpo[1:]}")
+
+
+# Devolução de venda de combustível, pela DESCRIÇÃO da tabela oficial (DL-083, PE-85.2 e HI-134).
+# São 1.660, 1.661, 1.662, 2.660, 2.661 e 2.662 (todos com indDevol 1). A apuração do Presumido
+# recusa a devolução destes CFOP: a atividade do combustível (1,6% ou 8%) não é conhecida pela nota
+# de devolução, e deduzir a 8% o que foi vendido a 1,6% paga a menos.
+_PREFIXO_DEVOLUCAO_VENDA_COMBUSTIVEL = "Devolução de venda de combustíveis ou lubrificantes"
+
+
+def e_devolucao_de_venda_de_combustivel(codigo: str) -> bool:
+    """O CFOP é devolução de venda de combustível, segundo a descrição e o indDevol da tabela.
+
+    CFOP fora da tabela, ou formato inválido, não é: quem chama trata como "a classificar".
+    """
+    info = cfop(codigo)
+    return (
+        info is not None
+        and info.ind_devol
+        and info.descricao.startswith(_PREFIXO_DEVOLUCAO_VENDA_COMBUSTIVEL)
+    )

@@ -54,6 +54,7 @@ from django.utils import timezone
 
 from apps.auditoria.services import registrar
 from apps.empresas.models import Empresa, HistoricoRegimeTributario, RegimeTributario
+from apps.fiscal.itens_nfe import receita_do_item
 from apps.fiscal.models import (
     ConfirmacaoReceitaMensal,
     EscrituracaoFiscal,
@@ -223,7 +224,9 @@ def _informadas_confirmadas_do_mes(empresa: Empresa, ano: int, mes: int):
 # Só entra escrituração EFETIVADA, e a NF-e cancelada depois de escriturada sai da receita (o
 # cancelamento deduz no período de origem, Res. CGSN 140, art. 18: é a mesma nota fora da
 # composição do mês dela). O cancelamento é o evento vinculado à chave, a mesma regra de
-# `services.situacao_da_nfe`, em SQL. Só itens com indTot 1 (HI-119).
+# `services.situacao_da_nfe`, em SQL. A receita de cada item é `itens_nfe.receita_do_item` (DL-083):
+# item indTot 0 entra só pelo que foi cobrado, e vICMSDeson deduz com indDeduzDeson 1. A regra é uma
+# só, para o Simples (aqui), o RBT12 e o Presumido (`linhas_nfe_do_periodo`).
 # ---------------------------------------------------------------------------
 
 
@@ -252,45 +255,89 @@ def _zeros_por_mercado() -> dict[str, Decimal]:
     return {MercadoReceita.INTERNO: ZERO, MercadoReceita.EXTERNO: ZERO}
 
 
+@dataclass(frozen=True)
+class LinhaNFe:
+    """Um item de NF-e escriturado e efetivado, com a receita que ele compõe (DL-083).
+
+    `papel` é "receita" ou "deducao" (devolução). `valor` é `receita_do_item`, positivo quando é
+    venda e também positivo quando é devolução: quem diz que é dedução é o `papel`. Vem da mesma
+    consulta para o Simples (`_nfe_do_periodo`) e para o Presumido (`presumido`), sem cálculo
+    paralelo.
+    """
+
+    escrituracao_id: int
+    numero: str
+    competencia: date
+    natureza: str
+    cfop: str
+    papel: str
+    mercado: str
+    valor: Decimal
+
+
+def linhas_nfe_do_periodo(
+    empresa: Empresa, inicio: tuple[int, int], fim: tuple[int, int]
+) -> list[LinhaNFe]:
+    """Itens de NF-e com natureza de receita ou de dedução, dos meses do período, uma consulta.
+
+    Só escrituração EFETIVADA, e a NF-e cancelada depois de escriturada sai (o cancelamento deduz no
+    período de origem). Natureza que não é de receita nem de dedução fica fora (HI-121 e HI-124).
+    A receita de cada item vem de `receita_do_item` (DL-081, A6: uma consulta, sem N+1 por nota).
+    """
+    desde = date(inicio[0], inicio[1], 1)
+    ate = _proximo_mes(fim[0], fim[1])
+    registros = (
+        NaturezaItemNFe.objects.select_related("item", "escrituracao__vinculo__documento")
+        .filter(
+            escrituracao__empresa=empresa,
+            escrituracao__estado=EstadoEscrituracao.EFETIVADA,
+            escrituracao__competencia__gte=desde,
+            escrituracao__competencia__lt=ate,
+        )
+        .exclude(natureza="")
+        .filter(~Exists(_cancelada_depois_de_escriturada("escrituracao__")))
+        .order_by("escrituracao__competencia", "escrituracao_id", "item__n_item")
+    )
+    linhas = []
+    for registro in registros:
+        papel = papel_da_natureza_nfe(registro.natureza)
+        if papel not in ("receita", "deducao"):
+            continue
+        item = registro.item
+        escrituracao = registro.escrituracao
+        linhas.append(
+            LinhaNFe(
+                escrituracao_id=escrituracao.pk,
+                numero=escrituracao.vinculo.documento.numero,
+                competencia=escrituracao.competencia,
+                natureza=registro.natureza,
+                cfop=item.cfop,
+                papel=papel,
+                # O mercado vem do item (natureza e CFOP): a devolução de exportação deduz o
+                # externo (A8).
+                mercado=mercado_do_item_nfe(registro.natureza, item.cfop),
+                valor=receita_do_item(item),
+            )
+        )
+    return linhas
+
+
 def _nfe_do_periodo(
     empresa: Empresa, inicio: tuple[int, int], fim: tuple[int, int]
 ) -> dict[tuple[int, int], dict[str, tuple[Decimal, Decimal]]]:
     """(mercadoria, devolução) de NF-e de cada mês do período, por mercado. Devolução sai positiva.
 
-    Uma consulta para o período inteiro (DL-081, A6). A natureza de cada item diz o papel: receita
-    (soma), dedução (devolução) ou nada (fica fora, HI-121 e HI-124). O mercado vem de
-    `mercado_da_natureza_nfe`, a fonte única. Cancelada depois de escriturada não entra.
+    A natureza de cada item diz o papel: receita (soma), dedução (devolução) ou nada (fica fora,
+    HI-121 e HI-124). O mercado vem de `mercado_do_item_nfe`, a fonte única.
     """
-    desde = date(inicio[0], inicio[1], 1)
-    ate = _proximo_mes(fim[0], fim[1])
-    linhas = (
-        NaturezaItemNFe.objects.filter(
-            escrituracao__empresa=empresa,
-            escrituracao__estado=EstadoEscrituracao.EFETIVADA,
-            escrituracao__competencia__gte=desde,
-            escrituracao__competencia__lt=ate,
-            item__ind_tot="1",
-        )
-        .exclude(natureza="")
-        .filter(~Exists(_cancelada_depois_de_escriturada("escrituracao__")))
-        .values("natureza", "item__cfop", "escrituracao__competencia")
-        .annotate(total=Sum("item__receita_bruta_item"))
-        .order_by()
-    )
     por_mes: dict[tuple[int, int], dict[str, list[Decimal]]] = {}
-    for linha in linhas:
-        competencia = linha["escrituracao__competencia"]
-        mes = (competencia.year, competencia.month)
+    for linha in linhas_nfe_do_periodo(empresa, inicio, fim):
+        mes = (linha.competencia.year, linha.competencia.month)
         celulas = por_mes.setdefault(
             mes, {MercadoReceita.INTERNO: [ZERO, ZERO], MercadoReceita.EXTERNO: [ZERO, ZERO]}
         )
-        papel = papel_da_natureza_nfe(linha["natureza"])
-        # O mercado vem do item (natureza e CFOP): a devolução de exportação deduz o externo (A8).
-        mercado = mercado_do_item_nfe(linha["natureza"], linha["item__cfop"])
-        if papel == "receita":
-            celulas[mercado][0] += linha["total"] or ZERO
-        elif papel == "deducao":
-            celulas[mercado][1] += linha["total"] or ZERO
+        indice = 0 if linha.papel == "receita" else 1
+        celulas[linha.mercado][indice] += linha.valor
     return {
         mes: {
             m: (celulas[m][0], celulas[m][1])
@@ -392,7 +439,6 @@ def _primeiro_mes_com_devolucao(empresa: Empresa) -> tuple[int, int] | None:
             escrituracao__empresa=empresa,
             escrituracao__estado=EstadoEscrituracao.EFETIVADA,
             escrituracao__competencia__isnull=False,
-            item__ind_tot="1",
             natureza=NaturezaOperacaoNFe.DEVOLUCAO_VENDA,
         )
         .filter(~Exists(_cancelada_depois_de_escriturada("escrituracao__")))

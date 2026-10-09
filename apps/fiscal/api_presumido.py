@@ -296,6 +296,21 @@ def _fechamento_payload(fechamento: calc.Fechamento | None, linhas=()):
     }
 
 
+def _linha_nfe_payload(linha: servico.LinhaNFeApurada) -> dict:
+    """Uma linha de NF-e da memória (DL-083). `papel` diz se é receita ou devolução (dedução)."""
+    return {
+        "origem": linha.origem,
+        "escrituracao_id": linha.escrituracao_id,
+        "numero": linha.numero,
+        "data_competencia": _iso(linha.data_competencia),
+        "natureza": linha.natureza,
+        "cfop": linha.cfop,
+        "atividade": linha.atividade,
+        "papel": linha.papel,
+        "valor": _dec(linha.valor),
+    }
+
+
 def _apuracao_payload(resultado: servico.Apuracao) -> dict:
     return {
         "ano": resultado.ano,
@@ -336,6 +351,9 @@ def _apuracao_payload(resultado: servico.Apuracao) -> dict:
             resultado.fechamento_csll, resultado.csll.linhas_do_ano if resultado.csll else ()
         ),
         "avisos": list(resultado.avisos),
+        "nfe": [_linha_nfe_payload(linha) for linha in resultado.nfe],
+        "devolucao_deduzida": _dec(resultado.devolucao_deduzida),
+        "saldo_devolucao_transportado": _dec(resultado.saldo_devolucao_transportado),
     }
 
 

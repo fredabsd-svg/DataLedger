@@ -17,9 +17,12 @@ Regras de leitura:
   mensagem nomeia o campo. Não há conversão silenciosa para zero nem palpite.
 - A leitura é IDEMPOTENTE: o resultado, lido ou ilegível, fica gravado em `LeituraItensNFe`.
   Duas chamadas, ou duas requisições em paralelo, dão o mesmo resultado sem duplicar item.
-- `receita_bruta_item` = `vProd − vDesc + vFrete + vSeg + vOutro` (HI-119). Os opcionais
-  ausentes entram como zero NESSA SOMA, porque o XSD os torna opcionais: a ausência é "não há
-  essa parcela". Não é uma leitura de campo ausente.
+- `receita_bruta_item` = `vProd − vDesc + vFrete + vSeg + vOutro` (HI-119). É o VALOR BRUTO do
+  item, e NÃO a receita: não passa por `indTot` nem por `vICMSDeson`, e o `vProd` de um item
+  `indTot` 0 entra nele mesmo sem ter sido cobrado. A receita do item é `receita_do_item` (DL-083).
+  O campo gravado não muda, e a versão do leitor não sobe (decisão do arquiteto; DL-083). Os
+  opcionais ausentes entram como zero NESSA SOMA, porque o XSD os torna opcionais: a ausência é
+  "não há essa parcela". Não é uma leitura de campo ausente.
 
 Limites declarados:
 
@@ -359,12 +362,43 @@ def _ler_det(det) -> dict:
 
 
 def receita_bruta_do_item(dados: dict) -> Decimal:
-    """`vProd − vDesc + vFrete + vSeg + vOutro` (HI-119; consulta, item 3). Ausente soma zero."""
+    """Valor BRUTO do item: `vProd − vDesc + vFrete + vSeg + vOutro` (HI-119; consulta, item 3).
+
+    Ausente soma zero. Este é o número gravado em `ItemNFe.receita_bruta_item`, e NÃO é a receita:
+    para a receita, use `receita_do_item`, que aplica `indTot` e `vICMSDeson` (DL-083).
+    """
     total = dados["v_prod"]
     for parcela in ("v_frete", "v_seg", "v_outro"):
         total += dados[parcela] or Decimal("0")
     if dados["v_desc"] is not None:
         total -= dados["v_desc"]
+    return total
+
+
+def receita_do_item(item) -> Decimal:
+    """Receita do item de NF-e: a ÚNICA regra de receita por item (DL-083; consulta de 09/10/2026,
+    PE-85.5, e HI-119 complementada).
+
+    Aceita um `ItemNFe` ou qualquer objeto com os mesmos campos. Devolve `Decimal`, nunca float.
+
+        indTot 1:  vProd − vDesc − vICMSDeson (só se indDeduzDeson = 1) + vFrete + vSeg + vOutro
+        indTot 0: −vDesc − vICMSDeson (idem)                           + vFrete + vSeg + vOutro
+
+    `indTot` 0 é o item que não compõe o total da nota (leiauteNFe_v4.00.xsd:1126): o `vProd` não
+    foi cobrado, então não entra. Desconto, frete, seguro e outras despesas do item, porém, entram
+    no total da nota (MOC 7.0, W07 a W16), e por isso compõem a receita. `vICMSDeson` deduz só com
+    `indDeduzDeson` 1 (desconto incondicional): com 0 ou ausente, o adquirente pagou o valor cheio.
+    Ausente soma zero. Quem chama soma o resultado; a soma é a receita da nota.
+    """
+    base = item.v_prod if item.ind_tot == "1" else Decimal("0.00")
+    total = base
+    for parcela in (item.v_frete, item.v_seg, item.v_outro):
+        if parcela is not None:
+            total += parcela
+    if item.v_desc is not None:
+        total -= item.v_desc
+    if item.ind_deduz_deson == "1" and item.v_icms_deson is not None:
+        total -= item.v_icms_deson
     return total
 
 

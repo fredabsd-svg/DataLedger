@@ -34,6 +34,7 @@ from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.fiscal import escrituracao_nfe as servico
 from apps.fiscal.api import PodeConsultarFiscal, PodeEscriturarFiscal, _ano_e_mes_da_consulta
 from apps.fiscal.cfop import cfop as consultar_cfop
+from apps.fiscal.itens_nfe import receita_do_item
 from apps.fiscal.models import (
     CATALOGO_NATUREZA_NFE,
     EscrituracaoNFe,
@@ -272,7 +273,12 @@ def _item_payload(natureza: NaturezaItemNFe, sugestao: servico.Sugestao) -> dict
         "csosn": item.csosn,
         "ind_tot": item.ind_tot,
         "v_prod": _decimal(item.v_prod),
+        # `receita_bruta_item` é o VALOR BRUTO do item, não a receita (DL-083). A receita é
+        # `receita_do_item`: a regra única, com indTot e vICMSDeson. `avisos` diz o que a receita
+        # deixou de fora, em pt-BR.
         "receita_bruta_item": _decimal(item.receita_bruta_item),
+        "receita_do_item": _decimal(receita_do_item(item)),
+        "avisos": list(servico.avisos_do_item(item)),
         "natureza": natureza.natureza or None,
         "sugestao": {"natureza": sugestao.natureza, "motivo": sugestao.motivo},
     }

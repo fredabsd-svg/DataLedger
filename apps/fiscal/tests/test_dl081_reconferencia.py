@@ -22,14 +22,16 @@ from apps.fiscal.models import EstadoEscrituracao, NaturezaItemNFe, NaturezaOper
 from apps.fiscal.tests import xml_nfe_dl081 as xml
 from apps.fiscal.tests.suporte_dl081 import receber, vinculo
 from apps.fiscal.tests.test_dl081_protecao import (  # noqa: F401 (fixtures)
+    CODIGO_NAO_ESCRITURADA,
     empresa_presumido,
     gestor,
-    nfe_de_revenda,
+    nfe_pendente,
 )
 
 pytestmark = pytest.mark.django_db
 
-CODIGO = "receita_nfe_nao_integrada"
+# DL-083: a recusa do controle do ano é a NF-e não escriturada (a NF-e efetivada já entra).
+CODIGO = CODIGO_NAO_ESCRITURADA
 
 
 def _codigos_do_controle(empresa, ano):
@@ -37,11 +39,11 @@ def _codigos_do_controle(empresa, ano):
     return tuple(r.codigo for r in controle.recusas)
 
 
-def test_controle_do_limite_do_ano_sai_com_a_recusa_quando_ha_nfe_no_ano(
+def test_controle_do_limite_do_ano_sai_com_a_recusa_quando_ha_nfe_pendente_no_ano(
     escritorio_a, gestor, empresa_presumido
 ):
     assert CODIGO not in _codigos_do_controle(empresa_presumido, 2026)
-    nfe_de_revenda(
+    nfe_pendente(
         escritorio_a,
         gestor,
         empresa_presumido,

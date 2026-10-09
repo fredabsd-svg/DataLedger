@@ -5,9 +5,10 @@ Fórmula conferida aqui (a do `escrituracao_nfe.conferir_valores`):
     Σ vProd (indTot 1) − Σ vDesc (todos) + Σ (vFrete + vSeg + vOutro) (todos)
         = vNF − vST − vFCPST − vIPI − vII − vIPIDevol
 
-Com os dois bloqueios (item indTot 0 com desconto ou despesa; ICMS desonerado deduzido), o lado
-esquerdo é a soma da receita dos itens indTot 1. Os valores são escritos à mão, ou em centavos
-inteiros (nunca em ponto flutuante). Os XML são sintéticos.
+DL-083 (PE-85.5): a receita de cada item é `receita_do_item` (indTot 0 sem o vProd; vICMSDeson
+deduzido com indDeduzDeson 1), e a soma de TODOS os itens fecha com o vNF. Os dois bloqueios antigos
+saíram. Os valores são escritos à mão, ou em centavos inteiros (nunca em ponto flutuante). Os XML
+são sintéticos.
 """
 
 import random
@@ -45,11 +46,11 @@ def _centavos(c: int) -> str:
     return f"{sinal}{abs(c) // 100}.{abs(c) % 100:02d}"
 
 
-def _tentar_efetivar(escritorio, gestor, emitente, xml_bytes):
+def _tentar_efetivar(escritorio, gestor, emitente, xml_bytes, natureza=NaturezaOperacaoNFe.REVENDA):
     documento = receber(escritorio, gestor, xml_bytes)
     esc = servico.criar_rascunho(vinculo(documento, emitente), usuario=gestor)
     ids = list(NaturezaItemNFe.objects.filter(escrituracao=esc).values_list("item_id", flat=True))
-    servico.definir_natureza(esc, NaturezaOperacaoNFe.REVENDA, ids, gestor)
+    servico.definir_natureza(esc, natureza, ids, gestor)
     return servico.efetivar(esc, usuario=gestor)
 
 
@@ -104,38 +105,84 @@ def test_diferenca_de_um_centavo_no_vnf_e_recusada(
     assert "100,00" in erro.value.mensagem
 
 
-# --- os dois bloqueios nomeados (PE-85) ---------------------------------------------------------
+# --- DL-083: os dois bloqueios saem; a receita de cada item entra na conta --------------------
 
 
 @pytest.mark.parametrize(
     "despesa",
-    [{"vdesc": "5.00"}, {"vfrete": "10.00"}, {"vseg": "1.00"}, {"voutro": "2.00"}],
+    [{"vfrete": "10.00"}, {"vseg": "1.00"}, {"voutro": "2.00"}],
 )
-def test_item_fora_do_total_com_desconto_ou_despesa_bloqueia_com_a_mensagem(
-    escritorio_a, gestor, emitente, despesa
+@pytest.mark.parametrize(
+    "natureza",
+    [NaturezaOperacaoNFe.BONIFICACAO, NaturezaOperacaoNFe.REMESSA_RETORNO],
+)
+def test_item_fora_do_total_com_despesa_e_natureza_sem_receita_recusa_com_a_mensagem(
+    escritorio_a, gestor, emitente, despesa, natureza
 ):
+    """Item indTot 0 com frete, seguro ou outra despesa cobrada, e natureza que não é de receita:
+    o valor cobrado seria receita sem lugar. A efetivação recusa com a mensagem nomeada (DL-083)."""
     dets = [
         xml.det(1, vprod="100.00"),
         xml.det(2, vprod="50.00", ind_tot="0", **despesa),
     ]
     xml_bytes = xml.nfe(dets=dets, vnf="100.00", numero="204")
     with pytest.raises(servico.EscrituracaoNFeErro) as erro:
-        _tentar_efetivar(escritorio_a, gestor, emitente, xml_bytes)
-    assert erro.value.mensagem == servico.MENSAGEM_ITEM_FORA_DO_TOTAL
-    assert "regra a decidir (PE-85)" in erro.value.mensagem
+        _tentar_efetivar(escritorio_a, gestor, emitente, xml_bytes, natureza=natureza)
+    assert erro.value.mensagem == servico.MENSAGEM_ITEM_FORA_DO_TOTAL_COM_VALOR
     assert not isinstance(erro.value, servico.DivergenciaComVnf)
 
 
-def test_icms_desonerado_deduzido_do_total_bloqueia_com_a_mensagem(escritorio_a, gestor, emitente):
-    """indDeduzDeson 1 (leiauteNFe_v4.00.xsd:2586): o vICMSDeson deduz do total da nota."""
+def test_item_fora_do_total_com_frete_em_natureza_de_receita_fecha_com_o_vnf(
+    escritorio_a, gestor, emitente
+):
+    """Item indTot 0 com frete de 10,00, em natureza de receita. A receita é 100,00 (indTot 1) +
+    10,00 (frete do item indTot 0), e o vProd de 50,00 do item não foi cobrado. A nota vale 110,00
+    (W16, tolerância zero)."""
+    dets = [xml.det(1, vprod="100.00"), xml.det(2, vprod="50.00", ind_tot="0", vfrete="10.00")]
+    xml_bytes = xml.nfe(dets=dets, vnf="110.00", numero="208")
+    esc = _tentar_efetivar(escritorio_a, gestor, emitente, xml_bytes)
+    assert esc.estado == "efetivada"
+    assert esc.soma_itens == Decimal("110.00")
+    assert esc.receita_bruta == Decimal("110.00")
+
+
+def test_item_fora_do_total_com_frete_sem_o_frete_no_vnf_diverge(escritorio_a, gestor, emitente):
+    """O mesmo item, com vNF de 100,00: a nota não fecha (o frete do item indTot 0 é receita), e a
+    divergência bloqueia com os valores escritos. Não é uma recusa de natureza."""
+    dets = [xml.det(1, vprod="100.00"), xml.det(2, vprod="50.00", ind_tot="0", vfrete="10.00")]
+    xml_bytes = xml.nfe(dets=dets, vnf="100.00", numero="209")
+    with pytest.raises(servico.DivergenciaComVnf) as erro:
+        _tentar_efetivar(escritorio_a, gestor, emitente, xml_bytes)
+    assert "diverge" in erro.value.mensagem
+    assert "110,00" in erro.value.mensagem
+
+
+def test_icms_desonerado_deduzido_entra_na_receita_e_fecha_com_o_vnf(
+    escritorio_a, gestor, emitente
+):
+    """indDeduzDeson 1 (leiauteNFe_v4.00.xsd:2586): o vICMSDeson de 10,00 deduz do total. Receita do
+    item = 100,00 − 10,00 = 90,00, e a nota vale 90,00."""
     icms = xml.icms(
         cst="40", filhos="<vICMSDeson>10.00</vICMSDeson><indDeduzDeson>1</indDeduzDeson>"
     )
     xml_bytes = xml.nfe(dets=[xml.det(1, vprod="100.00", icms_xml=icms)], vnf="90.00", numero="205")
-    with pytest.raises(servico.EscrituracaoNFeErro) as erro:
+    esc = _tentar_efetivar(escritorio_a, gestor, emitente, xml_bytes)
+    assert esc.estado == "efetivada"
+    assert esc.soma_itens == Decimal("90.00")
+
+
+def test_icms_desonerado_deduzido_com_vnf_cheio_diverge(escritorio_a, gestor, emitente):
+    """Com indDeduzDeson 1, o vNF de 100,00 não fecha (a receita é 90,00): divergência, com os
+    valores escritos. A dedução não é ignorada para forçar a efetivação."""
+    icms = xml.icms(
+        cst="40", filhos="<vICMSDeson>10.00</vICMSDeson><indDeduzDeson>1</indDeduzDeson>"
+    )
+    xml_bytes = xml.nfe(
+        dets=[xml.det(1, vprod="100.00", icms_xml=icms)], vnf="100.00", numero="210"
+    )
+    with pytest.raises(servico.DivergenciaComVnf) as erro:
         _tentar_efetivar(escritorio_a, gestor, emitente, xml_bytes)
-    assert erro.value.mensagem == servico.MENSAGEM_ICMS_DESONERADO_DEDUZIDO
-    assert "ICMS desonerado deduzido do total da nota" in erro.value.mensagem
+    assert "diverge" in erro.value.mensagem
 
 
 def test_icms_desonerado_sem_deducao_nao_bloqueia(escritorio_a, gestor, emitente):
