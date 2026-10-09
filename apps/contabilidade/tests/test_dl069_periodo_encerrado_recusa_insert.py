@@ -61,7 +61,7 @@ from apps.contabilidade.services import (
     marcar_competencia_como_entregue,
     reabrir_competencia,
 )
-from apps.contabilidade.tests.gatilhos_do_livro import gatilho_desligado
+from apps.contabilidade.tests.gatilhos_do_livro import gatilho_desligado, modelos_do_esquema
 from apps.contabilidade.tests.test_dl052_invariantes_no_banco import (  # noqa: F401
     cenario,
 )
@@ -149,29 +149,43 @@ def _competencia_com_estado(cenario, *, ano, mes, estado, entregue_em=None):
     )
 
 
-def _lancamento_direto(cenario, *, data, competencia=None, historico="Direto pelo ORM"):
+def _lancamento_direto(
+    cenario, *, data, competencia=None, historico="Direto pelo ORM", esquema=None
+):
     """Lançamento gravado por FORA de `criar_lancamento` (ORM direto), com as
     partidas balanceadas exigidas pela invariante do livro — ver o docstring do
     módulo. Lançamento e itens saem na MESMA transação por causa do marcador da
-    migração 0016 (item só entra em lançamento da própria transação)."""
+    migração 0016 (item só entra em lançamento da própria transação).
+
+    `esquema` (DL-089): registro histórico (`modelos_do_esquema`) quando a gravação acontece
+    dentro de uma janela de migração anterior à 0026, que não tem a coluna `origem`.
+    """
+    modelo_lancamento = (
+        LancamentoContabil
+        if esquema is None
+        else esquema.get_model("contabilidade", "LancamentoContabil")
+    )
+    modelo_item = (
+        ItemLancamento if esquema is None else esquema.get_model("contabilidade", "ItemLancamento")
+    )
     with transaction.atomic():
-        lancamento = LancamentoContabil.objects.create(
-            empresa=cenario["empresa"],
+        lancamento = modelo_lancamento.objects.create(
+            empresa_id=cenario["empresa"].pk,
             data=data,
             historico=historico,
             competencia=competencia,
         )
-        ItemLancamento.objects.bulk_create(
+        modelo_item.objects.bulk_create(
             [
-                ItemLancamento(
-                    lancamento=lancamento,
-                    conta=cenario["caixa"],
+                modelo_item(
+                    lancamento_id=lancamento.pk,
+                    conta_id=cenario["caixa"].pk,
                     tipo=TipoPartida.DEBITO,
                     valor=Decimal("10.00"),
                 ),
-                ItemLancamento(
-                    lancamento=lancamento,
-                    conta=cenario["capital"],
+                modelo_item(
+                    lancamento_id=lancamento.pk,
+                    conta_id=cenario["capital"].pk,
                     tipo=TipoPartida.CREDITO,
                     valor=Decimal("10.00"),
                 ),
@@ -640,8 +654,11 @@ def test_migracao_e_reversivel_e_depois_de_voltar_a_escrita_passa(cenario):
         assert not (GATILHOS_ESPERADOS & _gatilhos_da_fatia_2())
         assert _funcoes_da_fatia_2() == set()
         # Sem o gatilho, o INSERT passa — é o que prova que era ele quem
-        # recusava (a mutação derruba os testes de recusa acima).
-        lancamento = _lancamento_direto(cenario, data=date(2026, 3, 10))
+        # recusava (a mutação derruba os testes de recusa acima). Modelo HISTÓRICO do
+        # estado ANTERIOR: o atual tem a coluna `origem` (DL-089), que a janela não tem.
+        lancamento = _lancamento_direto(
+            cenario, data=date(2026, 3, 10), esquema=modelos_do_esquema(ANTERIOR)
+        )
         assert LancamentoContabil.objects.filter(pk=lancamento.pk).exists()
     finally:
         MigrationExecutor(connection).migrate(alvo_atual)

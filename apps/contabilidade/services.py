@@ -5,6 +5,7 @@ import warnings
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import NamedTuple
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, OperationalError, connection, transaction
@@ -27,6 +28,7 @@ from apps.contabilidade.models import (
     RESERVAS_DE_CAPITAL_DA_DMPL,
     RESERVAS_DE_LUCROS_DA_DLPA,
     RESERVAS_DE_LUCROS_DA_DMPL,
+    TAMANHO_MAXIMO_IDENTIFICADOR_DOCUMENTO,
     TIPO_DA_CLASSIFICACAO_PATRIMONIAL,
     TIPOS_ACEITOS_DA_CLASSIFICACAO_DRE,
     ClassificacaoDlpa,
@@ -42,12 +44,15 @@ from apps.contabilidade.models import (
     LancamentoContabil,
     MarcacaoDmpl,
     NaturezaConta,
+    OrigemLancamento,
     ParametroContabilEmpresa,
     PeriodicidadeZeramento,
     TipoConta,
+    TipoDocumentoOrigem,
     TipoPartida,
     divergencia_entre_dlpa_e_dmpl,
 )
+from apps.contabilidade.permissoes import papel_pode_estornar_origem_automatica
 from apps.contabilidade.validators import (
     DATA_MINIMA_LANCAMENTO as DATA_MINIMA_LANCAMENTO,
 )
@@ -131,6 +136,16 @@ def _prefixo_chave_zeramento_da_empresa(empresa_id):
 
 class LancamentoInvalido(Exception):
     """Levantado quando os dados de um lançamento violam uma regra contábil."""
+
+
+class EstornoDeOrigemAutomaticaNaoPermitido(Exception):
+    """Estorno de lançamento de origem automática recusado: o papel não tem a permissão
+    própria de BL-73 (`papel_pode_estornar_origem_automatica`).
+
+    Distinta de `LancamentoInvalido` de propósito: o lançamento é válido; quem pede é
+    que não pode. A view traduz para 403, e nada é gravado (a recusa vem antes de
+    qualquer INSERT, dentro da mesma transação).
+    """
 
 
 class MarcacaoDmplInvalida(Exception):
@@ -711,6 +726,71 @@ def _travar_competencia_para_transicao(competencia, *, ano, mes, empresa):
         ) from exc
 
 
+def _origem_e_documento_validos(origem, documento_origem):
+    """DL-089 (BL-72): valida origem e documento de origem ANTES de qualquer gravação.
+
+    Devolve `(origem, tipo, identificador)`, com o identificador já em texto, ou
+    `(origem, None, None)` quando não há documento. Recusa com `LancamentoInvalido`:
+    um valor que o banco recusaria depois viraria 500, e o contrato é recusar antes.
+
+    Regra: lançamento `manual` não tem documento de origem, e documento só existe com
+    tipo controlado e identificador não vazio.
+    """
+    if origem not in OrigemLancamento.values:
+        raise LancamentoInvalido(f"Origem de lançamento desconhecida: {origem!r}.")
+    if documento_origem is None:
+        return origem, None, None
+    if origem == OrigemLancamento.MANUAL:
+        raise LancamentoInvalido("Lançamento manual não tem documento de origem.")
+    try:
+        tipo, identificador = documento_origem
+    except (TypeError, ValueError) as exc:
+        raise LancamentoInvalido(
+            "O documento de origem deve ser informado como (tipo, identificador)."
+        ) from exc
+    if tipo not in TipoDocumentoOrigem.values:
+        raise LancamentoInvalido(f"Tipo de documento de origem desconhecido: {tipo!r}.")
+    return origem, tipo, _identificador_de_documento_valido(identificador)
+
+
+def _identificador_de_documento_valido(identificador):
+    """Normaliza o identificador do documento de origem para texto, ou recusa.
+
+    Aceita texto ou inteiro (nunca `bool`, que é inteiro em Python). Devolve sempre
+    texto, porque é assim que o banco guarda e que as consultas comparam.
+    """
+    if isinstance(identificador, bool) or not isinstance(identificador, (str, int)):
+        raise LancamentoInvalido(
+            "O identificador do documento de origem deve ser texto ou número inteiro."
+        )
+    identificador = str(identificador)
+    if not identificador.strip():
+        raise LancamentoInvalido("O identificador do documento de origem não pode ser vazio.")
+    if len(identificador) > TAMANHO_MAXIMO_IDENTIFICADOR_DOCUMENTO:
+        raise LancamentoInvalido(
+            "O identificador do documento de origem não pode ter mais de "
+            f"{TAMANHO_MAXIMO_IDENTIFICADOR_DOCUMENTO} caracteres."
+        )
+    if "\x00" in identificador:
+        raise LancamentoInvalido(
+            "O identificador do documento de origem não pode conter o caractere nulo (código 0)."
+        )
+    return identificador
+
+
+def _mesma_origem(lancamento, origem, documento_tipo, documento_id):
+    """Verdadeiro quando um lançamento já gravado tem a origem e o documento pedidos.
+
+    Usado na idempotência: uma `chave_idempotencia` reaproveitada para outra origem é
+    conflito, e não "lançamento já existente" (mesma regra que o conteúdo já cobre).
+    """
+    return (
+        lancamento.origem == origem
+        and lancamento.documento_origem_tipo == documento_tipo
+        and lancamento.documento_origem_id == documento_id
+    )
+
+
 @transaction.atomic
 def criar_lancamento(
     *,
@@ -723,12 +803,23 @@ def criar_lancamento(
     chave_idempotencia=None,
     permitir_prefixo_reservado=False,
     permitir_prefixo_da_importacao=False,
+    origem=OrigemLancamento.MANUAL,
+    documento_origem=None,
 ):
     """Cria um lançamento contábil validando a igualdade de partidas dobradas.
 
     `itens` é uma lista de dicts {"conta": Conta, "tipo": TipoPartida, "valor": Decimal}.
     Toda validação contábil acontece antes de qualquer gravação, e a criação
     do lançamento com seus itens é atômica: ou tudo é gravado, ou nada é.
+
+    `origem` (DL-089, BL-72) é `manual` por padrão. Só o serviço que efetiva a origem
+    automática a informa: `importacao` (a efetivação de DL-077) ou `escrita_fiscal`
+    (reservado). A API e a tela NUNCA passam estes dois parâmetros: o contrato do POST
+    recusa o campo `origem`, e esta função é o único ponto que grava a origem.
+    `documento_origem` é `(tipo, identificador)`, com tipo em `TipoDocumentoOrigem`, e
+    tem de ser `None` para `manual`. Os dois campos são imutáveis depois de gravados
+    (gatilho da migração 0026). Na repetição com a mesma `chave_idempotencia`, a origem
+    e o documento também precisam ser os mesmos, ou é conflito.
 
     Cada item tem seu valor validado (sinal e escala, DL-008 / DE-010) ANTES
     da soma de débitos e créditos: valor menor ou igual a zero é recusado, e
@@ -831,6 +922,11 @@ def criar_lancamento(
         raise LancamentoInvalido(
             "A chave de idempotência não pode conter o caractere nulo (código 0)."
         )
+
+    # DL-089 (BL-72): origem e documento são validados AQUI, antes de qualquer gravação e
+    # antes da checagem de idempotência (mesma regra do achado A2): um pedido com origem
+    # inválida nunca "atalha" para um lançamento já existente.
+    origem, documento_tipo, documento_id = _origem_e_documento_validos(origem, documento_origem)
 
     # DE-078 item 6 (B4, rodada 1 de auditoria da DL-043): o prefixo
     # "zeramento:" é RESERVADO para os lançamentos que o próprio
@@ -985,7 +1081,9 @@ def criar_lancamento(
             empresa=empresa, chave_idempotencia=chave_idempotencia
         ).first()
         if existente is not None:
-            if existente.chave_idempotencia_fingerprint == impressao:
+            if existente.chave_idempotencia_fingerprint == impressao and _mesma_origem(
+                existente, origem, documento_tipo, documento_id
+            ):
                 existente.criado_agora = False
                 return existente
             raise ChaveIdempotenciaConflitante(
@@ -1094,6 +1192,9 @@ def criar_lancamento(
                 chave_idempotencia=chave_idempotencia,
                 chave_idempotencia_fingerprint=impressao,
                 competencia=competencia,
+                origem=origem,
+                documento_origem_tipo=documento_tipo,
+                documento_origem_id=documento_id,
             )
             for item in itens:
                 ItemLancamento.objects.create(
@@ -1116,7 +1217,9 @@ def criar_lancamento(
                 empresa=empresa, chave_idempotencia=chave_idempotencia
             ).first()
             if existente is not None:
-                if existente.chave_idempotencia_fingerprint == impressao:
+                if existente.chave_idempotencia_fingerprint == impressao and _mesma_origem(
+                    existente, origem, documento_tipo, documento_id
+                ):
                     existente.criado_agora = False
                     return existente
                 # Corrida entre duas requisições com a MESMA chave e
@@ -1145,11 +1248,19 @@ def criar_lancamento(
     return lancamento
 
 
-def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=None):
+def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=None, papel=None):
     """Cria o lançamento reverso (débito e crédito trocados) do original.
 
     Nunca edita nem apaga o lançamento original — o estorno é sempre um
     novo lançamento, preservando a trilha contábil completa.
+
+    Origem automática (DL-089, BL-73): se o original não é `manual` (escrita fiscal ou
+    importação), o estorno exige a permissão própria
+    (`papel_pode_estornar_origem_automatica(papel)`). `papel` é o papel do escritório
+    ativo, resolvido pelo middleware. Sem ele (`None`), a recusa é o padrão: nenhum
+    chamador interno pode estornar automático por omissão. A verificação vem logo após
+    o bloqueio do original e antes de qualquer outra checagem ou gravação, e o estorno
+    herda a origem e o documento do original, o que o marca como estorno de automático.
 
     Estorno único (BL-41), em duas camadas (DE-008): (1) `select_for_update`
     bloqueia a linha do lançamento original durante toda a operação, para que
@@ -1170,6 +1281,15 @@ def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=Non
     """
     with transaction.atomic():
         lancamento = LancamentoContabil.objects.select_for_update().get(pk=lancamento.pk)
+
+        # DL-089 / BL-73: permissão antes de qualquer outra checagem, para que quem não
+        # pode estornar automático receba 403, e não a informação sobre o estado do
+        # lançamento ("já estornado" etc.).
+        if lancamento.e_de_origem_automatica and not papel_pode_estornar_origem_automatica(papel):
+            raise EstornoDeOrigemAutomaticaNaoPermitido(
+                "Este papel não pode estornar lançamento de origem automática "
+                "(escrita fiscal ou importação). Peça a um administrador ou gestor."
+            )
 
         if lancamento.estorno_de_id is not None:
             raise LancamentoInvalido("Não é possível estornar um lançamento que já é um estorno.")
@@ -1219,6 +1339,9 @@ def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=Non
         ]
 
         try:
+            # DL-089: o estorno herda origem e documento do original. Para um lançamento
+            # manual, isso é `manual` sem documento, como antes. Para automático, o estorno
+            # fica marcado com a mesma origem e o mesmo documento.
             return criar_lancamento(
                 empresa=lancamento.empresa,
                 data=data_do_estorno,
@@ -1226,6 +1349,12 @@ def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=Non
                 itens=itens_invertidos,
                 criado_por=criado_por,
                 estorno_de=lancamento,
+                origem=lancamento.origem,
+                documento_origem=(
+                    (lancamento.documento_origem_tipo, lancamento.documento_origem_id)
+                    if lancamento.documento_origem_tipo
+                    else None
+                ),
             )
         except IntegrityError as exc:
             # Atribuição CONTEXTUAL, não conversão genérica (decisão revista
@@ -2927,7 +3056,7 @@ def _sinal_do_item(tipo, natureza):
     return sinal
 
 
-def listar_diario(*, empresa, inicio, fim):
+def listar_diario(*, empresa, inicio, fim, origem=None):
     """Lançamentos da empresa no período [inicio, fim], para o livro Diário (BL-59).
 
     Ordenação cronológica ESTÁVEL: data, depois criado_em, depois id — dois
@@ -2939,11 +3068,65 @@ def listar_diario(*, empresa, inicio, fim):
     cada item) em consultas adicionais de tamanho CONSTANTE (não uma por
     lançamento) — quem chama pode iterar `lancamento.itens.all()` para
     montar os totais e a lista de partidas sem gerar N+1.
+
+    `origem` (DL-089) filtra por `OrigemLancamento` quando informada. O filtro vale
+    para o Diário, que lista lançamento por lançamento e soma só o que listou. NÃO
+    vale para o Razão, cujo saldo anterior soma todas as origens: filtrar ali daria
+    um saldo que não bate com o do Balancete.
     """
+    queryset = LancamentoContabil.objects.filter(empresa=empresa, data__gte=inicio, data__lte=fim)
+    if origem is not None:
+        if origem not in OrigemLancamento.values:
+            raise LancamentoInvalido(f"Origem de lançamento desconhecida: {origem!r}.")
+        queryset = queryset.filter(origem=origem)
+    return queryset.prefetch_related("itens__conta").order_by("data", "criado_em", "id")
+
+
+class DocumentoDeOrigem(NamedTuple):
+    """Referência a um documento de origem: tipo controlado e identificador em texto."""
+
+    tipo: str
+    identificador: str
+
+
+def lancamentos_do_documento_de_origem(*, empresa, tipo, identificador):
+    """Documento → lançamentos (DL-089, BL-72): os lançamentos da empresa que vieram deste
+    documento, em ordem cronológica.
+
+    ISOLAMENTO: o filtro por `empresa` vale para a consulta inteira. O mesmo tipo e o mesmo
+    identificador em OUTRA empresa não aparecem, mesmo que sejam o mesmo número. Quem chama
+    já validou que `empresa` pertence ao escritório ativo (a API e a tela fazem isso antes).
+
+    Tipo desconhecido é recusado (`LancamentoInvalido`): sem isso, um erro de digitação
+    viraria consulta vazia, que parece "documento sem lançamento".
+    """
+    if tipo not in TipoDocumentoOrigem.values:
+        raise LancamentoInvalido(f"Tipo de documento de origem desconhecido: {tipo!r}.")
     return (
-        LancamentoContabil.objects.filter(empresa=empresa, data__gte=inicio, data__lte=fim)
+        LancamentoContabil.objects.filter(
+            empresa=empresa,
+            documento_origem_tipo=tipo,
+            documento_origem_id=_identificador_de_documento_valido(identificador),
+        )
         .prefetch_related("itens__conta")
         .order_by("data", "criado_em", "id")
+    )
+
+
+def documento_de_origem_do_lancamento(*, empresa, lancamento_id):
+    """Lançamento → documento (DL-089, BL-72). Devolve `DocumentoDeOrigem`, ou `None` quando
+    o lançamento é manual (ele não tem documento de origem).
+
+    ISOLAMENTO: o lançamento é buscado PELA empresa. Um id de lançamento de outra empresa
+    levanta `LancamentoContabil.DoesNotExist`, o mesmo que um id inexistente, e assim não
+    confirma que o lançamento existe.
+    """
+    lancamento = LancamentoContabil.objects.get(pk=lancamento_id, empresa=empresa)
+    if lancamento.documento_origem_tipo is None:
+        return None
+    return DocumentoDeOrigem(
+        tipo=lancamento.documento_origem_tipo,
+        identificador=lancamento.documento_origem_id,
     )
 
 

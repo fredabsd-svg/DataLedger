@@ -10,7 +10,7 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, PermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
@@ -45,6 +45,7 @@ from apps.contabilidade.models import (
     LancamentoContabil,
     MarcacaoDmpl,
     NaturezaConta,
+    OrigemLancamento,
     ParametroContabilEmpresa,
     TipoPartida,
 )
@@ -65,6 +66,7 @@ from apps.contabilidade.services import (
     CompetenciaJaEntregue,
     CompetenciaOperacaoInvalida,
     CompetenciaOperacaoRecusada,
+    EstornoDeOrigemAutomaticaNaoPermitido,
     HierarquiaInconsistente,
     LancamentoInvalido,
     MarcacaoDmplInvalida,
@@ -1014,14 +1016,24 @@ class EstornarLancamentoView(EmpresaEscopadaContabilMixin, APIView):
         # Com o `atomic` externo, a falha da trilha desfaz o estorno. Os
         # `except` ficam FORA do `with`: a recusa de negócio sai da transação
         # (que reverte sem gravar nada) antes de virar resposta HTTP.
+        # DL-089 / BL-73: o papel do escritório ativo (resolvido pelo middleware, nunca do
+        # corpo) decide se pode estornar lançamento de origem automática. A recusa sai do
+        # `atomic` sem nada gravado e vira 403.
         try:
             with transaction.atomic():
-                estorno = estornar_lancamento(lancamento, criado_por=request.user)
+                estorno = estornar_lancamento(
+                    lancamento,
+                    criado_por=request.user,
+                    papel=getattr(request, "papel", None),
+                )
                 registrar(
                     acao="lancamento.estornado",
                     objeto=estorno,
                     request=request,
-                    detalhes={"lancamento_original_id": lancamento.pk},
+                    detalhes={
+                        "lancamento_original_id": lancamento.pk,
+                        "origem": estorno.origem,
+                    },
                 )
         except CompetenciaEncerrada as exc:
             # DL-016 fatia 1, critério 2: o estorno É um lançamento novo, e a
@@ -1029,6 +1041,8 @@ class EstornarLancamentoView(EmpresaEscopadaContabilMixin, APIView):
             # original — ver o comentário em `estornar_lancamento`. 409,
             # nada gravado.
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except EstornoDeOrigemAutomaticaNaoPermitido as exc:
+            raise PermissionDenied(str(exc)) from exc
         except LancamentoInvalido as exc:
             raise DRFValidationError(str(exc)) from exc
 
@@ -1476,6 +1490,13 @@ class DiarioView(EmpresaEscopadaContabilMixin, APIView):
     def get(self, request, empresa_id):
         empresa = self.get_empresa()
         inicio, fim = _periodo_obrigatorio(request)
+        # DL-089: `?origem=` filtra o Diário por origem (manual, importacao, escrita_fiscal).
+        # Vazio ou ausente = sem filtro. O Razão não tem este filtro: ver `listar_diario`.
+        origem = (request.query_params.get("origem") or "").strip() or None
+        if origem is not None and origem not in OrigemLancamento.values:
+            raise DRFValidationError(
+                f"'origem' inválida: {origem!r}. Use um de: {', '.join(OrigemLancamento.values)}."
+            )
 
         lancamentos = []
         total_debito = Decimal("0")
@@ -1483,7 +1504,7 @@ class DiarioView(EmpresaEscopadaContabilMixin, APIView):
         # `listar_diario` já faz prefetch de itens+conta em consultas de
         # tamanho constante; iterar `lancamento.itens.all()` aqui usa o
         # cache do prefetch, sem gerar uma consulta por lançamento (N+1).
-        for lancamento in listar_diario(empresa=empresa, inicio=inicio, fim=fim):
+        for lancamento in listar_diario(empresa=empresa, inicio=inicio, fim=fim, origem=origem):
             debito_lancamento = Decimal("0")
             credito_lancamento = Decimal("0")
             itens = []
@@ -1507,6 +1528,7 @@ class DiarioView(EmpresaEscopadaContabilMixin, APIView):
                     "id": lancamento.id,
                     "data": lancamento.data.isoformat(),
                     "historico": lancamento.historico,
+                    "origem": lancamento.origem,
                     "total_debito": _como_moeda(debito_lancamento),
                     "total_credito": _como_moeda(credito_lancamento),
                     "itens": itens,
@@ -1517,6 +1539,9 @@ class DiarioView(EmpresaEscopadaContabilMixin, APIView):
             {
                 "inicio": inicio.isoformat(),
                 "fim": fim.isoformat(),
+                # DL-089: o filtro aplicado (None quando não há filtro). Os totais são os
+                # do que foi listado, e não os do período inteiro.
+                "origem_filtrada": origem,
                 "lancamentos": lancamentos,
                 "total_debito": _como_moeda(total_debito),
                 "total_credito": _como_moeda(total_credito),

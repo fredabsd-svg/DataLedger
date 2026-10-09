@@ -79,3 +79,28 @@ def papel_pode_ler_contabilidade(papel):
     como permissão.
     """
     return papel in PAPEIS_QUE_LEEM_CONTABILIDADE
+
+
+# DL-089 / BL-73: estornar lançamento de ORIGEM AUTOMÁTICA (escrita fiscal, importação)
+# exige permissão própria, distinta da de lançar (`PodeEscriturar`: ADMINISTRADOR, GESTOR,
+# ANALISTA e FINANCEIRO). Quem digita não deveria, por acidente, desfazer o que a escrita
+# fiscal gerou; a regeração (BL-66) também conta com isso.
+#
+# Papéis: ADMINISTRADOR e GESTOR, a mesma matriz de RC-102 (confirmada pelo Fred em
+# 2026-09-20 para fechar, reabrir e entregar competência). Não é a MESMA permissão: é a
+# matriz escolhida para esta operação, mantida nesta tupla. Mudar quem estorna automático
+# é mudar esta tupla, e só ela. Lançamento manual continua estornável por quem lança.
+PAPEIS_QUE_ESTORNAM_ORIGEM_AUTOMATICA = (
+    Papel.ADMINISTRADOR,
+    Papel.GESTOR,
+)
+
+
+def papel_pode_estornar_origem_automatica(papel):
+    """Responde: este papel pode estornar lançamento de origem automática?
+
+    Mesma convenção de `papel_pode_ler_contabilidade`: `None` (sem papel resolvido) é
+    `False`. Quem aplica a regra é `estornar_lancamento` no SERVIDOR, para todo caminho
+    (API, tela, chamada direta de serviço), e não só a view.
+    """
+    return papel in PAPEIS_QUE_ESTORNAM_ORIGEM_AUTOMATICA

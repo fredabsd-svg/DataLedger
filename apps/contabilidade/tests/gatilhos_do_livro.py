@@ -42,6 +42,19 @@ BALANCEADO_ITEM = (TABELA_ITEM, "trg_item_lancamento_balanceado")
 BALANCEADO_LANCAMENTO = (TABELA_LANCAMENTO, "trg_lancamento_contabil_balanceado")
 
 
+def modelos_do_esquema(alvo):
+    """Registro de modelos HISTÓRICOS do estado de migração `alvo` (DL-089).
+
+    Gravar DENTRO de uma janela de migração (esquema mais antigo que o código) com o modelo
+    atual quebra: o atual tem colunas que a janela não tem (a 0026 acrescentou `origem` e os
+    dois campos de documento). O histórico só conhece as colunas daquele estado. Uso:
+    `modelos_do_esquema(ANTERIOR).get_model("contabilidade", "LancamentoContabil")`.
+    """
+    from django.db.migrations.executor import MigrationExecutor
+
+    return MigrationExecutor(connection).loader.project_state(alvo).apps
+
+
 @contextmanager
 def gatilho_desligado(*gatilhos):
     """Desliga cada `(tabela, gatilho)` dentro do bloco e religa no fim."""

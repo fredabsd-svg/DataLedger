@@ -280,6 +280,14 @@ MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
     "item_lancamento_imutavel": (
         "Item de lançamento efetivado não pode ser alterado nem excluído; registre um estorno."
     ),
+    # DL-089 (BL-72), migração 0026 de `contabilidade`: origem e documento de origem são
+    # gravados na criação e o gatilho recusa qualquer UPDATE que os altere. Nenhum caminho de
+    # cliente os altera (não há rota de edição de lançamento); a mensagem existe para que, se
+    # um dia alcançar, o erro seja legível.
+    "lancamento_origem_imutavel": (
+        "Origem ou documento de origem de lançamento efetivado não pode ser alterado; "
+        "registre um estorno."
+    ),
     "lancamento_debito_igual_a_credito": (
         "O total de débitos do lançamento deve ser igual ao total de créditos."
     ),
@@ -782,6 +790,26 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "`LancamentoContabil` sem `empresa`. Defesa em profundidade contra "
         "INSERT direto via psql/shell-admin, sem caminho de escrita por "
         "cliente."
+    ),
+    # DL-089 (BL-72), três CHECKs de origem e documento. A origem é decidida pelo SERVIDOR
+    # (`criar_lancamento`, e `importacao_lancamentos.efetivar`); o contrato do POST de
+    # lançamento recusa o campo `origem` e `documento_origem_*`. Nenhum caminho de cliente as
+    # grava; são defesa contra `bulk_create`, `objects.create()` e SQL direto.
+    "ck_lancamentocontabil_origem_valida": (
+        "`CheckConstraint(origem IN ('manual','importacao','escrita_fiscal'))` do modelo "
+        "`LancamentoContabil` (DL-089). `criar_lancamento` só grava valores de "
+        "`OrigemLancamento`, e o contrato do POST não aceita o campo. Sem caminho de escrita "
+        "por cliente."
+    ),
+    "ck_lancamentocontabil_documento_tipo_valido": (
+        "`CheckConstraint(documento_origem_tipo IS NULL OR IN (...))` do modelo "
+        "`LancamentoContabil` (DL-089). `criar_lancamento` valida o tipo contra "
+        "`TipoDocumentoOrigem` antes de gravar. Sem caminho de escrita por cliente."
+    ),
+    "ck_lancamentocontabil_documento_consistente": (
+        "`CheckConstraint` do modelo `LancamentoContabil` (DL-089): ou não há documento de "
+        "origem, ou há tipo e identificador não vazio e a origem não é `manual`. "
+        "`criar_lancamento` valida o par antes de gravar. Sem caminho de escrita por cliente."
     ),
     # DL-010 F1: `apps.fiscal.services._vincular_participantes` nunca monta
     # dois vínculos para a MESMA empresa no mesmo documento (o ramo do

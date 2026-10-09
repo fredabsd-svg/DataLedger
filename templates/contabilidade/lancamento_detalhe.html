@@ -40,6 +40,15 @@ de mudar de lugar.
         {% if lancamento.estorno_de_id %}
             <br><strong>Estorno do lançamento:</strong> nº {{ lancamento.estorno_de_id }}
         {% endif %}
+        <br><strong>Origem:</strong> {{ origem_ptbr }}
+        {% if documento_de_origem %}
+            <br><strong>Documento de origem:</strong>
+            {% if documento_de_origem.url %}
+                <a href="{{ documento_de_origem.url }}">{{ documento_de_origem.rotulo }} nº {{ documento_de_origem.identificador }}</a>
+            {% else %}
+                {{ documento_de_origem.rotulo }} nº {{ documento_de_origem.identificador }}
+            {% endif %}
+        {% endif %}
     </p>
 
     <table class="tabela-dados">

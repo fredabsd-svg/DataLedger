@@ -98,6 +98,15 @@ para quem lê a contabilidade, que é quem já vê o Diário.
             <input type="date" id="id_fim" name="fim" value="{{ fim|date:'Y-m-d' }}"
                    aria-describedby="id_periodo_ajuda">
         </div>
+        {% comment %}DL-089: filtro por origem do lançamento. Os totais mostrados são os do que foi listado.{% endcomment %}
+        <div class="campo">
+            <label for="id_origem">Origem</label>
+            <select id="id_origem" name="origem">
+                {% for valor, rotulo in origens %}
+                    <option value="{{ valor }}"{% if valor == origem_selecionada %} selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </div>
         <button type="submit">Consultar período</button>
         <p class="texto-apoio ajuda-formato-data" id="id_periodo_ajuda">
             O formato dos campos de data acima é o do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.
@@ -133,7 +142,8 @@ para quem lê a contabilidade, que é quem já vê o Diário.
             </tbody>
             <tfoot>
                 <tr class="linha-total">
-                    <td colspan="2">Total do período</td>
+                    {% comment %}DL-089: com filtro de origem, o total é só o do que foi listado; a tela diz isso.{% endcomment %}
+                    <td colspan="2">Total do período{% if origem_selecionada %} (somente a origem filtrada){% endif %}</td>
                     <td class="valor-monetario">{{ total_debito_ptbr }}</td>
                     <td class="valor-monetario">{{ total_credito_ptbr }}</td>
                 </tr>

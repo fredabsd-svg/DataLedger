@@ -584,8 +584,33 @@ class ItemLancamentoSerializer(serializers.ModelSerializer):
 
 
 class LancamentoContabilSerializer(serializers.ModelSerializer):
+    """Saída do lançamento. Só leitura: a origem é decidida pelo servidor (DL-089).
+
+    `documento_de_origem` sai como objeto `{tipo, identificador}` ou `null` (manual). O
+    identificador é o do app de origem, em texto, e não expõe nenhum dado do documento.
+    """
+
     itens = ItemLancamentoSerializer(many=True, read_only=True)
+    documento_de_origem = serializers.SerializerMethodField()
 
     class Meta:
         model = LancamentoContabil
-        fields = ["id", "data", "historico", "estorno_de", "criado_em", "itens"]
+        fields = [
+            "id",
+            "data",
+            "historico",
+            "estorno_de",
+            "criado_em",
+            "origem",
+            "documento_de_origem",
+            "itens",
+        ]
+        read_only_fields = ["origem"]
+
+    def get_documento_de_origem(self, lancamento):
+        if lancamento.documento_origem_tipo is None:
+            return None
+        return {
+            "tipo": lancamento.documento_origem_tipo,
+            "identificador": lancamento.documento_origem_id,
+        }

@@ -155,9 +155,11 @@ from apps.contabilidade.models import (
     # validação de negócio mora aqui: quem valida é sempre o serviço
     # (`registrar_parametro_contabil`) — ver o docstring do próprio
     # modelo, em models.py, sobre por que ele não tem `clean()`.
+    OrigemLancamento,
     ParametroContabilEmpresa,
     PeriodicidadeZeramento,
     TipoConta,
+    TipoDocumentoOrigem,
     TipoPartida,
 )
 from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
@@ -3158,6 +3160,8 @@ def _contexto_do_lancamento_detalhe(request, empresa, lancamento, *, erros=None,
         "itens": itens,
         "total_debito_ptbr": _valor_ptbr(total_debito),
         "total_credito_ptbr": _valor_ptbr(total_credito),
+        "origem_ptbr": OrigemLancamento(lancamento.origem).label,
+        "documento_de_origem": _documento_de_origem_para_a_tela(empresa, lancamento),
         "guia_dmpl": _guia_da_marcacao_dmpl(
             empresa,
             lancamento,
@@ -3165,6 +3169,37 @@ def _contexto_do_lancamento_detalhe(request, empresa, lancamento, *, erros=None,
             erros=erros,
             digitadas=digitadas,
         ),
+    }
+
+
+def _documento_de_origem_para_a_tela(empresa, lancamento):
+    """Rótulo e link do documento de origem do lançamento (DL-089), ou `None` (manual).
+
+    O link só existe onde a tela do documento existe hoje: o lote da importação de
+    lançamentos (DL-077). A escrituração fiscal ainda não tem tela de contabilidade; nesse
+    caso a tela mostra o tipo e o identificador, sem link. Não se inventa URL.
+    """
+    if lancamento.documento_origem_tipo is None:
+        return None
+    tipo = lancamento.documento_origem_tipo
+    identificador = lancamento.documento_origem_id
+    url = None
+    # `str(int(...)) == ...` recusa "0012" e "+12": o link tem de apontar exatamente para o
+    # id gravado pela efetivação, e não para outro número parecido.
+    if (
+        tipo == TipoDocumentoOrigem.IMPORTACAO_LANCAMENTOS
+        and identificador.isascii()
+        and identificador.isdigit()
+        and str(int(identificador)) == identificador
+    ):
+        url = reverse(
+            "contabilidade_web:lancamentos_importacao",
+            args=[empresa.id, int(identificador)],
+        )
+    return {
+        "rotulo": TipoDocumentoOrigem(tipo).label,
+        "identificador": identificador,
+        "url": url,
     }
 
 
@@ -3422,6 +3457,14 @@ def diario(request, empresa_id):
         return recusa_livro_caixa
 
     inicio, fim, erro_periodo = _periodo_do_formulario(request)
+    # DL-089: filtro por origem do lançamento. Vazio = todas. Valor fora da lista é erro de
+    # formulário (400), como a data: não vira "sem filtro" em silêncio.
+    origem_pedida = (request.GET.get("origem") or "").strip()
+    erro_origem = None
+    origem_filtro = origem_pedida or None
+    if origem_filtro is not None and origem_filtro not in OrigemLancamento.values:
+        erro_origem = "Origem inválida. Escolha uma das opções da lista de origem."
+        origem_filtro = None
     # DL-077, fatia 3: o link "Importar lançamentos" só aparece para quem escritura (o servidor
     # recusa de qualquer forma; a tela só deixa de convidar quem seria recusado).
     contexto = {
@@ -3429,15 +3472,17 @@ def diario(request, empresa_id):
         "inicio": inicio,
         "fim": fim,
         "pode_escriturar": _pode_escriturar(request),
+        "origens": [("", "Todas as origens"), *OrigemLancamento.choices],
+        "origem_selecionada": origem_filtro or "",
     }
-    if erro_periodo:
-        messages.error(request, erro_periodo)
+    if erro_periodo or erro_origem:
+        messages.error(request, erro_periodo or erro_origem)
         return render(request, "contabilidade/diario.html", contexto, status=400)
 
     lotes = []
     total_debito = Decimal("0")
     total_credito = Decimal("0")
-    for lancamento in listar_diario(empresa=empresa, inicio=inicio, fim=fim):
+    for lancamento in listar_diario(empresa=empresa, inicio=inicio, fim=fim, origem=origem_filtro):
         debito_lote = Decimal("0")
         credito_lote = Decimal("0")
         for item in lancamento.itens.all():
