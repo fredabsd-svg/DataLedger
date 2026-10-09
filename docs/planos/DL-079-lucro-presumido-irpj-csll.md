@@ -164,6 +164,24 @@ no Carnaval (A9, PE-83); a medida encerrada num trimestre (A11, BL-680); as
 leituras de trimestre de abertura e de igualdade nos casos (A13, HI-114 e
 HI-115); a separação das telas em módulo próprio (A15, BL-680).
 
+## Decisões tomadas na reconferência
+
+[Reconferência](../auditorias/2026-10-09-dl-079-reconferencia.md): aprovada com
+ressalvas; dez achados da rodada 1 fechados, A2 parcial; o cálculo continua
+igual ao centavo ao do auditor. Pela regra de parada do §3.1 não houve nova
+correção:
+
+- **R1** (caractere substituto em texto da API dava 500) e **R2** (soma das
+  receitas integrais acima do teto dava 500 ao declarar): ajuste pontual do
+  arquiteto, com os testes T-R1 e T-R2 do auditor.
+- **R4** (lacunas de teste): os testes propostos pelo auditor foram
+  integrados em `test_dl079_reconferencia.py`.
+- **R3** (o fechamento aparece com o 4º trimestre em curso, sem rótulo de
+  provisório), **R5** (redirecionamento pelo trimestre digitado na
+  confirmação de retenção): BL-682.
+- **R6** (a mesma receita, de mesmo valor e suporte, recusada no mesmo
+  trimestre): pergunta ao Fred na PE-83.
+
 ## Critérios de aceite
 
 1. O exemplo oficial do P&R (receita de R$ 1.500.000 de comércio no
