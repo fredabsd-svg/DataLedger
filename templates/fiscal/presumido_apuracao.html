@@ -127,14 +127,18 @@ recusas de NF-e (não escriturada, serviço conjugado, devolução de combustív
 
         {% if apuracao.mostra_devolucao %}
             <dl class="lista-de-definicao">
-                <div>
-                    <dt>Devolução de NF-e deduzida neste trimestre (comércio e indústria)</dt>
-                    <dd class="valor-monetario">{{ apuracao.devolucao_deduzida }}</dd>
-                </div>
-                <div>
-                    <dt>Saldo de devolução de NF-e que passa ao trimestre seguinte</dt>
-                    <dd class="valor-monetario">{{ apuracao.saldo_devolucao_transportado }}</dd>
-                </div>
+                {% for linha in apuracao.devolucao_por_atividade_tela %}
+                    <div>
+                        <dt>Devolução de NF-e deduzida neste trimestre ({{ linha.nome }})</dt>
+                        <dd class="valor-monetario">{{ linha.deduzida }}</dd>
+                    </div>
+                {% endfor %}
+                {% for linha in apuracao.devolucao_por_atividade_tela %}
+                    <div>
+                        <dt>Saldo de devolução de NF-e que passa ao trimestre seguinte{% if linha.nome != "comércio e indústria" %} ({{ linha.nome }}){% endif %}</dt>
+                        <dd class="valor-monetario">{{ linha.saldo }}</dd>
+                    </div>
+                {% endfor %}
             </dl>
         {% endif %}
 
