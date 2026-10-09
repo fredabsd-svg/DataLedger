@@ -146,7 +146,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-078](../planos/DL-078-servicos-tomados-e-retencoes.md) | Fiscal: serviços tomados, ISS retido pelo tomador e retenções federais | Integrada (PR #102, squash `49eacba`) — rodada 1 e reconferência aprovadas com ressalvas |
 | [DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) | Fiscal: Lucro Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224 | Integrada (PR #103, squash `6eb922e`) — rodada 1 e reconferência aprovadas com ressalvas |
 | [DL-080](../planos/DL-080-recepcao-de-nfe.md) | Fiscal: recepção de NF-e (modelo 55) e NFC-e (modelo 65), fatia 2 da DL-010 | Integrada (PR #104, squash `c01b451`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
-| [DL-081](../planos/DL-081-escrituracao-das-nfe-de-saida.md) | Fiscal: escrituração das NF-e de saída e da devolução de venda | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-081](../planos/DL-081-escrituracao-das-nfe-de-saida.md) | Fiscal: escrituração das NF-e de saída e da devolução de venda | Integrada (PR #105, squash `2911eb6`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -317,38 +317,27 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    HI-109 a HI-113, HI-116 e **PE-84 com o Fred**; BL-681, BL-683, BL-684.
 
 10. **[DL-081](../planos/DL-081-escrituracao-das-nfe-de-saida.md) —
-    escrituração das NF-e de saída e da devolução de venda: frente A
-    entregue (cópia isolada `dl081`, sobre a `main` com a DL-080; suíte do
-    desenvolvedor 8.383 aprovados, 1 reprovado de ambiente, 53 pulados; os
-    oito mutantes do critério 10 caem); frente B entregue (`27724e4`: cinco
-    telas — a escriturar, escriturar com confirmação em bloco, estornar,
-    reclassificação em massa com prévia, conferência do mês; suíte do
-    desenvolvedor 8.477 aprovados, 1 reprovado de ambiente, 53 pulados);
-    [rodada 1](../auditorias/2026-10-09-dl-081-rodada-1.md) REPROVADA (A1
-    leitura de itens com IPI/ISSQN, A2 Presumido dos trimestres seguintes, A3
-    itens sem gatilho); correção única `9767151` (A1 a A12; suíte do
-    desenvolvedor 8.576 aprovados, 1 reprovado de ambiente, 53 pulados; 35
-    mutantes mortos); [reconferência](../auditorias/2026-10-09-dl-081-reconferencia.md)
-    APROVADA COM RESSALVAS (8.576 aprovados, 1 reprovado de ambiente, 53
-    pulados). R1 fechado e N4b testado por ajuste do arquiteto; R8 nos
-    documentos; R2 a R7 no BL-686. Suíte da branch integrada (`578ce9e`,
-    arquiteto, invocação única, sem a variável dos XSD): 8.558 aprovados, 1
-    reprovado (ambiente), 53 pulados. PR aberto, aguardando a CI; merge
-    autorizado (RC-171).** O cálculo
-    bateu ao centavo com o do auditor. BL-685 registrado. Tabela oficial
-    de CFOP do Portal da NF-e (IT 2023.002 v2.10) como dado com fonte.
-    [Consulta ao contador-senior](../projeto/consultas/2026-10-09-contador-senior-escrituracao-nfe.md):
-    receita bruta por item sem ICMS-ST e IPI, devolução no mês da devolução,
-    IBS/CBS de 2026 fora da receita. HI-117 a HI-124; **PE-85 com o Fred**.
+    escrituração das NF-e de saída e da devolução de venda: INTEGRADA** pelo
+    PR #105 (squash `2911eb6`), com os quatro checks verdes em todas as
+    execuções do último commit (RC-171). [Rodada 1](../auditorias/2026-10-09-dl-081-rodada-1.md)
+    reprovada (leitura de itens, Presumido dos trimestres seguintes, itens
+    sem gatilho); [reconferência](../auditorias/2026-10-09-dl-081-reconferencia.md)
+    aprovada com ressalvas. Tabela oficial de CFOP como dado com fonte;
+    itens lidos pelo XSD; natureza por item; receita por item com
+    conferência W16; NF-e na receita do Simples e no RBT12; devolução no mês
+    da devolução; pré-DAS recusa e Presumido parcial com NF-e. Abertos:
+    HI-117 a HI-124 e **PE-85 com o Fred** (dois bloqueios conservadores);
+    BL-685, BL-686 (resolver antes de subir a versão do leitor).
 
 **Linha de base vigente (09/10/2026, contêiner Linux, Python 3.13.16,
-PostgreSQL 16 local, sobre `f7973bf` — conteúdo da `main` em `c01b451` —,
-medida pelo arquiteto numa única invocação):** `pytest` completo **8.188
-aprovados, 1 reprovado, 53 pulados**; a reprovação é a conhecida de ambiente
-(`test_versao_minima_python.py`, exige Python 3.14). `ruff`, `check` e
-`makemigrations --check` limpos (539 arquivos). A suíte leva cerca de 11 min:
-o job "Lint e testes" tem limite de 20 min. Lição da DL-075: a suíte **em
-fatias** esconde interação entre migrações — só vale a invocação única.
+PostgreSQL 16 local, sobre `578ce9e` — conteúdo da `main` em `2911eb6` —,
+medida pelo arquiteto numa única invocação, sem a variável dos XSD):**
+`pytest` completo **8.558 aprovados, 1 reprovado, 53 pulados**; a reprovação
+é a conhecida de ambiente (`test_versao_minima_python.py`, exige Python
+3.14). `ruff`, `check` e `makemigrations --check` limpos (569 arquivos). A
+suíte leva cerca de 13 min: o job "Lint e testes" tem limite de 20 min. Lição
+da DL-075: a suíte **em fatias** esconde interação entre migrações — só vale
+a invocação única.
 
 **Também achado em 08/10/2026:** o diagnóstico da DFC fatia 2 levantou, no
 texto oficial do CPC 03 (R2), Rev. 24, que a norma **não define "classe"** de
