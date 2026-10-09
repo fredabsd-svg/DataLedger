@@ -267,6 +267,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-085** — Fiscal: escrituração de NF-e e NFC-e em volume — prévia por grupo, confirmação em bloco com assinatura, efetivação em partes idempotente, medida com 10.000 NFC-e (RC-173). Situação em [estado.md](docs/agents/estado.md).
 - **DL-086** — Fiscal: documentação e painel alinhados ao que o código faz (RC-175). Situação em [estado.md](docs/agents/estado.md).
 - **DL-087** — Fiscal: classificação fiscal versionada e regras de importação, o equivalente ao acumulador, migrada sem mudar comportamento (RC-175). Situação em [estado.md](docs/agents/estado.md).
+- **DL-088** — Fiscal: virada de 2027 no Simples — tabelas 2027-2028 lidas no DOU, RBT12 dos 12 meses antecedentes ao mês anterior, CBS e IBS no DAS, opção pelo regime regular, receita de NF-e de 2027 no regime único. Situação em [estado.md](docs/agents/estado.md).
 
 Ainda não existem:
 
