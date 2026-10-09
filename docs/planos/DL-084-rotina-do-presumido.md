@@ -36,8 +36,14 @@ atualizadas pela RC-172.
      19/03 e 20/05 (Palmas). O 18/03 fica fora.
    - A tabela aceita **exceção por ano**: em 2026 o 05/10 foi observado em
      09/10, por decreto.
-   - O aviso diz "feriado local: confirmar expediente bancário na praça"
-     (PE-89).
+   - Dois avisos, conforme a fonte bancária (RC-174, lista da Febraban
+     trazida pelo Fred):
+     - "feriado bancário em Palmas (Febraban)" nas datas que a lista
+       confirma: 19/03, 20/05, 15/08, 08/09 e a exceção de 09/10/2026;
+     - "feriado local: confirmar expediente bancário na praça" no 05/10,
+       que a lei estadual fixa mas a lista não traz para Palmas em 2027.
+   - Cada linha guarda a fonte bancária, quando houver: lista Febraban, CAF501
+     v.007541 de 07/10/2026.
    - A Sexta-feira Santa continua só na tabela de dias sem expediente
      bancário nacional, que passa a citar também a Lei municipal 577/96.
      A Res. CMN 4.880/2020, art. 6º, lida, é a fonte do Carnaval e de Corpus
