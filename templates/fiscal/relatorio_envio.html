@@ -69,6 +69,14 @@ removida daqui. Ver DE-083 para o detalhe completo.
                             {% elif linha.resultado.evento %}
                                 Evento {{ linha.resultado.evento.codigo }}
                                 (<a href="{% url 'fiscal_web:evento_xml' linha.resultado.evento.id %}">XML</a>)
+                            {% elif linha.resultado.documento_nfe %}
+                                {{ linha.resultado.documento_nfe.get_modelo_display }}
+                                nº {{ linha.resultado.documento_nfe.numero }},
+                                série {{ linha.resultado.documento_nfe.serie }}
+                                (chave {{ linha.resultado.documento_nfe.chave }})
+                            {% elif linha.resultado.evento_nfe %}
+                                Evento de NF-e {{ linha.resultado.evento_nfe.tp_evento }}
+                                (chave {{ linha.resultado.evento_nfe.chave }})
                             {% else %}
                                 —
                             {% endif %}

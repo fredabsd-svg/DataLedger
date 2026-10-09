@@ -46,6 +46,7 @@ from apps.fiscal.api import (
     RetencoesFederaisTomadoView,
     RetidoSofridoIssView,
 )
+from apps.fiscal.api_nfe import DetalheNFeView, NotasNFeView
 from apps.fiscal.api_presumido import (
     ApuracaoPresumidoView,
     AtividadesPresumidoView,
@@ -63,6 +64,17 @@ from apps.fiscal.api_presumido import (
 app_name = "fiscal_api"
 
 urlpatterns = [
+    # DL-080 (frente A): NF-e e NFC-e recebidas, leitura (GET). Tabelas próprias, nunca a NFS-e.
+    path(
+        "empresas/<int:empresa_id>/nfe/",
+        NotasNFeView.as_view(),
+        name="nfe_notas",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/<int:documento_id>/",
+        DetalheNFeView.as_view(),
+        name="nfe_detalhe",
+    ),
     path(
         "empresas/<int:empresa_id>/notas-prestadas/",
         NotasPrestadasView.as_view(),

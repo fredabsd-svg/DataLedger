@@ -91,7 +91,8 @@ por engano num cálculo de NFS-e.
      estabelecimentos" (HI-111).
 6. **Eventos** (`procEventoNFe`):
    - O evento é guardado sempre, inclusive órfão.
-   - Ele só tem efeito com `retEvento/cStat` 135, 136 ou 155.
+   - Ele só tem efeito com `retEvento/cStat` 135 ou 155 (HI-116; o 136 é
+     guardado com aviso).
    - Tornam a nota **cancelada** o 110111 e o 110112.
    - Os demais (carta de correção, manifestações, eventos da reforma, 110001)
      são guardados e listados, sem mudar a situação.
@@ -139,6 +140,54 @@ por engano num cálculo de NFS-e.
   BL-681.
 - O relatório do lote (tela já existente) passou a mostrar NF-e, NFC-e e
   eventos de NF-e já nesta frente.
+
+## Decisões tomadas na correção (rodada 1)
+
+[Rodada 1](../auditorias/2026-10-09-dl-080-rodada-1.md): **reprovada** por A1
+(data absurda aceita travava a lista, o detalhe e o relatório do lote com erro
+de servidor). O núcleo do risco se sustentou: nenhuma empresa ligada por
+chave ou terceiros, nenhuma cancelada como válida, nenhum vazamento entre
+escritórios. Correção única:
+
+- **Datas** (A1): `dhEmi`, `dhRecbto` e `dhEvento` só no padrão do XSD (ano
+  20xx); fora dele, recusa com o campo nomeado.
+- **Paginação** (A2): ordem com desempate determinístico na lista e nos
+  eventos sem nota.
+- **Ambiente** (A3, A8): evento de homologação recusado como a nota;
+  `tpAmb` ausente recusado (o XSD o exige).
+- **`cStat` 136** (A7, HI-116): "registrado, mas não vinculado a NF-e" não
+  cancela; o evento é guardado e mostrado com o aviso de conferir. Só 135 e
+  155 têm efeito.
+- **Leniências do leitor** (A8): `nfeProc` com mais de uma nota recusado;
+  retorno do evento com tipo ou sequência diferentes do evento recusado; CNPJ
+  da chave conferido com o do emitente, exceto nas séries 890 a 899, em que
+  a chave leva o CNPJ da SEFAZ (MOC 7.0, Tabela 2-4; em 900 a 919 a chave
+  leva o documento do próprio emitente).
+- **Totais da tela** (A5): a soma do `vNF` das autorizadas sai separada por
+  direção (saídas, entradas); a cancelada continua fora.
+- **Testes** (A4, A6): os casos que os mutantes sobreviventes expuseram e o
+  corpus de XML validado contra o XSD montado pelo auditor.
+- **Interface** (A9): documento sem quebra no meio; rolagem só dentro da
+  tabela em telas estreitas; rótulos ("Carta de Correção", "NF-e já
+  recebida", nome do módulo de recepção).
+- **Imutabilidade sem gatilho** (A10): aceita nesta fatia, como na NFS-e;
+  BL-683.
+
+## Decisões tomadas na reconferência
+
+[Reconferência](../auditorias/2026-10-09-dl-080-reconferencia.md): aprovada com
+ressalvas; A1 a A9 fechados, o núcleo do risco firme. Pela regra de parada do
+§3.1 não houve nova correção:
+
+- **R1** (o teste que protegia "a chave não liga empresa" perdeu força) e
+  **R2** (a exceção de séries era 890 a 919; o MOC 7.0, Tabela 2-4, lido em
+  09/10/2026, só põe o CNPJ da SEFAZ na chave em 890 a 899): ajuste do
+  arquiteto, com teste de serviço que derruba o mutante de ligar pela chave.
+- **R3** (dois `protNFe` ou protocolo de homologação aceitos): recusados.
+- **R4** (o cStat 136 sem aviso na lista de órfãos e o campo `registrado` da
+  API), **R5** (textos da página inicial e do cartão do módulo ainda dizem
+  "NFS-e"), **R6** (coluna cortada em 1280 px) e **R7** (validação do corpus
+  contra o XSD só com variável de ambiente): BL-684.
 
 ## Critérios de aceite
 

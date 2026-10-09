@@ -1401,6 +1401,34 @@ NOMES_DE_TELA_DA_IMPORTACAO_DE_LANCAMENTOS = {
 }
 
 
+# DL-080, frente B (apps/fiscal/tests/test_dl080_telas.py): NF-e e NFC-e recebidas, o detalhe da
+# nota e os eventos sem nota. A lista e o detalhe usam o cenário próprio de conferência (empresa
+# do escritório e nota sintética). Cada nome aponta para os testes que o cobrem.
+NOMES_DE_TELA_NFE_RECEBIDAS = {
+    "fiscal_web:nfe_recebidas": (
+        "test_lista_mostra_cancelada_marcada_e_fora_do_total_das_validas, "
+        "test_so_com_cancelada_o_total_das_autorizadas_fica_zerado, "
+        "test_direcao_na_lista_combina_papel_com_tpnf, "
+        "test_filtro_invalido_responde_400_com_a_mensagem_e_nao_mostra_a_lista, "
+        "test_telas_novas_sao_acessiveis_com_legenda_e_escopo_nos_cabecalhos, "
+        "test_lista_sem_empresa_pede_a_escolha_e_nao_lista_nada"
+    ),
+    "fiscal_web:nfe_detalhe": (
+        "test_detalhe_de_nota_valida_mostra_eventos_em_ordem_com_nome_oficial_e_efeito, "
+        "test_detalhe_de_nota_cancelada_tem_o_aviso_no_topo_antes_da_identificacao, "
+        "test_detalhe_mostra_identificacao_com_texto_oficial_e_chave_em_grupos_de_4, "
+        "test_detalhe_mostra_totais_pt_br_e_campo_ausente_com_travessao, "
+        "test_detalhe_mostra_protocolo_itens_e_aviso_do_ibscbs, "
+        "test_id_de_nota_de_outro_escritorio_responde_404_idor"
+    ),
+    "fiscal_web:nfe_eventos_orfaos": (
+        "test_orfaos_mostra_chave_tipo_e_data_e_o_filtro_usa_o_autor, "
+        "test_orfaos_nao_mostra_evento_de_outro_escritorio, "
+        "test_cancelamento_que_chega_antes_da_nota_aparece_cancelado_e_sai_dos_orfaos"
+    ),
+}
+
+
 def test_toda_rota_do_produto_esta_coberta_ou_excluida():
     """BL-334: a guarda do próprio conjunto de telas. Rota nova, nomeada,
     alcançável a partir de `config/urls.py`, sem entrada em
@@ -1420,6 +1448,7 @@ def test_toda_rota_do_produto_esta_coberta_ou_excluida():
         | set(NOMES_DE_TELA_DOS_SERVICOS_TOMADOS)
         | set(NOMES_DE_TELA_LIVRO_CAIXA_FORA_DA_CONTABILIDADE)
         | set(NOMES_DE_TELA_DO_LUCRO_PRESUMIDO)
+        | set(NOMES_DE_TELA_NFE_RECEBIDAS)
     )
     excluidas = set(EXCLUSOES_NOMEADAS_DE_TELA)
 

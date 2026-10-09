@@ -113,9 +113,11 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         CriterioReceitaPresumido,
         DeclaracaoReceitasIntegrais,
         DocumentoFiscal,
+        DocumentoNFe,
         EscrituracaoFiscal,
         EscrituracaoTomada,
         EventoFiscal,
+        EventoNFe,
         FolhaFatorR,
         LoteDeRecepcao,
         MedidaJudicialLC224,
@@ -126,6 +128,7 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         RegraIssMunicipio,
         ResultadoDoArquivo,
         VinculoDocumentoEmpresa,
+        VinculoNFeEmpresa,
     )
     from apps.livro_caixa.models import (
         ContaLivroCaixa,
@@ -181,6 +184,13 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         LoteDeRecepcao,
         ResultadoDoArquivo,
         VinculoDocumentoEmpresa,
+        # DL-080 (frente A, 2026-10-09): `DocumentoNFe`, `VinculoNFeEmpresa` e `EventoNFe`, tabelas
+        # próprias da NF-e, na cobertura "por padrão" (R1/DE-056). Sem ModelAdmin (BL-262). A
+        # escrita é pelo serviço `apps.fiscal.services`, que grava a trilha na mesma transação.
+        # Nenhuma exclusão foi adicionada.
+        DocumentoNFe,
+        VinculoNFeEmpresa,
+        EventoNFe,
         # DL-072 (frente A, 2026-10-08): `EscrituracaoFiscal`, modelo novo do
         # apps.fiscal, na cobertura "por padrão" (R1/DE-056), como os acima.
         # SEM ModelAdmin de propósito (BL-262: admin não isola por escritório),

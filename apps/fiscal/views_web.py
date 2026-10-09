@@ -67,6 +67,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db import transaction
+from django.db.models import Count, Exists, OuterRef, Q, Sum
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -94,6 +95,7 @@ from apps.fiscal import receita as servico_receita
 from apps.fiscal import retencoes as servico_retencoes
 from apps.fiscal import simples_tabelas as tabelas
 from apps.fiscal import tomadas as servico_tomadas
+from apps.fiscal.api_nfe import DESCRICAO_EVENTO_NFE, direcao_para_o_cliente
 from apps.fiscal.formatacao_ptbr import milhar_ptbr as _milhar_ptbr
 from apps.fiscal.formatacao_ptbr import valor_ptbr as _valor_ptbr
 from apps.fiscal.models import (
@@ -101,6 +103,7 @@ from apps.fiscal.models import (
     AtividadeEmpresa,
     AtividadePresuncaoEmpresa,
     DocumentoFiscal,
+    DocumentoNFe,
     EnquadramentoAtividade,
     EscrituracaoFiscal,
     EscrituracaoTomada,
@@ -109,15 +112,18 @@ from apps.fiscal.models import (
     EstadoFolhaFatorR,
     EstadoReceitaInformada,
     EventoFiscal,
+    EventoNFe,
     FolhaFatorR,
     LoteDeRecepcao,
     MedidaJudicialLC224,
     MercadoReceita,
+    ModeloNFe,
     NaturezaOperacao,
     NaturezaTomada,
     OpcaoRegimeCaixaSimples,
     OrigemReceitaInformada,
     PapelDocumento,
+    PapelNFe,
     ReceitaInformada,
     ReceitaTrimestralPresumido,
     RegimeIss,
@@ -125,6 +131,7 @@ from apps.fiscal.models import (
     RegraIssMunicipio,
     SituacaoIssReceitaInformada,
     VinculoDocumentoEmpresa,
+    VinculoNFeEmpresa,
 )
 from apps.fiscal.permissoes import (
     papel_pode_consultar_documentos,
@@ -135,9 +142,13 @@ from apps.fiscal.services import (
     CODIGOS_QUE_CANCELAM,
     LIMITE_TAMANHO_ENVIO_BYTES,
     EnvioInvalido,
+    aviso_do_evento_nfe,
     documentos_do_escritorio,
+    efeito_do_evento_nfe,
     receber_envio,
+    situacao_da_nfe,
     situacao_do_documento,
+    vinculos_nfe_da_empresa,
 )
 from apps.fiscal.tomadas_campos import campos_tomada_do_documento
 from apps.fiscal.uploads import LimiteDeTamanhoUploadHandler
@@ -468,7 +479,10 @@ def relatorio_envio(request, lote_id):
         )
     lote = _lote_do_escritorio_ativo(request, lote_id)
 
-    resultados = lote.resultados.select_related("documento", "evento").order_by("id")
+    # DL-080: NF-e, NFC-e e eventos de NF-e também vêm no relatório (vínculos próprios).
+    resultados = lote.resultados.select_related(
+        "documento", "evento", "documento_nfe", "evento_nfe"
+    ).order_by("id")
     linhas = [
         {
             "resultado": resultado,
@@ -6314,3 +6328,396 @@ def _pres_controle_na_tela(controle) -> dict:
             for r in controle.recusas
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# DL-080 (frente B): NF-e e NFC-e recebidas — telas de conferência, só leitura.
+#
+# Esta seção não decide situação nem direção. A situação vem de
+# `services.vinculos_nfe_da_empresa` (anotação `cancelada`, na lista) e de
+# `services.situacao_da_nfe` (no detalhe). A direção vem de
+# `apps.fiscal.api_nfe.direcao_para_o_cliente`, a MESMA função que a API usa. Aqui só se traduz
+# código para texto, se escolhe o outro lado da nota e se formata valor em pt-BR.
+#
+# Isolamento: a lista pede UMA empresa do escritório ativo (empresa de outro escritório, ou
+# inexistente, responde 404). O detalhe busca a nota DENTRO do vínculo com a empresa da URL, então
+# nota de outra empresa do mesmo escritório, ou de outro escritório, responde 404 (IDOR).
+# ---------------------------------------------------------------------------
+
+_MENSAGEM_SEM_CONSULTA_NFE = "Seu papel não permite consultar NF-e recebidas."
+
+# Texto literal do aviso de cancelamento (plano DL-080, item 9). A tela não o reescreve.
+_AVISO_NFE_CANCELADA = "NF-e cancelada — não tem efeito fiscal."
+
+_ROTULO_PAPEL_NFE = {PapelNFe.EMITENTE: "Emitente", PapelNFe.DESTINATARIO: "Destinatário"}
+_ROTULO_DIRECAO_NFE = {
+    "saida": "Saída",
+    "entrada": "Entrada",
+    "entrada_propria": "Entrada própria",
+    "a_conferir": "A conferir",
+}
+_ROTULO_SITUACAO_NFE = {"valida": "Autorizada", "cancelada": "Cancelada"}
+
+# finNFe (plano DL-080, item 9). Código fora deste mapa aparece cru, nunca com um texto inventado.
+_ROTULO_FIN_NFE = {
+    "1": "Normal",
+    "2": "Complementar",
+    "3": "De ajuste",
+    "4": "Devolução",
+    "5": "Nota de crédito",
+    "6": "Nota de débito",
+}
+_ROTULO_TP_NF = {"0": "0 (entrada)", "1": "1 (saída)"}
+_ROTULO_EFEITO_EVENTO_NFE = {
+    "cancela": "Cancela a nota",
+    "sem efeito": "Sem efeito sobre a situação",
+}
+_TEXTO_EVENTO_SEM_NOME = "Evento não catalogado nesta recepção"
+
+# Campos de ICMSTot na ordem da tela. Campo ausente (None) vira "—" em `valor_ptbr`, nunca zero.
+_CAMPOS_TOTAIS_NFE = (
+    ("v_nf", "Valor total da nota (vNF)"),
+    ("v_prod", "Valor dos produtos (vProd)"),
+    ("v_icms", "ICMS (vICMS)"),
+    ("v_st", "ICMS-ST (vST)"),
+    ("v_ipi", "IPI (vIPI)"),
+    ("v_pis", "PIS (vPIS)"),
+    ("v_cofins", "COFINS (vCOFINS)"),
+    ("v_desc", "Desconto (vDesc)"),
+    ("v_frete", "Frete (vFrete)"),
+)
+
+_FILTROS_NFE_SEM_EMPRESA = ("emissao_de", "emissao_ate", "papel", "modelo", "situacao")
+
+# Só dígito ASCII entra na data: `datetime.strptime` aceitaria dígito Unicode sem avisar.
+_PADRAO_DATA_BR = re.compile(r"[0-9]{2}/[0-9]{2}/[0-9]{4}")
+
+
+def _empresa_nfe_da_consulta(request, bruto):
+    """Empresa do escritório ativo pelo parâmetro `empresa`. Malformada, inexistente ou de outro
+    escritório: 404. Não se diferencia uma da outra, para não confirmar que o ID existe."""
+    try:
+        empresa_id = para_id(bruto)
+    except IdentificadorInvalido as exc:
+        raise Http404("Empresa não encontrada.") from exc
+    return get_object_or_404(Empresa, pk=empresa_id, escritorio=request.escritorio)
+
+
+def _data_br_do_filtro(bruto, rotulo):
+    """`dd/mm/aaaa` -> `date`. Vazio -> None. Valor fora do formato: ValueError com mensagem."""
+    if not bruto:
+        return None
+    if not _PADRAO_DATA_BR.fullmatch(bruto):
+        raise ValueError(f"'{rotulo}' deve ser uma data no formato dd/mm/aaaa.")
+    try:
+        return datetime.strptime(bruto, "%d/%m/%Y").date()
+    except ValueError as exc:
+        raise ValueError(f"'{rotulo}' não é uma data válida.") from exc
+
+
+def _filtros_de_nfe(parametros):
+    """Filtros da lista, já no formato que `vinculos_nfe_da_empresa` recebe.
+
+    O filtro de período é pela data de EMISSÃO (`dhEmi`), como no serviço. Valor inválido vira
+    ValueError com a mensagem que a tela mostra.
+    """
+    filtros = {}
+    inicio = _data_br_do_filtro(parametros.get("emissao_de", "").strip(), "Emissão de")
+    fim = _data_br_do_filtro(parametros.get("emissao_ate", "").strip(), "Emissão até")
+    if inicio and fim and inicio > fim:
+        raise ValueError("'Emissão de' não pode ser posterior a 'Emissão até'.")
+    if inicio:
+        filtros["inicio"] = inicio
+    if fim:
+        filtros["fim"] = fim
+
+    papel = parametros.get("papel", "").strip()
+    if papel:
+        if papel not in PapelNFe.values:
+            raise ValueError("'Papel' deve ser emitente ou destinatário.")
+        filtros["papel"] = papel
+
+    modelo = parametros.get("modelo", "").strip()
+    if modelo:
+        if modelo not in ModeloNFe.values:
+            raise ValueError("'Modelo' deve ser 55 (NF-e) ou 65 (NFC-e).")
+        filtros["modelo"] = modelo
+
+    situacao = parametros.get("situacao", "").strip()
+    if situacao:
+        if situacao not in _ROTULO_SITUACAO_NFE:
+            raise ValueError("'Situação' deve ser autorizada ou cancelada.")
+        filtros["situacao"] = situacao
+    return filtros
+
+
+def _chave_em_grupos(chave):
+    """Chave de acesso em grupos de 4 posições, só para leitura."""
+    return " ".join(chave[i : i + 4] for i in range(0, len(chave), 4))
+
+
+def _documento_na_tela(tipo, numero):
+    """CNPJ e CPF com máscara, só para leitura. Outro tipo (idEstrangeiro) sai como veio."""
+    if not tipo:
+        return ""
+    if tipo == "CNPJ" and len(numero) == 14:
+        return f"CNPJ {numero[:2]}.{numero[2:5]}.{numero[5:8]}/{numero[8:12]}-{numero[12:]}"
+    if tipo == "CPF" and len(numero) == 11:
+        return f"CPF {numero[:3]}.{numero[3:6]}.{numero[6:9]}-{numero[9:]}"
+    return f"{tipo} {numero}"
+
+
+def _contraparte_da_nota(documento, papel):
+    """`(nome, documento)` do OUTRO lado da nota, o que não é a empresa consultada.
+
+    Empresa emitente: a contraparte é o destinatário, que pode faltar (NFC-e). Empresa destinatária:
+    a contraparte é o emitente, que sempre existe.
+    """
+    if papel == PapelNFe.EMITENTE:
+        return (
+            documento.destinatario_nome,
+            _documento_na_tela(
+                documento.destinatario_tipo_documento, documento.destinatario_documento
+            ),
+        )
+    return (
+        documento.emitente_nome,
+        _documento_na_tela(documento.emitente_tipo_documento, documento.emitente_documento),
+    )
+
+
+# Ordem das direções no quadro de totais (A5). A soma é por direção, nunca única: uma soma de
+# saídas e entradas juntas não tem sentido contábil e pareceria faturamento.
+_DIRECOES_NO_TOTAL = ("saida", "entrada", "entrada_propria", "a_conferir")
+
+
+def _totais_por_direcao(vinculos):
+    """Quantidade e soma de vNF por DIREÇÃO das autorizadas, e o total das canceladas.
+
+    Conta sobre o conjunto FILTRADO inteiro, não só a página. A direção sai do MESMO ponto da API
+    (`direcao_para_o_cliente`, papel combinado com `tpNF`), uma vez por grupo de (papel, tpNF,
+    situação), e não é recalculada aqui. Cancelada fica fora de TODAS as direções: ela tem a
+    própria linha. `sem_valor` conta notas sem vNF, que não entram na soma.
+    """
+    zerado = {"quantidade": 0, "soma": Decimal("0"), "sem_valor": 0}
+    totais = {direcao: dict(zerado) for direcao in _DIRECOES_NO_TOTAL}
+    totais["cancelada"] = dict(zerado)
+    grupos = (
+        vinculos.order_by()
+        .values("papel", "documento__tp_nf", "cancelada")
+        .annotate(
+            quantidade=Count("id"),
+            soma=Sum("documento__v_nf"),
+            sem_valor=Count("id", filter=Q(documento__v_nf__isnull=True)),
+        )
+    )
+    for grupo in grupos:
+        if grupo["cancelada"]:
+            destino = totais["cancelada"]
+        else:
+            destino = totais[direcao_para_o_cliente(grupo["papel"], grupo["documento__tp_nf"])]
+        destino["quantidade"] += grupo["quantidade"]
+        destino["soma"] += grupo["soma"] or Decimal("0")
+        destino["sem_valor"] += grupo["sem_valor"]
+    quadro = {
+        chave: {
+            "quantidade": dados["quantidade"],
+            "soma_ptbr": _valor_ptbr(dados["soma"]),
+            "sem_valor": dados["sem_valor"],
+        }
+        for chave, dados in totais.items()
+    }
+    # Só para a frase da tela: autorizadas sem vNF, somadas entre as direções (nunca um valor).
+    quadro["autorizadas_sem_valor"] = sum(
+        totais[direcao]["sem_valor"] for direcao in _DIRECOES_NO_TOTAL
+    )
+    return quadro
+
+
+def _linha_da_nfe(vinculo, empresa):
+    documento = vinculo.documento
+    nome_contraparte, documento_contraparte = _contraparte_da_nota(documento, vinculo.papel)
+    cancelada = bool(vinculo.cancelada)  # anotação do serviço, sem consulta nova por linha
+    return {
+        "modelo": documento.get_modelo_display(),
+        "serie": documento.serie,
+        "numero": documento.numero,
+        "emissao": documento.dh_emissao,
+        "contraparte_nome": nome_contraparte,
+        "contraparte_documento": documento_contraparte,
+        "papel": _ROTULO_PAPEL_NFE[vinculo.papel],
+        "direcao": _ROTULO_DIRECAO_NFE[direcao_para_o_cliente(vinculo.papel, documento.tp_nf)],
+        "cancelada": cancelada,
+        "situacao": _ROTULO_SITUACAO_NFE["cancelada" if cancelada else "valida"],
+        "v_nf_ptbr": _valor_ptbr(documento.v_nf),
+        "tem_ibscbs": documento.tem_ibscbs_total or documento.tem_ibscbs_item,
+        "transferencia": documento.transferencia_entre_estabelecimentos,
+        "url": reverse("fiscal_web:nfe_detalhe", args=[empresa.pk, documento.pk]),
+    }
+
+
+@login_required
+@require_safe
+def nfe_recebidas(request):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_NFE)
+
+    # Valores BRUTOS (como vieram na querystring) voltam ao formulário também no erro.
+    filtros_brutos = {nome: request.GET.get(nome, "").strip() for nome in _FILTROS_NFE_SEM_EMPRESA}
+    contexto = {
+        "empresas_do_escritorio": Empresa.objects.filter(escritorio=request.escritorio).order_by(
+            "razao_social"
+        ),
+        "empresa": None,
+        "filtros_brutos": filtros_brutos,
+        "algum_filtro_ativo": any(filtros_brutos.values()),
+        "pagina": None,
+        "linhas": [],
+        "totais": [],
+        "url_trocar_empresa": reverse("fiscal_web:nfe_recebidas"),
+        "url_eventos_sem_nota": reverse("fiscal_web:nfe_eventos_orfaos"),
+    }
+    bruto_empresa = request.GET.get("empresa", "").strip()
+    if not bruto_empresa:
+        return render(request, "fiscal/nfe_lista.html", contexto)
+
+    empresa = _empresa_nfe_da_consulta(request, bruto_empresa)
+    contexto["empresa"] = empresa
+    try:
+        filtros = _filtros_de_nfe(request.GET)
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return render(request, "fiscal/nfe_lista.html", contexto, status=400)
+
+    vinculos = vinculos_nfe_da_empresa(request.escritorio, empresa, **filtros)
+    pagina = Paginator(vinculos, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
+    contexto.update(
+        {
+            "pagina": pagina,
+            "linhas": [_linha_da_nfe(vinculo, empresa) for vinculo in pagina.object_list],
+            "totais": _totais_por_direcao(vinculos),
+            "querystring_sem_pagina": _querystring_sem_pagina(request),
+        }
+    )
+    return render(request, "fiscal/nfe_lista.html", contexto)
+
+
+def _evento_na_tela(evento):
+    return {
+        "tipo": evento.tp_evento,
+        "nome": DESCRICAO_EVENTO_NFE.get(evento.tp_evento, _TEXTO_EVENTO_SEM_NOME),
+        "sequencia": evento.n_seq_evento,
+        "data": evento.dh_evento,
+        # `c_stat` do retorno. Vazio quando o retorno não veio: sem retorno, sem efeito.
+        "c_stat": evento.c_stat or "",
+        "efeito": _ROTULO_EFEITO_EVENTO_NFE[efeito_do_evento_nfe(evento)],
+        # Aviso para conferir (cStat 136). `None` quando não há, e a tela não mostra nada.
+        "aviso": aviso_do_evento_nfe(evento),
+    }
+
+
+@login_required
+@require_safe
+def nfe_detalhe(request, empresa_id, documento_id):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_NFE)
+
+    empresa = get_object_or_404(Empresa, pk=empresa_id, escritorio=request.escritorio)
+    # Busca pelo VÍNCULO com a empresa da URL. Nota de outra empresa do mesmo escritório, ou de
+    # outro escritório, responde 404 (IDOR).
+    vinculo = get_object_or_404(
+        VinculoNFeEmpresa.objects.select_related("documento"),
+        empresa=empresa,
+        documento_id=documento_id,
+        documento__escritorio=request.escritorio,
+    )
+    documento = vinculo.documento
+    situacao = situacao_da_nfe(documento)
+    eventos = EventoNFe.objects.filter(
+        escritorio=request.escritorio, chave=documento.chave
+    ).order_by("dh_evento", "n_seq_evento")
+    contexto = {
+        "empresa": empresa,
+        "documento": documento,
+        "situacao": situacao,
+        "situacao_rotulo": _ROTULO_SITUACAO_NFE[situacao],
+        "aviso_cancelada": _AVISO_NFE_CANCELADA if situacao == "cancelada" else "",
+        "papel_rotulo": _ROTULO_PAPEL_NFE[vinculo.papel],
+        "direcao_rotulo": _ROTULO_DIRECAO_NFE[
+            direcao_para_o_cliente(vinculo.papel, documento.tp_nf)
+        ],
+        "modelo_rotulo": documento.get_modelo_display(),
+        "chave_em_grupos": _chave_em_grupos(documento.chave),
+        "tp_nf_rotulo": _ROTULO_TP_NF.get(documento.tp_nf, documento.tp_nf),
+        "fin_nfe_rotulo": _ROTULO_FIN_NFE.get(documento.fin_nfe, documento.fin_nfe),
+        "emitente_documento": _documento_na_tela(
+            documento.emitente_tipo_documento, documento.emitente_documento
+        ),
+        "destinatario_definido": bool(documento.destinatario_tipo_documento),
+        "destinatario_documento": _documento_na_tela(
+            documento.destinatario_tipo_documento, documento.destinatario_documento
+        ),
+        "totais": [
+            (rotulo, _valor_ptbr(getattr(documento, campo))) for campo, rotulo in _CAMPOS_TOTAIS_NFE
+        ],
+        "eventos": [_evento_na_tela(evento) for evento in eventos],
+        "url_lista": reverse("fiscal_web:nfe_recebidas") + f"?empresa={empresa.pk}",
+    }
+    return render(request, "fiscal/nfe_detalhe.html", contexto)
+
+
+def _evento_orfao_na_tela(evento):
+    return {
+        **_evento_na_tela(evento),
+        "chave_em_grupos": _chave_em_grupos(evento.chave),
+        # Autor identificado só quando o CNPJ/CPF é de empresa do escritório. Cancelamento de
+        # fornecedor, por exemplo, fica sem autor identificado.
+        "autor_empresa": evento.empresa.razao_social if evento.empresa_id else "",
+    }
+
+
+@login_required
+@require_safe
+def nfe_eventos_orfaos(request):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_NFE)
+
+    bruto_empresa = request.GET.get("empresa", "").strip()
+    empresa = _empresa_nfe_da_consulta(request, bruto_empresa) if bruto_empresa else None
+    # Órfão é o evento cuja nota ainda não está no acervo DESTE escritório. Quando a nota chega, o
+    # evento sai daqui sem nenhuma gravação: a situação da nota já consulta o evento por chave.
+    nota_no_acervo = DocumentoNFe.objects.filter(
+        escritorio_id=OuterRef("escritorio_id"), chave=OuterRef("chave")
+    )
+    eventos = (
+        EventoNFe.objects.filter(escritorio=request.escritorio)
+        .annotate(tem_nota=Exists(nota_no_acervo))
+        .filter(tem_nota=False)
+    )
+    # O filtro por empresa é pelo AUTOR do evento (`EventoNFe.empresa`). Cancelamento de fornecedor
+    # não tem autor no escritório, então só aparece sem filtro.
+    if empresa is not None:
+        eventos = eventos.filter(empresa=empresa)
+    # Desempate pela chave primária: eventos com o mesmo dhEvento e nSeqEvento (lote de notas
+    # ainda não chegadas) saem numa ordem fixa, sem repetir nem omitir linhas entre páginas (A2).
+    eventos = eventos.select_related("empresa").order_by("-dh_evento", "-n_seq_evento", "-pk")
+    pagina = Paginator(eventos, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
+    contexto = {
+        "empresas_do_escritorio": Empresa.objects.filter(escritorio=request.escritorio).order_by(
+            "razao_social"
+        ),
+        "empresa": empresa,
+        "empresa_filtro_bruto": bruto_empresa,
+        "pagina": pagina,
+        "linhas": [_evento_orfao_na_tela(evento) for evento in pagina.object_list],
+        "querystring_sem_pagina": _querystring_sem_pagina(request),
+        "algum_filtro_ativo": bool(bruto_empresa),
+        "url_lista_nfe": reverse("fiscal_web:nfe_recebidas"),
+    }
+    return render(request, "fiscal/nfe_eventos_orfaos.html", contexto)

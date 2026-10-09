@@ -503,6 +503,14 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
         "apps.fiscal.tomadas._inserir_escrituracao_tomada"
     ),
     "evento_fiscal_unico_por_escritorio": "apps.fiscal.services._processar_um_arquivo",
+    # DL-080 (frente A): as unicidades da NF-e (tabelas próprias) são traduzidas por
+    # `_processar_um_arquivo_nfe`, no savepoint de cada arquivo: a violação vira "duplicado", nunca
+    # 500 nem sobrescrita. Para evento, a violação é só o MESMO Id com o MESMO conteúdo; o mesmo Id
+    # com conteúdo diferente não viola nada e é gravado como registro novo, sinalizado.
+    "documento_nfe_unico_por_escritorio": "apps.fiscal.services._processar_um_arquivo_nfe",
+    "evento_nfe_unico_por_identificador_e_conteudo": (
+        "apps.fiscal.services._processar_um_arquivo_nfe"
+    ),
     # DL-043 (BL-474): a restrição que garante UMA vigência de parâmetro
     # contábil ABERTA por empresa — mesmo molde de
     # "um_periodo_de_regime_aberto_por_empresa", acima, e pelo MESMO
@@ -569,6 +577,13 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
 # nenhum. A forma como a restrição foi DECLARADA não muda o que acontece
 # quando ela é violada.
 RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
+    # DL-080 (frente A): `_vincular_participantes_nfe` nunca cria dois vínculos para a mesma empresa
+    # no mesmo documento: emitente e destinatário que são a mesma empresa viram UM vínculo, como
+    # emitente, com a marca de transferência (HI-111). Nenhum caminho de escrita do cliente.
+    "vinculo_nfe_empresa_unico": (
+        "`_vincular_participantes_nfe` gera no máximo um vínculo por empresa e documento (HI-111). "
+        "Sem caminho de escrita por cliente hoje."
+    ),
     # DL-079 (frente A): restrições CHECK do Lucro Presumido. O serviço
     # (`apps.fiscal.presumido`) valida cada campo ANTES do INSERT/UPDATE, com mensagem nomeada, e a
     # API só passa valores que o serviço aceita; nenhuma entrada do cliente alcança estas linhas

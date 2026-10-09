@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block titulo %}{{ modelo_rotulo }} nº {{ documento.numero }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_lista }}">NF-e recebidas</a></li>
+            <li aria-current="page">Nº {{ documento.numero }}</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_lista }}">‹ Voltar para NF-e recebidas</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-080 (frente B): a situação aparece no título, em texto, e o aviso de cancelamento fica no topo do
+conteúdo. A situação vem de `services.situacao_da_nfe`; a direção, de `api_nfe.direcao_para_o_cliente`.
+{% endcomment %}
+{% block titulo_pagina %}
+    <h1>
+        {{ modelo_rotulo }} nº {{ documento.numero }}
+        {% if situacao == "cancelada" %}
+            <span class="situacao-documento situacao-documento--cancelada">Cancelada</span>
+        {% else %}
+            <span class="situacao-documento situacao-documento--valida">Autorizada</span>
+        {% endif %}
+    </h1>
+{% endblock %}
+
+{% block content %}
+    {% if aviso_cancelada %}
+        <p class="mensagem mensagem-error"><strong>{{ aviso_cancelada }}</strong></p>
+    {% endif %}
+
+    <h2>Identificação</h2>
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Chave de acesso</dt>
+            <dd>{{ chave_em_grupos }}</dd>
+        </div>
+        <div>
+            <dt>Modelo (mod)</dt>
+            <dd>{{ modelo_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Série</dt>
+            <dd>{{ documento.serie }}</dd>
+        </div>
+        <div>
+            <dt>Número (nNF)</dt>
+            <dd>{{ documento.numero }}</dd>
+        </div>
+        <div>
+            <dt>Data/hora de emissão (dhEmi)</dt>
+            <dd>{{ documento.dh_emissao|date:"d/m/Y H:i" }}</dd>
+        </div>
+        <div>
+            <dt>Tipo de operação (tpNF)</dt>
+            <dd>{{ tp_nf_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Finalidade (finNFe)</dt>
+            <dd>{{ fin_nfe_rotulo }}</dd>
+        </div>
+        {% if documento.tp_nf_debito %}
+            <div>
+                <dt>Finalidade de débito (tpNFDebito)</dt>
+                <dd>{{ documento.tp_nf_debito }}</dd>
+            </div>
+        {% endif %}
+        {% if documento.tp_nf_credito %}
+            <div>
+                <dt>Finalidade de crédito (tpNFCredito)</dt>
+                <dd>{{ documento.tp_nf_credito }}</dd>
+            </div>
+        {% endif %}
+        <div>
+            <dt>Local de destino (idDest)</dt>
+            <dd>{{ documento.id_dest }}</dd>
+        </div>
+        <div>
+            <dt>UF do emitente (cUF)</dt>
+            <dd>{{ documento.c_uf }}</dd>
+        </div>
+        <div>
+            <dt>Versão do leiaute</dt>
+            <dd>{{ documento.versao }}</dd>
+        </div>
+        <div>
+            <dt>Papel desta empresa</dt>
+            <dd>{{ papel_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Direção para o cliente</dt>
+            <dd>{{ direcao_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Transferência entre estabelecimentos</dt>
+            <dd>{% if documento.transferencia_entre_estabelecimentos %}Sim (emitente e destinatário são a mesma empresa){% else %}Não{% endif %}</dd>
+        </div>
+    </dl>
+
+    <h2>Emitente</h2>
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Documento</dt>
+            <dd><span class="documento-sem-quebra">{{ emitente_documento }}</span></dd>
+        </div>
+        <div>
+            <dt>Nome</dt>
+            <dd>{{ documento.emitente_nome|default:"Não informado no XML" }}</dd>
+        </div>
+        <div>
+            <dt>Regime tributário (CRT)</dt>
+            <dd>{{ documento.emitente_crt|default:"Não informado no XML" }}</dd>
+        </div>
+    </dl>
+
+    <h2>Destinatário</h2>
+    {% if destinatario_definido %}
+        <dl class="lista-de-definicao">
+            <div>
+                <dt>Documento</dt>
+                <dd><span class="documento-sem-quebra">{{ destinatario_documento }}</span></dd>
+            </div>
+            <div>
+                <dt>Nome</dt>
+                <dd>{{ documento.destinatario_nome|default:"Não informado no XML" }}</dd>
+            </div>
+        </dl>
+    {% else %}
+        <p>Esta nota não traz destinatário no XML. O bloco é opcional no leiaute.</p>
+    {% endif %}
+
+    <h2>Totais</h2>
+    <dl class="lista-de-definicao">
+        {% for rotulo, valor in totais %}
+            <div>
+                <dt>{{ rotulo }}</dt>
+                <dd class="valor-monetario">{{ valor }}</dd>
+            </div>
+        {% endfor %}
+    </dl>
+    <p class="texto-apoio">"—" quer dizer campo ausente no XML, e não zero.</p>
+
+    <h2>Protocolo de autorização</h2>
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Status (cStat)</dt>
+            <dd>{{ documento.c_stat }}</dd>
+        </div>
+        <div>
+            <dt>Número do protocolo (nProt)</dt>
+            <dd>{{ documento.n_prot|default:"Não informado no XML" }}</dd>
+        </div>
+        <div>
+            <dt>Data/hora de recebimento (dhRecbto)</dt>
+            <dd>{{ documento.dh_recbto|date:"d/m/Y H:i" }}</dd>
+        </div>
+    </dl>
+
+    <h2>Itens e IBS/CBS</h2>
+    <p>Quantidade de itens: {{ documento.quantidade_itens }}.</p>
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Total IBS/CBS (IBSCBSTot)</dt>
+            <dd>{% if documento.tem_ibscbs_total %}Presente{% else %}Ausente{% endif %}</dd>
+        </div>
+        <div>
+            <dt>IBS/CBS por item</dt>
+            <dd>{% if documento.tem_ibscbs_item %}Presente{% else %}Ausente{% endif %}</dd>
+        </div>
+    </dl>
+    {% if documento.tem_ibscbs_total or documento.tem_ibscbs_item %}
+        <p class="texto-apoio">IBS/CBS: grupo presente, não interpretado nesta etapa (PE-39).</p>
+    {% endif %}
+
+    <h2>Eventos registrados para esta chave</h2>
+    {% if eventos %}
+        {% comment %}Rolagem só dentro da tabela (`tabela-com-rolagem-horizontal`), nunca na página (A9).{% endcomment %}
+        <div class="tabela-com-rolagem-horizontal">
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Eventos de NF-e registrados para a chave desta nota, em ordem de data e sequência</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Código do evento</th>
+                    <th scope="col">Nome do evento</th>
+                    <th scope="col">Sequência</th>
+                    <th scope="col">Data/hora</th>
+                    <th scope="col">Retorno (cStat)</th>
+                    <th scope="col">Efeito</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for evento in eventos %}
+                    <tr>
+                        <td>{{ evento.tipo }}</td>
+                        <td>{{ evento.nome }}</td>
+                        <td>{{ evento.sequencia }}</td>
+                        <td>{{ evento.data|date:"d/m/Y H:i" }}</td>
+                        <td>{{ evento.c_stat|default:"Sem retorno" }}</td>
+                        <td>
+                            {{ evento.efeito }}
+                            {% if evento.aviso %}
+                                <br><span class="texto-apoio">{{ evento.aviso }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    {% else %}
+        <p>Nenhum evento registrado para esta nota até o momento.</p>
+    {% endif %}
+{% endblock %}

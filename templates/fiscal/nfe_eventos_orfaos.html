@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block titulo %}Eventos de NF-e sem nota{% endblock %}
+
+{% comment %}
+DL-080 (frente B): eventos de NF-e cuja nota ainda não chegou ao acervo deste escritório. A lista é do
+ESCRITÓRIO, não de uma empresa: o autor de um cancelamento costuma ser o fornecedor, que não é cliente
+do escritório, e um filtro obrigatório por empresa esconderia justamente esses eventos. O filtro por
+empresa existe e vale pelo autor do evento. Nada é gravado aqui.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Eventos de NF-e sem nota</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Eventos de NF-e recebidos cuja nota ainda não está no acervo deste escritório. Quando a nota
+        chegar, o evento sai desta lista, e a situação da nota já considera o evento. Cancelamento
+        (110111 ou 110112) com retorno aceito (135 ou 155) cancela a nota, nas duas ordens de
+        chegada.
+    </p>
+
+    <form method="get" action="{% url 'fiscal_web:nfe_eventos_orfaos' %}" class="formulario-periodo formulario-periodo--rotulo-acima">
+        <div class="campo">
+            <label for="id_empresa">Empresa autora do evento</label>
+            <select id="id_empresa" name="empresa" aria-describedby="id_empresa_ajuda">
+                <option value="">Todas</option>
+                {% for item in empresas_do_escritorio %}
+                    <option value="{{ item.pk }}"{% if empresa_filtro_bruto == item.pk|stringformat:"s" %} selected{% endif %}>{{ item.razao_social }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit">Consultar</button>
+        {% if algum_filtro_ativo %}
+            <a class="botao botao--fantasma" href="{% url 'fiscal_web:nfe_eventos_orfaos' %}">Limpar filtros</a>
+        {% endif %}
+        <p class="texto-apoio" id="id_empresa_ajuda">
+            O filtro usa o autor do evento, quando o CNPJ ou CPF é de uma empresa do escritório. Evento de
+            fornecedor, sem autor identificado, aparece só sem filtro.
+        </p>
+    </form>
+
+    <p><a href="{{ url_lista_nfe }}">Ver as NF-e recebidas</a></p>
+
+    {% if linhas %}
+        <div class="tabela-com-rolagem-horizontal">
+        <table class="tabela-dados">
+            <caption class="visualmente-oculto">Eventos de NF-e cuja nota ainda não chegou, com chave, tipo, data, retorno e efeito</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Chave de acesso</th>
+                    <th scope="col">Código do evento</th>
+                    <th scope="col">Nome do evento</th>
+                    <th scope="col">Sequência</th>
+                    <th scope="col">Data/hora</th>
+                    <th scope="col">Retorno (cStat)</th>
+                    <th scope="col">Efeito</th>
+                    <th scope="col">Empresa autora</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for linha in linhas %}
+                    <tr>
+                        <td class="valor-quebravel">{{ linha.chave_em_grupos }}</td>
+                        <td>{{ linha.tipo }}</td>
+                        <td>{{ linha.nome }}</td>
+                        <td>{{ linha.sequencia }}</td>
+                        <td>{{ linha.data|date:"d/m/Y H:i" }}</td>
+                        <td>{{ linha.c_stat|default:"Sem retorno" }}</td>
+                        <td>{{ linha.efeito }}</td>
+                        <td>{{ linha.autor_empresa|default:"Não identificada como empresa do escritório" }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% include "fiscal/_paginacao.html" %}
+    {% elif algum_filtro_ativo %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Nenhum evento sem nota para esta empresa.</strong></p>
+            <p class="estado-vazio__descricao">Tente a lista sem filtro, que inclui eventos de fornecedores.</p>
+            <a class="botao botao--secundario" href="{% url 'fiscal_web:nfe_eventos_orfaos' %}">Limpar filtros</a>
+        </div>
+    {% else %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Nenhum evento de NF-e aguardando a nota.</strong></p>
+            <p class="estado-vazio__descricao">Todo evento recebido já tem a nota correspondente no acervo deste escritório.</p>
+        </div>
+    {% endif %}
+{% endblock %}
