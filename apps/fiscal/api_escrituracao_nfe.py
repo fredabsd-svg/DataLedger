@@ -51,7 +51,8 @@ from apps.tenancy.permissions import TemEscritorioAtivo
 # de faixa, e a API responderia 500. Recusa-se antes.
 MAIOR_ID = 2**63 - 1
 _ANO_MINIMO_DATA, _ANO_MAXIMO_DATA = 1970, 2999
-_TAMANHO_NATUREZA = 24
+# Reconferência da DL-083, R1: o limite vem do campo do modelo, nunca de um literal.
+_TAMANHO_NATUREZA = NaturezaItemNFe._meta.get_field("natureza").max_length
 _TAMANHO_MOTIVO = servico.MOTIVO_MAXIMO
 _MAXIMO_ITENS_POR_PEDIDO = 5000
 

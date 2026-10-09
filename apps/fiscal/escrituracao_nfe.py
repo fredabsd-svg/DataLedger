@@ -62,6 +62,7 @@ from apps.fiscal.itens_nfe import (
     VERSAO_LEITOR_ITENS,
     ResiduoNaoAtribuivel,
     atribuir_receita_da_nota,
+    atribuir_receita_da_nota_efetivada,
     avisos_da_atribuicao,
     ler_itens,
     receita_do_item,
@@ -402,7 +403,8 @@ def segregacao_da_escrituracao(escrituracao: EscrituracaoNFe) -> dict[str, Decim
     cada item é `receita_do_item` (DL-083): item indTot 0 entra só pelo que foi cobrado.
     A natureza de serviço (14) não entra aqui: é segregada no pré-DAS de serviços, fora deste corte.
     A receita de cada item já vem com a parcela do resíduo atribuída à nota (HI-138), e a
-    atribuição pode recusar (`ResiduoNaoAtribuivel`); numa escrituração efetivada isso não ocorre.
+    leitura usa `atribuir_receita_da_nota_efetivada`: a nota efetivada antes da DL-083 que a regra
+    nova recusaria é lida pelo critério anterior, sem derrubar a receita do mês (reconferência, R2).
     """
     total = {
         "normal": Decimal("0.00"),
@@ -411,7 +413,7 @@ def segregacao_da_escrituracao(escrituracao: EscrituracaoNFe) -> dict[str, Decim
         "exportacao": Decimal("0.00"),
     }
     registros = NaturezaItemNFe.objects.select_related("item").filter(escrituracao=escrituracao)
-    atribuicao = atribuir_receita_da_nota([(r.item, r.natureza) for r in registros])
+    atribuicao = atribuir_receita_da_nota_efetivada([(r.item, r.natureza) for r in registros])
     for registro in registros:
         if not registro.natureza:
             continue
@@ -1359,7 +1361,9 @@ def _preencher_receita(empresa, ano: int, mes: int, resultado: ConferenciaDoMes)
     por_natureza: dict[str, dict] = {}
     por_cfop: dict[str, Decimal] = {}
     for registros_da_nota in por_escrituracao.values():
-        atribuicao = atribuir_receita_da_nota([(r.item, r.natureza) for r in registros_da_nota])
+        atribuicao = atribuir_receita_da_nota_efetivada(
+            [(r.item, r.natureza) for r in registros_da_nota]
+        )
         for registro in registros_da_nota:
             natureza = registro.natureza
             papel = papel_da_natureza_nfe(natureza)

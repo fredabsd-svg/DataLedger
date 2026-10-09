@@ -496,6 +496,33 @@ def valor_cobrado_do_item(item) -> Decimal:
     return total
 
 
+_NATUREZA_AJUSTE = "ajuste"
+
+
+def atribuir_receita_da_nota_efetivada(pares) -> AtribuicaoDaNota:
+    """Atribuição para LER uma nota já efetivada (reconferência da DL-083, R2).
+
+    A efetivação recusa a nota que a atribuição não consegue tratar, mas uma nota efetivada antes da
+    DL-083 (HI-138) pode estar nesse caso, por exemplo a remessa pura com frete. Para ela, a leitura
+    não derruba a receita do mês: aplica o critério anterior à HI-138, em que o item de receita fica
+    com a sua `receita_do_item`, o item que não é receita soma zero e a dedução fica com o valor
+    cru. O contador corrige estornando e escriturando de novo, já pela regra nova.
+    """
+    try:
+        return atribuir_receita_da_nota(pares)
+    except ResiduoNaoAtribuivel:
+        valores: dict = {}
+        for item, natureza in pares:
+            if not natureza:
+                continue
+            papel = papel_da_natureza_nfe(natureza)
+            if natureza != _NATUREZA_AJUSTE and papel in ("receita", "deducao"):
+                valores[item.pk] = receita_do_item(item)
+            else:
+                valores[item.pk] = Decimal("0.00")
+        return AtribuicaoDaNota(valores, Decimal("0.00"), ())
+
+
 def atribuir_receita_da_nota(pares) -> AtribuicaoDaNota:
     """Atribui o valor dos itens que não são receita aos itens de receita da MESMA nota (HI-138).
 
@@ -524,6 +551,12 @@ def atribuir_receita_da_nota(pares) -> AtribuicaoDaNota:
         if not natureza:
             continue
         papel = papel_da_natureza_nfe(natureza)
+        if natureza == _NATUREZA_AJUSTE:
+            # Reconferência da DL-083, R3: a nota de ajuste (finNFe 2, 3, 5 ou 6) fica fora da
+            # receita (HI-117) e só aceita a natureza de ajuste. O frete dela não tem venda na nota
+            # para onde ir, e bloquear a deixaria sem saída: soma zero, como antes da DL-083.
+            valores[item.pk] = Decimal("0.00")
+            continue
         if papel == "receita":
             receita_itens.append((item, natureza, receita_do_item(item)))
         elif papel == "nao_receita":

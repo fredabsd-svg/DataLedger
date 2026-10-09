@@ -374,7 +374,22 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
       sobre A1, A3 e A6, que gerou HI-138 a HI-140. A tabela de NCM vem do
       Portal Único Siscomex. **Correção única integrada** (`123e0cd`,
       `9224d8a`, `3f36a6d`; 8.765/1/53 medido pelo desenvolvedor). A5 e A10
-      foram para o BL-688. Próximo: a reconferência (Sonnet).
+      foram para o BL-688.
+      [Reconferência](../auditorias/2026-10-09-dl-083-reconferencia.md)
+      **reprovada** por R1: a natureza nova não passava no limite de 24
+      caracteres da tela e da API.
+      Ajustes do arquiteto, sem terceira rodada (§3.1):
+      - R1: limite vindo do modelo;
+      - R2: nota antiga lida pelo critério anterior;
+      - R3: ajuste fora do resíduo;
+      - R5: nome da chave da API;
+      - R7: comentário;
+      - testes de A04 e A18.
+
+      R4, R6, A9, S12, G16, S02 e R8 foram para o BL-688. Suíte completa
+      depois dos ajustes, medida pelo arquiteto numa única invocação:
+      **8.791/1/53** (a reprovação é a de ambiente). Próximo: o PR e o merge
+      com os quatro checks verdes (RC-171).
     - [DL-084](../planos/DL-084-rotina-do-presumido.md): rotina do Presumido,
       depois da DL-082.
     - BL-687: mudanças do leitor de NF-e, que dependem do BL-686.

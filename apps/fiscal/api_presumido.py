@@ -355,7 +355,10 @@ def _apuracao_payload(resultado: servico.Apuracao) -> dict:
         "devolucao_deduzida": _dec(resultado.devolucao_deduzida),
         "saldo_devolucao_transportado": _dec(resultado.saldo_devolucao_transportado),
         # HI-140: devolução e saldo por atividade. Os totais acima são a soma destes.
-        "devolucao_por_atividade": _por_atividade_payload(resultado.devolucao_por_atividade),
+        # Reconferência da DL-083, R5: é o valor DEDUZIDO por atividade, e o nome diz isso.
+        "devolucao_deduzida_por_atividade": _por_atividade_payload(
+            resultado.devolucao_por_atividade
+        ),
         "saldo_por_atividade": _por_atividade_payload(resultado.saldo_por_atividade),
     }
 

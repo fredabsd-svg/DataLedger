@@ -54,7 +54,7 @@ from django.utils import timezone
 
 from apps.auditoria.services import registrar
 from apps.empresas.models import Empresa, HistoricoRegimeTributario, RegimeTributario
-from apps.fiscal.itens_nfe import atribuir_receita_da_nota
+from apps.fiscal.itens_nfe import atribuir_receita_da_nota_efetivada
 from apps.fiscal.models import (
     ConfirmacaoReceitaMensal,
     EscrituracaoFiscal,
@@ -315,7 +315,9 @@ def linhas_nfe_do_periodo(
         por_escrituracao.setdefault(registro.escrituracao_id, []).append(registro)
     linhas = []
     for registros_da_nota in por_escrituracao.values():
-        atribuicao = atribuir_receita_da_nota([(r.item, r.natureza) for r in registros_da_nota])
+        atribuicao = atribuir_receita_da_nota_efetivada(
+            [(r.item, r.natureza) for r in registros_da_nota]
+        )
         for registro in registros_da_nota:
             papel = papel_da_natureza_nfe(registro.natureza)
             if papel not in ("receita", "deducao"):

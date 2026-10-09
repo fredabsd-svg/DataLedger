@@ -6809,7 +6809,9 @@ def nfe_eventos_orfaos(request):
 # ---------------------------------------------------------------------------
 
 _ANO_MINIMO_NFE, _ANO_MAXIMO_NFE = 1970, 2999
-_TAMANHO_NATUREZA_NFE = 24
+# Reconferência da DL-083, R1: o limite vem do campo do modelo, nunca de um literal. A natureza
+# `devolucao_combustivel_consumo` tem 29 caracteres, e o 24 antigo a recusava na tela.
+_TAMANHO_NATUREZA_NFE = NaturezaItemNFe._meta.get_field("natureza").max_length
 _ACOES_ESCRITURAR_NFE = frozenset({"criar", "item", "bloco", "efetivar"})
 _ACOES_RECLASSIFICAR_NFE = frozenset({"previa", "confirmar"})
 _MENSAGEM_SEM_CONSULTA_ESCRITURACAO_NFE = "Seu papel não permite consultar a escrituração de NF-e."

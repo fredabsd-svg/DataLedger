@@ -234,6 +234,38 @@ Com base na [consulta do frete, do lubrificante e da devolução de combustível
   tocado.
 - **Medido:** 8.765/1/53 numa única invocação (Python 3.13 local).
 
+## Decisões tomadas na reconferência (ajustes do arquiteto, §3.1)
+
+A [reconferência](../auditorias/2026-10-09-dl-083-reconferencia.md) reprovou
+por R1. Não há terceira rodada: os ajustes são do arquiteto, com teste em
+`test_dl083_ajustes_do_arquiteto.py`. Cada correção foi revertida de
+propósito para confirmar que o teste dela cai.
+
+- **R1 (alta):** o limite de tamanho da natureza na tela e na API passa a
+  vir do campo do modelo. A natureza nova (29 caracteres) é confirmada pela
+  tela e pela API.
+- **R2:** a nota efetivada antes da HI-138, que a regra nova recusaria, é
+  lida pelo critério anterior (`atribuir_receita_da_nota_efetivada`):
+  - o item de receita fica com a sua receita, e o item que não é receita
+    soma zero;
+  - a receita do mês e as telas não caem mais;
+  - a efetivação continua com a regra nova;
+  - corrigir é estornar e escriturar de novo.
+- **R3:** a natureza `ajuste` fica fora do resíduo. A nota de ajuste com
+  frete efetiva com receita zero, como antes.
+- **R5:** a chave da API passa a ser `devolucao_deduzida_por_atividade`.
+- **R7:** comentário do modelo de tela corrigido.
+- **Lacunas de mutação:**
+  - A04 (arredondamento) e A18 (linhas do período pela atribuição) ganharam
+    teste;
+  - A03, A16, A19, R01 e R05 ficaram cobertos pelos testes do auditor, que
+    não foram versionados;
+  - S12, G16 e S02 foram para o BL-688.
+- **R4, R6 e A9:** foram para o BL-688.
+  - A9: antes de ativar com dados reais, contar as escriturações efetivadas
+    com a natureza `combustivel` anteriores à DL-083.
+  - R8 (corrida sob carga) é anterior à DL-083 e foi registrado lá.
+
 ## Critérios de aceite
 
 1. Receita do item nos quatro casos (`indTot` 1 ou 0 × `indDeduzDeson` 1 ou

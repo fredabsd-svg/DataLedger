@@ -216,7 +216,8 @@ def test_natureza_com_byte_nulo_ou_gigante_responde_400(client, gestor, emitente
     )
 
     _recusado(nula, "'Natureza' tem caractere inválido.")
-    _recusado(gigante, "'Natureza' tem no máximo 24 caracteres.")
+    # DL-083, reconferência R1: o limite vem do campo do modelo, que passou de 24 para 29.
+    _recusado(gigante, "'Natureza' tem no máximo 29 caracteres.")
 
 
 def test_natureza_desconhecida_responde_400_sem_ecoar_o_valor(client, gestor, emitente):
