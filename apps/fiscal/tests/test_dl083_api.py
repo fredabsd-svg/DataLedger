@@ -328,3 +328,39 @@ def test_outro_escritorio_nao_ve_a_escrituracao_nem_a_apuracao(
         ).status_code
         == 404
     )
+
+
+def test_detalhe_expoe_receita_atribuida_e_aviso_do_frete_que_foi_para_a_venda(
+    escritorio_a, gestor, empresa, client
+):
+    """HI-138 na API. Itens: 1 venda (100,00), 2 remessa indTot 0 com frete de 10,00, 3 venda
+    (200,00
+    com ICMS desonerado de 20,00, receita 180,00). O frete é rateado pela receita das vendas:
+    item 1: 10,00 × 100,00 / 280,00 = 3,5714… → 3,57; item 3: 10,00 × 180,00 / 280,00 = 6,4285… →
+    6,43.
+    Receita atribuída: 1 = 103,57; 2 = 0,00; 3 = 186,43. Soma: 290,00 (a do vNF, W16)."""
+    documento = _nota_com_itens_de_avisos(escritorio_a, gestor)
+    esc = _rascunho(gestor, empresa, documento)
+    NaturezaItemNFe.objects.filter(escrituracao=esc, item__n_item=1).update(
+        natureza=NaturezaOperacaoNFe.REVENDA
+    )
+    NaturezaItemNFe.objects.filter(escrituracao=esc, item__n_item=2).update(
+        natureza=NaturezaOperacaoNFe.REMESSA_RETORNO
+    )
+    NaturezaItemNFe.objects.filter(escrituracao=esc, item__n_item=3).update(
+        natureza=NaturezaOperacaoNFe.REVENDA
+    )
+    client.force_login(gestor)
+    resposta = client.get(_url("nfe_escrituracao_detalhe", empresa.pk, esc.pk))
+    assert resposta.status_code == 200
+    itens = _itens_por_numero(_json(resposta))
+
+    assert itens[1]["receita_atribuida"] == "103.57"
+    assert itens[2]["receita_atribuida"] == "0.00"
+    assert itens[3]["receita_atribuida"] == "186.43"
+    assert itens[2]["avisos"] == [
+        "item 2 fora do total: vProd R$ 50,00 não compõe a receita",
+        "item 2 (Remessa, retorno, demonstração, conserto ou mostruário): R$ 10,00 de "
+        "frete/seguro/outros/desconto atribuído à receita da venda desta nota",
+    ]
+    assert itens[1]["avisos"] == []

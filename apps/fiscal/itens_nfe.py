@@ -512,8 +512,7 @@ def atribuir_receita_da_nota(pares) -> AtribuicaoDaNota:
       Recusa.
     - caso contrário, rateio proporcional à `receita_do_item` de cada item de receita (só o positivo
       pesa), arredondado a centavo com ROUND_HALF_UP. A diferença de arredondamento vai para o item
-      de
-      receita de MAIOR valor; empate, o de menor nItem. A soma da nota não muda.
+      de receita de MAIOR valor; empate, o de menor nItem. A soma da nota não muda.
 
     A parcela herda a natureza e a atividade do item que a recebe, porque é ele que é classificado.
     """

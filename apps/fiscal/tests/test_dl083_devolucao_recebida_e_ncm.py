@@ -56,6 +56,17 @@ def _sugestao(cfop, ncm, *, fin="1", csosn="102", cst=None):
 # ---------------------------------------------------------------------------------------------
 
 
+def test_devolucao_de_exportacao_com_combustivel_consumo_deduz_o_externo():
+    """A devolução de exportação (CFOP 3.xxx) deduz do mercado externo, também na natureza de
+    consumo
+    (HI-140): `mercado_do_item_nfe` vale para as duas naturezas de devolução."""
+    from apps.fiscal.models import MercadoReceita, mercado_do_item_nfe
+
+    assert mercado_do_item_nfe(N.DEVOLUCAO_COMBUSTIVEL_CONSUMO, "3202") == MercadoReceita.EXTERNO
+    assert mercado_do_item_nfe(N.DEVOLUCAO_VENDA, "3202") == MercadoReceita.EXTERNO
+    assert mercado_do_item_nfe(N.DEVOLUCAO_COMBUSTIVEL_CONSUMO, "1662") == MercadoReceita.INTERNO
+
+
 def test_normalizar_ncm_aceita_com_e_sem_pontos_e_vazio():
     assert normalizar_ncm("2710.12.59") == GASOLINA
     assert normalizar_ncm(GASOLINA) == GASOLINA
