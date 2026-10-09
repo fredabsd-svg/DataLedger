@@ -306,7 +306,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    COM RESSALVAS (7.849 aprovados, 1 reprovado de ambiente, 53 pulados; 69
    dos 70 mutantes da rodada 1 caem, o restante é equivalente). R1 e R2
    fechados por ajuste do arquiteto e R4 pelos testes do auditor (`822de58`);
-   R3 e R5 no BL-682; R6 na PE-83. Em integração na branch e PR.** HI-114,
+   R3 e R5 no BL-682; R6 na PE-83. Suíte da branch integrada (`72f684c`,
+   arquiteto, invocação única): 7.861 aprovados, 1 reprovado (ambiente), 53
+   pulados. PR aberto, aguardando a CI; merge autorizado (RC-171).** HI-114,
    HI-115 e BL-680 registrados. Frente A: tabelas com fonte, seis cadastros,
    migração `fiscal 0009` com gatilhos, apuração do trimestre com as três
    colunas (sem LC 224, com LC 224, parcela), controle do limite com sobra e
