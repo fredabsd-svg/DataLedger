@@ -159,6 +159,24 @@ caem. Decisões do arquiteto para a correção única:
   tiver marca ou segmento incompatível com a natureza nova.
 - **A13:** teste do limite exato de R$ 3.600.000,00.
 
+## Decisões tomadas na correção
+
+- **A2:** função nova para a devolução de venda de combustível (1.660 a
+  1.662 e 2.660 a 2.662). A função da DL-083 também pega a devolução de
+  compra.
+- **A5:** os códigos seguem a descrição oficial da tabela, que inclui 5.932
+  e 6.932 (transporte iniciado em outra UF).
+- **A6:** o aviso sai quando falta o CFOP 7.xxx **ou** o `idDest` 3.
+- **A9:** `segmentos_permitidos` recebe o CFOP.
+- **A12:** a verificação vale para todo item que casa com o filtro.
+- **Resíduos para a reconferência:**
+  - o botão da recusa de devolução efetivada sem segmento ainda leva a
+    "NF-e a escriturar";
+  - um segmento que só tem saldo de devolução de meses anteriores não
+    aparece no pré-DAS.
+- **Medido pelo desenvolvedor:** 9.160/1/55, em 18 min 19 s numa única
+  invocação local.
+
 ## Critérios de aceite
 
 1. Os exemplos oficiais 1, 2, 3 e 6 do Manual do PGDAS-D batem ao centavo por

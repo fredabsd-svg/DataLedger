@@ -343,7 +343,7 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
     de comércio e indústria (Anexos I e II): frentes A e B integradas na
     branch (`a1e06a6`, `670b58c`, `1138310`);
     [rodada 1](../auditorias/2026-10-09-dl-082-rodada-1.md) aprovada com
-    ressalvas; correção única em andamento.**
+    ressalvas; correção única integrada; reconferência em andamento.**
     [Consulta ao contador-senior](../projeto/consultas/2026-10-09-contador-senior-pre-das-comercio.md):
     exemplos 1, 2, 3 e 6 do Manual do PGDAS-D batem ao centavo com as tabelas
     do repositório; um RBT12 para todos os anexos; segregação sem
