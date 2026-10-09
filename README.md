@@ -259,6 +259,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-077** — Contabilidade: importar e exportar plano de contas e lançamentos em TXT (registros da ECD, leiaute do sistema de referência e formato próprio) e importar por planilha Excel, com área de conferência antes de gravar no Diário. Situação em [estado.md](docs/agents/estado.md).
 - **DL-078** — Fiscal: serviços tomados — escrituração das NFS-e em que o cliente é tomador, ISS retido a recolher pelo cliente e retenções federais destacadas na nota, só para conferência. Situação em [estado.md](docs/agents/estado.md).
 - **DL-079** — Fiscal: Lucro Presumido — apuração trimestral do IRPJ e da CSLL com o acréscimo da LC 224, controle do limite do ano, retenções confirmadas pelo contador e quotas, só para conferência. Situação em [estado.md](docs/agents/estado.md).
+- **DL-080** — Fiscal: recepção de NF-e (modelo 55) e NFC-e (modelo 65) — fatia 2 da DL-010: leitura pelo leiaute 4.00 com protocolo, deduplicação pela chave, vínculo com as empresas do escritório e eventos de cancelamento, só para conferência. Situação em [estado.md](docs/agents/estado.md).
 
 Ainda não existem:
 

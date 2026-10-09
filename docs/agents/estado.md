@@ -145,6 +145,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-077](../planos/DL-077-importacao-e-exportacao-contabil-em-txt.md) | Contabilidade: importar e exportar plano de contas e lançamentos em TXT e Excel | Integrada (PR #100, squash `929a79a`; PR #101, squash `b60560b`) — efetivação parcial suspensa (BL-676) |
 | [DL-078](../planos/DL-078-servicos-tomados-e-retencoes.md) | Fiscal: serviços tomados, ISS retido pelo tomador e retenções federais | Integrada (PR #102, squash `49eacba`) — rodada 1 e reconferência aprovadas com ressalvas |
 | [DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) | Fiscal: Lucro Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224 | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-080](../planos/DL-080-recepcao-de-nfe.md) | Fiscal: recepção de NF-e (modelo 55) e NFC-e (modelo 65), fatia 2 da DL-010 | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -306,6 +307,13 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-presumido.md):
    acréscimo ×1,10; IRPJ desde o 1º trimestre de 2026 e CSLL desde o 2º.
    HI-100 a HI-108; **PE-83 com o Fred** (rotina do Presumido; não bloqueia).
+
+9. **[DL-080](../planos/DL-080-recepcao-de-nfe.md) — recepção de NF-e e
+   NFC-e: planejada.** [Pesquisa do leiaute](../projeto/consultas/2026-10-09-leiaute-nfe.md)
+   no Portal Nacional da NF-e (pacote PL 010f, leiaute 4.00, eventos e NTs
+   até 01/10/2026). Tabelas próprias para a NF-e, para nada contaminar os
+   cálculos de NFS-e. HI-109 a HI-113; **PE-84 com o Fred** (NFC-e,
+   denegada, transferência; não bloqueia).
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `5c6673d` — conteúdo da `main` em `49eacba` —,
