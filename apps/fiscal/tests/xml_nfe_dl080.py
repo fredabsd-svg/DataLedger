@@ -193,7 +193,7 @@ def xml_nfe(
     id_nfe: str | None = None,
     padding_comentario: int = 0,
     declaracao: str | None = "UTF-8",
-    tp_amb: str = "1",
+    tp_amb: str | None = "1",
     autxml_cnpj: str | None = None,
     transporta_cnpj: str | None = None,
     inf_adicional: str | None = None,
@@ -207,6 +207,10 @@ def xml_nfe(
     `totais`: sobrescreve valores do ICMSTot; `None` como valor REMOVE o elemento.
     `padding_comentario`: bytes de comentário XML, só para testar o limite de tamanho (o comentário
     não muda o conteúdo lido).
+    `tp_amb=None` omite ide/tpAmb (o XSD o exige: a recusa é testada com ele ausente).
+
+    ATENÇÃO: este gerador NÃO valida contra o XSD (faltam indTot, pag, indIEDest, endereços, e a
+    assinatura é um marcador). O corpus validado pelo XSD é `xml_nfe_xsd_dl080`.
     """
     tipo_emit, documento_emit = emitente
     if chave is None:
@@ -254,13 +258,14 @@ def xml_nfe(
     )
     padding = f"<!-- {'p' * padding_comentario} -->" if padding_comentario else ""
 
+    tp_amb_xml = f"<tpAmb>{tp_amb}</tpAmb>" if tp_amb is not None else ""
     ide_xml = (
         "<ide>"
         f"<cUF>{c_uf_ide or chave[:2]}</cUF><cNF>{chave[35:43]}</cNF><natOp>Venda sintetica</natOp>"
         f"<mod>{modelo}</mod><serie>{serie}</serie><nNF>{numero}</nNF>"
         f"<dhEmi>{dh_emi}</dhEmi><tpNF>{tp_nf}</tpNF><idDest>{id_dest}</idDest>"
         "<cMunFG>3550308</cMunFG><tpImp>1</tpImp><tpEmis>1</tpEmis>"
-        f"<cDV>{chave[43]}</cDV><tpAmb>{tp_amb}</tpAmb><finNFe>{fin_nfe}</finNFe>"
+        f"<cDV>{chave[43]}</cDV>{tp_amb_xml}<finNFe>{fin_nfe}</finNFe>"
         f"{tp_debito_xml}{tp_credito_xml}"
         "<indFinal>1</indFinal><indPres>1</indPres><procEmi>0</procEmi>"
         "<verProc>sintetico-dl080</verProc></ide>"
@@ -331,12 +336,18 @@ def proc_evento_xml(
     id_evento: str | None = None,
     versao: str = "1.00",
     declaracao: str | None = "UTF-8",
+    tp_amb: str | None = "1",
+    tp_amb_retorno: str | None = "1",
+    tp_evento_retorno: str | None = None,
+    n_seq_retorno: int | None = None,
 ) -> bytes:
     """`procEventoNFe` sintético (PL 010d, leiauteEvento_v1.00.xsd).
 
     `c_stat=None` omite o `retEvento` inteiro (evento sem retorno).
     `c_stat_retorno_sem_codigo=True` deixa o retorno sem `cStat`.
     `chave_retorno` troca a chave do retorno, para o caso de outra nota.
+    `tp_amb` e `tp_amb_retorno`: ambiente do evento e do retorno; `None` omite o elemento.
+    `tp_evento_retorno` e `n_seq_retorno`: tipo e sequência do retorno, quando diferentes do evento.
     """
     if chave is None:
         chave = chave_nfe(emitente=CNPJ_EMITENTE_A)
@@ -348,9 +359,10 @@ def proc_evento_xml(
     else:
         autor_xml = f"<CPF>{documento_autor}</CPF>"
 
+    tp_amb_evento_xml = f"<tpAmb>{tp_amb}</tpAmb>" if tp_amb is not None else ""
     evento_xml = (
         f'<evento versao="{versao}"><infEvento Id="{id_evento}">'
-        f"<cOrgao>35</cOrgao><tpAmb>1</tpAmb>{autor_xml}"
+        f"<cOrgao>35</cOrgao>{tp_amb_evento_xml}{autor_xml}"
         f"<chNFe>{chave}</chNFe><dhEvento>{dh_evento}</dhEvento>"
         f"<tpEvento>{tp_evento}</tpEvento><nSeqEvento>{n_seq}</nSeqEvento>"
         "<verEvento>1.00</verEvento>"
@@ -363,12 +375,15 @@ def proc_evento_xml(
     if c_stat is not None:
         codigo_xml = "" if c_stat_retorno_sem_codigo else f"<cStat>{c_stat}</cStat>"
         chave_ret = chave if chave_retorno is None else chave_retorno
+        tp_ret = tp_evento if tp_evento_retorno is None else tp_evento_retorno
+        seq_ret = n_seq if n_seq_retorno is None else n_seq_retorno
+        tp_amb_ret_xml = f"<tpAmb>{tp_amb_retorno}</tpAmb>" if tp_amb_retorno is not None else ""
         ret_xml = (
             f'<retEvento versao="{versao}"><infEvento Id="ID{c_stat}SINTETICO">'
-            "<tpAmb>1</tpAmb><verAplic>SVRS_SINTETICO</verAplic><cOrgao>35</cOrgao>"
+            f"{tp_amb_ret_xml}<verAplic>SVRS_SINTETICO</verAplic><cOrgao>35</cOrgao>"
             f"{codigo_xml}<xMotivo>Evento registrado (sintetico)</xMotivo>"
-            f"<chNFe>{chave_ret}</chNFe><tpEvento>{tp_evento}</tpEvento>"
-            f"<xEvento>Cancelamento sintetico</xEvento><nSeqEvento>{n_seq}</nSeqEvento>"
+            f"<chNFe>{chave_ret}</chNFe><tpEvento>{tp_ret}</tpEvento>"
+            f"<xEvento>Cancelamento sintetico</xEvento><nSeqEvento>{seq_ret}</nSeqEvento>"
             "<dhRegEvento>2026-01-20T09:00:05-03:00</dhRegEvento>"
             "<nProt>135260000000002</nProt></infEvento></retEvento>"
         )

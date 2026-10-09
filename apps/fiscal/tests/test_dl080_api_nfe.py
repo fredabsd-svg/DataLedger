@@ -285,7 +285,8 @@ def test_detalhe_traz_totais_protocolo_e_eventos_com_efeito(
     assert eventos["110111"]["efeito"] == "cancela"
     assert eventos["110111"]["descricao"] == "Cancelamento"
     assert eventos["110110"]["efeito"] == "sem efeito"
-    assert eventos["110110"]["descricao"] == "Carta de correção"
+    # A5/A9 (rodada 1): nome oficial com C e C maiúsculos, vindo de DESCRICAO_EVENTO_NFE.
+    assert eventos["110110"]["descricao"] == "Carta de Correção"
 
 
 def test_evento_sem_retorno_aparece_no_detalhe_sem_efeito(

@@ -14,7 +14,7 @@ empresa existe e vale pelo autor do evento. Nada é gravado aqui.
     <p class="texto-apoio">
         Eventos de NF-e recebidos cuja nota ainda não está no acervo deste escritório. Quando a nota
         chegar, o evento sai desta lista, e a situação da nota já considera o evento. Cancelamento
-        (110111 ou 110112) com retorno aceito (135, 136 ou 155) cancela a nota, nas duas ordens de
+        (110111 ou 110112) com retorno aceito (135 ou 155) cancela a nota, nas duas ordens de
         chegada.
     </p>
 
@@ -41,6 +41,7 @@ empresa existe e vale pelo autor do evento. Nada é gravado aqui.
     <p><a href="{{ url_lista_nfe }}">Ver as NF-e recebidas</a></p>
 
     {% if linhas %}
+        <div class="tabela-com-rolagem-horizontal">
         <table class="tabela-dados">
             <caption class="visualmente-oculto">Eventos de NF-e cuja nota ainda não chegou, com chave, tipo, data, retorno e efeito</caption>
             <thead>
@@ -70,6 +71,7 @@ empresa existe e vale pelo autor do evento. Nada é gravado aqui.
                 {% endfor %}
             </tbody>
         </table>
+        </div>
         {% include "fiscal/_paginacao.html" %}
     {% elif algum_filtro_ativo %}
         <div class="estado-vazio">

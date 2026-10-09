@@ -112,7 +112,7 @@ conteúdo. A situação vem de `services.situacao_da_nfe`; a direção, de `api_
     <dl class="lista-de-definicao">
         <div>
             <dt>Documento</dt>
-            <dd>{{ emitente_documento }}</dd>
+            <dd><span class="documento-sem-quebra">{{ emitente_documento }}</span></dd>
         </div>
         <div>
             <dt>Nome</dt>
@@ -129,7 +129,7 @@ conteúdo. A situação vem de `services.situacao_da_nfe`; a direção, de `api_
         <dl class="lista-de-definicao">
             <div>
                 <dt>Documento</dt>
-                <dd>{{ destinatario_documento }}</dd>
+                <dd><span class="documento-sem-quebra">{{ destinatario_documento }}</span></dd>
             </div>
             <div>
                 <dt>Nome</dt>
@@ -185,6 +185,8 @@ conteúdo. A situação vem de `services.situacao_da_nfe`; a direção, de `api_
 
     <h2>Eventos registrados para esta chave</h2>
     {% if eventos %}
+        {% comment %}Rolagem só dentro da tabela (`tabela-com-rolagem-horizontal`), nunca na página (A9).{% endcomment %}
+        <div class="tabela-com-rolagem-horizontal">
         <table class="tabela-dados">
             <caption class="visualmente-oculto">Eventos de NF-e registrados para a chave desta nota, em ordem de data e sequência</caption>
             <thead>
@@ -205,11 +207,17 @@ conteúdo. A situação vem de `services.situacao_da_nfe`; a direção, de `api_
                         <td>{{ evento.sequencia }}</td>
                         <td>{{ evento.data|date:"d/m/Y H:i" }}</td>
                         <td>{{ evento.c_stat|default:"Sem retorno" }}</td>
-                        <td>{{ evento.efeito }}</td>
+                        <td>
+                            {{ evento.efeito }}
+                            {% if evento.aviso %}
+                                <br><span class="texto-apoio">{{ evento.aviso }}</span>
+                            {% endif %}
+                        </td>
                     </tr>
                 {% endfor %}
             </tbody>
         </table>
+        </div>
     {% else %}
         <p>Nenhum evento registrado para esta nota até o momento.</p>
     {% endif %}

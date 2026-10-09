@@ -220,10 +220,10 @@ def test_nota_sem_parte_do_escritorio_e_recusada_com_a_mensagem_da_nfse(
 
 
 def test_chave_com_cnpj_de_cliente_nao_liga_a_empresa(escritorio_a, usuario_gestor_a, emitente):
-    # A chave pode trazer o CNPJ de outra parte (NFA-e, série 890 a 899, leva o da SEFAZ).
-    # A pesquisa
-    # diz que a empresa vem só de emit e dest. Aqui a chave traz o CNPJ de um cliente, e emitente e
-    # destinatário são de fora: a nota não entra.
+    # A chave não liga empresa (pesquisa, seção 5). Aqui ela traz o CNPJ de um cliente, e o emitente
+    # do XML é de fora. Desde a correção da rodada 1 (A8), a própria chave é conferida contra o
+    # emitente fora das séries de NFA-e (890 a 919): a recusa vem dessa conferência, antes de
+    # qualquer participante. O invariante continua o mesmo: a nota não entra e nada é vinculado.
     chave_com_cnpj_do_cliente = chave_nfe(emitente=CNPJ_EMITENTE_A)
     lote = _enviar(
         escritorio_a,
@@ -234,8 +234,10 @@ def test_chave_com_cnpj_de_cliente_nao_liga_a_empresa(escritorio_a, usuario_gest
             destinatario=("CNPJ", CNPJ_SEM_CADASTRO),
         ),
     )
-    assert _unico(lote).motivo == services.MENSAGEM_NENHUM_PARTICIPANTE_DO_ESCRITORIO
+    assert _unico(lote).resultado == TipoResultadoArquivo.RECUSADO
+    assert "diferente do emitente" in _unico(lote).motivo
     assert not VinculoNFeEmpresa.objects.exists()
+    assert not DocumentoNFe.objects.exists()
 
 
 def test_mensagem_de_recusa_e_identica_para_cnpj_de_outro_escritorio_e_para_cnpj_inexistente(
@@ -338,7 +340,8 @@ def test_reimportar_o_mesmo_arquivo_nao_duplica(escritorio_a, usuario_gestor_a, 
     lote = _enviar(escritorio_a, usuario_gestor_a, conteudo)
     resultado = _unico(lote)
     assert resultado.resultado == TipoResultadoArquivo.DUPLICADO
-    assert "já recebido" in resultado.motivo
+    # A9 (rodada 1): a NF-e é feminina, então "já recebida".
+    assert "NF-e já recebida" in resultado.motivo
     assert DocumentoNFe.objects.count() == 1
     assert VinculoNFeEmpresa.objects.count() == 1
 
@@ -433,14 +436,16 @@ def test_cancelamento_por_substituicao_110112_tambem_cancela(
 def test_evento_sem_retorno_ou_com_retorno_nao_efetivo_nao_cancela(
     escritorio_a, usuario_gestor_a, emitente, c_stat
 ):
-    # Sem retorno, ou com retorno fora de {135, 136, 155}, o evento não prova registro.
+    # Sem retorno, ou com retorno fora de {135, 155} (HI-116: o 136 não cancela), o evento não
+    # prova registro.
     _enviar(escritorio_a, usuario_gestor_a, xml_nfe())
     _enviar(escritorio_a, usuario_gestor_a, _cancelamento(c_stat=c_stat))
     assert EventoNFe.objects.count() == 1, "o evento é guardado mesmo sem efeito"
     assert services.situacao_da_nfe(DocumentoNFe.objects.get()) == "valida"
 
 
-@pytest.mark.parametrize("c_stat", ["135", "136", "155"])
+# A7 (rodada 1, HI-116): 136 não cancela. Ver test_dl080_correcao_rodada1.py.
+@pytest.mark.parametrize("c_stat", ["135", "155"])
 def test_retorno_efetivo_cancela(escritorio_a, usuario_gestor_a, emitente, c_stat):
     _enviar(escritorio_a, usuario_gestor_a, xml_nfe())
     _enviar(escritorio_a, usuario_gestor_a, _cancelamento(c_stat=c_stat))

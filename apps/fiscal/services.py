@@ -448,7 +448,9 @@ def _criar_evento(escritorio, lido: leitor.EventoLido, *, mapa=None) -> EventoFi
     # tratado por quem chama, fora deste savepoint.
 
 
-def _motivo_de_duplicado(existente, sha256_novo: str, rotulo: str, *, vinculo_novo=None) -> str:
+def _motivo_de_duplicado(
+    existente, sha256_novo: str, rotulo: str, *, participio: str = "recebido", vinculo_novo=None
+) -> str:
     """Mensagem de um resultado "duplicado" — distingue o caso NORMAL
     (reenviar o mesmo arquivo, RC-69) do caso que merece CONFERÊNCIA:
     mesmo identificador (`escritorio` + `identificador`), conteúdo
@@ -468,12 +470,14 @@ def _motivo_de_duplicado(existente, sha256_novo: str, rotulo: str, *, vinculo_no
     "duplicado" pareceria idêntico ao reenvio comum, escondendo que algo
     de fato mudou no documento.
     """
+    # `participio` concorda com o rótulo: "NF-e" é feminino ("já recebida"); "Documento" e
+    # "Evento de NF-e" são masculinos. A NFS-e mantém "recebido", como antes.
     if existente is not None and existente.sha256_arquivo != sha256_novo:
         return (
-            f"{rotulo} já recebido, mas o conteúdo deste arquivo é DIFERENTE "
+            f"{rotulo} já {participio}, mas o conteúdo deste arquivo é DIFERENTE "
             "do recebido antes — conferir."
         )
-    base = f"{rotulo} já recebido anteriormente por este escritório."
+    base = f"{rotulo} já {participio} anteriormente por este escritório."
     if vinculo_novo is not None:
         base += f" Vínculo novo criado com {vinculo_novo.razao_social}."
     return base
@@ -488,10 +492,16 @@ def _motivo_de_duplicado(existente, sha256_novo: str, rotulo: str, *, vinculo_no
 # retirada, entrega ou informação adicional (riscos de isolamento, pesquisa seção 5).
 # ---------------------------------------------------------------------------
 
-# Status do retorno que faz um evento de NF-e valer. Só estes registram o evento. Sem
-# retorno, ou com retorno rejeitado, o evento não tem efeito (pesquisa, seção 2). 155 é
-# citado no MOC 7.0 (MOC:6181) e não consta do quadro de códigos do próprio MOC.
-CODIGOS_EFETIVOS_NFE = frozenset({"135", "136", "155"})
+# Status do retorno que faz um evento de NF-e valer. Só estes dois dão efeito (HI-116, confirmação
+# pendente do Fred). 135 é "evento registrado e vinculado a NF-e". 155 é cancelamento homologado
+# fora de prazo, citado no MOC 7.0 (MOC:6181), que não o traz no quadro de códigos. Sem retorno,
+# com retorno rejeitado (573, por exemplo) ou com 136, o evento não tem efeito sobre a situação.
+CODIGOS_EFETIVOS_NFE = frozenset({"135", "155"})
+
+# 136 é "registrado, mas não vinculado a NF-e" (MOC 7.0). O evento é guardado e mostrado com este
+# aviso para conferência, sem cancelar a nota: a SEFAZ não o vinculou à nota (HI-116).
+CODIGO_EVENTO_NAO_VINCULADO_NFE = "136"
+AVISO_EVENTO_NAO_VINCULADO_NFE = "registrado, mas não vinculado a NF-e (cStat 136) — conferir"
 
 # Eventos que CANCELAM a nota. 110111 é o cancelamento (MOC:1495). 110112 é o cancelamento
 # por substituição: o MOC o descreve só para a NFC-e (MOC:1497 e :2445-2475), mas a pesquisa não
@@ -509,6 +519,13 @@ def efeito_do_evento_nfe(evento: EventoNFe) -> str:
     if evento.tp_evento in CODIGOS_CANCELAMENTO_NFE and evento.c_stat in CODIGOS_EFETIVOS_NFE:
         return "cancela"
     return "sem efeito"
+
+
+def aviso_do_evento_nfe(evento: EventoNFe) -> str | None:
+    """Aviso para conferir, quando o retorno é 136 (registrado, mas não vinculado); senão `None`."""
+    if evento.c_stat == CODIGO_EVENTO_NAO_VINCULADO_NFE:
+        return AVISO_EVENTO_NAO_VINCULADO_NFE
+    return None
 
 
 def _vincular_participantes_nfe(escritorio, lido: leitor_nfe.DocumentoNFeLido, *, mapa=None):
@@ -671,7 +688,7 @@ def _processar_um_arquivo_nfe(escritorio, lido, *, mapa=None) -> dict:
             return {
                 "resultado": TipoResultadoArquivo.DUPLICADO,
                 "motivo": _motivo_de_duplicado(
-                    existente, lido.sha256, "NF-e", vinculo_novo=vinculo_novo
+                    existente, lido.sha256, "NF-e", participio="recebida", vinculo_novo=vinculo_novo
                 ),
                 "documento_nfe": existente,
             }
@@ -754,7 +771,11 @@ def vinculos_nfe_da_empresa(
         tp_evento__in=CODIGOS_CANCELAMENTO_NFE,
         c_stat__in=CODIGOS_EFETIVOS_NFE,
     )
-    qs = qs.annotate(cancelada=Exists(eventos_de_cancelamento)).order_by("-documento__dh_emissao")
+    # Desempate pela chave primária do documento: notas com a mesma dhEmi (lote de NFC-e, por
+    # exemplo) saem numa ordem fixa, e a paginação não repete nem omite nenhuma (A2).
+    qs = qs.annotate(cancelada=Exists(eventos_de_cancelamento)).order_by(
+        "-documento__dh_emissao", "-documento__pk"
+    )
     if situacao is None:
         return qs
     if situacao == "cancelada":

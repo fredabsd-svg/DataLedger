@@ -33,7 +33,7 @@ from apps.tenancy.permissions import TemEscritorioAtivo
 # Código fora desta lista é mostrado com o número e a frase "não catalogado", nunca com um
 # nome inventado.
 DESCRICAO_EVENTO_NFE = {
-    "110110": "Carta de correção",
+    "110110": "Carta de Correção",
     "110111": "Cancelamento",
     "110112": "Cancelamento por substituição",
     "110140": "EPEC (emissão em contingência)",
@@ -164,6 +164,8 @@ def _evento_da_nota(evento: EventoNFe) -> dict:
         "c_stat": evento.c_stat,
         "registrado": evento.c_stat in services.CODIGOS_EFETIVOS_NFE,
         "efeito": services.efeito_do_evento_nfe(evento),
+        # Aviso para conferir (cStat 136: registrado, mas não vinculado a NF-e). `None` sem aviso.
+        "aviso": services.aviso_do_evento_nfe(evento),
     }
 
 

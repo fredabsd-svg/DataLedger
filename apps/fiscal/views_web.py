@@ -142,6 +142,7 @@ from apps.fiscal.services import (
     CODIGOS_QUE_CANCELAM,
     LIMITE_TAMANHO_ENVIO_BYTES,
     EnvioInvalido,
+    aviso_do_evento_nfe,
     documentos_do_escritorio,
     efeito_do_evento_nfe,
     receber_envio,
@@ -6485,20 +6486,25 @@ def _contraparte_da_nota(documento, papel):
     )
 
 
-def _totais_por_situacao(vinculos):
-    """Quantidade e soma de vNF por situação, sobre o conjunto FILTRADO inteiro, não só a página.
+# Ordem das direções no quadro de totais (A5). A soma é por direção, nunca única: uma soma de
+# saídas e entradas juntas não tem sentido contábil e pareceria faturamento.
+_DIRECOES_NO_TOTAL = ("saida", "entrada", "entrada_propria", "a_conferir")
 
-    `Sum` ignora vNF ausente, e `sem_valor` conta essas notas para a tela dizer que elas não entram
-    na soma. A separação vem da anotação `cancelada` do serviço: nota cancelada nunca soma no total
-    das autorizadas.
+
+def _totais_por_direcao(vinculos):
+    """Quantidade e soma de vNF por DIREÇÃO das autorizadas, e o total das canceladas.
+
+    Conta sobre o conjunto FILTRADO inteiro, não só a página. A direção sai do MESMO ponto da API
+    (`direcao_para_o_cliente`, papel combinado com `tpNF`), uma vez por grupo de (papel, tpNF,
+    situação), e não é recalculada aqui. Cancelada fica fora de TODAS as direções: ela tem a
+    própria linha. `sem_valor` conta notas sem vNF, que não entram na soma.
     """
-    totais = {
-        "valida": {"quantidade": 0, "soma": Decimal("0"), "sem_valor": 0},
-        "cancelada": {"quantidade": 0, "soma": Decimal("0"), "sem_valor": 0},
-    }
+    zerado = {"quantidade": 0, "soma": Decimal("0"), "sem_valor": 0}
+    totais = {direcao: dict(zerado) for direcao in _DIRECOES_NO_TOTAL}
+    totais["cancelada"] = dict(zerado)
     grupos = (
         vinculos.order_by()
-        .values("cancelada")
+        .values("papel", "documento__tp_nf", "cancelada")
         .annotate(
             quantidade=Count("id"),
             soma=Sum("documento__v_nf"),
@@ -6506,20 +6512,26 @@ def _totais_por_situacao(vinculos):
         )
     )
     for grupo in grupos:
-        chave = "cancelada" if grupo["cancelada"] else "valida"
-        totais[chave] = {
-            "quantidade": grupo["quantidade"],
-            "soma": grupo["soma"],
-            "sem_valor": grupo["sem_valor"],
-        }
-    return {
-        situacao: {
+        if grupo["cancelada"]:
+            destino = totais["cancelada"]
+        else:
+            destino = totais[direcao_para_o_cliente(grupo["papel"], grupo["documento__tp_nf"])]
+        destino["quantidade"] += grupo["quantidade"]
+        destino["soma"] += grupo["soma"] or Decimal("0")
+        destino["sem_valor"] += grupo["sem_valor"]
+    quadro = {
+        chave: {
             "quantidade": dados["quantidade"],
             "soma_ptbr": _valor_ptbr(dados["soma"]),
             "sem_valor": dados["sem_valor"],
         }
-        for situacao, dados in totais.items()
+        for chave, dados in totais.items()
     }
+    # Só para a frase da tela: autorizadas sem vNF, somadas entre as direções (nunca um valor).
+    quadro["autorizadas_sem_valor"] = sum(
+        totais[direcao]["sem_valor"] for direcao in _DIRECOES_NO_TOTAL
+    )
+    return quadro
 
 
 def _linha_da_nfe(vinculo, empresa):
@@ -6585,7 +6597,7 @@ def nfe_recebidas(request):
         {
             "pagina": pagina,
             "linhas": [_linha_da_nfe(vinculo, empresa) for vinculo in pagina.object_list],
-            "totais": _totais_por_situacao(vinculos),
+            "totais": _totais_por_direcao(vinculos),
             "querystring_sem_pagina": _querystring_sem_pagina(request),
         }
     )
@@ -6601,6 +6613,8 @@ def _evento_na_tela(evento):
         # `c_stat` do retorno. Vazio quando o retorno não veio: sem retorno, sem efeito.
         "c_stat": evento.c_stat or "",
         "efeito": _ROTULO_EFEITO_EVENTO_NFE[efeito_do_evento_nfe(evento)],
+        # Aviso para conferir (cStat 136). `None` quando não há, e a tela não mostra nada.
+        "aviso": aviso_do_evento_nfe(evento),
     }
 
 
@@ -6690,7 +6704,9 @@ def nfe_eventos_orfaos(request):
     # não tem autor no escritório, então só aparece sem filtro.
     if empresa is not None:
         eventos = eventos.filter(empresa=empresa)
-    eventos = eventos.select_related("empresa").order_by("-dh_evento", "-n_seq_evento")
+    # Desempate pela chave primária: eventos com o mesmo dhEvento e nSeqEvento (lote de notas
+    # ainda não chegadas) saem numa ordem fixa, sem repetir nem omitir linhas entre páginas (A2).
+    eventos = eventos.select_related("empresa").order_by("-dh_evento", "-n_seq_evento", "-pk")
     pagina = Paginator(eventos, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
     contexto = {
         "empresas_do_escritorio": Empresa.objects.filter(escritorio=request.escritorio).order_by(

@@ -3434,6 +3434,12 @@ button:disabled {
     overflow-wrap: anywhere;
 }
 
+/* DL-080, rodada 1 (A9): CNPJ e CPF não quebram no meio. `.valor-quebravel` (acima) quebra em
+   qualquer ponto para nome sem espaço; um documento não pode ser quebrado no meio do número. */
+.documento-sem-quebra {
+    white-space: nowrap;
+}
+
 /* Contagens do relatório de um envio (relatorio_envio.html) — arquétipo C,
    "duplicidade e rejeição são primeira classe": os três números aparecem
    juntos, ANTES da tabela linha a linha, cada um com o texto que diz o que

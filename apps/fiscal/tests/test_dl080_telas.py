@@ -221,9 +221,10 @@ def test_lista_mostra_cancelada_marcada_e_fora_do_total_das_validas(
     html = _html(resposta)
     totais = _linhas_da_tabela(html, TITULO_TOTAIS)
     # Autorizadas: só a nota de 1.234,56. Canceladas: a de 500,00, separada e fora do total.
-    assert totais[1][:3] == ["Autorizadas", "1", "1.234,56"]
-    assert totais[2][0].startswith("Canceladas")
-    assert totais[2][1:] == ["1", "500,00"]
+    # A5 (rodada 1): autorizadas saem por direção. A nota do teste é saída (emitente, tpNF 1).
+    assert totais[1][:3] == ["Autorizadas: saída", "1", "1.234,56"]
+    assert totais[5][0].startswith("Canceladas")
+    assert totais[5][1:] == ["1", "500,00"]
     assert "1.734,56" not in html
     linhas = {linha[2]: linha for linha in _linhas_de_nota(html)}
     assert linhas["1"][7] == "Autorizada"
@@ -249,8 +250,8 @@ def test_so_com_cancelada_o_total_das_autorizadas_fica_zerado(
 
     totais = _linhas_da_tabela(_html(client.get(_url_lista(emitente))), TITULO_TOTAIS)
 
-    assert totais[1][:3] == ["Autorizadas", "0", "0,00"]
-    assert totais[2][1:] == ["1", "80,00"]
+    assert totais[1][:3] == ["Autorizadas: saída", "0", "0,00"]
+    assert totais[5][1:] == ["1", "80,00"]
 
 
 def test_cancelamento_que_chega_antes_da_nota_aparece_cancelado_e_sai_dos_orfaos(
@@ -552,7 +553,7 @@ def test_detalhe_de_nota_valida_mostra_eventos_em_ordem_com_nome_oficial_e_efeit
         ],
         [
             "110110",
-            "Carta de correção",
+            "Carta de Correção",
             "1",
             "17/01/2026 09:00",
             "135",

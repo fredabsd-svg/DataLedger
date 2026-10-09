@@ -64,12 +64,27 @@ _FORMATO_NNF = re.compile(r"[1-9][0-9]{0,8}")
 _FORMATO_SERIE = re.compile(r"0|[1-9][0-9]{0,2}")
 # nSeqEvento (pesquisa, seção 2: EVT:61-68).
 _FORMATO_NSEQ_EVENTO = re.compile(r"[1-9][0-9]{0,1}")
-# TDateTimeUTC (tiposBasico_v4.00.xsd:546-552): data e hora com deslocamento de
-# fuso em hora cheia, de -00:00 a -11:00 e de +00:00 a +12:00. Sem "Z".
+# TDateTimeUTC (tiposBasico_v4.00.xsd:546-552): AAAA-MM-DDThh:mm:ssTZD com ANO 20xx
+# (XSD:552, `20[0-9][0-9]`) e fuso em hora cheia, de -00:00 a -11:00 e de +00:00 a +12:00.
+# Sem "Z". A expressão cobre forma, ano e fuso. O calendário (31 de abril, 29 de fevereiro de
+# ano não bissexto) fica com `datetime.fromisoformat` em `_data_hora`. Ano fora de 20xx
+# (0001, 1999, 9999) é recusado: a data gravada com ano absurdo derrubava a lista e o detalhe
+# com erro de servidor (auditoria DL-080, rodada 1, A1).
+# O XSD também aceita vírgula como sinal do fuso (`[\-,\+]`). Não se replica: vírgula não é
+# fuso, e a recusa mais estreita que o XSD é deliberada.
 _FORMATO_DATA_HORA = re.compile(
-    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"20[0-9]{2}-[0-9]{2}-[0-9]{2}T(2[0-3]|[01][0-9]):[0-5][0-9]:[0-5][0-9]"
     r"(-(0[0-9]|10|11):00|\+(0[0-9]|1[0-2]):00)"
 )
+# TAmb (tiposBasico_v4.00.xsd:458): 1 produção, 2 homologação. Obrigatório em ide, em
+# infEvento e no retorno do evento (XSD sem minOccurs). Ausente é recusa, nunca presunção.
+_DOMINIO_TP_AMB = frozenset({"1", "2"})
+# Séries 890 a 919: notas avulsas emitidas no site do Fisco (NFA-e). A chave leva o CNPJ ou o
+# CPF da SEFAZ, e não o do emitente (pesquisa, seção 3, MOC:1047-1053; a faixa 900-919 é
+# SEFAZ). Fora dessa faixa, o CNPJ/CPF da chave tem de ser o do emitente. A faixa 920-969 é
+# de aplicativo do contribuinte com CPF: a chave leva o CPF da própria empresa, e a conferência
+# vale. A pesquisa não cita a faixa 970-999, e por isso ela também é conferida (pendência).
+_SERIES_NFA_E = range(890, 920)
 _LIMITE_TEXTO_CAMPO_TSTRING = 60  # xNome de emitente e destinatário (maxLength 60)
 _LIMITE_ID_ESTRANGEIRO = 20
 
@@ -299,6 +314,28 @@ def _conferir_versao_nfe(versao) -> None:
     raise RecusaNFe(f"versão desconhecida do leiaute da NF-e: {versao!r}.")
 
 
+def _conferir_emitente_da_chave(chave: str, emitente: tuple[str, str]) -> None:
+    """Posições 7 a 20 da chave são o CNPJ do emitente, ou o CPF com zeros à esquerda.
+
+    Fora das séries de NFA-e (`_SERIES_NFA_E`), chave com outro CNPJ ou CPF não é da empresa
+    identificada pelo `emit`. A recusa impede que a chave vire ligação com um cliente, mesmo
+    quando o `emit` e o `dest` são estranhos (auditoria DL-080, rodada 1, A8).
+    """
+    tipo, documento = emitente
+    if int(chave[22:25]) in _SERIES_NFA_E:
+        return
+    esperado = documento if tipo == "CNPJ" else documento.zfill(14)
+    if chave[6:20] != esperado:
+        raise RecusaNFe("CNPJ ou CPF da chave de acesso diferente do emitente (posições 7 a 20).")
+
+
+def _conferir_ambiente(valor: str, campo: str, mensagem: str) -> None:
+    """Ambiente de homologação (`2`) não tem valor fiscal, em nota, evento ou retorno (A3)."""
+    _dominio(valor, _DOMINIO_TP_AMB, campo)
+    if valor == "2":
+        raise RecusaNFe(mensagem)
+
+
 def _pessoa_cnpj_cpf(pai, rotulo):
     """Par (tipo, documento) do bloco CNPJ|CPF (xs:choice), ou `None` se nenhum.
 
@@ -363,6 +400,10 @@ def _recusar_nfe_sem_protocolo(raiz):
 def _ler_nfe_proc(raiz, conteudo: bytes, sha256: str) -> DocumentoNFeLido:
     # TNfeProc (leiauteNFe_v4.00.xsd:6954-6962): @versao obrigatório, NFe e protNFe.
     _conferir_versao_nfe(raiz.get("versao"))
+    # Uma NFe por nfeProc. Com duas, o protocolo não diz a qual delas se refere, e a leitura
+    # não escolhe uma (auditoria DL-080, rodada 1, A8).
+    if len(raiz.findall("n:NFe", _NS)) > 1:
+        raise RecusaNFe("nfeProc com mais de uma NFe: só entra um XML por nota, com seu protocolo.")
 
     prot = raiz.find("n:protNFe", _NS)
     if prot is None:
@@ -409,10 +450,13 @@ def _ler_nfe_proc(raiz, conteudo: bytes, sha256: str) -> DocumentoNFeLido:
     ide = inf.find("n:ide", _NS)
     if ide is None:
         raise RecusaNFe("NF-e sem ide.")
-    # Nota emitida em homologação (ide/tpAmb "2") não tem valor fiscal. É a mesma regra da NFS-e
-    # (DE-076 item 3), com a mesma restrição: recusa só quando o valor diz "2" explicitamente.
-    if _texto(ide, "n:tpAmb") == "2":
-        raise RecusaNFe("NF-e emitida em ambiente de homologação (teste), sem valor fiscal.")
+    # Nota emitida em homologação não tem valor fiscal (regra da NFS-e, DE-076 item 3). ide/tpAmb
+    # é obrigatório no XSD (leiauteNFe_v4.00.xsd:178): ausente é recusa, e não "produção".
+    _conferir_ambiente(
+        _obrigatorio(ide, "n:tpAmb", "tpAmb"),
+        "tpAmb",
+        "NF-e emitida em ambiente de homologação (teste), sem valor fiscal.",
+    )
 
     # cUF (leiauteNFe_v4.00.xsd:24), mod (:51), serie (:56), nNF (:61). A chave tem
     # as mesmas posições (MOC 7.0, Tabela 2-1, MOC:914-947): cUF 0-1, modelo 20-21,
@@ -449,6 +493,7 @@ def _ler_nfe_proc(raiz, conteudo: bytes, sha256: str) -> DocumentoNFeLido:
     par_emit = _pessoa_cnpj_cpf(emit, "emitente")
     if par_emit is None:
         raise RecusaNFe("NF-e sem emitente com CNPJ ou CPF.")
+    _conferir_emitente_da_chave(chave, par_emit)
     crt_texto = _texto(emit, "n:CRT")
     crt = _dominio(crt_texto, _DOMINIO_CRT, "CRT") if crt_texto else ""
     emitente = ParticipanteNFeLido(par_emit[0], par_emit[1], _nome(emit, "emitente"))
@@ -546,6 +591,13 @@ def _ler_proc_evento(raiz, conteudo: bytes, sha256: str) -> EventoNFeLido:
     inf = raiz.find("n:evento/n:infEvento", _NS)
     if inf is None:
         raise RecusaNFe("Evento sem infEvento.")
+    # infEvento/tpAmb é obrigatório (leiauteEvento_v1.00.xsd, sem minOccurs). Evento de
+    # homologação não cancela nota de produção: a mesma regra da nota (auditoria, A3).
+    _conferir_ambiente(
+        _obrigatorio(inf, "n:tpAmb", "tpAmb do evento"),
+        "tpAmb do evento",
+        "Evento emitido em ambiente de homologação (teste), sem valor fiscal.",
+    )
 
     identificador = inf.get("Id") or ""
     if not _FORMATO_ID_EVENTO.fullmatch(identificador):
@@ -583,12 +635,31 @@ def _ler_proc_evento(raiz, conteudo: bytes, sha256: str) -> EventoNFeLido:
     ret_inf = raiz.find("n:retEvento/n:infEvento", _NS)
     c_stat = None
     if ret_inf is not None:
+        # tpAmb do retorno é obrigatório (TRetEvento/infEvento, leiauteEvento_v1.00.xsd).
+        _conferir_ambiente(
+            _obrigatorio(ret_inf, "n:tpAmb", "tpAmb do retorno do evento"),
+            "tpAmb do retorno do evento",
+            "Retorno de evento emitido em ambiente de homologação (teste), sem valor fiscal.",
+        )
         c_stat = _texto(ret_inf, "n:cStat") or None
         if c_stat is not None:
             _formato(c_stat, _FORMATO_CSTAT, "cStat do retorno do evento")
         chave_do_retorno = _texto(ret_inf, "n:chNFe")
         if chave_do_retorno is not None and chave_do_retorno != chave:
             raise RecusaNFe("Retorno do evento referente a outra NF-e (chNFe diferente).")
+        # tpEvento e nSeqEvento do retorno são opcionais (minOccurs 0). Quando vêm, têm de ser
+        # os do evento: retorno de outro tipo ou de outra sequência não é a resposta deste
+        # evento, e o status dele não pode cancelar a nota (auditoria, A8).
+        tp_do_retorno = _texto(ret_inf, "n:tpEvento")
+        if tp_do_retorno is not None and tp_do_retorno != tp_evento:
+            raise RecusaNFe("Retorno do evento de outro tipo (tpEvento diferente do evento).")
+        seq_do_retorno = _texto(ret_inf, "n:nSeqEvento")
+        if seq_do_retorno is not None:
+            seq_do_retorno = _formato(
+                seq_do_retorno, _FORMATO_NSEQ_EVENTO, "nSeqEvento do retorno do evento"
+            )
+            if int(seq_do_retorno) != int(n_seq_texto):
+                raise RecusaNFe("Retorno do evento de outra sequência (nSeqEvento diferente).")
 
     return EventoNFeLido(
         identificador=identificador,

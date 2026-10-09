@@ -549,7 +549,7 @@ class EventoNFe(models.Model):
 
     `chave` é a chave de acesso da nota referenciada (44 posições, a mesma de
     `DocumentoNFe.chave`). O evento só tem efeito sobre a situação com o status do
-    retorno em `services.CODIGOS_EFETIVOS_NFE` (135, 136 ou 155).
+    retorno em `services.CODIGOS_EFETIVOS_NFE` (135 ou 155; o 136 não cancela, HI-116).
 
     Unicidade por (escritório, identificador, sha256). O mesmo evento reimportado (mesmo Id e
     mesmo conteúdo) é duplicado. O mesmo Id com CONTEÚDO diferente é um registro novo, e não

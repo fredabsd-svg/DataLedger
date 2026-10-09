@@ -389,7 +389,7 @@
                                 {% if modulo.permitido %}
                                     <li><a href="{{ modulo.url }}" {% if modulo.ativo %}aria-current="page"{% endif %}>
                                         <svg class="icone-menu" aria-hidden="true"><use href="{% if modulo.slug == 'fiscal' %}#icone-fiscal{% elif modulo.slug == 'folha' %}#icone-conta{% elif modulo.slug == 'financeiro' %}#icone-balanco{% else %}#icone-contabilidade{% endif %}"></use></svg>
-                                        <span class="module-home-switcher__label rotulo-menu">{{ modulo.titulo }}{% if modulo.disponibilidade == "indisponivel" %}<span class="module-home-switcher__state">Indisponível</span>{% elif modulo.disponibilidade == "parcial" %}<span class="module-home-switcher__state">Recepção de NFS-e</span>{% endif %}</span>
+                                        <span class="module-home-switcher__label rotulo-menu">{{ modulo.titulo }}{% if modulo.disponibilidade == "indisponivel" %}<span class="module-home-switcher__state">Indisponível</span>{% elif modulo.disponibilidade == "parcial" %}<span class="module-home-switcher__state">Recepção de documentos fiscais</span>{% endif %}</span>
                                         {% if modulo.grave_count != None %}<span class="module-home-switcher__badge" aria-label="{{ modulo.grave_count }} ocorrências graves apuradas neste módulo">{{ modulo.grave_count }}</span>{% endif %}
                                     </a></li>
                                 {% endif %}
