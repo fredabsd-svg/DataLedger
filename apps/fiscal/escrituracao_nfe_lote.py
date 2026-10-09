@@ -14,7 +14,9 @@ PRÉVIA (`previa_do_lote`)
   canceladas não entram na prévia: entram só na contagem.
 - Ordem das recusas, a MESMA de `efetivar`: 2027 (HI-133); itens ilegíveis; leitura de versão
   anterior; item sem sugestão ou em conflito; atribuição do resíduo (HI-138); nota sem vNF; W16
-  (HI-119). A W16 roda com as naturezas SUGERIDAS e sem gravar nada.
+  (HI-119). A W16 roda com as naturezas SUGERIDAS e sem gravar nada. Nota em rascunho com
+  natureza já escolhida pelo contador, diferente da sugestão, sai com `natureza_escolhida`: o lote
+  nunca sobrescreve a escolha (DL-085, A2).
 - Leitura de itens: a prévia NÃO lê XML. A nota sem leitura atual (nunca lida, ou de versão
   anterior e ainda não rascunho) vai para `a_ler`, e `ler_notas_do_mes` a lê em partes (endpoint
   próprio, mesmo desenho das partes de efetivação). Nota em rascunho com leitura antiga sai do lote
@@ -68,8 +70,9 @@ TRILHA
 
 DESEMPENHO
 - A prévia lê as notas de uma consulta (`notas_do_mes`) e os itens de uma consulta por lote de 5.000
-  notas. Sem consulta por nota. A primeira leitura de uma nota nunca lida custa uma leitura de XML,
-  documentada acima.
+  notas. Sem consulta por nota.
+- A confirmação calcula a prévia ANTES de travar a empresa; dentro da trava só confere o lote em
+  andamento e grava (reconferência, R1).
 - O tamanho da parte (`LIMITE_PADRAO_DA_PARTE`) é medido, com os tempos no comentário da constante.
 - Orçamento de tempo: cada parte (de efetivação e de leitura) para depois da nota em que o tempo
   decorrido passa de `ORCAMENTO_DA_PARTE_SEGUNDOS`. O que sobrou fica pendente, e `restam` (ou
@@ -962,10 +965,18 @@ def _criar_lote(
     usuario,
     request,
     grupos: list[str] | None = None,
+    previa_inteira=None,
 ) -> LoteEscrituracaoNFe:
     """Grava o lote: o conjunto de notas, as naturezas fixadas e a trilha. Dentro da trava da
-    empresa, com a prévia recalculada agora."""
-    previa_inteira = _calcular(empresa, ano, mes, None)
+    empresa.
+
+    `previa_inteira` vem calculada ANTES da trava (reconferência da DL-085, R1): a prévia de um mês
+    com milhares de notas leva segundos, e segurar a trava da empresa por esse tempo fazia a
+    recepção e a escrituração individual da mesma empresa caírem por `lock_timeout`. Calcular fora
+    é seguro: a assinatura é conferida contra essa prévia, e cada nota é revalidada na sua parte
+    (desvio desde a confirmação recusa a nota com o motivo)."""
+    if previa_inteira is None:
+        previa_inteira = _calcular(empresa, ano, mes, None)
     if previa_inteira.assinatura != assinatura:
         raise PreviaDesatualizada(MENSAGEM_PREVIA_DESATUALIZADA)
     if not previa_inteira.grupos:
@@ -1091,10 +1102,11 @@ def _marcar_sob_trava(linha_id: int, estado: str, escrituracao=None) -> None:
 def _processar_nota(lote, linha_id: int, usuario, request, estornadas: set[int]) -> tuple[str, str]:
     """Uma nota, na PRÓPRIA transação. Nova tentativa se o banco desfizer a transação por deadlock.
 
-    Deadlock com a criação individual de rascunho da mesma nota é possível: a individual trava o
-    vínculo e depois insere a escrituração, que precisa da linha da empresa (chave estrangeira). O
-    banco escolhe uma vítima, e a vítima tem a transação desfeita por inteiro. Repetir a nota é
-    seguro: nada da tentativa foi gravado.
+    Desde o ajuste do arquiteto depois da correção (A5), a criação individual do rascunho trava a
+    empresa antes do vínculo, na mesma ordem do lote, e o deadlock entre os dois caminhos não foi
+    mais reproduzido (reconferência da DL-085). A nova tentativa fica como defesa: se o banco ainda
+    escolher esta transação como vítima, repetir a nota é seguro, porque nada da tentativa foi
+    gravado.
     """
     for tentativa in range(1, _TENTATIVAS_POR_DEADLOCK + 1):
         try:
@@ -1113,10 +1125,9 @@ def _processar_nota_uma_vez(
     """Uma tentativa de `_processar_nota`. Devolve (estado final, motivo).
 
     Ordem das travas: a empresa, a linha do lote, o VÍNCULO e só então a escrituração (DL-085,
-    auditoria A5), a mesma ordem vínculo-escrituração da criação individual. Essa ordem sozinha NÃO
-    evita o deadlock com a criação individual: a inserção da escrituração também precisa da linha
-    da empresa (chave estrangeira), que o lote já trava. Por isso `_processar_nota` repete a nota
-    no deadlock. A recusa do serviço vira `falhou` fora da transação, para que o rollback não a
+    auditoria A5), a mesma ordem da criação individual, que também trava a empresa primeiro (ajuste
+    do arquiteto). `_processar_nota` ainda repete a nota num deadlock, como defesa. A recusa
+    do serviço vira `falhou` fora da transação, para que o rollback não a
     apague.
 
     Se a linha já não está pendente (outra chamada a processou), devolve `_OUTRA_CHAMADA`: não é
@@ -1367,6 +1378,11 @@ def confirmar_lote(
             "Marque ao menos um grupo para confirmar. Nada foi efetivado."
         )
     competencia = date(ano, mes, 1)
+    # A prévia pesada é calculada FORA da trava da empresa (reconferência da DL-085, R1). Só quando
+    # não há lote em andamento: a repetição do mesmo ato não precisa dela.
+    previa_inteira = None
+    if _lote_em_andamento(empresa, competencia) is None:
+        previa_inteira = _calcular(empresa, ano, mes, None)
     with transaction.atomic():
         travada = receita_servico.travar_empresa(empresa)
         aberto = _lote_em_andamento(travada, competencia)
@@ -1383,6 +1399,14 @@ def confirmar_lote(
             lote = aberto
         else:
             lote = _criar_lote(
-                travada, ano, mes, assinatura, escolhas or {}, usuario, request, grupos
+                travada,
+                ano,
+                mes,
+                assinatura,
+                escolhas or {},
+                usuario,
+                request,
+                grupos,
+                previa_inteira=previa_inteira,
             )
     return _continuar(lote, usuario, request, limite)

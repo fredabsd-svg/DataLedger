@@ -915,7 +915,7 @@ def _dados_fiscal(request, escopo):
                 "tomadas e NF-e e NFC-e de saída e devolução de venda. Apura para conferência "
                 "a receita e o pré-DAS de serviços do Simples, o ISS, as retenções federais "
                 "e o IRPJ e a CSLL do Lucro Presumido. Ainda não emite documentos, não gera "
-                "guias, não transmite obrigações, não escritura notas de entrada, não calcula "
+                "guias, não transmite obrigações, não escritura compras de mercadoria, não calcula "
                 "o pré-DAS de comércio e indústria, nem apura ICMS, PIS/Cofins, IPI ou IBS/CBS. "
                 "Livros fiscais e obrigações acessórias também não existem."
             ),

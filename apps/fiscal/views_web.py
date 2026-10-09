@@ -7968,7 +7968,8 @@ def _linha_do_grupo_no_lote(grupo, posicao, preenchido):
         "devolucao_ptbr": _valor_ptbr(grupo.devolucao),
         # Nome próprio da caixa "incluir": sem ele, todas as caixas se chamam igual para o leitor de
         # tela. Traz a posição, para ser único mesmo se dois grupos tiverem o mesmo CFOP e natureza.
-        "rotulo_acessivel": "Incluir o grupo {}: {}".format(
+        # WCAG 2.5.3 (reconferência da DL-085, R5): o nome acessível começa pelo rótulo visível.
+        "rotulo_acessivel": "Incluir este grupo ({}: {})".format(
             posicao,
             "; ".join(
                 f"CFOP {combinacao.cfop}, CST ou CSOSN {combinacao.cst_csosn or '—'}, "

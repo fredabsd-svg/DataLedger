@@ -634,7 +634,7 @@ def _acoes_rapidas_do_painel(*, papel, empresas_da_carteira):
         acoes.append(
             {
                 "chave": "receber-nfse",
-                "rotulo": "Receber NFS-e",
+                "rotulo": "Receber notas",
                 "url": url_recepcao,
                 "icone": "fiscal",
             }

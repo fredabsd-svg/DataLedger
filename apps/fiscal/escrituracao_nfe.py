@@ -606,6 +606,9 @@ def _travar_vinculo(vinculo: VinculoNFeEmpresa) -> VinculoNFeEmpresa:
     return (
         VinculoNFeEmpresa.objects.select_for_update(of=("self",))
         .select_related("documento", "empresa__escritorio")
+        # O XML original não é usado aqui; carregá-lo a cada nota pesava no lote (DL-085, R2).
+        # Quem precisa dele (a leitura dos itens) o carrega sob demanda.
+        .defer("documento__xml_original")
         .get(pk=vinculo.pk)
     )
 
@@ -736,6 +739,7 @@ def definir_natureza(
     travada = (
         EscrituracaoNFe.objects.select_for_update(of=("self",))
         .select_related("vinculo__documento", "empresa__escritorio")
+        .defer("vinculo__documento__xml_original")
         .get(pk=escrituracao.pk)
     )
     if travada.estado != EstadoEscrituracao.RASCUNHO:
@@ -846,6 +850,7 @@ def _travar_rascunho(escrituracao: EscrituracaoNFe, ids: list[int]):
     travada = (
         EscrituracaoNFe.objects.select_for_update(of=("self",))
         .select_related("vinculo__documento", "empresa__escritorio")
+        .defer("vinculo__documento__xml_original")
         .get(pk=escrituracao.pk)
     )
     if travada.estado != EstadoEscrituracao.RASCUNHO:
@@ -1101,6 +1106,7 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
     travada = (
         EscrituracaoNFe.objects.select_for_update(of=("self",))
         .select_related("vinculo__documento", "empresa__escritorio")
+        .defer("vinculo__documento__xml_original")
         .get(pk=escrituracao.pk)
     )
     if travada.estado == EstadoEscrituracao.EFETIVADA:

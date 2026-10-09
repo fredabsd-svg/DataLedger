@@ -43,6 +43,17 @@ feita pelo `auditor-qa` sobre a versão integrada.
    tiver uma lista de afirmações proibidas, entram nela as frases desmentidas
    do fiscal, para que não voltem.
 
+## Resultado
+
+- Integrada na branch.
+- A [verificação](../auditorias/2026-10-09-dl-085-reconferencia-e-dl-086.md)
+  foi **aprovada com ressalvas**.
+- Os indicadores de NF-e do painel (item 3) **não** entraram: precisam de
+  uma função de leitura no fiscal, sem consulta por empresa na página
+  inicial, e ficam no BL-681, item 2.
+- Os textos remanescentes (R9) e a guarda das superfícies de interface (R8)
+  foram ajustados pelo arquiteto.
+
 ## Critérios de aceite
 
 1. Nenhum dos arquivos acima afirma que o fiscal "só recebe NFS-e" ou que a

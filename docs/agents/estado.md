@@ -21,7 +21,7 @@ Regras deste arquivo, aprendidas com defeito:
 
 ## Resumo
 
-Medido em 25/09/2026 no código e no Git, não copiado de documento anterior; remedido em 30/09/2026 (análise do repositório que originou a DL-052).
+Medido em 25/09/2026 no código e no Git, não copiado de documento anterior; remedido em 30/09/2026 (análise do repositório que originou a DL-052); a linha do Fiscal foi remedida em 09/10/2026 (revisão da RC-175). A linha de base de testes vigente está em [Próximo passo](#próximo-passo).
 
 | Área | O que existe hoje |
 | --- | --- |
@@ -439,7 +439,11 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
       com ressalvas**. Não houve achado alto; A1 a A3 são médios.
     - **Correção única integrada** (`7f723d1`), mais o ajuste do arquiteto
       no resíduo do A5 (`5ca0d5f`): a criação individual do rascunho trava a
-      empresa antes do vínculo. Próximo: a reconferência.
+      empresa antes do vínculo.
+    - [Reconferência](../auditorias/2026-10-09-dl-085-reconferencia-e-dl-086.md)
+      **aprovada com ressalvas**. Os ajustes do arquiteto R1 a R5, R8 e R9
+      estão integrados; R6, R7 e o resto foram para o BL-689. Próximo: o PR
+      (junto com a DL-082 e a DL-086, que estão na mesma branch).
 
 15. **[DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md):** a
     frente A está em andamento em paralelo (Haiku, cópia `dl082` sobre

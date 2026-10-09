@@ -820,7 +820,7 @@ TRECHOS_QUE_NAO_EXISTEM = (
     "não emite documentos",
     "não gera guias",
     "não transmite obrigações",
-    "não escritura notas de entrada",
+    "não escritura compras de mercadoria",
     "não calcula o pré-DAS de comércio e indústria",
     "ICMS, PIS/Cofins, IPI ou IBS/CBS",
     "Livros fiscais e obrigações acessórias também não existem",
@@ -856,7 +856,7 @@ def test_banner_fiscal_chega_ao_html_da_home(client, cenario):
     resposta = client.get(_url("fiscal"), {"empresa": "todas", "competencia": "2026-09"})
     html = resposta.content.decode()
     assert BANNER_FISCAL in html
-    assert "não escritura notas de entrada" in html
+    assert "não escritura compras de mercadoria" in html
 
 
 def test_banner_fiscal_nao_volta_a_dizer_que_so_recebe_nfse(client, cenario):

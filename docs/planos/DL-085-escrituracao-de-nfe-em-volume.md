@@ -149,6 +149,27 @@ para a correção única:
 - **Testes T1 a T10** do auditor, inclusive dois lotes em andamento ao
   mesmo tempo.
 
+## Decisões tomadas na reconferência (ajustes do arquiteto, §3.1)
+
+A [reconferência](../auditorias/2026-10-09-dl-085-reconferencia-e-dl-086.md)
+foi **aprovada com ressalvas**: A1 a A6 e A9 fechados, sem achado alto.
+Ajustes do arquiteto, com teste em `test_dl085_ajustes_do_arquiteto.py`:
+
+- **R1 (média):** a confirmação calcula a prévia **antes** de travar a
+  empresa. Com 10.000 notas, segurar a trava por mais de 3 s derrubava a
+  recepção e a escrituração individual da mesma empresa por `lock_timeout`.
+- **R2:** a efetivação não carrega mais o XML original. Agora há `defer` na
+  trava do vínculo e nas três travas da escrituração.
+- **R3:** comentários atualizados depois do ajuste da ordem de travas.
+- **R4:** testes do rascunho vazio no lote (N8) e da nova tentativa por
+  deadlock (N13, N14, N42).
+- **R5:** o nome acessível da caixa começa pelo rótulo visível (WCAG
+  2.5.3).
+- **R8 e R9 (DL-086):** textos corrigidos na página pública, no seletor
+  ("Receber notas") e no banner ("compras de mercadoria"), e uma guarda das
+  superfícies de interface.
+- **R6, R7 e o resto:** foram para o BL-689.
+
 ## Critérios de aceite
 
 1. A prévia agrupa certo e lista cada nota fora do lote com o motivo.
