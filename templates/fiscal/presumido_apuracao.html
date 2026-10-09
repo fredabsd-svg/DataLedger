@@ -15,6 +15,8 @@
 DL-079 (frente B), tela 6: a MEMÓRIA DE CONFERÊNCIA do trimestre. Classe 1 de documento
 (personalizacao-de-relatorio.md): não é guia nem DARF. Esta tela não calcula: mostra o que o
 serviço apurou, com as três colunas (sem LC 224, com LC 224 e a parcela) em cada tributo.
+DL-083 (frente B): a memória mostra as linhas de NF-e, a devolução deduzida e o saldo que passa; as
+recusas de NF-e (não escriturada, serviço conjugado, devolução de combustível) saem na lista de recusas.
 {% endcomment %}
 {% block titulo_pagina %}<h1>Apuração do trimestre</h1>{% endblock %}
 
@@ -89,6 +91,51 @@ serviço apurou, com as três colunas (sem LC 224, com LC 224 e a parcela) em ca
                     {% endfor %}
                 </tbody>
             </table>
+        {% endif %}
+
+        {% if apuracao.nfe %}
+            <table class="tabela-dados">
+                <caption>Linhas de NF-e que compõem a receita de presunção do trimestre, com a natureza, o CFOP e a atividade de cada uma</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Origem</th>
+                        <th scope="col">Nota</th>
+                        <th scope="col">Competência</th>
+                        <th scope="col">Natureza</th>
+                        <th scope="col">CFOP</th>
+                        <th scope="col">Atividade</th>
+                        <th scope="col">Papel</th>
+                        <th scope="col">Valor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in apuracao.nfe %}
+                        <tr>
+                            <td>{{ linha.origem }}</td>
+                            <td>nº {{ linha.numero }}</td>
+                            <td>{{ linha.competencia }}</td>
+                            <td>{{ linha.natureza }}</td>
+                            <td>{{ linha.cfop }}</td>
+                            <td>{{ linha.atividade }}</td>
+                            <td>{{ linha.papel }}</td>
+                            <td class="valor-monetario">{{ linha.valor }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+
+        {% if apuracao.mostra_devolucao %}
+            <dl class="lista-de-definicao">
+                <div>
+                    <dt>Devolução de NF-e deduzida neste trimestre (comércio e indústria)</dt>
+                    <dd class="valor-monetario">{{ apuracao.devolucao_deduzida }}</dd>
+                </div>
+                <div>
+                    <dt>Saldo de devolução de NF-e que passa ao trimestre seguinte</dt>
+                    <dd class="valor-monetario">{{ apuracao.saldo_devolucao_transportado }}</dd>
+                </div>
+            </dl>
         {% endif %}
 
         {% if apuracao.receitas %}

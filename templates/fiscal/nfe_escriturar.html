@@ -182,7 +182,12 @@ serviço diz se a nota confere, e o servidor recusa de novo no POST, por mais qu
                             <td>{{ linha.cst_csosn }}</td>
                             <td>{{ linha.ncm }}</td>
                             <td class="valor-monetario">{{ linha.v_prod_ptbr }}</td>
-                            <td class="valor-monetario">{{ linha.receita_ptbr }}</td>
+                            <td class="valor-monetario">
+                                {{ linha.receita_ptbr }}
+                                {% for aviso in linha.avisos %}
+                                    <br><span class="texto-apoio">{{ aviso }}</span>
+                                {% endfor %}
+                            </td>
                             <td>
                                 {% if rascunho and pode_escriturar %}
                                     <form method="post" action="{{ url_escriturar }}" class="formulario">
@@ -242,7 +247,7 @@ serviço diz se a nota confere, e o servidor recusa de novo no POST, por mais qu
                             </thead>
                             <tbody>
                                 <tr>
-                                    <th scope="row">Receita dos itens (indTot 1)</th>
+                                    <th scope="row">Receita dos itens (soma da receita de cada item)</th>
                                     <td class="valor-monetario">{{ conferencia.receita_ptbr }}</td>
                                 </tr>
                                 <tr>
