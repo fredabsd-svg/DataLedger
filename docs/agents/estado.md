@@ -311,8 +311,11 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    [rodada 1](../auditorias/2026-10-09-dl-080-rodada-1.md) REPROVADA por A1
    (data absurda aceita travava a lista e o relatório do lote com erro de
    servidor); correção única `392af42` (A1 a A9; suíte do desenvolvedor
-   8.188 aprovados, 1 reprovado de ambiente, 53 pulados), em
-   reconferência.** O núcleo se sustentou: nenhuma empresa
+   8.188 aprovados, 1 reprovado de ambiente, 53 pulados);
+   [reconferência](../auditorias/2026-10-09-dl-080-reconferencia.md)
+   APROVADA COM RESSALVAS (8.178 aprovados sem a variável do XSD, 1
+   reprovado de ambiente, 53 pulados). R1 a R3 fechados por ajuste do
+   arquiteto; R4 a R7 no BL-684. Em integração na branch e PR.** O núcleo se sustentou: nenhuma empresa
    ligada por chave ou terceiros, nenhuma cancelada como válida, nenhum
    vazamento entre escritórios; suíte 8.083 aprovados, 1 reprovado
    (ambiente), 53 pulados.

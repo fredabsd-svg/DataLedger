@@ -160,8 +160,9 @@ escritórios. Correção única:
   155 têm efeito.
 - **Leniências do leitor** (A8): `nfeProc` com mais de uma nota recusado;
   retorno do evento com tipo ou sequência diferentes do evento recusado; CNPJ
-  da chave conferido com o do emitente, exceto nas séries 890 a 919, em que
-  a chave leva o documento da SEFAZ (MOC 7.0, tabela 2-4).
+  da chave conferido com o do emitente, exceto nas séries 890 a 899, em que
+  a chave leva o CNPJ da SEFAZ (MOC 7.0, Tabela 2-4; em 900 a 919 a chave
+  leva o documento do próprio emitente).
 - **Totais da tela** (A5): a soma do `vNF` das autorizadas sai separada por
   direção (saídas, entradas); a cancelada continua fora.
 - **Testes** (A4, A6): os casos que os mutantes sobreviventes expuseram e o
@@ -171,6 +172,22 @@ escritórios. Correção única:
   recebida", nome do módulo de recepção).
 - **Imutabilidade sem gatilho** (A10): aceita nesta fatia, como na NFS-e;
   BL-683.
+
+## Decisões tomadas na reconferência
+
+[Reconferência](../auditorias/2026-10-09-dl-080-reconferencia.md): aprovada com
+ressalvas; A1 a A9 fechados, o núcleo do risco firme. Pela regra de parada do
+§3.1 não houve nova correção:
+
+- **R1** (o teste que protegia "a chave não liga empresa" perdeu força) e
+  **R2** (a exceção de séries era 890 a 919; o MOC 7.0, Tabela 2-4, lido em
+  09/10/2026, só põe o CNPJ da SEFAZ na chave em 890 a 899): ajuste do
+  arquiteto, com teste de serviço que derruba o mutante de ligar pela chave.
+- **R3** (dois `protNFe` ou protocolo de homologação aceitos): recusados.
+- **R4** (o cStat 136 sem aviso na lista de órfãos e o campo `registrado` da
+  API), **R5** (textos da página inicial e do cartão do módulo ainda dizem
+  "NFS-e"), **R6** (coluna cortada em 1280 px) e **R7** (validação do corpus
+  contra o XSD só com variável de ambiente): BL-684.
 
 ## Critérios de aceite
 
