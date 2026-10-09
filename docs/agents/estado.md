@@ -309,7 +309,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    `67fb073`, frente B `b41c8ed`);
    [rodada 1](../auditorias/2026-10-09-dl-080-rodada-1.md) REPROVADA por A1
    (data absurda aceita travava a lista e o relatório do lote com erro de
-   servidor), em correção única.** O núcleo se sustentou: nenhuma empresa
+   servidor); correção única `392af42` (A1 a A9; suíte do desenvolvedor
+   8.188 aprovados, 1 reprovado de ambiente, 53 pulados), em
+   reconferência.** O núcleo se sustentou: nenhuma empresa
    ligada por chave ou terceiros, nenhuma cancelada como válida, nenhum
    vazamento entre escritórios; suíte 8.083 aprovados, 1 reprovado
    (ambiente), 53 pulados.

@@ -91,7 +91,8 @@ por engano num cálculo de NFS-e.
      estabelecimentos" (HI-111).
 6. **Eventos** (`procEventoNFe`):
    - O evento é guardado sempre, inclusive órfão.
-   - Ele só tem efeito com `retEvento/cStat` 135, 136 ou 155.
+   - Ele só tem efeito com `retEvento/cStat` 135 ou 155 (HI-116; o 136 é
+     guardado com aviso).
    - Tornam a nota **cancelada** o 110111 e o 110112.
    - Os demais (carta de correção, manifestações, eventos da reforma, 110001)
      são guardados e listados, sem mudar a situação.
@@ -159,8 +160,8 @@ escritórios. Correção única:
   155 têm efeito.
 - **Leniências do leitor** (A8): `nfeProc` com mais de uma nota recusado;
   retorno do evento com tipo ou sequência diferentes do evento recusado; CNPJ
-  da chave conferido com o do emitente fora da faixa de séries da SEFAZ (890
-  a 999).
+  da chave conferido com o do emitente, exceto nas séries 890 a 919, em que
+  a chave leva o documento da SEFAZ (MOC 7.0, tabela 2-4).
 - **Totais da tela** (A5): a soma do `vNF` das autorizadas sai separada por
   direção (saídas, entradas); a cancelada continua fora.
 - **Testes** (A4, A6): os casos que os mutantes sobreviventes expuseram e o
