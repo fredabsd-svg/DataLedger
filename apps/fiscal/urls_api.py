@@ -46,6 +46,19 @@ from apps.fiscal.api import (
     RetencoesFederaisTomadoView,
     RetidoSofridoIssView,
 )
+from apps.fiscal.api_presumido import (
+    ApuracaoPresumidoView,
+    AtividadesPresumidoView,
+    CriterioPresumidoView,
+    DeclaracaoIntegraisPresumidoView,
+    EncerrarAtividadePresumidoView,
+    EstornarReceitaPresumidoView,
+    LimitePresumidoView,
+    MedidasPresumidoView,
+    ReceitasPresumidoView,
+    RetencoesPresumidoView,
+    RevogarMedidaPresumidoView,
+)
 
 app_name = "fiscal_api"
 
@@ -244,5 +257,61 @@ urlpatterns = [
         "empresas/<int:empresa_id>/iss/outros-municipios/",
         OutrosMunicipiosIssView.as_view(),
         name="outros_municipios_iss",
+    ),
+    # DL-079 (frente A): Lucro Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224.
+    path(
+        "empresas/<int:empresa_id>/presumido/atividades/",
+        AtividadesPresumidoView.as_view(),
+        name="presumido_atividades",
+    ),
+    path(
+        "empresas/<int:empresa_id>/presumido/atividades/<int:atividade_id>/encerrar/",
+        EncerrarAtividadePresumidoView.as_view(),
+        name="presumido_encerrar_atividade",
+    ),
+    path(
+        "empresas/<int:empresa_id>/presumido/criterio/",
+        CriterioPresumidoView.as_view(),
+        name="presumido_criterio",
+    ),
+    path(
+        "empresas/<int:empresa_id>/presumido/receitas/",
+        ReceitasPresumidoView.as_view(),
+        name="presumido_receitas",
+    ),
+    path(
+        "empresas/<int:empresa_id>/presumido/receitas/<int:receita_id>/estornar/",
+        EstornarReceitaPresumidoView.as_view(),
+        name="presumido_estornar_receita",
+    ),
+    path(
+        "empresas/<int:empresa_id>/presumido/integrais/",
+        DeclaracaoIntegraisPresumidoView.as_view(),
+        name="presumido_integrais",
+    ),
+    path(
+        "empresas/<int:empresa_id>/presumido/retencoes/",
+        RetencoesPresumidoView.as_view(),
+        name="presumido_retencoes",
+    ),
+    path(
+        "empresas/<int:empresa_id>/presumido/medidas/",
+        MedidasPresumidoView.as_view(),
+        name="presumido_medidas",
+    ),
+    path(
+        "empresas/<int:empresa_id>/presumido/medidas/<int:medida_id>/revogar/",
+        RevogarMedidaPresumidoView.as_view(),
+        name="presumido_revogar_medida",
+    ),
+    path(
+        "empresas/<int:empresa_id>/presumido/apuracao/",
+        ApuracaoPresumidoView.as_view(),
+        name="presumido_apuracao",
+    ),
+    path(
+        "empresas/<int:empresa_id>/presumido/limite/",
+        LimitePresumidoView.as_view(),
+        name="presumido_limite",
     ),
 ]

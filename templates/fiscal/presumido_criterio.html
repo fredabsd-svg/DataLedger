@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block titulo %}Critério de receita do ano{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-079 (frente B), tela 2. O critério do ano é definido uma vez: trocar depois é conflito. Caixa
+mostra a recusa nomeada (IN RFB 1.700/2017, art. 223); a apuração não sai com esse critério.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Critério de receita do ano</h1>{% endblock %}
+
+{% block content %}
+    {% include "fiscal/_filtro_presumido.html" %}
+
+    {% if erro %}
+        <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+    {% endif %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa e o ano para ver o critério.</strong></p>
+        </div>
+    {% elif ano_filtro %}
+        <h2>Critério de {{ ano_filtro }}</h2>
+        <p>Situação: <strong>{{ criterio_rotulo }}</strong></p>
+
+        {% if recusa_caixa %}
+            <p class="mensagem mensagem-warning" role="status"><strong>Recusa:</strong> {{ recusa_caixa }}</p>
+        {% endif %}
+
+        {% if pode_escriturar %}
+            <form method="post" action="{{ url_gravar }}" class="formulario">
+                {% csrf_token %}
+                <input type="hidden" name="ano" value="{{ ano_filtro }}">
+                <fieldset class="campo">
+                    <legend>Critério de receita de {{ ano_filtro }}</legend>
+                    <p class="texto-apoio" id="ajuda_criterio">
+                        Competência: a receita da nota conta no mês da competência. Caixa: regime que este produto não apura. Escolha uma vez por ano.
+                    </p>
+                    {% for valor, rotulo in opcoes_criterio %}
+                        <div class="campo-radio">
+                            <input type="radio" id="id_criterio_{{ valor }}" name="criterio" value="{{ valor }}" aria-describedby="ajuda_criterio"{% if valor == criterio %} checked{% endif %}>
+                            <label for="id_criterio_{{ valor }}">{{ rotulo }}</label>
+                        </div>
+                    {% endfor %}
+                </fieldset>
+                <div class="acoes-formulario">
+                    <button type="submit" class="botao botao--primario">Gravar critério</button>
+                </div>
+            </form>
+        {% else %}
+            <p class="texto-apoio" id="ajuda_sem_permissao">Seu papel consulta o critério, mas não o define.</p>
+            <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao">Gravar critério</button>
+        {% endif %}
+    {% endif %}
+{% endblock %}

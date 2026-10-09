@@ -1013,6 +1013,22 @@ def _dados_fiscal(request, escopo):
                 ),
             }
         )
+        # DL-079 (frente B): Lucro Presumido. Mesma permissão de consulta; a tela de apuração pede
+        # UMA empresa, e sem ela a própria tela pede a escolha. O trimestre é o do mês do escopo.
+        atalhos.append(
+            {
+                "rotulo": "Lucro Presumido (apuração do trimestre)",
+                "url": reverse("fiscal_web:presumido_apuracao")
+                + "?"
+                + urlencode(
+                    {
+                        "ano": escopo.ano,
+                        "trimestre": (escopo.mes - 1) // 3 + 1,
+                        **({"empresa": empresas[0].pk} if len(empresas) == 1 else {}),
+                    }
+                ),
+            }
+        )
         # DL-076 (frente B): apuração do ISS próprio do município. Mesma permissão de consulta; a
         # tela pede UMA empresa, e sem ela a própria tela pede a escolha.
         atalhos.append(

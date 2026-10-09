@@ -396,6 +396,12 @@ def mensagens_de_gatilho(*nomes):
 # elas traduzem para exceções de negócio DIFERENTES, com semântica de HTTP
 # diferente (409 de conflito de idempotência não é 400 de entrada inválida).
 RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
+    # DL-079 (frente A): as três restrições ÚNICAS do presumido que um clique pode alcançar por
+    # corrida (dois POST ao mesmo tempo) passam por `apps.fiscal.presumido._inserir`, que traduz a
+    # violação em conflito (409), e não em 500. A pré-verificação do serviço vem antes.
+    "presumido_padrao_unica_em_aberto": "apps.fiscal.presumido._inserir",
+    "presumido_criterio_unico_por_ano": "apps.fiscal.presumido._inserir",
+    "presumido_confirmacao_ativa_unica_por_escrituracao": "apps.fiscal.presumido._inserir",
     # DL-077 (fatia 3, frente A): as unicidades da importação de lançamentos são checadas pelo
     # serviço antes de gravar (`receber` recusa o arquivo repetido com 409; o IntegrityError de
     # corrida é reconvertido ali) e o de-para é gravado por `definir_de_para` (update_or_create).
@@ -563,6 +569,64 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
 # nenhum. A forma como a restrição foi DECLARADA não muda o que acontece
 # quando ela é violada.
 RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
+    # DL-079 (frente A): restrições CHECK do Lucro Presumido. O serviço
+    # (`apps.fiscal.presumido`) valida cada campo ANTES do INSERT/UPDATE, com mensagem nomeada, e a
+    # API só passa valores que o serviço aceita; nenhuma entrada do cliente alcança estas linhas
+    # sem passar pela validação. Só SQL direto (ou um caminho futuro sem validação) as viola.
+    "presumido_atividade_fim_depois_do_inicio": (
+        "Vigência com fim anterior ao início: o serviço recusa antes. "
+    ),
+    "presumido_atividade_valida": (
+        "Atividade fora do catálogo fechado (presumido_tabelas): o serviço recusa antes. "
+    ),
+    "presumido_hospitalar_exige_requisitos": (
+        "Serviço hospitalar sem os requisitos confirmados: o serviço recusa antes. "
+    ),
+    "presumido_criterio_valido": "Critério fora de competência e caixa: o serviço recusa antes.",
+    "presumido_criterio_ano_valido": "Ano fora de 1970 a 2999: o serviço recusa antes.",
+    "presumido_receita_trimestre_valido": "Trimestre fora de 1 a 4: o serviço recusa antes.",
+    "presumido_receita_ano_valido": "Ano fora de 1970 a 2999: o serviço recusa antes.",
+    "presumido_receita_atividade_conforme_tipo": (
+        "Receita de presunção sem atividade, ou integral com atividade: o serviço recusa antes. "
+    ),
+    "presumido_receita_valor_positivo": "Receita com valor não positivo: o serviço recusa antes.",
+    "presumido_receita_suporte_obrigatorio": (
+        "Receita sem documento de suporte: o serviço recusa antes. "
+    ),
+    "presumido_receita_estado_coerente": (
+        "Estado da receita fora de sincronia com o estorno: só o serviço de estorno escreve o "
+        "estado. "
+    ),
+    "presumido_declaracao_trimestre_valido": "Trimestre fora de 1 a 4: o serviço recusa antes.",
+    "presumido_declaracao_total_nao_negativo": (
+        "Total de integrais negativo: o total é calculado pelo serviço, nunca digitado. "
+    ),
+    "presumido_confirmacao_irrf_nao_negativo": "IRRF confirmado negativo: o serviço recusa antes.",
+    "presumido_confirmacao_csll_nao_negativa": "CSLL confirmada negativa: o serviço recusa antes.",
+    "presumido_confirmacao_ao_menos_um_valor": (
+        "Confirmação sem nenhum valor: o serviço recusa antes. "
+    ),
+    "presumido_confirmacao_estado_valido": (
+        "Estado da confirmação fora de ativa e substituída: só o serviço escreve o estado. "
+    ),
+    "presumido_medida_trimestre_inicial_valido": (
+        "Trimestre inicial fora de 1 a 4: o serviço recusa antes. "
+    ),
+    "presumido_medida_trimestre_final_valido": (
+        "Trimestre final fora de 1 a 4: o serviço recusa antes. "
+    ),
+    "presumido_medida_fim_completo_ou_indeterminado": (
+        "Fim da medida pela metade: o serviço recusa antes. "
+    ),
+    "presumido_medida_fim_depois_do_inicio": (
+        "Período da medida com fim anterior ao início: o serviço recusa antes. "
+    ),
+    "presumido_medida_tributo_valido": (
+        "Tributo da medida fora de irpj, csll e ambos: o serviço recusa antes. "
+    ),
+    "presumido_medida_ativa_coerente": (
+        "Revogação sem motivo ou data: só o serviço de revogação escreve estes campos. "
+    ),
     # DL-077 (fatia 3, frente A): restrições de domínio fechado escritas só pelo serviço.
     "ck_importacao_lancamentos_estado_valido": (
         "O estado da importação é escrito só pelo serviço de importação, com os três valores do "

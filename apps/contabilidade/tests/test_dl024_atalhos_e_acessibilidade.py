@@ -1248,6 +1248,38 @@ NOMES_DE_TELA_DOS_SERVICOS_TOMADOS = {
     ),
 }
 
+# DL-079 (frente B, apps/fiscal/tests/test_dl079_telas.py): telas do Lucro Presumido, IRPJ e CSLL.
+# Ficam AQUI pelo mesmo motivo das de DL-078: as rotas precisam de ids do cenário (empresa,
+# atividade, receita, nota, medida). Cada nome aponta para os testes que o cobrem.
+NOMES_DE_TELA_DO_LUCRO_PRESUMIDO = {
+    "fiscal_web:presumido_atividades": (
+        "test_fluxo_completo_pela_tela_bate_com_o_exemplo_da_consulta"
+    ),
+    "fiscal_web:presumido_atividade_nova": (
+        "test_acessibilidade_das_telas_do_presumido, test_recusas_nao_gravam_nada"
+    ),
+    "fiscal_web:presumido_atividade_encerrar": (
+        "test_acessibilidade_das_telas_do_presumido, test_recusas_nao_gravam_nada"
+    ),
+    "fiscal_web:presumido_criterio": "test_controle_do_limite_pela_tela_mostra_o_caso_e_a_sobra",
+    "fiscal_web:presumido_criterio_gravar": (
+        "test_fluxo_completo_pela_tela_bate_com_o_exemplo_da_consulta, test_recusas_nao_gravam_nada"
+    ),
+    "fiscal_web:presumido_receitas": "test_paralegal_le_e_nao_ve_o_botao_de_escrita",
+    "fiscal_web:presumido_receita_nova": (
+        "test_fluxo_completo_pela_tela_bate_com_o_exemplo_da_consulta"
+    ),
+    "fiscal_web:presumido_receita_estornar": "test_recusas_nao_gravam_nada",
+    "fiscal_web:presumido_integrais_declarar": "test_recusas_nao_gravam_nada",
+    "fiscal_web:presumido_retencoes": "test_acessibilidade_das_telas_do_presumido",
+    "fiscal_web:presumido_retencao_confirmar": "test_recusas_nao_gravam_nada",
+    "fiscal_web:presumido_medidas": "test_medida_cadastrada_e_revogada_pela_tela",
+    "fiscal_web:presumido_medida_nova": "test_medida_cadastrada_e_revogada_pela_tela",
+    "fiscal_web:presumido_medida_revogar": "test_medida_cadastrada_e_revogada_pela_tela",
+    "fiscal_web:presumido_apuracao": "test_fluxo_completo_pela_tela_bate_com_o_exemplo_da_consulta",
+    "fiscal_web:presumido_limite": "test_controle_do_limite_pela_tela_mostra_o_caso_e_a_sobra",
+}
+
 # DL-046, fatia 1 (especialista-frontend): as SEIS telas HTML de
 # `apps.livro_caixa.views_web` — mesmo papel de `NOMES_DE_TELA_FISCAL_
 # FORA_DA_CONTABILIDADE`, LOCAL a este arquivo pelo MESMO motivo declarado
@@ -1387,6 +1419,7 @@ def test_toda_rota_do_produto_esta_coberta_ou_excluida():
         | set(NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE)
         | set(NOMES_DE_TELA_DOS_SERVICOS_TOMADOS)
         | set(NOMES_DE_TELA_LIVRO_CAIXA_FORA_DA_CONTABILIDADE)
+        | set(NOMES_DE_TELA_DO_LUCRO_PRESUMIDO)
     )
     excluidas = set(EXCLUSOES_NOMEADAS_DE_TELA)
 

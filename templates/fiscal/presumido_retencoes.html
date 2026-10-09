@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block titulo %}Retenções do trimestre{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-079 (frente B), tela 4. O IRRF e a CSLL aparecem PROPOSTOS, com a marca da regra. Só o valor
+confirmado pelo contador entra na apuração (HI-102, HI-103). A CSLL de tpRetPisCofins 3 é
+estimada por 1/4,65 e vem marcada; código ambíguo fica "a classificar", sem valor.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Retenções do trimestre</h1>{% endblock %}
+
+{% block content %}
+    {% include "fiscal/_filtro_presumido.html" with mostrar_trimestre=True %}
+
+    {% if erro %}
+        <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+    {% endif %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa, o ano e o trimestre para ver as retenções.</strong></p>
+        </div>
+    {% elif trimestre_rotulo %}
+        <h2>{{ trimestre_rotulo }}: retenções por nota</h2>
+        <p class="texto-apoio">
+            A proposta vem da nota. Só o que você confirma entra na dedução, e o motivo é obrigatório quando o valor confirmado difere do proposto.
+        </p>
+
+        {% if retencoes %}
+            <table class="tabela-dados">
+                <caption>Retenções sofridas por nota de serviço prestado: proposta, marca e confirmação ativa</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Nota</th>
+                        <th scope="col">Competência</th>
+                        <th scope="col">Valor do serviço</th>
+                        <th scope="col">IRRF proposto</th>
+                        <th scope="col">CSLL proposta</th>
+                        <th scope="col">IRRF confirmado</th>
+                        <th scope="col">CSLL confirmada</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in retencoes %}
+                        <tr>
+                            <td>{{ linha.numero }}</td>
+                            <td class="valor-monetario">{{ linha.competencia }}</td>
+                            <td class="valor-monetario">{{ linha.valor }}</td>
+                            <td class="valor-monetario">{{ linha.irrf_proposto }}</td>
+                            <td>{{ linha.csll_proposta }}</td>
+                            <td class="valor-monetario">{{ linha.irrf_confirmado }}</td>
+                            <td class="valor-monetario">{{ linha.csll_confirmada }}</td>
+                            <td>
+                                {% if linha.url_confirmar %}
+                                    <a class="botao botao--secundario botao--pequeno" href="{{ linha.url_confirmar }}">Confirmar</a>
+                                {% else %}
+                                    <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Confirmar</button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if not pode_escriturar %}
+                <p class="texto-apoio" id="ajuda_sem_permissao">Seu papel consulta as retenções, mas não confirma.</p>
+            {% endif %}
+        {% else %}
+            <div class="estado-vazio">
+                <p class="estado-vazio__titulo"><strong>Nenhuma nota prestada efetivada neste trimestre.</strong></p>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}

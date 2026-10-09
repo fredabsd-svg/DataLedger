@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block titulo %}Nova medida judicial — {{ empresa_selecionada.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa_selecionada.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Medidas judiciais</a></li>
+            <li aria-current="page">Nova medida judicial</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para as medidas</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-079 (frente B), arquétipo B. A pergunta antes de gravar: a medida cobre quais tributos e quais
+trimestres? Sem o trimestre final, a medida vale sem prazo. A medida não apaga nada: depois, só
+pode ser revogada com motivo.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Nova medida judicial</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa">
+        <h2>O que vai acontecer</h2>
+        <p>
+            A parcela da LC 224 do tributo, nos trimestres cobertos, deixa de entrar no a recolher: a coluna
+            usada é a sem acréscimo, e a parcela aparece como suspensa, ou a depositar em juízo.
+        </p>
+    </div>
+
+    <form method="post" action="{{ url_envio }}" class="formulario">
+        {% csrf_token %}
+        <div class="campo">
+            <label for="id_tributo">Tributo</label>
+            <select id="id_tributo" name="tributo" required>
+                {% for valor, rotulo in opcoes_tributo %}
+                    <option value="{{ valor }}"{% if valor == valores.tributo %} selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_ano_inicial">Ano do início</label>
+            <input type="text" id="id_ano_inicial" name="ano_inicial" value="{{ valores.ano_inicial }}" inputmode="numeric" maxlength="4" required>
+        </div>
+        <div class="campo">
+            <label for="id_trimestre_inicial">Trimestre do início</label>
+            <select id="id_trimestre_inicial" name="trimestre_inicial" required>
+                <option value="1"{% if valores.trimestre_inicial == "1" %} selected{% endif %}>1º trimestre</option>
+                <option value="2"{% if valores.trimestre_inicial == "2" %} selected{% endif %}>2º trimestre</option>
+                <option value="3"{% if valores.trimestre_inicial == "3" %} selected{% endif %}>3º trimestre</option>
+                <option value="4"{% if valores.trimestre_inicial == "4" %} selected{% endif %}>4º trimestre</option>
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_ano_final">Ano do fim (em branco: sem prazo final)</label>
+            <input type="text" id="id_ano_final" name="ano_final" value="{{ valores.ano_final }}" inputmode="numeric" maxlength="4" aria-describedby="ajuda_fim">
+            <p class="texto-apoio" id="ajuda_fim">Ano e trimestre do fim juntos, ou os dois em branco.</p>
+        </div>
+        <div class="campo">
+            <label for="id_trimestre_final">Trimestre do fim (em branco: sem prazo final)</label>
+            <select id="id_trimestre_final" name="trimestre_final" aria-describedby="ajuda_fim">
+                <option value=""{% if not valores.trimestre_final %} selected{% endif %}>Sem prazo final</option>
+                <option value="1"{% if valores.trimestre_final == "1" %} selected{% endif %}>1º trimestre</option>
+                <option value="2"{% if valores.trimestre_final == "2" %} selected{% endif %}>2º trimestre</option>
+                <option value="3"{% if valores.trimestre_final == "3" %} selected{% endif %}>3º trimestre</option>
+                <option value="4"{% if valores.trimestre_final == "4" %} selected{% endif %}>4º trimestre</option>
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_numero_processo">Número do processo</label>
+            <input type="text" id="id_numero_processo" name="numero_processo" value="{{ valores.numero_processo }}" maxlength="60" required>
+        </div>
+        <div class="campo">
+            <label for="id_orgao">Órgão judicial</label>
+            <input type="text" id="id_orgao" name="orgao" value="{{ valores.orgao }}" maxlength="200" required>
+        </div>
+        <div class="campo">
+            <label for="id_data_decisao">Data da decisão</label>
+            <input type="text" id="id_data_decisao" name="data_decisao" value="{{ valores.data_decisao }}" inputmode="numeric" maxlength="10" required aria-describedby="ajuda_data">
+            <p class="texto-apoio" id="ajuda_data">Em dd/mm/aaaa.</p>
+        </div>
+        <div class="campo">
+            <label for="id_deposito_judicial">
+                <input type="checkbox" id="id_deposito_judicial" name="deposito_judicial" value="1"{% if valores.deposito_judicial %} checked{% endif %} aria-describedby="ajuda_deposito">
+                Há depósito judicial da parcela
+            </label>
+            <p class="texto-apoio" id="ajuda_deposito">Com depósito, a parcela aparece como "a depositar", e não como "suspensa".</p>
+        </div>
+        <div class="campo">
+            <label for="id_suporte">Documento de suporte</label>
+            <input type="text" id="id_suporte" name="suporte" value="{{ valores.suporte }}" maxlength="300" required>
+        </div>
+        {% if erro %}
+            <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+        {% endif %}
+        <div class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+            <button type="submit" class="botao botao--primario">Cadastrar medida</button>
+        </div>
+    </form>
+{% endblock %}

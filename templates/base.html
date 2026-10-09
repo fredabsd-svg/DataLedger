@@ -976,6 +976,64 @@
                                                     </li>
                                                 </ul>
                                             </div>
+                                            {% comment %}
+                                            DL-079 (frente B): Lucro Presumido, IRPJ e CSLL. Mesma permissão de consulta; o
+                                            servidor decide cada ação (cadastrar, confirmar, estornar, revogar) na própria tela.
+                                            {% endcomment %}
+                                            <div class="menu-grupo">
+                                                <p class="menu-grupo__rotulo" id="grupo-lucro-presumido">Lucro Presumido</p>
+                                                <ul aria-labelledby="grupo-lucro-presumido">
+                                                    <li>
+                                                        {% if pagina_atual == "presumido_atividades" %}
+                                                            <span class="item-atual" aria-current="page">Atividades de presunção</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:presumido_atividades' %}">Atividades de presunção</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "presumido_criterio" %}
+                                                            <span class="item-atual" aria-current="page">Critério do ano</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:presumido_criterio' %}">Critério do ano</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "presumido_receitas" %}
+                                                            <span class="item-atual" aria-current="page">Receitas do trimestre</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:presumido_receitas' %}">Receitas do trimestre</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "presumido_retencoes" %}
+                                                            <span class="item-atual" aria-current="page">Retenções do trimestre</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:presumido_retencoes' %}">Retenções do trimestre</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "presumido_medidas" %}
+                                                            <span class="item-atual" aria-current="page">Medidas judiciais</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:presumido_medidas' %}">Medidas judiciais</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "presumido_apuracao" %}
+                                                            <span class="item-atual" aria-current="page">Apuração do trimestre</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:presumido_apuracao' %}">Apuração do trimestre</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "presumido_limite" %}
+                                                            <span class="item-atual" aria-current="page">Controle do limite</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:presumido_limite' %}">Controle do limite</a>
+                                                        {% endif %}
+                                                    </li>
+                                                </ul>
+                                            </div>
                                         {% endwith %}
                                     </div>
                                 </details>

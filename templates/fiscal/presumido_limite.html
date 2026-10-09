@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block titulo %}Controle do limite do ano{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-079 (frente B), tela 7. O limite de R$ 1.250.000,00 por trimestre tem sobra para o trimestre
+seguinte, por tributo (IN RFB 2.305/2025, art. 15, § 4º, na redação da IN 2.306/2026). No 4º
+trimestre, o caso I, II ou III e a dedução aparecem. Somente leitura.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Controle do limite do ano</h1>{% endblock %}
+
+{% block content %}
+    {% include "fiscal/_filtro_presumido.html" with opcoes_tributo=opcoes_tributo tributo_filtro=tributo_filtro %}
+
+    {% if erro %}
+        <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+    {% endif %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa e o ano para ver o controle do limite.</strong></p>
+        </div>
+    {% elif controle %}
+        <h2>{{ controle.tributo }} em {{ ano_filtro }}</h2>
+        {% if controle.primeiro_trimestre %}
+            <p class="texto-apoio">O acréscimo do {{ controle.tributo }} começa no {{ controle.primeiro_trimestre }}º trimestre deste ano.</p>
+        {% endif %}
+
+        {% if controle.recusas %}
+            <table class="tabela-dados">
+                <caption>Recusas que impedem o controle do limite, com as notas que as causam</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Motivo</th>
+                        <th scope="col">Notas ou receitas</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for recusa in controle.recusas %}
+                        <tr>
+                            <td>{{ recusa.mensagem }}</td>
+                            <td>{{ recusa.itens|default:"—" }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+
+        <table class="tabela-dados">
+            <caption>Limite do {{ controle.tributo }} por trimestre: receita, limite com sobra, excedente, sobra e diferença do recálculo</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Trimestre</th>
+                    <th scope="col">Acréscimo</th>
+                    <th scope="col">R (receita presumida)</th>
+                    <th scope="col">L (limite)</th>
+                    <th scope="col">E (excedente)</th>
+                    <th scope="col">Sobra</th>
+                    <th scope="col">Diferença para a dedução</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for linha in controle.linhas %}
+                    <tr>
+                        <th scope="row">{{ linha.trimestre }}º trimestre</th>
+                        <td>{{ linha.acrescimo }}</td>
+                        <td class="valor-monetario">{{ linha.receita }}</td>
+                        <td class="valor-monetario">{{ linha.limite }}</td>
+                        <td class="valor-monetario">{{ linha.excedente }}</td>
+                        <td class="valor-monetario">{{ linha.sobra }}</td>
+                        <td class="valor-monetario">{{ linha.diferenca }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {% if controle.fechamento %}
+            <section aria-labelledby="titulo_fechamento">
+                <h2 id="titulo_fechamento">Fechamento do ano</h2>
+                <dl class="lista-de-definicao">
+                    <div>
+                        <dt>Trimestres com acréscimo (N)</dt>
+                        <dd>{{ controle.fechamento.n }}</dd>
+                    </div>
+                    <div>
+                        <dt>Receita no período com acréscimo</dt>
+                        <dd class="valor-monetario">{{ controle.fechamento.receita_no_acrescimo }}</dd>
+                    </div>
+                    <div>
+                        <dt>Limite anual</dt>
+                        <dd class="valor-monetario">{{ controle.fechamento.limite_anual }}</dd>
+                    </div>
+                    <div>
+                        <dt>Excedente anual</dt>
+                        <dd class="valor-monetario">{{ controle.fechamento.excedente_anual }}</dd>
+                    </div>
+                    <div>
+                        <dt>S (soma dos excedentes anteriores)</dt>
+                        <dd class="valor-monetario">{{ controle.fechamento.s }}</dd>
+                    </div>
+                    <div>
+                        <dt>Dedução do 4º trimestre</dt>
+                        <dd class="valor-monetario"><strong>{{ controle.fechamento.deducao }}</strong></dd>
+                    </div>
+                </dl>
+                <p><strong>Caso {{ controle.fechamento.caso }}.</strong> {{ controle.fechamento.caso_texto }}</p>
+            </section>
+        {% else %}
+            <p class="texto-apoio">O fechamento do ano sai no 4º trimestre. Até lá, o limite é só a conta trimestral.</p>
+        {% endif %}
+    {% endif %}
+{% endblock %}

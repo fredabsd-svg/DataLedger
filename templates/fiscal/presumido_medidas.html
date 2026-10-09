@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block titulo %}Medidas judiciais contra a LC 224{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-079 (frente B), tela 5. Uma medida suspende a parcela da LC 224 do tributo nos trimestres que
+ela cobre; a coluna a recolher passa a ser a sem acréscimo. Não é padrão: é decisão judicial
+cadastrada pelo contador. O aviso das ADIs 7936 e 7944 é fixo e tem a data da última conferência.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Medidas judiciais contra a LC 224</h1>{% endblock %}
+
+{% block content %}
+    {% include "fiscal/_filtro_presumido.html" %}
+
+    {% if erro %}
+        <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+    {% endif %}
+
+    <section class="painel-etapa painel-etapa--risco" aria-labelledby="titulo_adi">
+        <h2 id="titulo_adi">Aviso fixo: ADI 7936 e ADI 7944</h2>
+        <p>{{ aviso_adi }}</p>
+        <p class="texto-apoio">Data da última conferência: {{ data_conferencia_adi }}. Não é decisão sobre a sua empresa.</p>
+    </section>
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver as medidas judiciais.</strong></p>
+        </div>
+    {% else %}
+        <div class="acoes-formulario">
+            {% if pode_escriturar %}
+                <a class="botao botao--primario" href="{{ url_nova }}">Cadastrar medida judicial</a>
+            {% else %}
+                <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao">Cadastrar medida judicial</button>
+                <p class="texto-apoio" id="ajuda_sem_permissao">Seu papel consulta as medidas, mas não cadastra nem revoga.</p>
+            {% endif %}
+        </div>
+
+        {% if medidas %}
+            <table class="tabela-dados">
+                <caption>Medidas judiciais da empresa, com tributo, período, processo, depósito e situação</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Tributo</th>
+                        <th scope="col">Período</th>
+                        <th scope="col">Processo</th>
+                        <th scope="col">Órgão</th>
+                        <th scope="col">Data da decisão</th>
+                        <th scope="col">Depósito</th>
+                        <th scope="col">Situação</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for medida in medidas %}
+                        <tr>
+                            <td>{{ medida.tributo }}</td>
+                            <td>{{ medida.periodo }}</td>
+                            <td>{{ medida.processo }}<br><span class="texto-apoio">Suporte: {{ medida.suporte }}</span></td>
+                            <td>{{ medida.orgao }}</td>
+                            <td class="valor-monetario">{{ medida.data_decisao }}</td>
+                            <td>{{ medida.deposito }}</td>
+                            <td>{{ medida.situacao }}</td>
+                            <td>
+                                <div class="acoes-de-linha">
+                                    {% if medida.url_revogar %}
+                                        <a class="botao botao--perigoso botao--pequeno" href="{{ medida.url_revogar }}">Revogar</a>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="estado-vazio">
+                <p class="estado-vazio__titulo"><strong>Nenhuma medida judicial cadastrada para esta empresa.</strong></p>
+                <p class="estado-vazio__descricao">Sem medida ativa, a apuração cobra a parcela da LC 224 normalmente.</p>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}

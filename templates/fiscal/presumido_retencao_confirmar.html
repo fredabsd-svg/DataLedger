@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block titulo %}Confirmar retenção — {{ empresa_selecionada.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa_selecionada.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Retenções do trimestre</a></li>
+            <li aria-current="page">Confirmar retenção</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para as retenções</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-079 (frente B), arquétipo B. A pergunta antes de gravar: o valor confirmado é o que está no
+comprovante de retenção? Confirmar substitui a confirmação ativa anterior e fica na trilha.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Confirmar retenção</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa">
+        <h2>O que vai acontecer</h2>
+        <p>
+            O valor confirmado passa a valer para a dedução do trimestre em que a receita entrou na base. Confirmar de novo substitui a confirmação anterior, e as duas ficam na trilha.
+        </p>
+    </div>
+
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Nota</dt>
+            <dd>{{ retencao.numero }}</dd>
+        </div>
+        <div>
+            <dt>Competência</dt>
+            <dd class="valor-monetario">{{ retencao.competencia }}</dd>
+        </div>
+        <div>
+            <dt>Valor do serviço</dt>
+            <dd class="valor-monetario">{{ retencao.valor }}</dd>
+        </div>
+        <div>
+            <dt>IRRF proposto</dt>
+            <dd class="valor-monetario">{{ retencao.irrf_proposto }}</dd>
+        </div>
+        <div>
+            <dt>CSLL proposta</dt>
+            <dd>{{ retencao.csll_proposta }}</dd>
+        </div>
+    </dl>
+
+    <form method="post" action="{{ url_envio }}" class="formulario">
+        {% csrf_token %}
+        <input type="hidden" name="ano" value="{{ ano_filtro }}">
+        <input type="hidden" name="trimestre" value="{{ trimestre_filtro }}">
+        <div class="campo">
+            <label for="id_irrf_confirmado">IRRF confirmado (R$)</label>
+            <input type="text" id="id_irrf_confirmado" name="irrf_confirmado" value="{{ valores.irrf }}" inputmode="decimal" aria-describedby="ajuda_irrf">
+            <p class="texto-apoio" id="ajuda_irrf">Em pt-BR, como 1.234,56. Em branco, o IRRF não é confirmado agora.</p>
+        </div>
+        <div class="campo">
+            <label for="id_csll_confirmada">CSLL confirmada (R$)</label>
+            <input type="text" id="id_csll_confirmada" name="csll_confirmada" value="{{ valores.csll }}" inputmode="decimal" aria-describedby="ajuda_csll">
+            <p class="texto-apoio" id="ajuda_csll">Em branco quando a CSLL é "a classificar". Estimada: confira no comprovante de retenção.</p>
+        </div>
+        <div class="campo">
+            <label for="id_motivo">Motivo (obrigatório se o valor confirmado for diferente do proposto)</label>
+            <textarea id="id_motivo" name="motivo" rows="3" maxlength="500" aria-describedby="ajuda_motivo{% if erro %} erro_do_formulario{% endif %}">{{ motivo }}</textarea>
+            <p class="texto-apoio" id="ajuda_motivo">Diga de onde veio o valor, por exemplo, o comprovante do tomador.</p>
+        </div>
+        {% if erro %}
+            <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+        {% endif %}
+        <div class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+            <button type="submit" class="botao botao--primario">Confirmar retenção</button>
+        </div>
+    </form>
+{% endblock %}
