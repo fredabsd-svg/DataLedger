@@ -241,8 +241,9 @@ def test_divergencia_com_vnf_bloqueia_e_nomeia_os_valores(escritorio_a, gestor, 
     with pytest.raises(servico.EscrituracaoNFeErro) as erro:
         servico.efetivar(esc, usuario=gestor)
     mensagem = erro.value.mensagem
+    # Correção da rodada 1 (A12): a mensagem da API sai em pt-BR, com `formatacao_ptbr`.
     assert "diverge" in mensagem
-    assert "10701" in mensagem and "9900" in mensagem
+    assert "10.701,00" in mensagem and "9.900,00" in mensagem and "9.901,00" in mensagem
     esc.refresh_from_db()
     assert esc.estado == EstadoEscrituracao.RASCUNHO
 
@@ -462,8 +463,8 @@ def test_conferencia_do_mes_mostra_receita_por_natureza_e_cfop(escritorio_a, ges
     soma = sum(linha["soma_na_receita"] for linha in conferencia.receita_por_natureza.values())
     assert soma == Decimal("2880.00")
     # CFOP 5102 soma os itens 1 (980,00) e 3 (600,00); CFOP 5405 é o item 2 (800,00).
-    assert conferencia.receita_por_cfop["5102"] == Decimal("1580.00")
-    assert conferencia.receita_por_cfop["5405"] == Decimal("800.00")
+    assert conferencia.valor_bruto_por_cfop["5102"] == Decimal("1580.00")
+    assert conferencia.valor_bruto_por_cfop["5405"] == Decimal("800.00")
     assert conferencia.itens_sem_sugestao == 0
 
 

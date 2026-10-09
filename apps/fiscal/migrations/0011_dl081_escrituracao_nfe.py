@@ -12,6 +12,11 @@
 #    quando a escrituração-pai está em rascunho. Efetivada ou estornada: nada muda,
 #    nem por SQL direto.
 # 3. CHECK de domínio: a natureza por item e o tipo da escrituração só aceitam valores do catálogo.
+# 4. `fiscal_itens_nfe_imutaveis` (correção da rodada 1, A3): INSERT, UPDATE e DELETE em
+#    `fiscal_itemnfe` e em `fiscal_leituraitensnfe` são recusados quando a NOTA tem escrituração
+#    efetivada ou estornada. A receita do Simples e o RBT12 leem `ItemNFe.receita_bruta_item` ao
+#    vivo, então o item é o dado que o banco precisa proteger. Sem escrituração assim, a releitura
+#    da leitura (troca de versão do leitor) continua possível.
 #
 # Limite declarado (como na DL-052 e na DL-072): TRUNCATE não aciona gatilho de linha, e quem é
 # dono da tabela está fora do que o banco impede sozinho. Só PostgreSQL: em outro banco, vale a
@@ -159,6 +164,52 @@ BEFORE INSERT OR UPDATE OR DELETE ON fiscal_naturezaitemnfe
 FOR EACH ROW EXECUTE FUNCTION fiscal_natureza_item_nfe_so_em_rascunho();
 """
 
+_SQL_FUNCAO_ITENS_NFE = """
+CREATE OR REPLACE FUNCTION fiscal_itens_nfe_imutaveis()
+RETURNS trigger AS $$
+BEGIN
+    -- UPDATE confere a nota ANTIGA e a NOVA: trocar o documento de um item também é alteração.
+    IF TG_OP IN ('UPDATE', 'DELETE') AND EXISTS (
+           SELECT 1
+             FROM fiscal_escrituracaonfe e
+             JOIN fiscal_vinculonfeempresa v ON v.id = e.vinculo_id
+            WHERE v.documento_id = OLD.documento_id
+              AND e.estado IN ('efetivada', 'estornada')
+       ) THEN
+        RAISE EXCEPTION
+            'item ou leitura de NF-e com escrituração efetivada ou estornada não pode ser alterada'
+            USING ERRCODE = '23514',
+                  CONSTRAINT = TG_TABLE_NAME || '_imutavel_depois_de_efetivada';
+    END IF;
+    IF TG_OP IN ('INSERT', 'UPDATE') AND EXISTS (
+           SELECT 1
+             FROM fiscal_escrituracaonfe e
+             JOIN fiscal_vinculonfeempresa v ON v.id = e.vinculo_id
+            WHERE v.documento_id = NEW.documento_id
+              AND e.estado IN ('efetivada', 'estornada')
+       ) THEN
+        RAISE EXCEPTION
+            'item ou leitura de NF-e com escrituração efetivada ou estornada não pode ser alterada'
+            USING ERRCODE = '23514',
+                  CONSTRAINT = TG_TABLE_NAME || '_imutavel_depois_de_efetivada';
+    END IF;
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+"""
+
+_SQL_GATILHOS_ITENS_NFE = """
+CREATE TRIGGER trg_item_nfe_imutavel
+BEFORE INSERT OR UPDATE OR DELETE ON fiscal_itemnfe
+FOR EACH ROW EXECUTE FUNCTION fiscal_itens_nfe_imutaveis();
+CREATE TRIGGER trg_leitura_itens_nfe_imutavel
+BEFORE INSERT OR UPDATE OR DELETE ON fiscal_leituraitensnfe
+FOR EACH ROW EXECUTE FUNCTION fiscal_itens_nfe_imutaveis();
+"""
+
 _SQL_CHECKS = (
     "ALTER TABLE fiscal_naturezaitemnfe ADD CONSTRAINT natureza_item_nfe_valida "
     f"CHECK (natureza IN ('', {_LISTA_NATUREZAS}))",
@@ -171,6 +222,9 @@ ALTER TABLE fiscal_escrituracaonfe DROP CONSTRAINT IF EXISTS escrituracao_nfe_ti
 ALTER TABLE fiscal_naturezaitemnfe DROP CONSTRAINT IF EXISTS natureza_item_nfe_valida;
 DROP TRIGGER IF EXISTS trg_natureza_item_nfe_so_em_rascunho ON fiscal_naturezaitemnfe;
 DROP TRIGGER IF EXISTS trg_escrituracao_nfe_imutavel ON fiscal_escrituracaonfe;
+DROP TRIGGER IF EXISTS trg_item_nfe_imutavel ON fiscal_itemnfe;
+DROP TRIGGER IF EXISTS trg_leitura_itens_nfe_imutavel ON fiscal_leituraitensnfe;
+DROP FUNCTION IF EXISTS fiscal_itens_nfe_imutaveis();
 DROP FUNCTION IF EXISTS fiscal_natureza_item_nfe_so_em_rascunho();
 DROP FUNCTION IF EXISTS fiscal_escrituracao_nfe_imutavel();
 """
@@ -184,6 +238,8 @@ def _criar_gatilhos(apps, schema_editor):
         _SQL_GATILHO_ESCRITURACAO,
         _SQL_FUNCAO_NATUREZA_ITEM,
         _SQL_GATILHO_NATUREZA_ITEM,
+        _SQL_FUNCAO_ITENS_NFE,
+        _SQL_GATILHOS_ITENS_NFE,
         *_SQL_CHECKS,
     ):
         schema_editor.execute(sql, params=None)
@@ -553,6 +609,15 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
+                    "ind_deduz_deson",
+                    models.CharField(
+                        blank=True,
+                        max_length=1,
+                        null=True,
+                        verbose_name="indicador de dedução do ICMS desonerado (indDeduzDeson)",
+                    ),
+                ),
+                (
                     "mot_des_icms",
                     models.CharField(
                         blank=True,
@@ -811,6 +876,13 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
+                    "versao_leitor",
+                    models.PositiveSmallIntegerField(
+                        default=1,
+                        verbose_name="versão do leitor",
+                    ),
+                ),
+                (
                     "v_ii",
                     models.DecimalField(
                         blank=True,
@@ -868,6 +940,16 @@ class Migration(migrations.Migration):
                         max_digits=15,
                         null=True,
                         verbose_name="total do IS (vIS)",
+                    ),
+                ),
+                (
+                    "v_fcp_st_total",
+                    models.DecimalField(
+                        blank=True,
+                        decimal_places=2,
+                        max_digits=15,
+                        null=True,
+                        verbose_name="total do FCP-ST (vFCPST)",
                     ),
                 ),
                 (

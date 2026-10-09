@@ -496,6 +496,19 @@ def _formulario_de_reclassificacao(empresa, **extra):
     return dados
 
 
+def _assinatura_da_previa(client, emitente):
+    """Assinatura do conjunto que a PRÉVIA põe no formulário (A10, rodada 1). A confirmação sem ela,
+    ou com outra, é recusada (409): o formulário real sempre a envia."""
+    previa = client.post(
+        _url_reclassificar(), _formulario_de_reclassificacao(emitente, acao="previa")
+    )
+    achado = re.search(
+        r'name="previstas_assinatura" value="([0-9a-f]{64})"', previa.content.decode()
+    )
+    assert achado is not None, "a prévia precisa devolver a assinatura no formulário"
+    return achado.group(1)
+
+
 def test_previa_conta_sem_alterar_e_confirmacao_grava_so_o_rascunho(
     client, gestor, emitente, escritorio_a
 ):
@@ -521,7 +534,11 @@ def test_previa_conta_sem_alterar_e_confirmacao_grava_so_o_rascunho(
     confirmacao = client.post(
         _url_reclassificar(),
         _formulario_de_reclassificacao(
-            emitente, acao="confirmar", previstas_notas="1", previstos_itens="2"
+            emitente,
+            acao="confirmar",
+            previstas_notas="1",
+            previstos_itens="2",
+            previstas_assinatura=_assinatura_da_previa(client, emitente),
         ),
     )
 
@@ -563,7 +580,11 @@ def test_reclassificacao_nao_toca_a_nota_de_outra_empresa_do_escritorio(
     client.post(
         _url_reclassificar(),
         _formulario_de_reclassificacao(
-            emitente, acao="confirmar", previstas_notas="1", previstos_itens="2"
+            emitente,
+            acao="confirmar",
+            previstas_notas="1",
+            previstos_itens="2",
+            previstas_assinatura=_assinatura_da_previa(client, emitente),
         ),
     )
 

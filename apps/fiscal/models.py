@@ -2773,6 +2773,20 @@ def mercado_da_natureza_nfe(natureza: str) -> str:
     return CATALOGO_NATUREZA_NFE[natureza].mercado
 
 
+def mercado_do_item_nfe(natureza: str, cfop: str) -> str:
+    """Mercado de UM item de NF-e: o da natureza, salvo a devolução de exportação.
+
+    A devolução de venda (natureza `devolucao_venda`) deduz do mercado da venda que ela devolve. A
+    tabela oficial de CFOP marca como devolução de exportação os códigos 3.201, 3.202, 3.211, 3.212,
+    3.503 e 3.553 (todos com o primeiro dígito 3, que é entrada de fora do país). Essa devolução
+    deduz o EXTERNO (correção da rodada 1, A8). A natureza sozinha não diz isso, por isso o CFOP
+    entra.
+    """
+    if natureza == NaturezaOperacaoNFe.DEVOLUCAO_VENDA and cfop.startswith("3"):
+        return MercadoReceita.EXTERNO
+    return mercado_da_natureza_nfe(natureza)
+
+
 def papel_da_natureza_nfe(natureza: str) -> str:
     """Papel da natureza: receita, dedução ou não receita. Recusa valor fora do catálogo."""
     if natureza not in CATALOGO_NATUREZA_NFE:
@@ -2802,7 +2816,10 @@ class EscrituracaoNFe(models.Model):
     Imutabilidade, em três camadas (como na DL-072): `save()` recusa alterar linha efetivada ou
     estornada; os serviços mudam estado com `update()` condicionado; e o BANCO (gatilhos da
     migração 0011) aceita só rascunho->efetivada, efetivada->estornada, e só as colunas do ato.
-    Os itens e naturezas de uma escrituração efetivada também são imutáveis no banco.
+    Os itens (`ItemNFe`) e a leitura (`LeituraItensNFe`) da NOTA ficam imutáveis no banco enquanto
+    ela tiver escrituração efetivada ou estornada (gatilhos `trg_item_nfe_imutavel` e
+    `trg_leitura_itens_nfe_imutavel`, correção da rodada 1, A3). As naturezas por item seguem
+    imutáveis pelo gatilho próprio, como acima.
 
     Limite declarado: `TRUNCATE` não aciona gatilho de linha (mesmo limite da DL-052 e da DL-072).
     """
@@ -3029,6 +3046,14 @@ class ItemNFe(models.Model):
     v_icms_deson = models.DecimalField(
         "ICMS desonerado (vICMSDeson)", max_digits=15, decimal_places=2, null=True, blank=True
     )
+    # indDeduzDeson (grupo ICMS do item, leiauteNFe_v4.00.xsd:2586): "1" = o vICMSDeson deduz do
+    # total da NF-e. A conferência com o vNF bloqueia esse caso (DL-081, correção A4; PE-85).
+    ind_deduz_deson = models.CharField(
+        "indicador de dedução do ICMS desonerado (indDeduzDeson)",
+        max_length=1,
+        null=True,
+        blank=True,
+    )
     mot_des_icms = models.CharField(
         "motivo da desoneração (motDesICMS)", max_length=2, null=True, blank=True
     )
@@ -3123,6 +3148,10 @@ class LeituraItensNFe(models.Model):
     resultado (inclusive o de ilegível) torna a leitura idempotente: o mesmo XML dá a mesma
     resposta, sem reler a cada consulta. Os totais que a conferência e os avisos usam ficam aqui,
     porque o `DocumentoNFe` da DL-080 não os guarda (DE-074).
+
+    Imutabilidade (correção da rodada 1, A3): gatilhos da migração 0011 recusam INSERT, UPDATE e
+    DELETE nesta tabela quando a nota tem escrituração efetivada ou estornada. Sem escrituração
+    assim, a leitura pode ser refeita (troca de versão do leitor).
     """
 
     ESTADO_LIDA = "lida"
@@ -3141,6 +3170,11 @@ class LeituraItensNFe(models.Model):
     )
     motivo = models.CharField("motivo (quando ilegível)", max_length=500, blank=True, default="")
     quantidade_itens = models.PositiveIntegerField("quantidade de itens lidos", default=0)
+    # Versão do leitor que gerou esta leitura (`itens_nfe.VERSAO_LEITOR_ITENS`). Leitura de versão
+    # anterior é refeita na próxima tentativa, se a nota não tem escrituração efetivada ou
+    # estornada.
+    # O padrão 1 é a versão da rodada 1: o valor sem marcação nunca passa por leitura atual.
+    versao_leitor = models.PositiveSmallIntegerField("versão do leitor", default=1)
     # ICMSTot/vII e ICMSTot/vIPIDevol (XSD:5450, 5460), para a conferência da receita.
     v_ii = models.DecimalField(
         "total do II (vII)", max_digits=15, decimal_places=2, null=True, blank=True
@@ -3165,6 +3199,12 @@ class LeituraItensNFe(models.Model):
     )
     v_is = models.DecimalField(
         "total do IS (vIS)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    # ICMSTot/vFCPST (leiauteNFe_v4.00.xsd, grupo ICMSTot). É o total DECLARADO, lido do XML, e não
+    # a
+    # soma dos itens: a conferência com o vNF (regra W16 do MOC 7.0) usa o que a nota declara.
+    v_fcp_st_total = models.DecimalField(
+        "total do FCP-ST (vFCPST)", max_digits=15, decimal_places=2, null=True, blank=True
     )
     lida_em = models.DateTimeField("lida em", auto_now_add=True)
 

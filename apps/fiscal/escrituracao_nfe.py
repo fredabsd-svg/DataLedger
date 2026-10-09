@@ -26,24 +26,28 @@ Hipóteses HI-117 a HI-124 (requisitos.md). Decisões que o código não explica
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, Q
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 from apps.auditoria.services import registrar
 from apps.fiscal import receita as receita_servico
 from apps.fiscal import services
 from apps.fiscal.cfop import cfop as consultar_cfop
-from apps.fiscal.itens_nfe import ler_itens
+from apps.fiscal.formatacao_ptbr import valor_ptbr
+from apps.fiscal.itens_nfe import VERSAO_LEITOR_ITENS, ler_itens
 from apps.fiscal.models import (
     CATALOGO_NATUREZA_NFE,
     EscrituracaoNFe,
     EstadoEscrituracao,
+    EventoNFe,
     ItemNFe,
     LeituraItensNFe,
     NaturezaItemNFe,
@@ -54,6 +58,7 @@ from apps.fiscal.models import (
     mercado_da_natureza_nfe,
     papel_da_natureza_nfe,
 )
+from apps.fiscal.services import CODIGOS_CANCELAMENTO_NFE, CODIGOS_EFETIVOS_NFE
 
 FUSO_SP = ZoneInfo("America/Sao_Paulo")
 MOTIVO_MAXIMO = 500
@@ -92,6 +97,12 @@ class EscrituracaoNFeErro(Exception):
     def __init__(self, mensagem):
         super().__init__(mensagem)
         self.mensagem = mensagem
+
+
+class DivergenciaComVnf(EscrituracaoNFeErro):
+    """A receita dos itens não bate com a nota (conferência W16). Tipo próprio, para a tela tratar
+    SÓ este caso como divergência. Os bloqueios de regra não decidida (PE-85) não são
+    divergência."""
 
 
 class EntradaInvalidaNFe(EscrituracaoNFeErro):
@@ -174,7 +185,9 @@ def _candidatos_do_item(documento, item) -> list[tuple[str, str]]:
     cfop_digitos = item.cfop
     primeiro, sufixo = cfop_digitos[0], cfop_digitos[1:]
 
-    if primeiro == "7" and documento.id_dest == "3":
+    # Exportação direta é a VENDA ao exterior (CFOP 7.1xx). Remessa (7.949) e ativo (7.551), com
+    # idDest 3, não são venda: ficam sem sugestão, e o contador escolhe (correção da rodada 1, A11).
+    if cfop_digitos[:2] == "71" and documento.id_dest == "3":
         candidatos.append((NaturezaOperacaoNFe.EXPORTACAO_DIRETA, ORIGEM_ID_DEST))
     if cfop_digitos == "5929":
         candidatos.append((NaturezaOperacaoNFe.CUPOM_NFCE, ORIGEM_CFOP))
@@ -295,6 +308,14 @@ def notas_do_mes(empresa, ano: int, mes: int) -> list[NotaDoMes]:
     criação do rascunho ou a conferência. Isolamento: só vínculos desta empresa e deste escritório.
     """
     inicio, fim = _limites_do_mes(ano, mes)
+    # Cancelamento anotado em LOTE, com `Exists` (como `services.vinculos_nfe_da_empresa`): a lista
+    # do mês custa o mesmo número de consultas, com 5 notas ou com 400 (DL-081, A6).
+    eventos_de_cancelamento = EventoNFe.objects.filter(
+        escritorio_id=OuterRef("documento__escritorio_id"),
+        chave=OuterRef("documento__chave"),
+        tp_evento__in=CODIGOS_CANCELAMENTO_NFE,
+        c_stat__in=CODIGOS_EFETIVOS_NFE,
+    )
     vinculos = list(
         VinculoNFeEmpresa.objects.filter(
             empresa=empresa,
@@ -303,6 +324,7 @@ def notas_do_mes(empresa, ano: int, mes: int) -> list[NotaDoMes]:
             documento__dh_emissao__lt=fim,
         )
         .select_related("documento")
+        .annotate(cancelada=Exists(eventos_de_cancelamento))
         .order_by("-documento__dh_emissao", "-documento_id")
     )
     ativas = {
@@ -316,41 +338,68 @@ def notas_do_mes(empresa, ano: int, mes: int) -> list[NotaDoMes]:
         lt.documento_id: lt
         for lt in LeituraItensNFe.objects.filter(documento__in=[v.documento_id for v in vinculos])
     }
-    notas = []
-    for vinculo in vinculos:
-        documento = vinculo.documento
-        tipo = tipo_da_nota(documento, vinculo.papel)
-        cancelada = services.situacao_da_nfe(documento) == "cancelada"
-        ativa = ativas.get(vinculo.pk)
-        leitura = leituras.get(documento.pk)
-        if tipo is None:
-            situacao, motivo = (
-                SITUACAO_NAO_ELEGIVEL,
-                motivo_fora_da_escrituracao(documento, vinculo.papel),
-            )
-        elif ativa is not None and ativa.estado == EstadoEscrituracao.EFETIVADA:
-            situacao = SITUACAO_CANCELADA_DEPOIS_DE_ESCRITURADA if cancelada else SITUACAO_EFETIVADA
-            motivo = ""
-        elif cancelada:
-            situacao, motivo = SITUACAO_CANCELADA, "nota cancelada: não é escriturada."
-        elif ativa is not None:
-            situacao, motivo = SITUACAO_RASCUNHO, ""
-        else:
-            situacao, motivo = SITUACAO_A_ESCRITURAR, ""
-        notas.append(
-            NotaDoMes(
-                vinculo=vinculo,
-                documento=documento,
-                tipo=tipo,
-                motivo_fora=motivo if tipo is None else None,
-                situacao=situacao,
-                escrituracao=ativa,
-                leitura_estado=leitura.estado if leitura else None,
-                leitura_motivo=leitura.motivo if leitura else "",
-                leitura=leitura,
-            )
+    return [
+        _nota_do_vinculo(
+            vinculo,
+            cancelada=vinculo.cancelada,
+            ativa=ativas.get(vinculo.pk),
+            leitura=leituras.get(vinculo.documento_id),
         )
-    return notas
+        for vinculo in vinculos
+    ]
+
+
+def _nota_do_vinculo(vinculo, *, cancelada: bool, ativa, leitura) -> NotaDoMes:
+    """A situação de UMA nota: a regra única, usada pela lista do mês e pela tela de uma nota."""
+    documento = vinculo.documento
+    tipo = tipo_da_nota(documento, vinculo.papel)
+    if tipo is None:
+        situacao, motivo = (
+            SITUACAO_NAO_ELEGIVEL,
+            motivo_fora_da_escrituracao(documento, vinculo.papel),
+        )
+    elif ativa is not None and ativa.estado == EstadoEscrituracao.EFETIVADA:
+        situacao = SITUACAO_CANCELADA_DEPOIS_DE_ESCRITURADA if cancelada else SITUACAO_EFETIVADA
+        motivo = ""
+    elif cancelada:
+        situacao, motivo = SITUACAO_CANCELADA, "nota cancelada: não é escriturada."
+    elif ativa is not None:
+        situacao, motivo = SITUACAO_RASCUNHO, ""
+    else:
+        situacao, motivo = SITUACAO_A_ESCRITURAR, ""
+    return NotaDoMes(
+        vinculo=vinculo,
+        documento=documento,
+        tipo=tipo,
+        motivo_fora=motivo if tipo is None else None,
+        situacao=situacao,
+        escrituracao=ativa,
+        leitura_estado=leitura.estado if leitura else None,
+        leitura_motivo=leitura.motivo if leitura else "",
+        leitura=leitura,
+    )
+
+
+def nota_do_vinculo(empresa, vinculo: VinculoNFeEmpresa) -> NotaDoMes:
+    """A nota de UM vínculo, sem listar o mês inteiro (DL-081, A6: a tela de uma nota busca direto).
+
+    O vínculo tem de ser desta empresa. Outro vínculo é recusado, porque a tela não confia no id.
+    """
+    if vinculo.empresa_id != empresa.pk:
+        raise LookupError("vínculo de NF-e de outra empresa")
+    documento = vinculo.documento
+    cancelada = EventoNFe.objects.filter(
+        escritorio_id=documento.escritorio_id,
+        chave=documento.chave,
+        tp_evento__in=CODIGOS_CANCELAMENTO_NFE,
+        c_stat__in=CODIGOS_EFETIVOS_NFE,
+    ).exists()
+    ativa = EscrituracaoNFe.objects.filter(
+        vinculo=vinculo,
+        estado__in=[EstadoEscrituracao.RASCUNHO, EstadoEscrituracao.EFETIVADA],
+    ).first()
+    leitura = LeituraItensNFe.objects.filter(documento=documento).first()
+    return _nota_do_vinculo(vinculo, cancelada=cancelada, ativa=ativa, leitura=leitura)
 
 
 # ---------------------------------------------------------------------------
@@ -558,16 +607,50 @@ class _ConferenciaDaNota:
     valor_nf: Decimal
 
 
-def _conferir_valores(documento, leitura, itens_e_naturezas) -> _ConferenciaDaNota:
-    """Conferência da receita com a nota (HI-119). Divergência bloqueia com os valores.
+# Bloqueios que nomeiam a regra ainda não decidida (PE-85, pendência do Fred). Até a decisão, a nota
+# não é efetivada: falha fechada, com o motivo na mensagem. O texto é fixo, porque a API e a tela o
+# repetem e a tela o procura.
+MENSAGEM_ITEM_FORA_DO_TOTAL = (
+    "item fora do total da nota com desconto ou despesas — regra a decidir (PE-85)"
+)
+MENSAGEM_ICMS_DESONERADO_DEDUZIDO = (
+    "ICMS desonerado deduzido do total da nota — regra a decidir (PE-85)"
+)
 
-    `itens_e_naturezas`: lista de (ItemNFe, natureza). Só `indTot` 1 entra na soma.
+
+def _tem_desconto_ou_despesa(item) -> bool:
+    """vDesc, vFrete, vSeg ou vOutro presente. O XSD não aceita zero em campo opcional, mas o teste
+    de valor (`bool`) é o que importa: `None` e zero ficam de fora."""
+    return any((item.v_desc, item.v_frete, item.v_seg, item.v_outro))
+
+
+def conferir_valores(documento, leitura, itens_e_naturezas) -> _ConferenciaDaNota:
+    """Conferência da receita com o vNF, pela regra W16 do MOC 7.0 (HI-119). Divergência bloqueia.
+
+    A regra, com todas as parcelas da nota:
+
+        Σ vProd (indTot 1) − Σ vDesc (todos) + Σ (vFrete + vSeg + vOutro) (todos)
+            = vNF − vST − vFCPST − vIPI − vII − vIPIDevol
+
+    `receita_bruta_item` é vProd − vDesc + vFrete + vSeg + vOutro, e só vale para indTot 1. Quando
+    todo desconto e toda despesa estão em itens indTot 1, o lado esquerdo é a soma dessas receitas.
+    Dois casos saem da fórmula e BLOQUEIAM com mensagem, em vez de chutar um termo:
+      - item indTot 0 com desconto ou despesa: o total da nota compõe esses valores, e a regra
+        de como tratá-los não foi decidida (PE-85);
+      - ICMS desonerado deduzido do total (indDeduzDeson 1): idem (PE-85).
+
+    `vFCPST` é o total declarado em ICMSTot (`leitura.v_fcp_st_total`), e vale zero se ausente. É o
+    que a nota declara, e não a soma dos itens. `itens_e_naturezas`: lista de (ItemNFe, natureza).
     """
     soma = Decimal("0.00")
     receita = Decimal("0.00")
     devolucao = Decimal("0.00")
     for item, natureza in itens_e_naturezas:
+        if item.ind_deduz_deson == "1":
+            raise EscrituracaoNFeErro(MENSAGEM_ICMS_DESONERADO_DEDUZIDO)
         if item.ind_tot != "1":
+            if _tem_desconto_ou_despesa(item):
+                raise EscrituracaoNFeErro(MENSAGEM_ITEM_FORA_DO_TOTAL)
             continue
         soma += item.receita_bruta_item
         papel = papel_da_natureza_nfe(natureza)
@@ -581,15 +664,18 @@ def _conferir_valores(documento, leitura, itens_e_naturezas) -> _ConferenciaDaNo
             "A nota não tem o valor total (vNF): não há como conferir a receita. Nota bloqueada."
         )
     v_st = documento.v_st or Decimal("0")
+    v_fcp_st = leitura.v_fcp_st_total or Decimal("0")
     v_ipi = documento.v_ipi or Decimal("0")
     v_ii = leitura.v_ii or Decimal("0")
     v_ipi_devol = leitura.v_ipi_devol or Decimal("0")
-    esperado = documento.v_nf - v_st - v_ipi - v_ii - v_ipi_devol
+    esperado = documento.v_nf - v_st - v_fcp_st - v_ipi - v_ii - v_ipi_devol
     if soma != esperado:
-        raise EscrituracaoNFeErro(
-            f"Receita dos itens (R$ {soma:f}) diverge de vNF − vST − vIPI − vII − vIPIDevol "
-            f"(R$ {esperado:f}): vNF {documento.v_nf:f}, vST {v_st:f}, vIPI {v_ipi:f}, "
-            f"vII {v_ii:f}, vIPIDevol {v_ipi_devol:f}. A nota não é efetivada."
+        raise DivergenciaComVnf(
+            f"Receita dos itens (R$ {valor_ptbr(soma)}) diverge de vNF − vST − vFCPST − vIPI − vII "
+            f"− vIPIDevol (R$ {valor_ptbr(esperado)}). "
+            f"Valores da nota: vNF {valor_ptbr(documento.v_nf)}, "
+            f"vST {valor_ptbr(v_st)}, vFCPST {valor_ptbr(v_fcp_st)}, vIPI {valor_ptbr(v_ipi)}, "
+            f"vII {valor_ptbr(v_ii)}, vIPIDevol {valor_ptbr(v_ipi_devol)}. A nota não é efetivada."
         )
     return _ConferenciaDaNota(soma, receita, devolucao, documento.v_nf)
 
@@ -620,6 +706,12 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
     if leitura is None or leitura.estado != LeituraItensNFe.ESTADO_LIDA:
         motivo = "itens ainda não lidos" if leitura is None else leitura.motivo
         raise EscrituracaoNFeErro(f"Itens ilegíveis, nota bloqueada: {motivo}")
+    # Leitura de versão anterior não tem os campos que a conferência usa (vFCPST, indDeduzDeson).
+    # Gerar o rascunho de novo relê a nota (`criar_rascunho` chama `ler_itens`), antes de efetivar.
+    if leitura.versao_leitor != VERSAO_LEITOR_ITENS:
+        raise EscrituracaoNFeErro(
+            "Itens lidos por versão anterior do leitor. Gere o rascunho de novo para reler a nota."
+        )
 
     pares = [
         (n.item, n.natureza)
@@ -636,7 +728,7 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
     for _, natureza in pares:
         _validar_natureza_para_o_tipo(natureza, travada.tipo)
 
-    conferencia = _conferir_valores(documento, leitura, pares)
+    conferencia = conferir_valores(documento, leitura, pares)
     dia, competencia = dia_e_competencia(documento)
     agora = timezone.now()
     antes = _snapshot(travada)
@@ -762,11 +854,24 @@ class FiltrosReclassificacao:
     ncm: str | None = None
 
 
+def assinatura_da_reclassificacao(pares) -> str:
+    """Hash dos pares (escrituração, item) que a reclassificação altera (correção da rodada 1, A10).
+
+    A prévia grava esta assinatura no formulário, e a confirmação a recalcula. Se o conjunto mudou,
+    nem o número de notas nem o de itens bastam para dizer que é o mesmo: a assinatura muda. Os
+    pares vão ordenados, e o hash é SHA-256 sobre o texto deles.
+    """
+    texto = json.dumps(sorted(pares), separators=(",", ":"))
+    return hashlib.sha256(texto.encode("utf-8")).hexdigest()
+
+
 @dataclass(frozen=True)
 class ResultadoReclassificacao:
     natureza: str
     escrituracoes_afetadas: int
     itens_alterados: int
+    # Hash dos pares (escrituração, item) alterados. Vai no formulário da prévia (A10).
+    assinatura: str = ""
 
 
 def _itens_que_casam(empresa, filtros: FiltrosReclassificacao, escrituracoes):
@@ -840,10 +945,12 @@ def reclassificar_em_massa(
 
     afetadas = 0
     itens_alterados = 0
+    pares: list[tuple[int, int]] = []
     for escrituracao_id, registros in sorted(por_escrituracao.items()):
         alterar = [r for r in registros if r.natureza != natureza]
         if not alterar:
             continue
+        pares.extend((escrituracao_id, r.item_id) for r in alterar)
         antes = {r.item_id: r.natureza for r in alterar}
         NaturezaItemNFe.objects.filter(pk__in=[r.pk for r in alterar]).update(natureza=natureza)
         afetadas += 1
@@ -870,7 +977,9 @@ def reclassificar_em_massa(
                 },
             },
         )
-    return ResultadoReclassificacao(natureza, afetadas, itens_alterados)
+    return ResultadoReclassificacao(
+        natureza, afetadas, itens_alterados, assinatura=assinatura_da_reclassificacao(pares)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -951,8 +1060,12 @@ class ConferenciaDoMes:
     escrituradas_canceladas: int = 0
     itens_sem_sugestao: int = 0
     receita_por_natureza: dict = field(default_factory=dict)
-    receita_por_cfop: dict = field(default_factory=dict)
+    # Valor BRUTO por CFOP, dos itens indTot 1 efetivados (inclui o que não é receita). A soma da
+    # receita não sai daqui; sai de `receita_por_natureza` (A12: o nome antigo enganava).
+    valor_bruto_por_cfop: dict = field(default_factory=dict)
     nao_elegiveis: int = 0
+    # As notas que a conferência já leu. A tela usa estas, e não chama `notas_do_mes` de novo (A6).
+    notas: list = field(default_factory=list)
 
 
 def conferencia_do_mes(empresa, ano: int, mes: int) -> ConferenciaDoMes:
@@ -963,7 +1076,10 @@ def conferencia_do_mes(empresa, ano: int, mes: int) -> ConferenciaDoMes:
     com papel "receita", menos a dedução) é a receita do mês. Natureza que não é receita aparece
     à parte, com soma zero (HI-124)."""
     resultado = ConferenciaDoMes(ano=ano, mes=mes)
-    for nota in notas_do_mes(empresa, ano, mes):
+    # `notas_do_mes` é lida UMA vez, e os itens sem sugestão saem de uma consulta só (DL-081, A6).
+    notas = notas_do_mes(empresa, ano, mes)
+    sem_sugestao = _itens_sem_sugestao_do_mes(notas)
+    for nota in notas:
         if nota.tipo is None:
             resultado.nao_elegiveis += 1
             continue
@@ -977,21 +1093,33 @@ def conferencia_do_mes(empresa, ano: int, mes: int) -> ConferenciaDoMes:
             resultado.canceladas += 1
         else:
             resultado.pendentes += 1
-        if nota.leitura_estado == LeituraItensNFe.ESTADO_LIDA:
-            resultado.itens_sem_sugestao += _itens_sem_sugestao_da_nota(nota)
+        resultado.itens_sem_sugestao += sem_sugestao.get(nota.documento.pk, 0)
+    resultado.notas = notas
     _preencher_receita(empresa, ano, mes, resultado)
     return resultado
 
 
-def _itens_sem_sugestao_da_nota(nota: NotaDoMes) -> int:
-    """Itens da nota sem sugestão de natureza (em nota ainda não efetivada)."""
-    if nota.situacao not in (SITUACAO_A_ESCRITURAR, SITUACAO_RASCUNHO):
-        return 0
-    return sum(
-        1
-        for item in ItemNFe.objects.filter(documento=nota.documento)
-        if sugerir_natureza_item(nota.documento, item, nota.tipo).natureza is None
-    )
+def _itens_sem_sugestao_do_mes(notas: list[NotaDoMes]) -> dict[int, int]:
+    """Itens sem sugestão de natureza, por documento, só nas notas lidas e ainda não efetivadas.
+
+    Uma consulta para todas as notas do mês: a conferência não repete a consulta por nota (A6). A
+    sugestão lê só campos do item e do documento, já carregados, e a tabela de CFOP é em memória.
+    """
+    candidatas = {
+        nota.documento.pk: nota
+        for nota in notas
+        if nota.tipo is not None
+        and nota.leitura_estado == LeituraItensNFe.ESTADO_LIDA
+        and nota.situacao in (SITUACAO_A_ESCRITURAR, SITUACAO_RASCUNHO)
+    }
+    if not candidatas:
+        return {}
+    contagem: dict[int, int] = {}
+    for item in ItemNFe.objects.filter(documento_id__in=list(candidatas)):
+        nota = candidatas[item.documento_id]
+        if sugerir_natureza_item(nota.documento, item, nota.tipo).natureza is None:
+            contagem[item.documento_id] = contagem.get(item.documento_id, 0) + 1
+    return contagem
 
 
 def _preencher_receita(empresa, ano: int, mes: int, resultado: ConferenciaDoMes) -> None:
@@ -1032,4 +1160,4 @@ def _preencher_receita(empresa, ano: int, mes: int, resultado: ConferenciaDoMes)
             linha["soma_na_receita"] -= valor
         por_cfop[registro.item.cfop] = por_cfop.get(registro.item.cfop, Decimal("0.00")) + valor
     resultado.receita_por_natureza = por_natureza
-    resultado.receita_por_cfop = por_cfop
+    resultado.valor_bruto_por_cfop = por_cfop

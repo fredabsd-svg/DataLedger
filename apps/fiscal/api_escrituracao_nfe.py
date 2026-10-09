@@ -16,6 +16,7 @@ recusados antes do banco; número fora da faixa do banco (bigint) recusado; data
 1970 a 2999 recusadas; campo fora do contrato recusado.
 """
 
+import re
 from datetime import date
 
 from django.shortcuts import get_object_or_404
@@ -182,6 +183,23 @@ class ReclassificarEntradaSerializer(serializers.Serializer):
 
     def validate_fim(self, valor):
         return _data_no_intervalo(valor)
+
+    def validate_cfop(self, valor):
+        """CFOP com ou sem ponto ("5.102" ou "5102"). Vira os 4 dígitos, como a tela (A12).
+
+        Antes, "5.102" não casava nada, em silêncio. Agora é normalizado, e o que não é CFOP
+        de 4 dígitos é recusado com 400.
+        """
+        if valor is None:
+            return None
+        normalizado = valor.strip().replace(".", "")
+        if not normalizado:
+            return None
+        if not re.fullmatch(r"[0-9]{4}", normalizado):
+            raise serializers.ValidationError(
+                "CFOP deve ter exatamente 4 dígitos (ex.: 5102 ou 5.102)."
+            )
+        return normalizado
 
     def validate(self, dados):
         inicio, fim = dados.get("inicio"), dados.get("fim")
@@ -515,9 +533,10 @@ class ConferenciaNFeView(_EmpresaComIdValido, APIView):
                     }
                     for natureza, linha in sorted(conferencia.receita_por_natureza.items())
                 },
-                "receita_por_cfop": {
+                # Valor BRUTO por CFOP: inclui o que não é receita, como a tela rotula (A12).
+                "valor_bruto_por_cfop": {
                     cfop: _decimal(valor)
-                    for cfop, valor in sorted(conferencia.receita_por_cfop.items())
+                    for cfop, valor in sorted(conferencia.valor_bruto_por_cfop.items())
                 },
             }
         )

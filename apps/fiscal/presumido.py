@@ -1463,12 +1463,14 @@ def apurar_trimestre(empresa: Empresa, ano, trimestre) -> Apuracao:
             )
         )
 
-    # DL-081 (HI-122): NF-e de saída (ou devolução) efetivada no trimestre. A receita de
-    # mercadoria ainda não é integrada ao Presumido: a apuração fica parcial, com o motivo.
-    # Trimestre sem NF-e não ganha esta recusa.
+    # DL-081 (HI-122; correção da rodada 1, A2): NF-e de saída ou devolução efetivada em QUALQUER
+    # mês do ano até o fim do trimestre apurado, inclusive. A receita de mercadoria ainda não entra
+    # no Presumido, e o limite da LC 224 se propaga para a frente: a NF-e do 1º trimestre também
+    # deixa parciais o 2º, o 3º e o 4º. Por isso o intervalo começa em janeiro. Trimestre sem NF-e
+    # em nenhum mês até ele não ganha esta recusa.
     if any(
         receita_servico.receita_de_nfe_no_mes(empresa, ano, mes)
-        for mes in _meses_do_trimestre(trimestre)
+        for mes in range(1, 3 * trimestre + 1)
     ):
         recusas.append(
             Recusa(

@@ -69,7 +69,7 @@ from apps.fiscal.models import (
     ReceitaInformada,
     SituacaoIssReceitaInformada,
     mercado_da_natureza,
-    mercado_da_natureza_nfe,
+    mercado_do_item_nfe,
     papel_da_natureza_nfe,
 )
 from apps.fiscal.services import CODIGOS_CANCELAMENTO_NFE, CODIGOS_EFETIVOS_NFE
@@ -240,73 +240,149 @@ def _cancelada_depois_de_escriturada(prefixo: str = ""):
     )
 
 
-def _nfe_do_mes(empresa: Empresa, ano: int, mes: int) -> dict[str, tuple[Decimal, Decimal]]:
-    """(mercadoria, devolução) de NF-e do mês, por mercado. Devolução sai positiva.
+def _meses_do_intervalo(inicio: tuple[int, int], fim: tuple[int, int]):
+    """Cada (ano, mês) de `inicio` até `fim`, inclusive."""
+    ano, mes = inicio
+    while (ano, mes) <= fim:
+        yield (ano, mes)
+        ano, mes = (ano + (mes == 12), 1 if mes == 12 else mes + 1)
 
-    A natureza de cada item diz o papel: receita (soma), dedução (devolução) ou nada (fica fora,
-    HI-121 e HI-124). O mercado vem de `mercado_da_natureza_nfe`, a fonte única.
+
+def _zeros_por_mercado() -> dict[str, Decimal]:
+    return {MercadoReceita.INTERNO: ZERO, MercadoReceita.EXTERNO: ZERO}
+
+
+def _nfe_do_periodo(
+    empresa: Empresa, inicio: tuple[int, int], fim: tuple[int, int]
+) -> dict[tuple[int, int], dict[str, tuple[Decimal, Decimal]]]:
+    """(mercadoria, devolução) de NF-e de cada mês do período, por mercado. Devolução sai positiva.
+
+    Uma consulta para o período inteiro (DL-081, A6). A natureza de cada item diz o papel: receita
+    (soma), dedução (devolução) ou nada (fica fora, HI-121 e HI-124). O mercado vem de
+    `mercado_da_natureza_nfe`, a fonte única. Cancelada depois de escriturada não entra.
     """
+    desde = date(inicio[0], inicio[1], 1)
+    ate = _proximo_mes(fim[0], fim[1])
     linhas = (
         NaturezaItemNFe.objects.filter(
             escrituracao__empresa=empresa,
             escrituracao__estado=EstadoEscrituracao.EFETIVADA,
-            escrituracao__competencia__gte=date(ano, mes, 1),
-            escrituracao__competencia__lt=_proximo_mes(ano, mes),
+            escrituracao__competencia__gte=desde,
+            escrituracao__competencia__lt=ate,
             item__ind_tot="1",
         )
         .exclude(natureza="")
         .filter(~Exists(_cancelada_depois_de_escriturada("escrituracao__")))
-        .values("natureza")
+        .values("natureza", "item__cfop", "escrituracao__competencia")
         .annotate(total=Sum("item__receita_bruta_item"))
         .order_by()
     )
-    mercadoria = {MercadoReceita.INTERNO: ZERO, MercadoReceita.EXTERNO: ZERO}
-    devolucao = {MercadoReceita.INTERNO: ZERO, MercadoReceita.EXTERNO: ZERO}
+    por_mes: dict[tuple[int, int], dict[str, list[Decimal]]] = {}
     for linha in linhas:
+        competencia = linha["escrituracao__competencia"]
+        mes = (competencia.year, competencia.month)
+        celulas = por_mes.setdefault(
+            mes, {MercadoReceita.INTERNO: [ZERO, ZERO], MercadoReceita.EXTERNO: [ZERO, ZERO]}
+        )
         papel = papel_da_natureza_nfe(linha["natureza"])
-        mercado = mercado_da_natureza_nfe(linha["natureza"])
+        # O mercado vem do item (natureza e CFOP): a devolução de exportação deduz o externo (A8).
+        mercado = mercado_do_item_nfe(linha["natureza"], linha["item__cfop"])
         if papel == "receita":
-            mercadoria[mercado] += linha["total"] or ZERO
+            celulas[mercado][0] += linha["total"] or ZERO
         elif papel == "deducao":
-            devolucao[mercado] += linha["total"] or ZERO
+            celulas[mercado][1] += linha["total"] or ZERO
     return {
-        m: (mercadoria[m], devolucao[m]) for m in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)
+        mes: {
+            m: (celulas[m][0], celulas[m][1])
+            for m in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)
+        }
+        for mes, celulas in por_mes.items()
     }
 
 
-def _componentes_do_mes(empresa: Empresa, ano: int, mes: int) -> dict[str, tuple]:
-    """(documento, informado, mercadoria, devolução) por mercado, sem o saldo de meses antes."""
-    documento = {MercadoReceita.INTERNO: ZERO, MercadoReceita.EXTERNO: ZERO}
+def _nfe_do_mes(empresa: Empresa, ano: int, mes: int) -> dict[str, tuple[Decimal, Decimal]]:
+    """(mercadoria, devolução) de NF-e do mês, por mercado. Um mês só, pelo mesmo caminho."""
+    zero = (ZERO, ZERO)
+    por_mes = _nfe_do_periodo(empresa, (ano, mes), (ano, mes)).get((ano, mes), {})
+    return {m: por_mes.get(m, zero) for m in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)}
+
+
+def _documentos_do_periodo(
+    empresa: Empresa, inicio: tuple[int, int], fim: tuple[int, int]
+) -> dict[tuple[int, int], dict[str, Decimal]]:
+    """NFS-e (escriturações efetivadas) de cada mês do período, por mercado. Uma consulta."""
+    desde = date(inicio[0], inicio[1], 1)
+    ate = _proximo_mes(fim[0], fim[1])
     linhas = (
-        _escrituracoes_efetivadas_do_mes(empresa, ano, mes)
-        .values("natureza")
+        EscrituracaoFiscal.objects.filter(
+            empresa=empresa,
+            estado=EstadoEscrituracao.EFETIVADA,
+            data_competencia__gte=desde,
+            data_competencia__lt=ate,
+        )
+        .values("natureza", "data_competencia")
         .annotate(total=Sum("valor_servico"))
         .order_by()
     )
+    por_mes: dict[tuple[int, int], dict[str, Decimal]] = {}
     for linha in linhas:
-        mercado = mercado_da_natureza(linha["natureza"])
-        documento[mercado] += linha["total"] or ZERO
+        competencia = linha["data_competencia"]
+        celulas = por_mes.setdefault((competencia.year, competencia.month), _zeros_por_mercado())
+        celulas[mercado_da_natureza(linha["natureza"])] += linha["total"] or ZERO
+    return por_mes
 
-    informado = {MercadoReceita.INTERNO: ZERO, MercadoReceita.EXTERNO: ZERO}
-    linhas_informadas = (
-        _informadas_confirmadas_do_mes(empresa, ano, mes)
-        .values("mercado")
+
+def _informados_do_periodo(
+    empresa: Empresa, inicio: tuple[int, int], fim: tuple[int, int]
+) -> dict[tuple[int, int], dict[str, Decimal]]:
+    """Receitas informadas CONFIRMADAS de cada mês do período, por mercado. Uma consulta."""
+    linhas = (
+        ReceitaInformada.objects.filter(
+            empresa=empresa,
+            estado=EstadoReceitaInformada.CONFIRMADA,
+            ano__gte=inicio[0],
+            ano__lte=fim[0],
+        )
+        .values("ano", "mes", "mercado")
         .annotate(total=Sum("valor"))
         .order_by()
     )
-    for linha in linhas_informadas:
-        informado[linha["mercado"]] += linha["total"] or ZERO
+    por_mes: dict[tuple[int, int], dict[str, Decimal]] = {}
+    for linha in linhas:
+        mes = (linha["ano"], linha["mes"])
+        if not (inicio <= mes <= fim):
+            continue
+        celulas = por_mes.setdefault(mes, _zeros_por_mercado())
+        celulas[linha["mercado"]] += linha["total"] or ZERO
+    return por_mes
 
-    nfe = _nfe_do_mes(empresa, ano, mes)
-    return {
-        mercado: (
-            documento[mercado],
-            informado[mercado],
-            nfe[mercado][0],
-            nfe[mercado][1],
-        )
-        for mercado in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)
-    }
+
+def _componentes_do_periodo(
+    empresa: Empresa, inicio: tuple[int, int], fim: tuple[int, int]
+) -> dict[tuple[int, int], dict[str, tuple]]:
+    """(documento, informado, mercadoria, devolução) por mercado, de cada mês do período.
+
+    Três consultas para o período inteiro, não uma por mês (DL-081, A6). Mês sem lançamento sai
+    com zeros, e não some do resultado.
+    """
+    documento = _documentos_do_periodo(empresa, inicio, fim)
+    informado = _informados_do_periodo(empresa, inicio, fim)
+    nfe = _nfe_do_periodo(empresa, inicio, fim)
+    resultado = {}
+    for mes in _meses_do_intervalo(inicio, fim):
+        doc_mes = documento.get(mes, _zeros_por_mercado())
+        inf_mes = informado.get(mes, _zeros_por_mercado())
+        nfe_mes = nfe.get(mes, {})
+        resultado[mes] = {
+            mercado: (
+                doc_mes[mercado],
+                inf_mes[mercado],
+                nfe_mes.get(mercado, (ZERO, ZERO))[0],
+                nfe_mes.get(mercado, (ZERO, ZERO))[1],
+            )
+            for mercado in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)
+        }
+    return resultado
 
 
 def _primeiro_mes_com_devolucao(empresa: Empresa) -> tuple[int, int] | None:
@@ -325,35 +401,36 @@ def _primeiro_mes_com_devolucao(empresa: Empresa) -> tuple[int, int] | None:
     return None if primeira is None else (primeira.year, primeira.month)
 
 
-def _saldo_que_entra(empresa: Empresa, ano: int, mes: int) -> dict[str, Decimal]:
-    """Saldo de devolução que chega ao mês, por mercado (Res. CGSN 140, art. 17, II; HI-121).
+def composicoes_do_periodo(empresa: Empresa, meses) -> dict[tuple[int, int], Composicao]:
+    """Composição de cada (ano, mês) pedido, com o saldo de devolução percorrido UMA vez (A6).
 
-    Anda mês a mês desde a primeira devolução. Em cada mês, a devolução soma ao saldo e a
-    receita do mês absorve o que couber; o resto segue. Só o que é de antes do mês pedido entra.
+    O período vai de `min(primeiro mês pedido, primeira devolução)` ao último mês pedido. Lê-se o
+    período em três consultas (`_componentes_do_periodo`) e anda-se mês a mês, uma vez. Cada mês
+    pedido recebe o saldo que CHEGA a ele, isto é, o que sobrou dos meses anteriores (Res. CGSN 140,
+    art. 17, II; HI-121). A devolução do próprio mês não entra no saldo de entrada.
     """
-    saldo = {MercadoReceita.INTERNO: ZERO, MercadoReceita.EXTERNO: ZERO}
-    inicio = _primeiro_mes_com_devolucao(empresa)
-    if inicio is None or inicio >= (ano, mes):
-        return saldo
-    ano_atual, mes_atual = inicio
-    while (ano_atual, mes_atual) < (ano, mes):
-        componentes = _componentes_do_mes(empresa, ano_atual, mes_atual)
-        for mercado, (doc, inf, merc, dev) in componentes.items():
+    pedidos = sorted(set(meses))
+    if not pedidos:
+        return {}
+    primeira = _primeiro_mes_com_devolucao(empresa)
+    inicio = pedidos[0] if primeira is None else min(pedidos[0], primeira)
+    fim = pedidos[-1]
+    componentes = _componentes_do_periodo(empresa, inicio, fim)
+    pedidos_set = set(pedidos)
+    saldo = _zeros_por_mercado()
+    resultado: dict[tuple[int, int], Composicao] = {}
+    for mes in _meses_do_intervalo(inicio, fim):
+        por_mercado = componentes[mes]
+        if mes in pedidos_set:
+            resultado[mes] = _composicao_do_mes(por_mercado, saldo)
+        for mercado, (doc, inf, merc, dev) in por_mercado.items():
             pool = saldo[mercado] + dev
             saldo[mercado] = pool - min(pool, doc + inf + merc)
-        proximo = _proximo_mes(ano_atual, mes_atual)
-        ano_atual, mes_atual = proximo.year, proximo.month
-    return saldo
+    return resultado
 
 
-def composicao_do_mes(empresa: Empresa, ano: int, mes: int) -> Composicao:
-    """Receita do mês por mercado: NFS-e + informado + NF-e de saída − devolução deduzida.
-
-    Consulta só a empresa dada (isolamento, AGENTS.md §11). O mercado de cada escrituração vem de
-    `mercado_da_natureza` (NFS-e) e de `mercado_da_natureza_nfe` (NF-e), e não é repetido aqui.
-    """
-    componentes = _componentes_do_mes(empresa, ano, mes)
-    entrada = _saldo_que_entra(empresa, ano, mes)
+def _composicao_do_mes(componentes: dict[str, tuple], entrada: dict[str, Decimal]) -> Composicao:
+    """Monta a `Composicao` de um mês a partir das parcelas e do saldo que chega a ele."""
     por_mercado = {}
     for mercado, (doc, inf, merc, dev) in componentes.items():
         pool = entrada[mercado] + dev
@@ -372,6 +449,16 @@ def composicao_do_mes(empresa: Empresa, ano: int, mes: int) -> Composicao:
         interno=por_mercado[MercadoReceita.INTERNO],
         externo=por_mercado[MercadoReceita.EXTERNO],
     )
+
+
+def composicao_do_mes(empresa: Empresa, ano: int, mes: int) -> Composicao:
+    """Receita do mês por mercado: NFS-e + informado + NF-e de saída − devolução deduzida.
+
+    Consulta só a empresa dada (isolamento, AGENTS.md §11). O mercado de cada escrituração vem de
+    `mercado_da_natureza` (NFS-e) e de `mercado_da_natureza_nfe` (NF-e), e não é repetido aqui.
+    Para vários meses, use `composicoes_do_periodo`: uma passagem só, em vez de uma por mês.
+    """
+    return composicoes_do_periodo(empresa, [(ano, mes)])[(ano, mes)]
 
 
 def componente_nfe_no_mes(empresa: Empresa, ano: int, mes: int) -> bool:

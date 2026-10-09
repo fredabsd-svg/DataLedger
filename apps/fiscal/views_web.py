@@ -1653,11 +1653,16 @@ def _contexto_do_mes(empresa, ano, mes, pode_escriturar):
         "mes_rotulo": _mes_por_extenso(ano, mes),
         "pode_escriturar": pode_escriturar,
         "mensagem_sem_permissao": _MENSAGEM_SEM_PERMISSAO_DE_RECEITA,
+        # Uma coluna por parcela, e as colunas somam o total: NFS-e + NF-e de saída + informado −
+        # devolução deduzida no mês (que inclui o saldo de meses anteriores). Correção da rodada 1,
+        # A7: a tela mostrava só NFS-e e informado, e o total não batia com as colunas.
         "linhas_mercado": [
             {
                 "rotulo": _ROTULO_DO_MERCADO[m],
                 "documento": _valor_ptbr(dados.composicao.de(m).documento),
+                "nfe": _valor_ptbr(dados.composicao.de(m).mercadoria),
                 "informado": _valor_ptbr(dados.composicao.de(m).informado),
+                "devolucao": _valor_ptbr(dados.composicao.de(m).deduzido),
                 "total": _valor_ptbr(dados.composicao.de(m).total),
             }
             for m in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)
@@ -7116,7 +7121,7 @@ def _pares_da_escrituracao(documento, escrituracao):
 
 def _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada):
     """(pode, motivo, conferência, divergiu). Efetivar só se habilita quando o serviço aceitaria: a
-    checagem é a do próprio serviço (`_conferir_valores`, função pura, sem gravar). O servidor
+    checagem é a do próprio serviço (`conferir_valores`, função pura, sem gravar). O servidor
     recusa de novo no POST, por mais que o botão esteja habilitado."""
     if escrituracao is None or escrituracao.estado != EstadoEscrituracao.RASCUNHO:
         return False, "", None, False
@@ -7134,12 +7139,14 @@ def _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada):
             False,
         )
     try:
-        conferencia = servico_nfe._conferir_valores(documento, leitura, pares)
-    except servico_nfe.EscrituracaoNFeErro as exc:
-        # Sem vNF, a mensagem do serviço não traz valor: pode ir como está.
-        if documento.v_nf is None:
-            return False, exc.mensagem, None, False
+        conferencia = servico_nfe.conferir_valores(documento, leitura, pares)
+    except servico_nfe.DivergenciaComVnf:
         return False, _MOTIVO_NAO_CONFERE_NFE, None, True
+    except servico_nfe.EscrituracaoNFeErro as exc:
+        # Bloqueios que nomeiam a regra (PE-85, vNF ausente, versão do leitor): a mensagem do
+        # serviço
+        # é a que o contador precisa ver, e não a de divergência.
+        return False, exc.mensagem, None, False
     return True, "", conferencia, False
 
 
@@ -7188,14 +7195,8 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
     tipo = servico_nfe.tipo_da_nota(documento, vinculo.papel)
     leitura = LeituraItensNFe.objects.filter(documento=documento).first()
     escrituracao = _escrituracao_ativa_nfe(vinculo)
-    nota = next(
-        (
-            n
-            for n in servico_nfe.notas_do_mes(empresa, competencia.year, competencia.month)
-            if n.vinculo.pk == vinculo.pk
-        ),
-        None,
-    )
+    # A nota é buscada direto pelo vínculo, sem listar o mês inteiro (DL-081, A6).
+    nota = servico_nfe.nota_do_vinculo(empresa, vinculo)
     lida = leitura is not None and leitura.estado == LeituraItensNFe.ESTADO_LIDA
     cancelada = situacao_da_nfe(documento) == "cancelada"
     pode = _pode_escriturar(request)
@@ -7483,6 +7484,7 @@ _CONTRATO_RECLASSIFICAR_NFE = ContratoDeRequisicao(
         "ncm",
         "previstas_notas",
         "previstos_itens",
+        "previstas_assinatura",
     },
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na reclassificação em massa de NF-e",
@@ -7566,6 +7568,8 @@ def _reclassificar_nfe_post(request):
         previa = {
             "notas": resultado.escrituracoes_afetadas,
             "itens": resultado.itens_alterados,
+            # Assinatura dos pares alterados: a confirmação recusa se o conjunto mudou (A10).
+            "assinatura": resultado.assinatura,
             "natureza_rotulo": NaturezaOperacaoNFe(natureza).label
             if natureza in NaturezaOperacaoNFe.values
             else natureza,
@@ -7574,17 +7578,21 @@ def _reclassificar_nfe_post(request):
 
     previstas_notas = _contagem_do_formulario_nfe(request.POST.get("previstas_notas"), "Notas")
     previstos_itens = _contagem_do_formulario_nfe(request.POST.get("previstos_itens"), "Itens")
+    previstas_assinatura = request.POST.get("previstas_assinatura", "")
     divergiu = False
     try:
         with transaction.atomic():
             resultado = servico_nfe.reclassificar_em_massa(
                 empresa, natureza, filtros, usuario=request.user, request=request
             )
-            # A confirmação só grava o que a prévia mostrou. Se os dados mudaram, desfaz tudo.
-            if (resultado.escrituracoes_afetadas, resultado.itens_alterados) != (
-                previstas_notas,
-                previstos_itens,
-            ):
+            # A confirmação só grava o que a prévia mostrou. Se os dados mudaram, desfaz tudo. A
+            # comparação é pela assinatura do conjunto (A10): contagens iguais não bastam, porque
+            # uma nota pode sair e outra entrar, com o mesmo total.
+            if (
+                resultado.escrituracoes_afetadas,
+                resultado.itens_alterados,
+                resultado.assinatura,
+            ) != (previstas_notas, previstos_itens, previstas_assinatura):
                 transaction.set_rollback(True)
                 divergiu = True
     except servico_nfe.EntradaInvalidaNFe as exc:
@@ -7650,7 +7658,7 @@ def nfe_conferencia(request):
 
     conferencia = servico_nfe.conferencia_do_mes(empresa, ano, mes)
     composicao = servico_receita.composicao_do_mes(empresa, ano, mes)
-    notas = servico_nfe.notas_do_mes(empresa, ano, mes)
+    notas = conferencia.notas
     naturezas = sorted(
         conferencia.receita_por_natureza.items(),
         key=lambda par: NaturezaOperacaoNFe(par[0]).label,
@@ -7702,7 +7710,7 @@ def nfe_conferencia(request):
             "total_nfe_ptbr": _valor_ptbr(total_nfe),
             "valor_por_cfop": [
                 {"cfop": cfop, "valor_ptbr": _valor_ptbr(valor)}
-                for cfop, valor in sorted(conferencia.receita_por_cfop.items())
+                for cfop, valor in sorted(conferencia.valor_bruto_por_cfop.items())
             ],
             "composicao": [
                 {

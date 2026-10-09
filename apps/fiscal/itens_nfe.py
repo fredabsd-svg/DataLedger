@@ -28,6 +28,18 @@ Limites declarados:
   dígitos, e a conferência do domínio fica para a apuração do ICMS.
 - Textos (`xProd`, `cProd`, `cBenef`) seguem o padrão TString do XSD (Latin-1, sem espaço nas
   pontas). Real nota autorizada já passou pelo mesmo padrão na SEFAZ.
+- Escolha do `imposto` (leiauteNFe_v4.00.xsd:2117, `xs:choice minOccurs="0"`): ou o grupo
+  ICMS (com IPI e II opcionais), ou o ISSQN (com IPI opcional). O choice inteiro é opcional, então
+  ICMS ausente é válido quando o item tem ISSQN, ou quando não tem ICMS, IPI, II nem ISSQN (o
+  `imposto` pode trazer só PIS, Cofins ou ICMSUFDest). ICMS e ISSQN juntos são recusados. IPI ou II
+  sem ICMS nem ISSQN também é recusado, porque o XSD não aceita essa combinação.
+- O IPI (TIpi, leiauteNFe_v4.00.xsd:7579) tem `cEnq` antes do grupo, e o grupo é IPITrib (linha
+  7623) ou IPINT (linha 7678). O leitor acha o grupo pelo nome e ignora `CNPJProd`, `cSelo`,
+  `qSelo` e `cEnq`.
+- Versão do leitor (`VERSAO_LEITOR_ITENS`): cada leitura grava a versão com que foi feita. Leitura
+  de versão anterior é refeita na próxima tentativa e substitui a antiga, desde que a nota não
+  tenha escrituração efetivada ou estornada. Assim, notas que a leitura antiga recusou por erro
+  do próprio leitor são relidas (DL-081, correção da rodada 1, A1 e A12).
 """
 
 from __future__ import annotations
@@ -36,13 +48,54 @@ import re
 from decimal import Decimal
 from xml.etree import ElementTree
 
-from django.db import IntegrityError, transaction
+from django.db import DataError, IntegrityError, transaction
 
 from apps.fiscal.leitor import ArquivoRecusado, _raiz_segura
 from apps.fiscal.leitor_nfe import NS_NFE
-from apps.fiscal.models import DocumentoNFe, ItemNFe, LeituraItensNFe
+from apps.fiscal.models import (
+    DocumentoNFe,
+    EscrituracaoNFe,
+    ItemNFe,
+    LeituraItensNFe,
+    NaturezaItemNFe,
+)
 
 _NS = {"n": NS_NFE}
+
+# Versão deste leitor, gravada em cada `LeituraItensNFe`. Suba o número quando a regra de leitura
+# mudar: a leitura gravada com versão anterior é refeita (ver `ler_itens`). Versão 1 é a da rodada
+# 1 da DL-081, que recusava IPI com `cEnq`, item só com ISSQN e `imposto` sem ICMS.
+VERSAO_LEITOR_ITENS = 2
+
+# Limite de `numeric(15,2)`, o tipo de `receita_bruta_item` e dos totais: 13 dígitos inteiros, ou
+# seja, valor absoluto menor que 10^13. Acima disso, o banco recusa com DataError (500 na API).
+# A nota vira ilegível antes, com o motivo, e nada é gravado (DL-081, A5).
+LIMITE_MONETARIO = Decimal("10000000000000")
+
+# Os campos do grupo ICMS, na ordem do `_ler_icms`. Quando o grupo não existe no item (choice do
+# `imposto` com ISSQN, ou sem nenhum grupo da choice), todos ficam `None`.
+_CAMPOS_ICMS = (
+    "orig",
+    "cst",
+    "csosn",
+    "mod_bc",
+    "v_bc",
+    "p_icms",
+    "v_icms",
+    "v_icms_deson",
+    "mot_des_icms",
+    "mod_bc_st",
+    "v_bc_st",
+    "p_icms_st",
+    "v_icms_st",
+    "v_bc_st_ret",
+    "v_icms_st_ret",
+    "p_cred_sn",
+    "v_cred_icms_sn",
+    "v_fcp",
+    "v_fcp_st",
+    "ind_deduz_deson",
+)
 
 # Padrões copiados do XSD (texto exato da expressão regular). A referência é a linha da
 # declaração do tipo em `tiposBasico_v4.00.xsd` (ou `DFeTiposBasicos_v1.00.xsd`, para TDec1302RTC).
@@ -93,6 +146,8 @@ _PADRAO = {
     "modBCST": re.compile(r"[0-6]"),
     # leiauteNFe_v4.00.xsd:2571 (motDesICMS: aqui só o formato de até dois dígitos)
     "motDesICMS": re.compile(r"[0-9]{1,2}"),
+    # leiauteNFe_v4.00.xsd:2586 (indDeduzDeson: 0 não deduz do total, 1 deduz)
+    "indDeduz": re.compile(r"0|1"),
 }
 
 _TAMANHO = {
@@ -148,16 +203,32 @@ def _grupo_unico(pai, campo: str):
     return filhos[0] if filhos else None
 
 
+def _conferir_escolha_do_imposto(imposto) -> None:
+    """Recusa a combinação que o `xs:choice` do `imposto` não aceita (leiauteNFe_v4.00.xsd:2117).
+
+    A escolha é ICMS (com IPI e II) OU ISSQN (com IPI). O choice inteiro é opcional, então não ter
+    ICMS nem ISSQN é válido, desde que não haja IPI nem II soltos.
+    """
+    tem_icms = imposto.find("n:ICMS", _NS) is not None
+    tem_issqn = imposto.find("n:ISSQN", _NS) is not None
+    tem_ipi_ou_ii = imposto.find("n:IPI", _NS) is not None or imposto.find("n:II", _NS) is not None
+    if tem_icms and tem_issqn:
+        raise _Ilegivel("imposto com ICMS e ISSQN no mesmo item (XSD: um ou outro, linha 2117)")
+    if not tem_icms and not tem_issqn and tem_ipi_ou_ii:
+        raise _Ilegivel("IPI ou II sem grupo ICMS nem ISSQN no imposto (XSD, linha 2117)")
+
+
 def _ler_icms(imposto) -> dict:
     """ICMS, ICMS-ST, crédito do Simples e FCP. Os nomes dos campos são os do grupo.
 
     Cada campo fica no filho do grupo (ICMS00, ICMS10 ... ICMSSN500 ...). O XSD define quais
     grupos têm cada campo, e um campo ausente no grupo fica `None`. O grupo ICMS é obrigatório
-    no `imposto` (XSD:2125 e seguintes), por isso a ausência é recusa.
+    só na alternativa ICMS do choice (leiauteNFe_v4.00.xsd:2117): sem ele, por ISSQN ou por
+    ausência do choice, todos os campos ficam `None`, e isso NÃO é recusa.
     """
-    icms = imposto.find("n:ICMS", _NS) if imposto is not None else None
+    icms = imposto.find("n:ICMS", _NS)
     if icms is None:
-        raise _Ilegivel("grupo ICMS ausente no imposto (obrigatório pelo XSD)")
+        return {campo: None for campo in _CAMPOS_ICMS}
     grupo = _grupo_unico(icms, "ICMS")
     if grupo is None:
         raise _Ilegivel("grupo ICMS sem nenhum tributo")
@@ -181,15 +252,24 @@ def _ler_icms(imposto) -> dict:
         "v_cred_icms_sn": _decimal(grupo, "n:vCredICMSSN", "vCredICMSSN", "TDec_1302"),
         "v_fcp": _decimal(grupo, "n:vFCP", "vFCP", "TDec_1302"),
         "v_fcp_st": _decimal(grupo, "n:vFCPST", "vFCPST", "TDec_1302"),
+        "ind_deduz_deson": _texto(grupo, "n:indDeduzDeson", "indDeduzDeson", "indDeduz"),
     }
     return dados
 
 
 def _ler_ipi(imposto) -> dict:
-    ipi = imposto.find("n:IPI", _NS) if imposto is not None else None
+    """IPI (TIpi, leiauteNFe_v4.00.xsd:7579). O grupo é IPITrib (linha 7623) ou IPINT (linha 7678).
+
+    `cEnq` vem antes do grupo, e `CNPJProd`, `cSelo` e `qSelo` são opcionais. Nenhum deles é o
+    grupo: o grupo é achado pelo NOME, e exatamente um deve existir.
+    """
+    ipi = imposto.find("n:IPI", _NS)
     if ipi is None:
         return {"cst_ipi": None, "v_ipi": None}
-    grupo = _grupo_unico(ipi, "IPI")
+    grupos = ipi.findall("n:IPITrib", _NS) + ipi.findall("n:IPINT", _NS)
+    if len(grupos) != 1:
+        raise _Ilegivel(f"IPI sem grupo IPITrib ou IPINT único (encontrados: {len(grupos)})")
+    grupo = grupos[0]
     return {
         "cst_ipi": _texto(grupo, "n:CST", "CST do IPI", "CST"),
         "v_ipi": _decimal(grupo, "n:vIPI", "vIPI", "TDec_1302"),
@@ -227,6 +307,7 @@ def _ler_det(det) -> dict:
     imposto = det.find("n:imposto", _NS)
     if imposto is None:
         raise _Ilegivel("item sem grupo imposto (obrigatório pelo XSD)")
+    _conferir_escolha_do_imposto(imposto)
 
     # nItem é atributo de `det` (leiauteNFe_v4.00.xsd:5320), obrigatório.
     n_item = det.get("nItem")
@@ -272,6 +353,8 @@ def _ler_det(det) -> dict:
     dados.update(_ler_tributo_de_grupo(imposto, "PIS", "pis"))
     dados.update(_ler_tributo_de_grupo(imposto, "COFINS", "cofins"))
     dados["receita_bruta_item"] = receita_bruta_do_item(dados)
+    if abs(dados["receita_bruta_item"]) >= LIMITE_MONETARIO:
+        raise _Ilegivel(f"receita do item acima do limite (nItem {n_item}; numeric(15,2))")
     return dados
 
 
@@ -289,7 +372,7 @@ def _ler_itens_do_xml(xml: bytes) -> tuple[list[dict], dict]:
     """Itens e totais de uma NF-e (`nfeProc`), ou `_Ilegivel` com o campo nomeado.
 
     Retorna (itens, totais). Os totais são os que a conferência e os avisos usam e que o
-    `DocumentoNFe` não guarda: vII, vIPIDevol, vNFTot, vIBS, vCBS e vIS.
+    `DocumentoNFe` não guarda: vII, vIPIDevol, vNFTot, vIBS, vCBS, vIS e vFCPST (total).
     """
     try:
         raiz = _raiz_segura(xml)
@@ -313,10 +396,16 @@ def _ler_itens_do_xml(xml: bytes) -> tuple[list[dict], dict]:
         numeros.add(dados["n_item"])
         itens.append(dados)
 
+    # A soma das receitas dos itens vai para `soma_itens` e para a receita da escrituração, que
+    # também são numeric(15,2). Cada item cabe, mas a soma pode não caber.
+    if sum(abs(item["receita_bruta_item"]) for item in itens) >= LIMITE_MONETARIO:
+        raise _Ilegivel("soma da receita dos itens acima do limite (numeric(15,2))")
+
     total = inf.find("n:total", _NS)
     icms_tot = total.find("n:ICMSTot", _NS) if total is not None else None
     ibs = total.find("n:IBSCBSTot", _NS) if total is not None else None
     totais = {
+        "v_fcp_st_total": _decimal(icms_tot, "n:vFCPST", "vFCPST (total)", "TDec_1302"),
         "v_ii": _decimal(icms_tot, "n:vII", "vII (total)", "TDec_1302"),
         "v_ipi_devol": _decimal(icms_tot, "n:vIPIDevol", "vIPIDevol (total)", "TDec_1302"),
         "v_nf_tot": _decimal(total, "n:vNFTot", "vNFTot (total)", "TDec_1302"),
@@ -327,45 +416,116 @@ def _ler_itens_do_xml(xml: bytes) -> tuple[list[dict], dict]:
     return itens, totais
 
 
-def _gravar_leitura(documento: DocumentoNFe, xml: bytes) -> LeituraItensNFe:
-    """Lê e grava o resultado (lido ou ilegível) numa transação. Chamado por `ler_itens`."""
+MOTIVO_LIMITE_DO_CAMPO = (
+    "valor acima do limite de um campo monetário (numeric(15,2)); nenhum item foi gravado"
+)
+
+
+def _criar_leitura_ilegivel(documento: DocumentoNFe, motivo: str) -> LeituraItensNFe:
+    return LeituraItensNFe.objects.create(
+        documento=documento,
+        estado=LeituraItensNFe.ESTADO_ILEGIVEL,
+        motivo=motivo[:500],
+        versao_leitor=VERSAO_LEITOR_ITENS,
+        **{
+            campo: None
+            for campo in (
+                "v_ii",
+                "v_ipi_devol",
+                "v_nf_tot",
+                "v_ibs",
+                "v_cbs",
+                "v_is",
+                "v_fcp_st_total",
+            )
+        },
+    )
+
+
+def _recriar_naturezas_dos_rascunhos(documento: DocumentoNFe) -> None:
+    """Uma linha de natureza VAZIA por item, para cada rascunho da nota.
+
+    Chamada quando a releitura troca os itens: as naturezas dos itens antigos saem em cascata, e
+    um rascunho sem linha de natureza nunca se efetiva (o gatilho da 0011 exige todos os itens com
+    natureza). A natureza antiga NÃO é transportada para o item novo, de propósito: o contador
+    confirma de novo, porque a leitura mudou.
+    """
+    rascunhos = EscrituracaoNFe.objects.filter(vinculo__documento=documento, estado="rascunho")
+    itens = list(ItemNFe.objects.filter(documento=documento).order_by("n_item"))
+    for escrituracao in rascunhos:
+        NaturezaItemNFe.objects.bulk_create(
+            NaturezaItemNFe(escrituracao=escrituracao, item=item) for item in itens
+        )
+
+
+def _gravar_leitura(
+    documento: DocumentoNFe, xml: bytes, anterior: LeituraItensNFe | None
+) -> LeituraItensNFe:
+    """Lê o XML e grava o resultado (lido ou ilegível). Chamado por `ler_itens`, dentro de
+    transação.
+
+    Se havia uma leitura de versão anterior, ela e os itens saem antes, e a nova entra no lugar.
+    """
+    if anterior is not None:
+        ItemNFe.objects.filter(documento=documento).delete()
+        anterior.delete()
     try:
         itens, totais = _ler_itens_do_xml(xml)
     except _Ilegivel as exc:
-        return LeituraItensNFe.objects.create(
-            documento=documento,
-            estado=LeituraItensNFe.ESTADO_ILEGIVEL,
-            motivo=exc.motivo[:500],
-            **{
-                campo: None
-                for campo in ("v_ii", "v_ipi_devol", "v_nf_tot", "v_ibs", "v_cbs", "v_is")
-            },
-        )
-    leitura = LeituraItensNFe.objects.create(
-        documento=documento,
-        estado=LeituraItensNFe.ESTADO_LIDA,
-        quantidade_itens=len(itens),
-        **totais,
-    )
-    ItemNFe.objects.bulk_create(ItemNFe(documento=documento, **dados) for dados in itens)
+        return _criar_leitura_ilegivel(documento, exc.motivo)
+    # O savepoint cobre leitura e itens: se o banco recusar um valor (DataError), nada parcial fica
+    # gravado, e a nota vira ilegível com motivo, em vez de 500 (DL-081, A5).
+    try:
+        with transaction.atomic():
+            leitura = LeituraItensNFe.objects.create(
+                documento=documento,
+                estado=LeituraItensNFe.ESTADO_LIDA,
+                quantidade_itens=len(itens),
+                versao_leitor=VERSAO_LEITOR_ITENS,
+                **totais,
+            )
+            ItemNFe.objects.bulk_create(ItemNFe(documento=documento, **dados) for dados in itens)
+    except DataError:
+        return _criar_leitura_ilegivel(documento, MOTIVO_LIMITE_DO_CAMPO)
+    _recriar_naturezas_dos_rascunhos(documento)
     return leitura
 
 
+def _escrituracao_efetivada_ou_estornada(documento: DocumentoNFe) -> bool:
+    """Se a nota tem escrituração efetivada ou estornada, os itens e a leitura são imutáveis
+    (gatilho
+    da 0011). Nesse caso a versão antiga fica, e a releitura não tenta trocá-la."""
+    return EscrituracaoNFe.objects.filter(
+        vinculo__documento=documento, estado__in=["efetivada", "estornada"]
+    ).exists()
+
+
 def ler_itens(documento: DocumentoNFe) -> LeituraItensNFe:
-    """Itens da nota, lidos UMA vez e gravados. Idempotente (DL-081, item 2).
+    """Itens da nota, lidos e gravados. Idempotente (DL-081, item 2).
+
+    Uma leitura com a versão atual (`VERSAO_LEITOR_ITENS`) é devolvida como está. Uma leitura de
+    versão anterior é refeita e substitui a antiga, mas só enquanto a nota não tem escrituração
+    efetivada ou estornada (correção da rodada 1, A1 e A12).
 
     Chamada com o documento já escolhido pela empresa (o isolamento é de quem chama). A leitura
-    roda em transação: itens e resultado entram juntos ou nenhum entra. Se duas requisições
-    lerem a mesma nota ao mesmo tempo, a segunda perde a corrida no `OneToOneField` e devolve a
-    leitura que a primeira gravou, sem duplicar item.
+    roda em transação, com o `DocumentoNFe` travado: duas requisições em corrida leem uma de cada
+    vez, e a segunda vê a versão que a primeira gravou, sem duplicar item.
     """
     existente = LeituraItensNFe.objects.filter(documento=documento).first()
-    if existente is not None:
+    if existente is not None and existente.versao_leitor == VERSAO_LEITOR_ITENS:
         return existente
     xml = bytes(documento.xml_original)
     try:
         with transaction.atomic():
-            return _gravar_leitura(documento, xml)
+            # Trava a linha da nota: a releitura apaga e recria itens, e não pode correr em
+            # paralelo.
+            DocumentoNFe.objects.select_for_update().only("pk").get(pk=documento.pk)
+            atual = LeituraItensNFe.objects.filter(documento=documento).first()
+            if atual is not None and atual.versao_leitor == VERSAO_LEITOR_ITENS:
+                return atual
+            if atual is not None and _escrituracao_efetivada_ou_estornada(documento):
+                return atual
+            return _gravar_leitura(documento, xml, anterior=atual)
     except IntegrityError:
         existente = LeituraItensNFe.objects.filter(documento=documento).first()
         if existente is None:
