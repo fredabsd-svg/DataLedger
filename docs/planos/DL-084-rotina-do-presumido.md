@@ -30,10 +30,18 @@ atualizadas pela RC-172.
    estaduais e municipais, com data, descrição e fonte.
    - A tabela **nasce preenchida para Palmas e o Tocantins** (RC-173, item
      6).
-   - Entra só a data cuja lei for lida na fonte oficial (Diário Oficial,
-     Assembleia Legislativa ou Câmara Municipal), com a data da leitura.
-   - A pesquisa vai ao `contador-senior` antes da frente A. Data sem lei
-     lida fica fora, com pendência nomeada.
+   - Entra só a data cuja lei for lida na fonte oficial, com a data da
+     leitura. A [consulta dos feriados de Palmas e do Tocantins](../projeto/consultas/2026-10-09-contador-senior-feriados-palmas-tocantins.md)
+     já leu as cinco datas da HI-137: 15/08, 08/09 e 05/10 (estaduais) e
+     19/03 e 20/05 (Palmas). O 18/03 fica fora.
+   - A tabela aceita **exceção por ano**: em 2026 o 05/10 foi observado em
+     09/10, por decreto.
+   - O aviso diz "feriado local: confirmar expediente bancário na praça"
+     (PE-89).
+   - A Sexta-feira Santa continua só na tabela de dias sem expediente
+     bancário nacional, que passa a citar também a Lei municipal 577/96.
+     A Res. CMN 4.880/2020, art. 6º, lida, é a fonte do Carnaval e de Corpus
+     Christi como dias não úteis.
    - Quando o vencimento cai num deles, a tela mostra "antecipar: sem
      expediente bancário na praça".
    - A data normativa não muda.
