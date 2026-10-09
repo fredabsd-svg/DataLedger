@@ -535,3 +535,21 @@ def test_api_recusa_limite_acima_do_teto_com_400_e_sem_gravar(
     assert "limite" in json.loads(ler.content)
     assert not LoteEscrituracaoNFe.objects.filter(empresa=empresa).exists()
     assert not EscrituracaoNFe.objects.filter(empresa=empresa).exists()
+
+
+def test_criacao_individual_do_rascunho_trava_a_empresa_antes_do_vinculo(
+    escritorio_a, gestor, empresa
+):
+    """Ajuste do arquiteto (A5, resíduo): a criação individual do rascunho segue a mesma ordem do
+    lote e da efetivação, empresa antes do vínculo, para não haver deadlock entre os dois."""
+    _notas(escritorio_a, gestor, 1)
+    from apps.fiscal import escrituracao_nfe as servico_nfe
+
+    vinculo_da_nota = VinculoNFeEmpresa.objects.get(empresa=empresa)
+    with CaptureQueriesContext(connection) as contexto:
+        servico_nfe.criar_rascunho(vinculo_da_nota, usuario=gestor)
+
+    sqls = [q["sql"] for q in contexto.captured_queries if "FOR UPDATE" in q["sql"]]
+    assert _indice_do_bloqueio(sqls, Empresa._meta.db_table) < _indice_do_bloqueio(
+        sqls, VinculoNFeEmpresa._meta.db_table
+    )

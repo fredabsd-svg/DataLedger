@@ -657,6 +657,11 @@ def criar_rascunho(vinculo: VinculoNFeEmpresa, usuario, request=None) -> Escritu
 
 @transaction.atomic
 def _criar_rascunho_travado(vinculo: VinculoNFeEmpresa, usuario, request) -> EscrituracaoNFe:
+    # Ajuste do arquiteto depois da correção da DL-085 (A5): a empresa é travada ANTES do vínculo,
+    # na mesma ordem da efetivação e do lote (empresa → vínculo → escrituração). Antes, a criação
+    # individual pegava o vínculo e depois precisava da linha da empresa (o INSERT da escrituração
+    # pede KEY SHARE nela), e o lote, que já tinha a empresa, podia entrar em deadlock com ela.
+    receita_servico.travar_empresa(vinculo.empresa)
     travado = _travar_vinculo(vinculo)
     ativa = _ativa_do_vinculo(travado)
     if ativa is not None and ativa.estado == EstadoEscrituracao.EFETIVADA:
