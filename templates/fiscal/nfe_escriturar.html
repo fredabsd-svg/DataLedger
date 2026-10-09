@@ -157,7 +157,7 @@ serviço diz se a nota confere, e o servidor recusa de novo no POST, por mais qu
 
             <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0" aria-label="Itens da nota, com CFOP, CST ou CSOSN, NCM, valores, receita e natureza">
             <table class="tabela-dados">
-                <caption>Itens da nota, com CFOP, CST ou CSOSN, NCM, valor, receita e natureza de cada item</caption>
+                <caption>Itens da nota, com CFOP, CST ou CSOSN, NCM, valor, receita, natureza, marca de monofásico e segmento da devolução de cada item</caption>
                 <thead>
                     <tr>
                         <th scope="col">Item</th>
@@ -168,6 +168,7 @@ serviço diz se a nota confere, e o servidor recusa de novo no POST, por mais qu
                         <th scope="col">Valor do item (vProd)</th>
                         <th scope="col">Receita do item</th>
                         <th scope="col">Natureza</th>
+                        <th scope="col">Marca de monofásico e segmento da devolução</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -215,6 +216,75 @@ serviço diz se a nota confere, e o servidor recusa de novo no POST, por mais qu
                                         Sem natureza confirmada
                                     {% endif %}
                                     <br><span class="texto-apoio">Sugestão: {{ linha.sugestao_rotulo }}. {{ linha.sugestao_motivo }}</span>
+                                {% endif %}
+                            </td>
+                            {% comment %}
+                            DL-082 (frente B): marca de monofásico (caixa) e segmento confirmado da devolução. Em rascunho,
+                            o contador grava; sem permissão, o controle fica desabilitado com o motivo (direção de arte §2.B),
+                            e o servidor recusa o POST com 403. Efetivada ou estornada: só leitura, sem controle.
+                            {% endcomment %}
+                            <td>
+                                {% if rascunho %}
+                                    {% if linha.pode_marcar_monofasico %}
+                                        {% if pode_escriturar %}
+                                            <form method="post" action="{{ url_escriturar }}" class="formulario">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="acao" value="monofasico">
+                                                <input type="hidden" name="item_id" value="{{ linha.item_id }}">
+                                                <label><input type="checkbox" name="monofasico" value="1"{% if linha.monofasico %} checked{% endif %}> Monofásico de PIS e Cofins (marca do contador)</label>
+                                                <button type="submit" class="botao botao--secundario botao--pequeno">Gravar marca</button>
+                                            </form>
+                                        {% else %}
+                                            <div class="formulario">
+                                                <label><input type="checkbox" disabled{% if linha.monofasico %} checked{% endif %} aria-describedby="id_motivo_marca_{{ linha.item_id }}"> Monofásico de PIS e Cofins (marca do contador)</label>
+                                                <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="id_motivo_marca_{{ linha.item_id }}">Gravar marca</button>
+                                                <p class="texto-apoio" id="id_motivo_marca_{{ linha.item_id }}">{{ motivo_sem_escrita_da_marca }}</p>
+                                            </div>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="texto-apoio">Não se aplica: a marca vale para natureza de mercadoria.</span>
+                                    {% endif %}
+
+                                    {% if linha.devolucao %}
+                                        {% if pode_escriturar %}
+                                            <form method="post" action="{{ url_escriturar }}" class="formulario">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="acao" value="segmento_devolucao">
+                                                <input type="hidden" name="item_id" value="{{ linha.item_id }}">
+                                                <label for="id_segmento_{{ linha.item_id }}">Segmento da devolução do item {{ linha.n_item }}</label>
+                                                <select id="id_segmento_{{ linha.item_id }}" name="segmento" aria-describedby="id_sugestao_segmento_{{ linha.item_id }}">
+                                                    {% if linha.segmento_gravado %}
+                                                        <option value="">Desfazer a confirmação</option>
+                                                    {% else %}
+                                                        <option value="" selected>Escolha o segmento</option>
+                                                    {% endif %}
+                                                    {% for valor, rotulo in linha.opcoes_segmento %}
+                                                        <option value="{{ valor }}"{% if valor == linha.segmento_selecionado %} selected{% endif %}>{{ rotulo }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                                <button type="submit" class="botao botao--secundario botao--pequeno">Confirmar segmento</button>
+                                            </form>
+                                        {% else %}
+                                            <div class="formulario">
+                                                <label for="id_segmento_{{ linha.item_id }}">Segmento da devolução do item {{ linha.n_item }}</label>
+                                                <select id="id_segmento_{{ linha.item_id }}" disabled aria-describedby="id_motivo_segmento_{{ linha.item_id }}">
+                                                    <option selected>{% if linha.segmento_gravado %}{{ linha.segmento_gravado_rotulo }}{% else %}Escolha o segmento{% endif %}</option>
+                                                </select>
+                                                <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="id_motivo_segmento_{{ linha.item_id }}">Confirmar segmento</button>
+                                                <p class="texto-apoio" id="id_motivo_segmento_{{ linha.item_id }}">{{ motivo_sem_escrita_da_marca }}</p>
+                                            </div>
+                                        {% endif %}
+                                        <p class="texto-apoio" id="id_sugestao_segmento_{{ linha.item_id }}">
+                                            Sugestão: {{ linha.segmento_sugerido_rotulo }}. {{ linha.segmento_sugerido_motivo }}
+                                        </p>
+                                    {% endif %}
+                                {% elif efetivada %}
+                                    Marca de monofásico: {% if linha.pode_marcar_monofasico %}{% if linha.monofasico %}sim{% else %}não{% endif %}{% else %}não se aplica{% endif %}.
+                                    {% if linha.devolucao %}
+                                        <br>Segmento da devolução: {% if linha.segmento_gravado %}{{ linha.segmento_gravado_rotulo }}{% else %}sem segmento confirmado{% endif %}.
+                                    {% endif %}
+                                {% else %}
+                                    <span class="texto-apoio">Sem rascunho nem escrituração efetivada: nada gravado para marcar.</span>
                                 {% endif %}
                             </td>
                         </tr>

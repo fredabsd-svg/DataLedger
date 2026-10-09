@@ -105,6 +105,15 @@ from apps.fiscal.formatacao_ptbr import milhar_ptbr as _milhar_ptbr
 from apps.fiscal.formatacao_ptbr import valor_ptbr as _valor_ptbr
 from apps.fiscal.itens_nfe import receita_do_item
 from apps.fiscal.models import (
+    ANEXO_I,
+    ANEXO_II,
+    NATUREZAS_DE_MERCADORIA,
+    SEGMENTO_EXPORTACAO,
+    SEGMENTO_MONOFASICO,
+    SEGMENTO_NORMAL,
+    SEGMENTO_ST_MONOFASICO,
+    SEGMENTO_SUJEITA_ST,
+    TAMANHO_SEGMENTO_DEVOLUCAO,
     AliquotaIssMunicipal,
     AtividadeEmpresa,
     AtividadePresuncaoEmpresa,
@@ -140,6 +149,7 @@ from apps.fiscal.models import (
     RegimeIss,
     RegimeIssEmpresa,
     RegraIssMunicipio,
+    SegmentoDevolucao,
     SituacaoIssReceitaInformada,
     TipoEscrituracaoNFe,
     VinculoDocumentoEmpresa,
@@ -2127,6 +2137,51 @@ _ROTULO_DO_SEGMENTO = {
     ),
     servico_pre_das.SEG_EXPORTACAO: "Exportação de serviço (sem PIS, Cofins e ISS)",
 }
+
+# DL-082 (frente B): segmentos de MERCADORIA, anexos I e II. Têm rótulo próprio porque a chave
+# "exportacao" é a mesma no serviço e na mercadoria, com tributos diferentes (serviço tira PIS,
+# Cofins e ISS; mercadoria tira também IPI e ICMS, Res. CGSN 140, art. 25, § 3º). Escolher pelo
+# anexo é o que separa os dois.
+_ANEXOS_DE_MERCADORIA = (ANEXO_I, ANEXO_II)
+_ROTULO_DO_SEGMENTO_DE_MERCADORIA = {
+    SEGMENTO_NORMAL: "Normal (sem ST, monofásico nem exportação)",
+    SEGMENTO_SUJEITA_ST: "Sujeita a ST (ICMS substituído)",
+    SEGMENTO_MONOFASICO: "Monofásico de PIS e Cofins",
+    SEGMENTO_ST_MONOFASICO: "ST e monofásico",
+    SEGMENTO_EXPORTACAO: "Exportação de mercadoria (mercado externo)",
+}
+# Por que cada tributo sai do DAS em cada segmento de mercadoria. Quem decide QUAL tributo sai é
+# `apps.fiscal.pre_das` (`_desconsiderados`); a tela só escreve o motivo e o dispositivo. Cada
+# tupla é (tributos, motivo, dispositivo). A guarda `test_dl082_telas` confere este mapa com o
+# domínio, segmento por segmento: se o domínio mudar, o teste falha antes da tela mentir.
+_DISP_DA_ST = "Res. CGSN 140, art. 25, § 8º, I"
+_DISP_DO_MONOFASICO = "Res. CGSN 140, art. 25, §§ 6º e 7º, II"
+_DISP_DA_EXPORTACAO = "Res. CGSN 140, art. 25, § 3º"
+_DESCONSIDERADOS_NA_TELA = {
+    SEGMENTO_NORMAL: (),
+    SEGMENTO_SUJEITA_ST: (((tabelas.ICMS,), "ST", _DISP_DA_ST),),
+    SEGMENTO_MONOFASICO: (((tabelas.PIS, tabelas.COFINS), "monofásico", _DISP_DO_MONOFASICO),),
+    SEGMENTO_ST_MONOFASICO: (
+        ((tabelas.ICMS,), "ST", _DISP_DA_ST),
+        ((tabelas.PIS, tabelas.COFINS), "monofásico", _DISP_DO_MONOFASICO),
+    ),
+    SEGMENTO_EXPORTACAO: (
+        (
+            (tabelas.PIS, tabelas.COFINS, tabelas.IPI, tabelas.ICMS, tabelas.ISS),
+            "exportação",
+            _DISP_DA_EXPORTACAO,
+        ),
+    ),
+}
+
+# Recusas do pré-DAS que se resolvem na escrituração da NF-e (DL-082, HI-125, HI-129).
+_CODIGOS_DA_ESCRITURACAO_NFE = frozenset(
+    {
+        "anexo_da_mercadoria_a_confirmar",
+        "devolucao_sem_segmento_confirmado",
+        "deducao_sem_segmento",
+    }
+)
 # Códigos de bloqueio que se resolvem cadastrando ou corrigindo a atividade da empresa.
 _CODIGOS_DE_ATIVIDADE = frozenset(
     {
@@ -2277,6 +2332,14 @@ def _url_folhas(empresa, ano):
     )
 
 
+def _url_nfe_a_escriturar(empresa, ano, mes):
+    return (
+        reverse("fiscal_web:nfe_a_escriturar")
+        + "?"
+        + urlencode({"empresa": empresa.pk, "ano": ano, "mes": mes})
+    )
+
+
 def _contexto_do_filtro_de_empresa(request, empresa, competencia=None):
     """Valores do filtro das telas do Simples. A lista de empresas só existe SEM empresa
     escolhida; com uma escolhida, o filtro mostra só ela (direção de arte §8.1)."""
@@ -2327,6 +2390,10 @@ def _acao_do_bloqueio(bloqueio, empresa, ano, mes):
         return "Cadastrar ou corrigir as atividades", _url_atividades(empresa), ""
     if codigo == "folha_nao_confirmada":
         return "Lançar e confirmar a folha", _url_folhas(empresa, ano), ""
+    # DL-082: anexo da mercadoria e devolução sem segmento se resolvem na escrituração da NF-e
+    # (confirmar a natureza, a marca e o segmento da devolução). A tela só leva até a lista.
+    if codigo in _CODIGOS_DA_ESCRITURACAO_NFE:
+        return "Abrir as NF-e a escriturar", _url_nfe_a_escriturar(empresa, ano, mes), ""
     return (
         None,
         None,
@@ -2355,26 +2422,70 @@ def _diferenca_na_tela(diferenca, tributo) -> str:
     return f"{texto}, ao tributo {_ROTULO_DO_TRIBUTO.get(tributo, tributo)}"
 
 
-def _segmento_na_tela(segmento) -> dict:
+def _rotulo_do_segmento(anexo_numero, segmento) -> str:
+    if anexo_numero in _ANEXOS_DE_MERCADORIA:
+        return _ROTULO_DO_SEGMENTO_DE_MERCADORIA[segmento]
+    return _ROTULO_DO_SEGMENTO[segmento]
+
+
+def _situacao_do_desconsiderado(tributo, segmento) -> str:
+    """Texto do tributo que sai do DAS num segmento de mercadoria, com o motivo e o dispositivo.
+
+    O texto escreve que o tributo foi DESCONSIDERADO. Não é um zero digitado: a coluna de valor
+    diz "desconsiderado", e nenhum número é mostrado para ele.
+    """
+    rotulo = _ROTULO_DO_TRIBUTO.get(tributo, tributo)
+    for tributos, motivo, dispositivo in _DESCONSIDERADOS_NA_TELA.get(segmento, ()):
+        if tributo in tributos:
+            return f"{rotulo}: desconsiderado — {motivo} ({dispositivo})"
+    # Sem motivo mapeado, a tela diz só que saiu, e não inventa motivo. A guarda de consistência
+    # reprova um segmento que chegue aqui.
+    return f"{rotulo}: desconsiderado"
+
+
+def _linha_na_tela(linha, segmento, mercadoria: bool) -> dict:
+    rotulo = _ROTULO_DO_TRIBUTO.get(linha.tributo, linha.tributo)
+    if mercadoria and linha.desconsiderado:
+        # DL-082: o tributo desconsiderado de mercadoria aparece como tal, nunca como 0,00.
+        return {
+            "tributo": rotulo,
+            "percentual": "—",
+            "valor": "desconsiderado",
+            "situacao": _situacao_do_desconsiderado(linha.tributo, segmento.segmento),
+        }
     return {
-        "rotulo": _ROTULO_DO_SEGMENTO[segmento.segmento],
-        "receita": _dinheiro_ptbr(segmento.receita),
-        "total": _dinheiro_ptbr(segmento.total),
-        "linhas": [
-            {
-                "tributo": _ROTULO_DO_TRIBUTO.get(linha.tributo, linha.tributo),
-                "percentual": _percentual_ptbr(linha.percentual),
-                "valor": _dinheiro_ptbr(linha.valor),
-                "situacao": "Desconsiderado: valor zero" if linha.desconsiderado else "Incide",
-            }
-            for linha in segmento.linhas
-        ],
+        "tributo": rotulo,
+        "percentual": _percentual_ptbr(linha.percentual),
+        "valor": _dinheiro_ptbr(linha.valor),
+        "situacao": "Desconsiderado: valor zero" if linha.desconsiderado else "Incide",
     }
 
 
-def _anexo_na_tela(anexo) -> dict:
+def _segmento_na_tela(segmento, anexo_numero) -> dict:
+    mercadoria = anexo_numero in _ANEXOS_DE_MERCADORIA
     return {
-        "rotulo": f"{_ROTULO_DO_MERCADO[anexo.mercado]}: Anexo {anexo.anexo}",
+        "rotulo": _rotulo_do_segmento(anexo_numero, segmento.segmento),
+        "receita": _dinheiro_ptbr(segmento.receita),
+        "total": _dinheiro_ptbr(segmento.total),
+        # A receita de mercadoria já sai líquida da devolução do próprio segmento (DL-082).
+        "rotulo_receita": "Total da receita líquida de" if mercadoria else "Total da receita de",
+        "linhas": [_linha_na_tela(linha, segmento, mercadoria) for linha in segmento.linhas],
+    }
+
+
+def _rotulo_do_mercado(mercado, mercados_com_mercadoria) -> str:
+    """Rótulo do mercado no pré-DAS. O externo com mercadoria exportada não é só "exportação de
+    serviço". Mês sem mercadoria mantém o rótulo de sempre (serviço inalterado)."""
+    if mercado == MercadoReceita.EXTERNO and mercado in mercados_com_mercadoria:
+        return "Mercado externo (exportação de serviço e de mercadoria)"
+    return _ROTULO_DO_MERCADO[mercado]
+
+
+def _anexo_na_tela(anexo, mercados_com_mercadoria) -> dict:
+    return {
+        "rotulo": (
+            f"{_rotulo_do_mercado(anexo.mercado, mercados_com_mercadoria)}: Anexo {anexo.anexo}"
+        ),
         "faixa": anexo.faixa,
         "rbt12": _dinheiro_ptbr(anexo.rbt12),
         "limite_superior": _dinheiro_ptbr(anexo.limite_superior),
@@ -2388,7 +2499,7 @@ def _anexo_na_tela(anexo) -> dict:
         ),
         "diferenca": _diferenca_na_tela(anexo.diferenca, anexo.tributo_da_diferenca),
         "total": _dinheiro_ptbr(anexo.total),
-        "segmentos": [_segmento_na_tela(segmento) for segmento in anexo.segmentos],
+        "segmentos": [_segmento_na_tela(segmento, anexo.anexo) for segmento in anexo.segmentos],
     }
 
 
@@ -2414,24 +2525,47 @@ def _bloco_do_pre_das(resultado) -> dict:
         for tributo in _TRIBUTOS_NA_ORDEM
         if tributo in por_tributo
     ]
+    mercados_com_mercadoria = {
+        anexo.mercado for anexo in resultado.anexos if anexo.anexo in _ANEXOS_DE_MERCADORIA
+    }
     return {
         "total": _dinheiro_ptbr(resultado.total),
         "rbt12_por_mercado": [
-            {"rotulo": _ROTULO_DO_MERCADO[mercado], "valor": _dinheiro_ptbr(valor)}
+            {
+                "rotulo": _rotulo_do_mercado(mercado, mercados_com_mercadoria),
+                "valor": _dinheiro_ptbr(valor),
+            }
             for mercado, valor in resultado.rbt12.items()
         ],
         "fator_r": _fator_r_na_tela(resultado.fator_r),
-        "anexos": [_anexo_na_tela(anexo) for anexo in resultado.anexos],
+        "anexos": [_anexo_na_tela(anexo, mercados_com_mercadoria) for anexo in resultado.anexos],
         "tributos": tributos,
         "segregacao": [
             {
-                "mercado": _ROTULO_DO_MERCADO[anexo.mercado],
+                "mercado": _rotulo_do_mercado(anexo.mercado, mercados_com_mercadoria),
                 "anexo": anexo.anexo,
-                "segmento": _ROTULO_DO_SEGMENTO[segmento.segmento],
+                "segmento": _rotulo_do_segmento(anexo.anexo, segmento.segmento),
                 "receita": _dinheiro_ptbr(segmento.receita),
                 "tributos": _dinheiro_ptbr(segmento.total),
             }
             for anexo in resultado.anexos
+            for segmento in anexo.segmentos
+        ],
+        # DL-082: avisos que não recusam (CSOSN 900), e a venda, a devolução e a receita líquida de
+        # cada segmento de mercadoria. Mês só de serviço: aviso vazio e sem tabela de mercadoria.
+        "avisos": list(resultado.avisos),
+        "tem_mercadoria": any(anexo.anexo in _ANEXOS_DE_MERCADORIA for anexo in resultado.anexos),
+        "mercadoria_por_segmento": [
+            {
+                "mercado": _rotulo_do_mercado(anexo.mercado, mercados_com_mercadoria),
+                "anexo": anexo.anexo,
+                "segmento": _rotulo_do_segmento(anexo.anexo, segmento.segmento),
+                "bruto": _dinheiro_ptbr(segmento.bruto),
+                "deduzido": _dinheiro_ptbr(segmento.deduzido),
+                "liquido": _dinheiro_ptbr(segmento.receita),
+            }
+            for anexo in resultado.anexos
+            if anexo.anexo in _ANEXOS_DE_MERCADORIA
             for segmento in anexo.segmentos
         ],
         "memoria": [
@@ -6814,7 +6948,9 @@ _ANO_MINIMO_NFE, _ANO_MAXIMO_NFE = 1970, 2999
 # Reconferência da DL-083, R1: o limite vem do campo do modelo, nunca de um literal. A natureza
 # `devolucao_combustivel_consumo` tem 29 caracteres, e o 24 antigo a recusava na tela.
 _TAMANHO_NATUREZA_NFE = NaturezaItemNFe._meta.get_field("natureza").max_length
-_ACOES_ESCRITURAR_NFE = frozenset({"criar", "item", "bloco", "efetivar"})
+_ACOES_ESCRITURAR_NFE = frozenset(
+    {"criar", "item", "bloco", "efetivar", "monofasico", "segmento_devolucao"}
+)
 _ACOES_RECLASSIFICAR_NFE = frozenset({"previa", "confirmar"})
 _MENSAGEM_SEM_CONSULTA_ESCRITURACAO_NFE = "Seu papel não permite consultar a escrituração de NF-e."
 _MENSAGEM_SEM_ESCRITA_NFE = (
@@ -6841,7 +6977,7 @@ _ROTULO_MERCADO_NFE = {"interno": "Mercado interno", "externo": "Mercado externo
 _ROTULO_SEGREGACAO_NFE = {
     "normal": "Normal (revenda, produção e substituto)",
     "sujeita_st": "Sujeita a ST (natureza 3)",
-    "monofasico": "Monofásico de PIS e Cofins (natureza 5)",
+    "monofasico": "Monofásico de PIS e Cofins (natureza 5 ou marca do item)",
     "exportacao": "Exportação (mercado externo)",
 }
 
@@ -7093,9 +7229,25 @@ def nfe_a_escriturar(request):
 # Tela 2 — arquétipo B (formulário de documento): escriturar uma nota.
 
 _CONTRATO_ESCRITURAR_NFE = ContratoDeRequisicao(
-    campos={"csrfmiddlewaretoken", "acao", "item_id", "natureza", "sinal"},
+    campos={
+        "csrfmiddlewaretoken",
+        "acao",
+        "item_id",
+        "natureza",
+        "sinal",
+        # DL-082: a caixa de monofásico (presente só quando marcada) e o segmento da devolução.
+        "monofasico",
+        "segmento",
+    },
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na escrituração de NF-e",
+)
+
+# DL-082 (frente B): texto que a tela mostra quando o papel consulta mas não grava a marca nem o
+# segmento. O controle fica desabilitado com este motivo (direção de arte §2.B), e o servidor
+# recusa o POST com 403 de qualquer forma.
+_MOTIVO_SEM_ESCRITA_DA_MARCA_NFE = (
+    "Seu papel consulta esta nota, mas não grava a marca de monofásico nem o segmento da devolução."
 )
 
 
@@ -7108,12 +7260,66 @@ def _opcoes_de_natureza(tipo):
     ]
 
 
-def _linha_do_item_nfe(item, natureza, documento, tipo, avisos=(), receita_atribuida=None):
+def _marca_do_formulario_nfe(valor):
+    """Caixa de monofásico: marcada envia "1"; desmarcada não envia o campo. Outro valor é entrada
+    estranha e responde 400, sem gravar nada."""
+    if valor in (None, ""):
+        return False
+    if valor == "1":
+        return True
+    raise _EntradaNfeRecusada("'Monofásico' aceita só marcada ou desmarcada.")
+
+
+def _segmento_da_devolucao_na_tela(valor):
+    """Rótulo do segmento de devolução confirmado (vazio = sem confirmação)."""
+    return SegmentoDevolucao(valor).label if valor else ""
+
+
+def _marcas_do_item_na_tela(item, registro, natureza):
+    """Marca e segmento de um item: o que está gravado e o que a tela pode pedir.
+
+    A regra fica no serviço: `sugerir_segmento_devolucao` dá a sugestão (sem gravar), e
+    `definir_marca_monofasico` e `definir_segmento_devolucao` recusam o que não couber. Aqui só se
+    decide o que oferecer. A sugestão não é pré-selecionada: a escolha é do contador, e um
+    segmento só vale depois de confirmado.
+    """
+    monofasico = bool(registro is not None and registro.monofasico)
+    segmento = registro.segmento_devolucao if registro is not None else ""
+    devolucao = natureza == NaturezaOperacaoNFe.DEVOLUCAO_VENDA
+    sugerido_rotulo, sugerido_motivo = "", ""
+    if devolucao:
+        sugestao = servico_nfe.sugerir_segmento_devolucao(item, monofasico)
+        sugerido_rotulo = (
+            _segmento_da_devolucao_na_tela(sugestao.segmento)
+            if sugestao.segmento
+            else "sem sugestão — escolha"
+        )
+        sugerido_motivo = sugestao.motivo
+    return {
+        "monofasico": monofasico,
+        # A marca vale para mercadoria, e também enquanto a natureza ainda não foi confirmada.
+        "pode_marcar_monofasico": not natureza or natureza in NATUREZAS_DE_MERCADORIA,
+        "devolucao": devolucao,
+        "segmento_gravado": segmento,
+        "segmento_gravado_rotulo": _segmento_da_devolucao_na_tela(segmento),
+        "segmento_sugerido_rotulo": sugerido_rotulo,
+        "segmento_sugerido_motivo": sugerido_motivo,
+        "segmento_selecionado": segmento,
+        "opcoes_segmento": list(SegmentoDevolucao.choices),
+    }
+
+
+def _linha_do_item_nfe(
+    item, natureza, documento, tipo, avisos=(), receita_atribuida=None, registro=None
+):
     """Uma linha de item. CFOP (texto da tabela oficial), CST/CSOSN, NCM, valor, receita, natureza
     gravada e sugestão com o motivo que o serviço deu. Sem sugestão, a tela diz "escolha".
 
     DL-083: a receita é `receita_do_item` (regra única; item indTot 0 entra só pelo que foi
-    cobrado) e os avisos do item vêm do serviço. A tela não soma nem decide receita."""
+    cobrado) e os avisos do item vêm do serviço. A tela não soma nem decide receita.
+
+    DL-082: a marca de monofásico e o segmento da devolução vêm do `registro` (a linha da
+    escrituração do item). A sugestão do segmento vem do serviço, nunca daqui."""
     sugestao = servico_nfe.sugerir_natureza_item(documento, item, tipo)
     info = consultar_cfop(item.cfop)
     if item.csosn:
@@ -7150,6 +7356,8 @@ def _linha_do_item_nfe(item, natureza, documento, tipo, avisos=(), receita_atrib
         "sugestao_motivo": sugestao.motivo,
         "opcoes": _opcoes_de_natureza(tipo),
         "selecionada": natureza or sugestao.natureza or "",
+        # DL-082: marca de monofásico e segmento da devolução (leitura fora do rascunho).
+        **_marcas_do_item_na_tela(item, registro, natureza),
     }
 
 
@@ -7283,6 +7491,16 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
         tipo_da_tela = escrituracao.tipo if escrituracao is not None else tipo
         avisos_por_item = servico_nfe.avisos_da_nota(pares)
         receitas = servico_nfe.receitas_atribuidas(pares)
+        # DL-082: marca e segmento de cada item vêm da linha da escrituração (sem ela, não há
+        # marca gravada).
+        registros = (
+            {
+                registro.item_id: registro
+                for registro in NaturezaItemNFe.objects.filter(escrituracao=escrituracao)
+            }
+            if escrituracao is not None
+            else {}
+        )
         linhas = [
             _linha_do_item_nfe(
                 item,
@@ -7291,6 +7509,7 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
                 tipo_da_tela,
                 avisos_por_item.get(item.pk, ()),
                 None if receitas is None else receitas.get(item.pk),
+                registro=registros.get(item.pk),
             )
             for item, natureza in pares
         ]
@@ -7341,6 +7560,7 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
         "leitura_motivo": leitura.motivo if leitura else "",
         "avisos": servico_nfe.avisos_ibscbs(documento, leitura),
         "pode_escriturar": pode,
+        "motivo_sem_escrita_da_marca": _MOTIVO_SEM_ESCRITA_DA_MARCA_NFE,
         "linhas": linhas,
         "grupos_de_sinal": _grupos_de_sinal(linhas) if rascunho and pode else [],
         "pendentes": sum(1 for _, natureza in pares if not natureza),
@@ -7443,6 +7663,34 @@ def _escriturar_nfe_post(request, empresa, vinculo):
                 escrituracao, natureza, [item_id], usuario=request.user, request=request
             )
             messages.success(request, "Natureza do item confirmada.")
+        elif acao == "monofasico":
+            # DL-082 (HI-128): a caixa vai ao serviço, que grava só em rascunho e só em mercadoria.
+            item_id = _id_do_formulario_nfe(request.POST.get("item_id"), "Item")
+            marcado = _marca_do_formulario_nfe(request.POST.get("monofasico"))
+            servico_nfe.definir_marca_monofasico(
+                escrituracao, [item_id], marcado, usuario=request.user, request=request
+            )
+            messages.success(
+                request,
+                "Marca de monofásico gravada." if marcado else "Marca de monofásico desmarcada.",
+            )
+        elif acao == "segmento_devolucao":
+            # DL-082 (HI-129): o contador confirma o segmento; vazio desfaz. Sem sugestão gravada.
+            item_id = _id_do_formulario_nfe(request.POST.get("item_id"), "Item")
+            segmento = _texto_nfe(
+                request.POST.get("segmento"), "Segmento da devolução", TAMANHO_SEGMENTO_DEVOLUCAO
+            )
+            servico_nfe.definir_segmento_devolucao(
+                escrituracao, [item_id], segmento, usuario=request.user, request=request
+            )
+            messages.success(
+                request,
+                (
+                    "Segmento da devolução confirmado."
+                    if segmento
+                    else "Confirmação do segmento da devolução desfeita."
+                ),
+            )
         else:  # bloco
             sinal = _texto_nfe(request.POST.get("sinal"), "Sinal", _TAMANHO_NATUREZA_NFE)
             ids = _itens_com_sugestao_pendente(vinculo.documento, escrituracao, sinal)

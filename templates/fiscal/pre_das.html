@@ -21,6 +21,10 @@ FISCAL (§3): o documento confere com a memória de cálculo? É CONFERÊNCIA, c
 docs/projeto/personalizacao-de-relatorio.md: o contador confere contra o PGDAS-D. Nada é
 gerado nem transmitido. A regra fica em apps.fiscal.pre_das; a tela só mostra o que o serviço
 calcula, com o dispositivo de cada passo, e mostra cada bloqueio quando o cálculo recusa.
+DL-082 (frente B): mercadoria por anexo I/II e segmento. Tributo desconsiderado aparece como
+"desconsiderado", com o motivo e o dispositivo, e nunca como zero digitado. Avisos (CSOSN 900) e
+venda bruta, devolução e receita líquida só aparecem quando há mercadoria no mês: mês só de
+serviço sai como antes.
 {% endcomment %}
 {% block titulo_pagina %}<h1>Pré-DAS do Simples</h1>{% endblock %}
 
@@ -95,6 +99,17 @@ calcula, com o dispositivo de cada passo, e mostra cada bloqueio quando o cálcu
             Alíquotas e percentuais são mostrados com 4 casas decimais. O cálculo usa precisão total e
             não arredonda: só o valor de cada tributo é arredondado a centavos (ROUND_HALF_UP).
         </p>
+
+        {% if avisos %}
+            <div class="painel-etapa">
+                <h2>Avisos: não recusam o cálculo, mas conferir no PGDAS-D</h2>
+                <ul>
+                    {% for aviso in avisos %}
+                        <li>{{ aviso }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
 
         <h2>RBT12 por mercado</h2>
         <table class="tabela-dados">
@@ -208,7 +223,7 @@ calcula, com o dispositivo de cada passo, e mostra cada bloqueio quando o cálcu
                     </tbody>
                     <tfoot>
                         <tr>
-                            <th scope="row">Total da receita de {{ segmento.receita }} (R$)</th>
+                            <th scope="row">{{ segmento.rotulo_receita }} {{ segmento.receita }} (R$)</th>
                             <td></td>
                             <td class="valor-monetario">{{ segmento.total }}</td>
                             <td></td>
@@ -267,6 +282,39 @@ calcula, com o dispositivo de cada passo, e mostra cada bloqueio quando o cálcu
                 {% endfor %}
             </tbody>
         </table>
+
+        {% if tem_mercadoria %}
+            <h2>Venda, devolução e receita líquida de mercadoria</h2>
+            <p class="texto-apoio">
+                A devolução é deduzida só no segmento confirmado pelo contador (HI-129). Nunca há rateio entre
+                segmentos. A receita líquida é a que cada segmento segrega.
+            </p>
+            <table class="tabela-dados">
+                <caption>Venda bruta, devolução deduzida e receita líquida de mercadoria, por mercado, anexo e segmento</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Mercado</th>
+                        <th scope="col">Anexo</th>
+                        <th scope="col">Segmento</th>
+                        <th scope="col">Venda bruta (R$)</th>
+                        <th scope="col">Devolução deduzida (R$)</th>
+                        <th scope="col">Receita líquida (R$)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for parcela in mercadoria_por_segmento %}
+                        <tr>
+                            <td>{{ parcela.mercado }}</td>
+                            <td>{{ parcela.anexo }}</td>
+                            <td>{{ parcela.segmento }}</td>
+                            <td class="valor-monetario">{{ parcela.bruto }}</td>
+                            <td class="valor-monetario">{{ parcela.deduzido }}</td>
+                            <td class="valor-monetario">{{ parcela.liquido }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
 
         <h2>Memória de cálculo</h2>
         <p class="texto-apoio">
