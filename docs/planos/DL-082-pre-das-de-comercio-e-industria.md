@@ -118,9 +118,46 @@ casos que o primeiro corte cobre.
 8. **Tela e API do pré-DAS:** linhas por anexo e segmento, com o tributo
    desconsiderado mostrado como tal, e não como zero digitado.
 
-**Fica fora:** 6ª faixa e excesso de sublimite (exemplos 9 a 11 do Manual
+**Fica fora:** medicamentos manipulados e outras atividades do art. 25, § 1º, que não têm sinal na NF-e (decisão da correção da rodada 1, A5); 6ª faixa e excesso de sublimite (exemplos 9 a 11 do Manual
 ficam como referência futura); benefício estadual de ICMS; tabela de NCM
 monofásico; combustíveis; leitura do `NFref`; regime de caixa; 2027.
+
+## Decisões para a correção (rodada 1)
+
+A [rodada 1](../auditorias/2026-10-09-dl-082-rodada-1.md) foi **aprovada com
+ressalvas**: o cálculo bate ao centavo com o Manual e com o oráculo do
+auditor, os meses de serviço ficaram idênticos e os seis mutantes do plano
+caem. Decisões do arquiteto para a correção única:
+
+- **A1:** o lote (DL-085) não efetiva devolução: a nota sai do lote com o
+  motivo "segmento da devolução a confirmar: escriture esta nota
+  individualmente". A recusa do pré-DAS para devolução já efetivada sem
+  segmento diz que a nota precisa de estorno.
+- **A2:** a devolução com CFOP de devolução de combustível (1.660 a 1.662,
+  2.660 a 2.662) recusa o pré-DAS seja qual for a natureza.
+- **A3:** CFOP x.503 a x.506 (devolução de venda com fim de exportação)
+  pertencem ao mercado externo, na função de mercado, na validação e na
+  sugestão do segmento.
+- **A4:** a recusa de CSOSN 103, 300 e 400 vale só para o mercado interno.
+  Na exportação, o ICMS já é desconsiderado e o benefício estadual não muda
+  o cálculo (decisão do arquiteto, reversível).
+- **A5:** item com CFOP de prestação de serviço de comunicação ou de
+  transporte, sob natureza de mercadoria, recusa com o motivo nomeado. Os
+  códigos são conferidos na tabela oficial. Medicamento manipulado fica
+  fora, registrado no plano.
+- **A6:** aviso para natureza de exportação sem CFOP 7.xxx ou `idDest` 3.
+- **A7:** segmento zerado por devolução continua visível, com receita
+  líquida 0,00.
+- **A8:** a memória da escrituração ganha a chave `st_monofasico`.
+- **A9:** o seletor de segmento só oferece os segmentos permitidos para o
+  item, por uma função de domínio.
+- **A10:** fica a exceção. O serviço mantém o contrato da DL-075 ("0,00 —
+  valor zero"); a mercadoria mostra "desconsiderado".
+- **A11:** o banner do módulo deixa de dizer que o pré-DAS de comércio não
+  existe.
+- **A12:** a reclassificação em massa recusa a operação inteira se algum item
+  tiver marca ou segmento incompatível com a natureza nova.
+- **A13:** teste do limite exato de R$ 3.600.000,00.
 
 ## Critérios de aceite
 
