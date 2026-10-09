@@ -292,18 +292,20 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    HI-98). Abertos: HI-93 a HI-99 e **PE-82 com o Fred**; BL-678, BL-679.
 
 8. **[DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) — Lucro
-   Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224: frente A
-   entregue (`f392346`, cópia isolada `dl079` sobre a DL-078 corrigida;
-   suíte do desenvolvedor 7.741 aprovados, 1 reprovado de ambiente, 53
-   pulados; os oito mutantes do critério 10 morrem); frente B (telas e a
-   dedução do 4º trimestre sem os trimestres com medida judicial) em
-   desenvolvimento.** HI-108 registrada.
-   [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-presumido.md)
-   com o texto oficial lido no Planalto e no P&R da RFB: o acréscimo
-   multiplica o percentual por 1,10; IRPJ desde o 1º trimestre de 2026 e
-   CSLL desde o 2º (limite de R$ 3,75 milhões no ano para ela); a CSLL tem
-   percentuais próprios. HI-100 a HI-107; **PE-83 com o Fred** (rotina do
-   Presumido no escritório; não bloqueia).
+   Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224:
+   implementada fora da branch (cópia isolada `dl079`, rebaseada sobre a
+   `main` com a DL-078: frente A `29d179d`, frente B `22b52ae`), em
+   auditoria — rodada 1.** Frente A: tabelas com fonte, seis cadastros,
+   migração `fiscal 0009` com gatilhos, apuração do trimestre com as três
+   colunas (sem LC 224, com LC 224, parcela), controle do limite com sobra e
+   os casos I a III do 4º trimestre, retenções confirmadas, quotas e
+   vencimentos, medida judicial, 11 rotas de API. Frente B: 16 telas, menu
+   "Lucro Presumido", e a dedução do 4º trimestre sem os trimestres com
+   medida judicial. Suíte do desenvolvedor (invocação única): 7.771
+   aprovados, 1 reprovado (ambiente), 53 pulados.
+   [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-presumido.md):
+   acréscimo ×1,10; IRPJ desde o 1º trimestre de 2026 e CSLL desde o 2º.
+   HI-100 a HI-108; **PE-83 com o Fred** (rotina do Presumido; não bloqueia).
 
 **Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `5c6673d` — conteúdo da `main` em `49eacba` —,
