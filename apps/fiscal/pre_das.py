@@ -866,6 +866,19 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
             )
         )
 
+    # 2b. DL-081 (HI-122): mês com NF-e de mercadoria (receita, devolução ou saldo de devolução
+    # de antes). O pré-DAS de comércio e indústria ainda não existe: recusa nomeada, e nunca
+    # um cálculo que ignore a receita de NF-e. Meses sem NF-e não entram aqui.
+    if receita_servico.componente_nfe_no_mes(empresa, ano, mes):
+        bloqueios.append(
+            Bloqueio(
+                "receita_de_mercadoria",
+                "receita de mercadoria (NF-e) no mês — pré-DAS de comércio e indústria "
+                "ainda não disponível",
+                "HI-122; consulta de 09/10/2026, item 3 (segregação de ST e monofásico)",
+            )
+        )
+
     # 3. RBT12 por mercado, com recusa nomeada e excesso de limite ou sublimite.
     rbt = None
     try:

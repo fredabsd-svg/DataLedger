@@ -112,6 +112,86 @@ HI-117 a HI-124 e pendência PE-85.
 - regras de 2027 (IBS e CBS no `vProd`, Res. CGSN 190/2026);
 - integração contábil.
 
+## Decisões tomadas na implementação (frente A)
+
+- **Campos opcionais com zero** (`vDesc`, `vFrete`, `vSeg` e `vOutro` iguais
+  a `0.00`): a nota é tratada como ilegível. O padrão `TDec_1302Opc` do XSD
+  não aceita zero em campo opcional, porque o emissor deve omitir o campo, e
+  o autorizador valida o esquema.
+- **ICMS desonerado que reduz o total** (`vICMSDeson` com `indDeduz` 1): a
+  conferência com o `vNF` falha e a efetivação é bloqueada. É uma falha
+  fechada: a regra de receita nesse caso fica para o Fred (PE-85) e para o
+  BL-685.
+- **`vNF` ausente** bloqueia, em vez de valer zero, porque o campo é
+  obrigatório no XSD.
+- **Devolução:** não é ligada à nota de origem (o `NFref` não é lido) e
+  deduz no mês em que ocorre. O mercado segue o CFOP: devolução com CFOP
+  iniciado por 3 deduz o mercado externo (correção da rodada 1, A8).
+- **Proteção ampliada:** o pré-DAS recusa e o Presumido fica parcial também
+  no mês ou trimestre que recebe só devolução ou saldo de devolução.
+- **Serviço em NF-e conjugada** (natureza 14) entra no RBT12, que soma toda a
+  receita bruta, e continua recusado no pré-DAS e no Presumido.
+
+## Decisões tomadas na correção (rodada 1)
+
+[Rodada 1](../auditorias/2026-10-09-dl-081-rodada-1.md): **reprovada** por A1
+(NF-e válida com IPI, só com ISSQN ou sem ICMS ficava ilegível), A2 (NF-e de
+um trimestre não deixava parciais os trimestres seguintes do Presumido) e A3
+(os itens de uma escrituração efetivada podiam ser alterados por SQL, mudando
+a receita). O cálculo bateu ao centavo com o do auditor. Correção única:
+
+- **Leitura dos itens** (A1): IPI com `cEnq` e os demais filhos do grupo;
+  ICMS opcional quando o item tem ISSQN ou o grupo de impostos vem vazio,
+  como permite o XSD. O leitor ganha versão: nota lida com versão anterior é
+  relida na próxima tentativa. Fixtures validadas contra o XSD.
+- **Presumido** (A2): a NF-e de qualquer trimestre do ano deixa parciais o
+  próprio trimestre e todos os seguintes, porque o limite da LC 224 se
+  propaga para a frente.
+- **Imutabilidade** (A3): gatilhos em `ItemNFe` e na leitura dos itens
+  recusam alteração e exclusão quando há escrituração efetivada ou
+  estornada da nota.
+- **Conferência com o `vNF`** (A4), pela regra W16 do MOC 7.0: o `vFCPST` é
+  subtraído; desconto, frete, seguro e outras despesas entram de todos os
+  itens. Item fora do total (`indTot` 0) com essas despesas, e ICMS
+  desonerado deduzido do total, bloqueiam com mensagem que nomeia o motivo.
+  O bloqueio é decisão do arquiteto, conservadora; a regra de receita
+  nesses dois casos é pergunta ao Fred (PE-85).
+- **Valor acima do campo** (A5): nota ilegível com motivo, nunca erro de
+  servidor.
+- **Desempenho** (A6): saldo de devolução percorrido uma vez por janela;
+  situação de cancelamento anotada em lote; a nota única é buscada direto.
+- **Tela da receita do mês** (A7): colunas de NF-e e de devolução, e a soma
+  das colunas igual ao total.
+- **Devolução de exportação** (A8): CFOP iniciado por 3 deduz o mercado
+  externo.
+- **Testes** (A9) para os mutantes sobreviventes.
+- **Reclassificação** (A10): a confirmação compara o conjunto de notas da
+  prévia, não só as contagens.
+- **Sugestão** (A11): `idDest` 3 sugere exportação só para CFOP de venda
+  (7.1xx).
+- **Ajustes** (A12): o campo da conferência por CFOP é renomeado para valor
+  bruto; a conferência de valores é pública; a mensagem da API sai em pt-BR;
+  o filtro de CFOP com ponto é aceito.
+
+## Decisões tomadas na reconferência
+
+[Reconferência](../auditorias/2026-10-09-dl-081-reconferencia.md): aprovada com
+ressalvas; A1, A2 e A3 fechados com evidência. O gerador de notas pela regra
+W16 do auditor deu zero nota errada aceita e zero nota correta bloqueada, fora
+dos dois bloqueios da PE-85. Pela regra de parada do §3.1 não houve nova
+correção:
+
+- **R1** (o controle do limite do ano do Presumido ignorava a NF-e):
+  ajuste do arquiteto, com a mesma recusa nomeada da apuração.
+- **N4b** (efetivação com leitura de versão antiga, sem teste): teste
+  integrado pelo arquiteto.
+- **R8** (documentação desatualizada): a HI-119, a PE-85 e este plano foram
+  corrigidos.
+- **R2** (deadlock da releitura dos itens contra a reclassificação),
+  **R3** (troca da versão do leitor sem saída para nota estornada; resolver
+  **antes** de subir a versão do leitor), **R4** a **R7** e as lacunas de
+  teste X7, N11c, N14 e N21: BL-686.
+
 ## Critérios de aceite
 
 1. Os itens e os campos lidos batem com o XSD do PL 010f, com o caminho

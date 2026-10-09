@@ -232,14 +232,19 @@ def test_painel_mostra_documento_informado_e_total_por_mercado(
 
     html = client.get(_url_painel(), _painel_de(empresa, 2026, 3)).content.decode()
 
+    # Colunas: NFS-e, NF-e de saída, receita informada, devolução deduzida e total (DL-081, A7: as
+    # colunas de NF-e e de devolução foram acrescentadas, e valem zero neste cenário).
     # Interno: 1.000 de documento + 500 informado = 1.500. Exportação nunca soma no interno.
     assert re.search(
         r'Mercado interno</th>\s*<td class="valor-monetario">1\.000,00</td>\s*'
-        r'<td class="valor-monetario">500,00</td>\s*<td class="valor-monetario">1\.500,00</td>',
+        r'<td class="valor-monetario">0,00</td>\s*'
+        r'<td class="valor-monetario">500,00</td>\s*<td class="valor-monetario">0,00</td>\s*'
+        r'<td class="valor-monetario">1\.500,00</td>',
         html,
     )
     assert re.search(
         r'Mercado externo[^<]*</th>\s*<td class="valor-monetario">300,00</td>\s*'
+        r'<td class="valor-monetario">0,00</td>\s*<td class="valor-monetario">0,00</td>\s*'
         r'<td class="valor-monetario">0,00</td>\s*<td class="valor-monetario">300,00</td>',
         html,
     )

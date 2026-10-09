@@ -24,6 +24,7 @@ esse arquivo de propósito.
 """
 
 import calendar
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
@@ -2619,3 +2620,637 @@ class MedidaJudicialLC224(models.Model):
 
     def __str__(self):
         return f"Medida {self.pk} — {self.numero_processo} ({self.get_tributo_display()})"
+
+
+# ---------------------------------------------------------------------------
+# DL-081 (frente A): escrituração das NF-e de saída e da devolução de venda.
+#
+# Plano: docs/planos/DL-081-escrituracao-das-nfe-de-saida.md. Fonte normativa: consulta de
+# 09/10/2026 (docs/projeto/consultas/2026-10-09-contador-senior-escrituracao-nfe.md), itens 2 a 5.
+# Desenho da DL-072: rascunho, efetivada e estornada; gatilhos do banco; trilha na mesma transação.
+#
+# O catálogo de natureza é FECHADO e vive em código (HI-118): são as quatorze naturezas da
+# consulta, mais "ajuste" (finNFe 2, 3, 5 e 6). A natureza é por ITEM, porque uma NF-e mistura
+# CFOP e CST. O mercado (interno ou externo) é a ÚNICA definição em `mercado_da_natureza_nfe`;
+# a composição da receita e o RBT12 consultam-na, sem repetir a regra.
+# ---------------------------------------------------------------------------
+
+
+class NaturezaOperacaoNFe(models.TextChoices):
+    REVENDA = "revenda", "Venda de mercadoria adquirida de terceiros (revenda)"
+    PRODUCAO_PROPRIA = "producao_propria", "Venda de produção própria"
+    REVENDA_ST_SUBSTITUIDO = "revenda_st_substituido", "Revenda com ICMS-ST, substituído"
+    SUBSTITUTO_ST = "substituto_st", "Venda como substituto tributário (ST retida na saída)"
+    MONOFASICO = "monofasico", "Venda de produto monofásico de PIS/Cofins"
+    COMBUSTIVEL = "combustivel", "Revenda de combustíveis"
+    EXPORTACAO_DIRETA = "exportacao_direta", "Exportação direta"
+    COMERCIAL_EXPORTADORA = "comercial_exportadora", "Venda a comercial exportadora"
+    DEVOLUCAO_VENDA = "devolucao_venda", "Devolução de venda recebida"
+    REMESSA_RETORNO = "remessa_retorno", "Remessa, retorno, demonstração, conserto ou mostruário"
+    TRANSFERENCIA = "transferencia", "Transferência entre estabelecimentos"
+    BONIFICACAO = "bonificacao", "Bonificação, doação, brinde ou amostra (incondicional)"
+    CUPOM_NFCE = "cupom_nfce", "Operação já registrada em NFC-e ou cupom"
+    SERVICO_CONJUGADA = "servico_conjugada", "Prestação de serviço em NF-e conjugada"
+    AJUSTE = "ajuste", "Ajuste (finNFe 2, 3, 5 ou 6)"
+
+
+@dataclass(frozen=True)
+class NaturezaNFeInfo:
+    """O que cada natureza significa para a receita.
+
+    `papel`: "receita" (soma na receita bruta), "deducao" (subtrai no mês da devolução) ou
+    "nao_receita" (soma zero). `mercado`: "interno" ou "externo". `segregacao` (Simples):
+    "normal", "sujeita_st", "monofasico", "exportacao" ou None quando não compõe receita.
+    `anexo_simples` e `atividade_presumido` são INFORMAÇÃO para o contador, não cálculo:
+    o pré-DAS e a apuração do Presumido ainda não tratam mercadoria (HI-122).
+    """
+
+    papel: str
+    mercado: str
+    segregacao: str | None
+    anexo_simples: str
+    atividade_presumido: str
+
+
+_NAO_RECEITA = "nao_receita"
+
+CATALOGO_NATUREZA_NFE: dict[str, NaturezaNFeInfo] = {
+    NaturezaOperacaoNFe.REVENDA: NaturezaNFeInfo(
+        "receita", "interno", "normal", "Anexo I (LC 123, art. 18, § 4º, I)", "comércio"
+    ),
+    NaturezaOperacaoNFe.PRODUCAO_PROPRIA: NaturezaNFeInfo(
+        "receita", "interno", "normal", "Anexo II (LC 123, art. 18, § 4º, II)", "indústria"
+    ),
+    NaturezaOperacaoNFe.REVENDA_ST_SUBSTITUIDO: NaturezaNFeInfo(
+        "receita",
+        "interno",
+        "sujeita_st",
+        "Anexo I ou II, segregada 'sujeita a ST' (Res. CGSN 140, art. 25, § 8º, I)",
+        "comércio",
+    ),
+    NaturezaOperacaoNFe.SUBSTITUTO_ST: NaturezaNFeInfo(
+        "receita",
+        "interno",
+        "normal",
+        "Anexo I ou II; operação própria tributada, vST fora (Res. CGSN 140, art. 28, § 4º)",
+        "comércio",
+    ),
+    NaturezaOperacaoNFe.MONOFASICO: NaturezaNFeInfo(
+        "receita",
+        "interno",
+        "monofasico",
+        "Segregada: PIS e Cofins desconsiderados (Res. CGSN 140, art. 25, §§ 6º e 7º)",
+        "comércio",
+    ),
+    NaturezaOperacaoNFe.COMBUSTIVEL: NaturezaNFeInfo(
+        "receita",
+        "interno",
+        "normal",
+        "ICMS monofásico/ST fora do DAS (LC 123, art. 13, § 1º, XIII, a)",
+        "revenda de combustíveis (1,6% exige 'revenda, para consumo', Lei 9.249, art. 15, § 1º, I)",
+    ),
+    NaturezaOperacaoNFe.EXPORTACAO_DIRETA: NaturezaNFeInfo(
+        "receita",
+        "externo",
+        "exportacao",
+        "Segregada: Cofins, PIS, IPI, ICMS e ISS desconsiderados (Res. CGSN 140, art. 25, § 3º)",
+        "comércio",
+    ),
+    NaturezaOperacaoNFe.COMERCIAL_EXPORTADORA: NaturezaNFeInfo(
+        "receita",
+        "externo",
+        "exportacao",
+        "Mesma segregação da exportação (LC 123, art. 18, § 4º-A, IV)",
+        "comércio",
+    ),
+    NaturezaOperacaoNFe.DEVOLUCAO_VENDA: NaturezaNFeInfo(
+        "deducao",
+        "interno",
+        None,
+        "Deduz no mês da devolução (Res. CGSN 140, art. 17)",
+        "deduz do trimestre (Lei 9.430, art. 25, I)",
+    ),
+    NaturezaOperacaoNFe.REMESSA_RETORNO: NaturezaNFeInfo(
+        _NAO_RECEITA, "interno", None, "fora da base", "fora da base"
+    ),
+    NaturezaOperacaoNFe.TRANSFERENCIA: NaturezaNFeInfo(
+        _NAO_RECEITA, "interno", None, "fora da base", "fora da base"
+    ),
+    NaturezaOperacaoNFe.BONIFICACAO: NaturezaNFeInfo(
+        _NAO_RECEITA,
+        "interno",
+        None,
+        "fora, se incondicional (Res. CGSN 140, art. 2º, § 5º, III)",
+        "fora (hipótese, prática)",
+    ),
+    NaturezaOperacaoNFe.CUPOM_NFCE: NaturezaNFeInfo(
+        _NAO_RECEITA,
+        "interno",
+        None,
+        "fora: a receita já entrou pela NFC-e (risco de duplicidade)",
+        "fora: idem",
+    ),
+    NaturezaOperacaoNFe.SERVICO_CONJUGADA: NaturezaNFeInfo(
+        "receita",
+        "interno",
+        None,
+        "serviço (Anexo III, IV ou V e ISS); fora do pré-DAS deste corte",
+        "serviços",
+    ),
+    NaturezaOperacaoNFe.AJUSTE: NaturezaNFeInfo(
+        _NAO_RECEITA, "interno", None, "fora da receita (ajuste)", "fora da receita"
+    ),
+}
+
+
+def mercado_da_natureza_nfe(natureza: str) -> str:
+    """Mercado da natureza de NF-e.
+
+    Recusa valor fora do catálogo: nunca vira "interno" em silêncio.
+    """
+    if natureza not in CATALOGO_NATUREZA_NFE:
+        raise ValueError(f"natureza de NF-e fora do catálogo: {natureza!r}")
+    return CATALOGO_NATUREZA_NFE[natureza].mercado
+
+
+def mercado_do_item_nfe(natureza: str, cfop: str) -> str:
+    """Mercado de UM item de NF-e: o da natureza, salvo a devolução de exportação.
+
+    A devolução de venda (natureza `devolucao_venda`) deduz do mercado da venda que ela devolve. A
+    tabela oficial de CFOP marca como devolução de exportação os códigos 3.201, 3.202, 3.211, 3.212,
+    3.503 e 3.553 (todos com o primeiro dígito 3, que é entrada de fora do país). Essa devolução
+    deduz o EXTERNO (correção da rodada 1, A8). A natureza sozinha não diz isso, por isso o CFOP
+    entra.
+    """
+    if natureza == NaturezaOperacaoNFe.DEVOLUCAO_VENDA and cfop.startswith("3"):
+        return MercadoReceita.EXTERNO
+    return mercado_da_natureza_nfe(natureza)
+
+
+def papel_da_natureza_nfe(natureza: str) -> str:
+    """Papel da natureza: receita, dedução ou não receita. Recusa valor fora do catálogo."""
+    if natureza not in CATALOGO_NATUREZA_NFE:
+        raise ValueError(f"natureza de NF-e fora do catálogo: {natureza!r}")
+    return CATALOGO_NATUREZA_NFE[natureza].papel
+
+
+class TipoEscrituracaoNFe(models.TextChoices):
+    """Tipo da nota para a escrituração, decidido na criação pela regra de elegibilidade."""
+
+    SAIDA_PROPRIA = "saida_propria", "Saída própria (finNFe 1)"
+    DEVOLUCAO = "devolucao", "Devolução de venda recebida (finNFe 4)"
+    AJUSTE = "ajuste", "Ajuste (finNFe 2, 3, 5 ou 6)"
+
+
+class EscrituracaoNFe(models.Model):
+    """Escrituração de UMA NF-e ou NFC-e para UMA empresa (DL-081, frente A).
+
+    Uma linha por vínculo (documento x empresa) e por tentativa: uma efetivada estornada não é
+    reaberta; um novo ato cria OUTRA linha, e a trilha guarda as duas. Por isso a unicidade é
+    PARCIAL: no máximo uma linha NÃO estornada (rascunho ou efetivada) por vínculo.
+
+    Os totais (`valor_nf`, `receita_bruta`, `devolucao`, `soma_itens`) são copiados na efetivação,
+    a partir dos itens lidos do XML guardado. A composição da receita lê as naturezas por item
+    (`NaturezaItemNFe`) e a receita de cada item (`ItemNFe.receita_bruta_item`), não estes totais.
+
+    Imutabilidade, em três camadas (como na DL-072): `save()` recusa alterar linha efetivada ou
+    estornada; os serviços mudam estado com `update()` condicionado; e o BANCO (gatilhos da
+    migração 0011) aceita só rascunho->efetivada, efetivada->estornada, e só as colunas do ato.
+    Os itens (`ItemNFe`) e a leitura (`LeituraItensNFe`) da NOTA ficam imutáveis no banco enquanto
+    ela tiver escrituração efetivada ou estornada (gatilhos `trg_item_nfe_imutavel` e
+    `trg_leitura_itens_nfe_imutavel`, correção da rodada 1, A3). As naturezas por item seguem
+    imutáveis pelo gatilho próprio, como acima.
+
+    Limite declarado: `TRUNCATE` não aciona gatilho de linha (mesmo limite da DL-052 e da DL-072).
+    """
+
+    vinculo = models.ForeignKey(
+        VinculoNFeEmpresa,
+        on_delete=models.PROTECT,
+        related_name="escrituracoes_nfe",
+        verbose_name="vínculo de NF-e com empresa",
+    )
+    # Redundante com `vinculo.empresa`, de propósito, como na DL-072: a consulta por empresa e o
+    # isolamento não precisam atravessar o vínculo. A igualdade é garantida em `save()`.
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="escrituracoes_nfe",
+        verbose_name="empresa",
+    )
+    tipo = models.CharField(
+        "tipo da escrituração", max_length=16, choices=TipoEscrituracaoNFe.choices
+    )
+    estado = models.CharField(
+        "estado",
+        max_length=12,
+        choices=EstadoEscrituracao.choices,
+        default=EstadoEscrituracao.RASCUNHO,
+    )
+    # Competência = primeiro dia do mês de `dhEmi` no fuso de São Paulo (consulta, item 1).
+    competencia = models.DateField("competência (mês de dhEmi)", null=True, blank=True)
+    # Dia escrito no dhEmi, no fuso de São Paulo. Só exibição e o aviso de competência.
+    data_emissao = models.DateField("data de emissão", null=True, blank=True)
+    valor_nf = models.DecimalField(
+        "valor da nota (vNF)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    # Soma da receita dos itens com indTot 1, de qualquer natureza (a conferência com vNF).
+    soma_itens = models.DecimalField(
+        "soma da receita dos itens", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    # Receita bruta (naturezas de receita) e devolução (natureza de dedução), sempre positivas.
+    receita_bruta = models.DecimalField(
+        "receita bruta da escrituração", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    devolucao = models.DecimalField(
+        "devolução de venda", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    efetivada_em = models.DateTimeField("efetivada em", null=True, blank=True)
+    efetivada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="efetivada por",
+    )
+    estornada_em = models.DateTimeField("estornada em", null=True, blank=True)
+    estornada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="estornada por",
+    )
+    motivo_estorno = models.CharField("motivo do estorno", max_length=500, blank=True, default="")
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="criada por",
+    )
+
+    class Meta:
+        verbose_name = "escrituração de NF-e"
+        verbose_name_plural = "escriturações de NF-e"
+        ordering = ["id"]
+        constraints = [
+            # No máximo UMA escrituração não estornada por vínculo, no banco (corrida que a trava
+            # de `select_for_update` não cobre).
+            models.UniqueConstraint(
+                fields=["vinculo"],
+                condition=Q(estado__in=["rascunho", "efetivada"]),
+                name="escrituracao_nfe_ativa_unica_por_vinculo",
+            ),
+            models.CheckConstraint(
+                condition=Q(estado__in=["rascunho", "efetivada", "estornada"]),
+                name="escrituracao_nfe_estado_valido",
+            ),
+            # Coerência entre estado e colunas do ato, como na DL-072.
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        estado="rascunho",
+                        efetivada_em__isnull=True,
+                        efetivada_por__isnull=True,
+                        estornada_em__isnull=True,
+                        estornada_por__isnull=True,
+                        motivo_estorno="",
+                    )
+                    | Q(
+                        estado="efetivada",
+                        efetivada_em__isnull=False,
+                        efetivada_por__isnull=False,
+                        competencia__isnull=False,
+                        data_emissao__isnull=False,
+                        valor_nf__isnull=False,
+                        soma_itens__isnull=False,
+                        receita_bruta__isnull=False,
+                        devolucao__isnull=False,
+                        estornada_em__isnull=True,
+                        estornada_por__isnull=True,
+                        motivo_estorno="",
+                    )
+                    | Q(
+                        ~Q(motivo_estorno=""),
+                        estado="estornada",
+                        efetivada_em__isnull=False,
+                        efetivada_por__isnull=False,
+                        competencia__isnull=False,
+                        data_emissao__isnull=False,
+                        valor_nf__isnull=False,
+                        soma_itens__isnull=False,
+                        receita_bruta__isnull=False,
+                        devolucao__isnull=False,
+                        estornada_em__isnull=False,
+                        estornada_por__isnull=False,
+                    )
+                ),
+                name="escrituracao_nfe_campos_coerentes_com_o_estado",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"Escrituração NF-e {self.pk} — vínculo {self.vinculo_id} ({self.get_estado_display()})"
+        )
+
+    def _estado_gravado(self):
+        return EscrituracaoNFe.objects.filter(pk=self.pk).values_list("estado", flat=True).first()
+
+    def save(self, *args, **kwargs):
+        # Só o vínculo da MESMA empresa. A regra de elegibilidade está no serviço; isto impede que
+        # um `objects.create()` troque a empresa do vínculo.
+        if self.empresa_id != self.vinculo.empresa_id:
+            raise ValidationError("A escrituração deve ser da mesma empresa do vínculo.")
+        if self.pk is not None and self._estado_gravado() in (
+            EstadoEscrituracao.EFETIVADA,
+            EstadoEscrituracao.ESTORNADA,
+        ):
+            raise EscrituracaoImutavel()
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.pk is not None and self._estado_gravado() in (
+            EstadoEscrituracao.EFETIVADA,
+            EstadoEscrituracao.ESTORNADA,
+        ):
+            raise EscrituracaoImutavel(
+                "Escrituração efetivada ou estornada não pode ser excluída; "
+                "o histórico é preservado pelo estorno."
+            )
+        return super().delete(*args, **kwargs)
+
+
+class ItemNFe(models.Model):
+    """Um `det` da NF-e, lido do XML guardado (DL-081, item 2).
+
+    Cada campo é o do XSD do PL 010f, citado em `apps/fiscal/itens_nfe.py` com a linha. Campo
+    ausente no XML é `None`, nunca zero. O produto LÊ esses campos e não os interpreta: a
+    apuração do ICMS (etapa própria) vai ler daqui, sem reabrir o XML.
+
+    Valores em `Decimal`, com a escala do padrão TDec do XSD (ver `itens_nfe`). Os totais de
+    item são gravados com a escala do próprio campo (DE-010). `receita_bruta_item` é derivado,
+    gravado para a composição e a conferência não recalcularem o item a cada consulta.
+    """
+
+    documento = models.ForeignKey(
+        DocumentoNFe, on_delete=models.CASCADE, related_name="itens", verbose_name="documento"
+    )
+    n_item = models.PositiveSmallIntegerField("número do item (nItem)")
+    c_prod = models.CharField("código do produto (cProd)", max_length=60)
+    x_prod = models.CharField("descrição do produto (xProd)", max_length=120)
+    ncm = models.CharField("NCM", max_length=8)
+    cest = models.CharField("CEST", max_length=7, blank=True, default="")
+    cfop = models.CharField("CFOP", max_length=4)
+    u_com = models.CharField("unidade comercial (uCom)", max_length=6)
+    q_com = models.DecimalField("quantidade comercial (qCom)", max_digits=15, decimal_places=4)
+    v_un_com = models.DecimalField(
+        "valor unitário comercial (vUnCom)", max_digits=21, decimal_places=10
+    )
+    v_prod = models.DecimalField("valor do item (vProd)", max_digits=15, decimal_places=2)
+    v_desc = models.DecimalField(
+        "desconto do item (vDesc)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_frete = models.DecimalField(
+        "frete do item (vFrete)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_seg = models.DecimalField(
+        "seguro do item (vSeg)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_outro = models.DecimalField(
+        "outras despesas (vOutro)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    ind_tot = models.CharField("compõe o total da NF-e (indTot)", max_length=1)
+    c_benef = models.CharField(
+        "código de benefício fiscal (cBenef)", max_length=10, blank=True, default=""
+    )
+    # ICMS (grupo do det/imposto/ICMS; cada campo existe só em alguns grupos).
+    orig = models.CharField("origem da mercadoria (orig)", max_length=1, null=True, blank=True)
+    cst = models.CharField("CST do ICMS", max_length=2, null=True, blank=True)
+    csosn = models.CharField("CSOSN", max_length=3, null=True, blank=True)
+    mod_bc = models.CharField(
+        "modalidade da BC do ICMS (modBC)", max_length=1, null=True, blank=True
+    )
+    v_bc = models.DecimalField(
+        "BC do ICMS (vBC)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    p_icms = models.DecimalField(
+        "alíquota do ICMS (pICMS)", max_digits=7, decimal_places=4, null=True, blank=True
+    )
+    v_icms = models.DecimalField(
+        "ICMS (vICMS)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_icms_deson = models.DecimalField(
+        "ICMS desonerado (vICMSDeson)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    # indDeduzDeson (grupo ICMS do item, leiauteNFe_v4.00.xsd:2586): "1" = o vICMSDeson deduz do
+    # total da NF-e. A conferência com o vNF bloqueia esse caso (DL-081, correção A4; PE-85).
+    ind_deduz_deson = models.CharField(
+        "indicador de dedução do ICMS desonerado (indDeduzDeson)",
+        max_length=1,
+        null=True,
+        blank=True,
+    )
+    mot_des_icms = models.CharField(
+        "motivo da desoneração (motDesICMS)", max_length=2, null=True, blank=True
+    )
+    mod_bc_st = models.CharField(
+        "modalidade da BC do ST (modBCST)", max_length=1, null=True, blank=True
+    )
+    v_bc_st = models.DecimalField(
+        "BC do ICMS-ST (vBCST)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    p_icms_st = models.DecimalField(
+        "alíquota do ICMS-ST (pICMSST)", max_digits=7, decimal_places=4, null=True, blank=True
+    )
+    v_icms_st = models.DecimalField(
+        "ICMS-ST (vICMSST)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_bc_st_ret = models.DecimalField(
+        "BC do ST retido (vBCSTRet)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_icms_st_ret = models.DecimalField(
+        "ICMS-ST retido (vICMSSTRet)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    p_cred_sn = models.DecimalField(
+        "alíquota do crédito do Simples (pCredSN)",
+        max_digits=7,
+        decimal_places=4,
+        null=True,
+        blank=True,
+    )
+    v_cred_icms_sn = models.DecimalField(
+        "crédito do Simples (vCredICMSSN)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_fcp = models.DecimalField(
+        "fundo de combate à pobreza (vFCP)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_fcp_st = models.DecimalField(
+        "FCP do ST (vFCPST)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_icms_ufdest = models.DecimalField(
+        "partilha do ICMS, UF de destino (vICMSUFDest)",
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    cst_ipi = models.CharField("CST do IPI", max_length=2, null=True, blank=True)
+    v_ipi = models.DecimalField(
+        "IPI do item (vIPI)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    cst_pis = models.CharField("CST do PIS", max_length=2, null=True, blank=True)
+    v_pis = models.DecimalField(
+        "PIS do item (vPIS)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    cst_cofins = models.CharField("CST da Cofins", max_length=2, null=True, blank=True)
+    v_cofins = models.DecimalField(
+        "Cofins do item (vCOFINS)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_issqn = models.DecimalField(
+        "ISSQN do item (vISSQN)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_ii = models.DecimalField(
+        "imposto de importação do item (vII)",
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    # IBS/CBS: só a presença e o XML bruto do grupo. Nada é interpretado (HI-123).
+    tem_ibscbs = models.BooleanField("traz grupo IBS/CBS", default=False)
+    ibscbs_xml = models.TextField("grupo IBS/CBS, XML bruto", blank=True, default="")
+    receita_bruta_item = models.DecimalField(
+        "receita bruta do item (derivada)", max_digits=15, decimal_places=2
+    )
+
+    class Meta:
+        verbose_name = "item de NF-e"
+        verbose_name_plural = "itens de NF-e"
+        ordering = ["documento_id", "n_item"]
+        constraints = [
+            models.UniqueConstraint(fields=["documento", "n_item"], name="item_nfe_unico_por_nota"),
+            models.CheckConstraint(condition=Q(n_item__gte=1), name="item_nfe_n_item_positivo"),
+        ]
+
+    def __str__(self):
+        return f"Item {self.n_item} da NF-e {self.documento_id}"
+
+
+class LeituraItensNFe(models.Model):
+    """Resultado da leitura dos itens de uma NF-e, gravado UMA vez (DL-081, item 2).
+
+    `lida`: os itens estão em `ItemNFe`. `ilegivel`: algum valor está fora do padrão do XSD;
+    `motivo` nomeia o campo, nenhum item é gravado, e a escrituração fica bloqueada. Gravar o
+    resultado (inclusive o de ilegível) torna a leitura idempotente: o mesmo XML dá a mesma
+    resposta, sem reler a cada consulta. Os totais que a conferência e os avisos usam ficam aqui,
+    porque o `DocumentoNFe` da DL-080 não os guarda (DE-074).
+
+    Imutabilidade (correção da rodada 1, A3): gatilhos da migração 0011 recusam INSERT, UPDATE e
+    DELETE nesta tabela quando a nota tem escrituração efetivada ou estornada. Sem escrituração
+    assim, a leitura pode ser refeita (troca de versão do leitor).
+    """
+
+    ESTADO_LIDA = "lida"
+    ESTADO_ILEGIVEL = "ilegivel"
+
+    documento = models.OneToOneField(
+        DocumentoNFe,
+        on_delete=models.CASCADE,
+        related_name="leitura_itens",
+        verbose_name="documento",
+    )
+    estado = models.CharField(
+        "estado da leitura",
+        max_length=10,
+        choices=[("lida", "Lida"), ("ilegivel", "Itens ilegíveis")],
+    )
+    motivo = models.CharField("motivo (quando ilegível)", max_length=500, blank=True, default="")
+    quantidade_itens = models.PositiveIntegerField("quantidade de itens lidos", default=0)
+    # Versão do leitor que gerou esta leitura (`itens_nfe.VERSAO_LEITOR_ITENS`). Leitura de versão
+    # anterior é refeita na próxima tentativa, se a nota não tem escrituração efetivada ou
+    # estornada.
+    # O padrão 1 é a versão da rodada 1: o valor sem marcação nunca passa por leitura atual.
+    versao_leitor = models.PositiveSmallIntegerField("versão do leitor", default=1)
+    # ICMSTot/vII e ICMSTot/vIPIDevol (XSD:5450, 5460), para a conferência da receita.
+    v_ii = models.DecimalField(
+        "total do II (vII)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_ipi_devol = models.DecimalField(
+        "IPI devolvido (vIPIDevol)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    # total/vNFTot (XSD:5627), total/IBSCBSTot/gIBS/vIBS, total/IBSCBSTot/gCBS/vCBS
+    # e total/ISTot/vIS.
+    v_nf_tot = models.DecimalField(
+        "valor total com IBS, CBS e IS (vNFTot)",
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    v_ibs = models.DecimalField(
+        "total do IBS (vIBS)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_cbs = models.DecimalField(
+        "total da CBS (vCBS)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_is = models.DecimalField(
+        "total do IS (vIS)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    # ICMSTot/vFCPST (leiauteNFe_v4.00.xsd, grupo ICMSTot). É o total DECLARADO, lido do XML, e não
+    # a
+    # soma dos itens: a conferência com o vNF (regra W16 do MOC 7.0) usa o que a nota declara.
+    v_fcp_st_total = models.DecimalField(
+        "total do FCP-ST (vFCPST)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    lida_em = models.DateTimeField("lida em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "leitura de itens de NF-e"
+        verbose_name_plural = "leituras de itens de NF-e"
+        constraints = [
+            models.CheckConstraint(
+                condition=(Q(estado="lida", motivo="") | Q(~Q(motivo=""), estado="ilegivel")),
+                name="leitura_itens_nfe_motivo_coerente",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Leitura de itens da NF-e {self.documento_id} ({self.get_estado_display()})"
+
+
+class NaturezaItemNFe(models.Model):
+    """Natureza confirmada de UM item de uma escrituração (DL-081, item 3).
+
+    `natureza` vazia é "ainda não confirmada": a sugestão nunca grava aqui sozinha. A efetivação
+    exige todos os itens com natureza, e o banco recusa a efetivação com vazio (gatilho).
+    Depois de efetivada a escrituração, nenhuma linha destas muda (gatilho).
+    """
+
+    escrituracao = models.ForeignKey(
+        EscrituracaoNFe, on_delete=models.CASCADE, related_name="naturezas_dos_itens"
+    )
+    item = models.ForeignKey(ItemNFe, on_delete=models.CASCADE, related_name="naturezas")
+    natureza = models.CharField(
+        "natureza confirmada",
+        max_length=24,
+        choices=NaturezaOperacaoNFe.choices,
+        blank=True,
+        default="",
+    )
+    atualizada_em = models.DateTimeField("atualizada em", auto_now=True)
+
+    class Meta:
+        verbose_name = "natureza de item de NF-e"
+        verbose_name_plural = "naturezas de itens de NF-e"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["escrituracao", "item"], name="natureza_item_nfe_unica_por_item"
+            ),
+        ]
+
+    def __str__(self):
+        return f"Natureza do item {self.item_id} na escrituração {self.escrituracao_id}"

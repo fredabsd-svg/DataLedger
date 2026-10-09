@@ -50,16 +50,20 @@ de apps.fiscal.rbt12, com o dispositivo que os motiva.
 
         <h2>Receita por mercado</h2>
         <p class="texto-apoio">
-            Documentos escriturados (efetivados) somados à receita informada confirmada. Rascunho e
-            receita estornada não entram em nenhum total. Exportação nunca soma no mercado interno.
+            NFS-e e NF-e de saída escrituradas (efetivadas), mais a receita informada confirmada, menos
+            a devolução de venda deduzida no mês (que inclui o saldo de meses anteriores). As colunas
+            somam o total. Rascunho, estornada e cancelada não entram em nenhum total. Exportação nunca
+            soma no mercado interno.
         </p>
         <table class="tabela-dados">
-            <caption>Receita de {{ mes_rotulo }} por mercado: documentos, receita informada e total</caption>
+            <caption>Receita de {{ mes_rotulo }} por mercado: NFS-e, NF-e de saída, receita informada, devolução deduzida e total</caption>
             <thead>
                 <tr>
                     <th scope="col">Mercado</th>
-                    <th scope="col">Documentos escriturados</th>
+                    <th scope="col">NFS-e escrituradas</th>
+                    <th scope="col">NF-e de saída</th>
                     <th scope="col">Receita informada</th>
+                    <th scope="col">Devolução deduzida (subtrai)</th>
                     <th scope="col">Total do mês</th>
                 </tr>
             </thead>
@@ -68,7 +72,9 @@ de apps.fiscal.rbt12, com o dispositivo que os motiva.
                     <tr>
                         <th scope="row">{{ linha.rotulo }}</th>
                         <td class="valor-monetario">{{ linha.documento }}</td>
+                        <td class="valor-monetario">{{ linha.nfe }}</td>
                         <td class="valor-monetario">{{ linha.informado }}</td>
+                        <td class="valor-monetario">{{ linha.devolucao }}</td>
                         <td class="valor-monetario">{{ linha.total }}</td>
                     </tr>
                 {% endfor %}

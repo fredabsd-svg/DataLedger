@@ -401,6 +401,11 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     # violação em conflito (409), e não em 500. A pré-verificação do serviço vem antes.
     "presumido_padrao_unica_em_aberto": "apps.fiscal.presumido._inserir",
     "presumido_criterio_unico_por_ano": "apps.fiscal.presumido._inserir",
+    # DL-081 (frente A): a corrida de dois rascunhos da mesma nota (dois POST ao mesmo tempo) passa
+    # por `apps.fiscal.escrituracao_nfe._inserir`, que traduz a violação em 409, e não em 500.
+    # A trava `select_for_update` do vínculo vem antes, na mesma transação.
+    "escrituracao_nfe_ativa_unica_por_vinculo": "apps.fiscal.escrituracao_nfe._inserir",
+    "fiscal_leituraitensnfe_documento_id_key": "apps.fiscal.itens_nfe.ler_itens",
     "presumido_confirmacao_ativa_unica_por_escrituracao": "apps.fiscal.presumido._inserir",
     # DL-077 (fatia 3, frente A): as unicidades da importação de lançamentos são checadas pelo
     # serviço antes de gravar (`receber` recusa o arquivo repetido com 409; o IntegrityError de
@@ -1149,6 +1154,37 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
     "escrituracao_tomada_pagamento_com_informante": (
         "Data de pagamento sem quem informou, quando, ou sem motivo. `informar_data_pagamento` "
         "recusa motivo vazio antes do UPDATE e grava quem e quando informou no mesmo UPDATE."
+    ),
+    # DL-081 (frente A). Nenhuma das restrições abaixo recebe valor que a requisição escolheu: os
+    # valores de estado, de coerência e de chave saem do código ou de validação antes do INSERT.
+    "escrituracao_nfe_estado_valido": (
+        "o estado só é gravado pelos serviços de `apps.fiscal.escrituracao_nfe`, com constantes "
+        "do código (rascunho, efetivada, estornada). Nenhum campo do corpo da requisição vai "
+        "para `estado`."
+    ),
+    "escrituracao_nfe_campos_coerentes_com_o_estado": (
+        "as colunas do ato (efetivada_em, competencia, valor_nf etc.) são preenchidas pelo "
+        "serviço `efetivar` e `estornar`, na mesma transação do estado. A entrada do cliente "
+        "(natureza, itens, motivo) não entra nessas colunas."
+    ),
+    "item_nfe_unico_por_nota": (
+        "os itens são gravados só por `apps.fiscal.itens_nfe.ler_itens`, uma vez por nota e no "
+        "mesmo bloco do `LeituraItensNFe` (OneToOne, gravado antes). Duas requisições em corrida "
+        "perdem na leitura da nota e devolvem a leitura gravada, sem 500."
+    ),
+    "item_nfe_n_item_positivo": (
+        "`nItem` vem do XML guardado e é conferido pelo padrão do XSD (1 a 990, "
+        "leiauteNFe_v4.00.xsd:5320) antes do INSERT. Valor fora do padrão vira nota com itens "
+        "ilegíveis, e nenhum item é gravado."
+    ),
+    "leitura_itens_nfe_motivo_coerente": (
+        "`motivo` é preenchido só pelo código de `itens_nfe` (ilegível) e fica vazio na leitura "
+        "lida. O corpo da requisição não chega a esta tabela."
+    ),
+    "natureza_item_nfe_unica_por_item": (
+        "as linhas de natureza são criadas uma por item, em `criar_rascunho`, com `bulk_create` "
+        "sobre os itens da nota. Nenhum caminho do cliente insere uma segunda linha para o mesmo "
+        "item: o pedido de natureza só atualiza as linhas existentes."
     ),
 }
 

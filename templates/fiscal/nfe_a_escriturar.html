@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block titulo %}NF-e a escriturar{% if empresa %} — {{ empresa.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa.razao_social }}</strong>
+        </span>
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Competência</span>
+            <strong>{{ mes|stringformat:"02d" }}/{{ ano }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% block acoes_pagina %}
+    {% if empresa %}
+        <a class="botao botao--fantasma" href="{{ url_conferencia }}?empresa={{ empresa.pk }}&amp;ano={{ ano }}&amp;mes={{ mes }}">Conferência do mês</a>
+        {% if pode_escriturar %}
+            <a class="botao botao--secundario" href="{{ url_reclassificar }}">Reclassificar em massa</a>
+        {% endif %}
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-081 (frente B), tela 1, arquétipo A (tabela de consulta). As notas e a situação vêm do serviço
+da frente A (`notas_do_mes`). A tela não recalcula nada: traduz a situação para texto.
+{% endcomment %}
+{% block titulo_pagina %}<h1>NF-e a escriturar</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Notas fiscais de saída (venda própria e ajuste) em que a empresa escolhida é a emitente, e
+        devoluções de venda, pela competência (mês da data de emissão). Escriturar confirma a natureza
+        de cada item. Esta tela não calcula ICMS nem guia.
+    </p>
+
+    <form method="get" action="{{ request.path }}" class="formulario-periodo formulario-periodo--rotulo-acima">
+        <div class="campo">
+            <label for="id_nfe_empresa">Empresa</label>
+            <select id="id_nfe_empresa" name="empresa">
+                <option value="">Escolha uma empresa</option>
+                {% for opcao in empresas_do_escritorio %}
+                    <option value="{{ opcao.pk }}"{% if empresa and opcao.pk == empresa.pk %} selected{% endif %}>{{ opcao.razao_social }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_nfe_ano">Ano da competência</label>
+            <input type="text" id="id_nfe_ano" name="ano" value="{{ ano }}" inputmode="numeric"
+                   maxlength="4" aria-describedby="id_nfe_competencia_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_nfe_mes">Mês da competência</label>
+            <input type="text" id="id_nfe_mes" name="mes" value="{{ mes }}" inputmode="numeric"
+                   maxlength="2" aria-describedby="id_nfe_competencia_ajuda">
+        </div>
+        <button type="submit">Consultar</button>
+        <p class="texto-apoio" id="id_nfe_competencia_ajuda">
+            Competência pelo mês da data de emissão (dhEmi), no fuso de São Paulo. Ano (AAAA) e mês (1 a 12).
+        </p>
+    </form>
+
+    {% if not empresa %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver as NF-e a escriturar.</strong></p>
+            <p class="estado-vazio__descricao">A lista é sempre de uma empresa, para que a nota de uma não apareça na tela de outra.</p>
+        </div>
+    {% else %}
+        <p class="texto-apoio">
+            {{ total_elegiveis }} nota(s) de saída ou devolução em {{ mes|stringformat:"02d" }}/{{ ano }}.
+            {{ fora_da_escrituracao }} nota(s) recebida(s) ficam fora desta escrituração (entrada de compra, por exemplo).
+        </p>
+
+        {% if not pode_escriturar %}
+            <p class="texto-apoio">
+                Seu papel consulta estas notas, mas não as escritura: por isso não há botão de criar rascunho nesta tela.
+            </p>
+        {% endif %}
+
+        {% if linhas %}
+            <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0" aria-label="Notas da empresa no mês e situação de escrituração">
+            <table class="tabela-dados">
+                <caption>NF-e de saída e devolução da empresa no mês, com a situação de escrituração</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Nota</th>
+                        <th scope="col">Emissão</th>
+                        <th scope="col">Valor da nota (vNF)</th>
+                        <th scope="col">Leitura dos itens</th>
+                        <th scope="col">Situação</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in linhas %}
+                        <tr>
+                            <td>{{ linha.modelo }} nº {{ linha.numero }}, série {{ linha.serie }}</td>
+                            <td>{{ linha.emissao|date:"d/m/Y H:i" }}</td>
+                            <td class="valor-monetario">{{ linha.valor_nf_ptbr }}</td>
+                            <td>
+                                {{ linha.leitura }}
+                                {% if linha.leitura_motivo %}
+                                    <br><span class="texto-apoio">{{ linha.leitura_motivo }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if linha.destaque %}
+                                    <span class="selo selo--atencao">{{ linha.situacao }}: estorne a escrituração para sair da receita</span>
+                                {% else %}
+                                    {{ linha.situacao }}
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if linha.acao.tipo == "criar" %}
+                                    <form method="post" action="{{ linha.acao.url }}" class="acoes-de-linha">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="acao" value="criar">
+                                        <button type="submit" class="botao botao--secundario botao--pequeno">Criar rascunho</button>
+                                    </form>
+                                {% else %}
+                                    <a class="botao botao--secundario botao--pequeno" href="{{ linha.acao.url }}">{{ linha.acao.rotulo }}</a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            </div>
+            {% include "fiscal/_paginacao.html" %}
+        {% else %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo">
+                    <strong>Nenhuma NF-e de saída ou devolução desta empresa em {{ mes|stringformat:"02d" }}/{{ ano }}.</strong>
+                </p>
+                <p class="estado-vazio__descricao">Escolha outra competência.</p>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}

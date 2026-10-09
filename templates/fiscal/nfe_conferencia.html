@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block titulo %}Conferência de NF-e{% if empresa %} — {{ empresa.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa.razao_social }}</strong>
+        </span>
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Competência</span>
+            <strong>{{ mes|stringformat:"02d" }}/{{ ano }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-081 (frente B), tela 5, arquétipo C (conferência do mês). Relatório de CONFERÊNCIA (classe 1 de
+docs/projeto/personalizacao-de-relatorio.md): só leitura. Todo valor vem do serviço da frente A e da
+composição da receita (DL-074/DL-081); a tela só soma o que já está na tela, para o total.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Conferência de NF-e do mês</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Conferência das NF-e de saída e devolução da empresa no mês: o que foi recebido, o que está escriturado e o que
+        está pendente, a receita por natureza e por CFOP, e a composição que chega à receita do Simples.
+    </p>
+
+    <form method="get" action="{{ request.path }}" class="formulario-periodo formulario-periodo--rotulo-acima">
+        <div class="campo">
+            <label for="id_conf_empresa">Empresa</label>
+            <select id="id_conf_empresa" name="empresa">
+                <option value="">Escolha uma empresa</option>
+                {% for opcao in empresas_do_escritorio %}
+                    <option value="{{ opcao.pk }}"{% if empresa and opcao.pk == empresa.pk %} selected{% endif %}>{{ opcao.razao_social }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_conf_ano">Ano da competência</label>
+            <input type="text" id="id_conf_ano" name="ano" value="{{ ano }}" inputmode="numeric"
+                   maxlength="4" aria-describedby="id_conf_competencia_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_conf_mes">Mês da competência</label>
+            <input type="text" id="id_conf_mes" name="mes" value="{{ mes }}" inputmode="numeric"
+                   maxlength="2" aria-describedby="id_conf_competencia_ajuda">
+        </div>
+        <button type="submit">Consultar</button>
+        <p class="texto-apoio" id="id_conf_competencia_ajuda">
+            Competência pelo mês da data de emissão (dhEmi). Ano (AAAA) e mês (1 a 12).
+        </p>
+    </form>
+
+    {% if not empresa %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver a conferência do mês.</strong></p>
+            <p class="estado-vazio__descricao">A conferência é sempre de uma empresa e de uma competência.</p>
+        </div>
+    {% else %}
+        <div class="documento-sem-quebra">
+            <table class="tabela-dados">
+                <caption>NF-e recebidas no mês, por situação de escrituração</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Situação</th>
+                        <th scope="col">Quantidade</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in situacao %}
+                        <tr>
+                            <th scope="row">{{ linha.rotulo }}</th>
+                            <td>
+                                {% if linha.destaque %}
+                                    <span class="selo selo--atencao">{{ linha.quantidade }}: sair da receita, estornar</span>
+                                {% else %}
+                                    {{ linha.quantidade }}
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="documento-sem-quebra">
+            <table class="tabela-dados">
+                <caption>Receita de NF-e por natureza, no mês. Devolução subtrai; natureza que não é receita soma zero</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Natureza</th>
+                        <th scope="col">Papel na receita</th>
+                        <th scope="col">Mercado</th>
+                        <th scope="col">Valor bruto</th>
+                        <th scope="col">Soma na receita</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in receita_de_natureza %}
+                        <tr>
+                            <th scope="row">{{ linha.rotulo }}</th>
+                            <td>{{ linha.papel }}</td>
+                            <td>{{ linha.mercado }}</td>
+                            <td class="valor-monetario">{{ linha.bruto_ptbr }}</td>
+                            <td class="valor-monetario">{{ linha.soma_ptbr }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="5">Nenhuma natureza de receita escriturada no mês.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <th scope="row" colspan="4">Receita de NF-e do mês (soma das naturezas de receita, menos a devolução)</th>
+                        <td class="valor-monetario">{{ total_nfe_ptbr }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        {% if sem_receita %}
+            <div class="documento-sem-quebra">
+                <table class="tabela-dados">
+                    <caption>Naturezas que não são receita: aparecem à parte, com soma zero</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Natureza</th>
+                            <th scope="col">Valor bruto (fora da receita)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for linha in sem_receita %}
+                            <tr>
+                                <th scope="row">{{ linha.rotulo }}</th>
+                                <td class="valor-monetario">{{ linha.bruto_ptbr }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+
+        <div class="documento-sem-quebra">
+            <table class="tabela-dados">
+                <caption>Composição da receita de NF-e por mercado, e saldo de devolução que passa ao mês seguinte</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Mercado</th>
+                        <th scope="col">Receita de NF-e</th>
+                        <th scope="col">Devolução do mês</th>
+                        <th scope="col">Saldo de devolução de meses anteriores</th>
+                        <th scope="col">Deduzido no mês</th>
+                        <th scope="col">Saldo transportado ao mês seguinte</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in composicao %}
+                        <tr>
+                            <th scope="row">{{ linha.mercado }}</th>
+                            <td class="valor-monetario">{{ linha.mercadoria_ptbr }}</td>
+                            <td class="valor-monetario">{{ linha.devolucao_ptbr }}</td>
+                            <td class="valor-monetario">{{ linha.saldo_entrada_ptbr }}</td>
+                            <td class="valor-monetario">{{ linha.deduzido_ptbr }}</td>
+                            <td class="valor-monetario">{{ linha.saldo_transportado_ptbr }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="documento-sem-quebra">
+            <table class="tabela-dados">
+                <caption>Valor bruto por CFOP das NF-e escrituradas e efetivadas no mês (inclui o que não é receita)</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">CFOP</th>
+                        <th scope="col">Valor bruto</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in valor_por_cfop %}
+                        <tr>
+                            <th scope="row">{{ linha.cfop }}</th>
+                            <td class="valor-monetario">{{ linha.valor_ptbr }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="2">Nenhum CFOP escriturado no mês.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if canceladas_depois %}
+            <div class="documento-sem-quebra">
+                <table class="tabela-dados">
+                    <caption>NF-e canceladas depois de escrituradas: saíram da receita, e o estorno não é automático</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Nota</th>
+                            <th scope="col">Emissão</th>
+                            <th scope="col">Valor da nota (vNF)</th>
+                            <th scope="col">Situação</th>
+                            <th scope="col">Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for linha in canceladas_depois %}
+                            <tr>
+                                <td>{{ linha.modelo }} nº {{ linha.numero }}, série {{ linha.serie }}</td>
+                                <td>{{ linha.emissao|date:"d/m/Y H:i" }}</td>
+                                <td class="valor-monetario">{{ linha.valor_nf_ptbr }}</td>
+                                <td><span class="selo selo--atencao">{{ linha.situacao }}</span></td>
+                                <td>
+                                    <a class="botao botao--secundario botao--pequeno" href="{{ linha.acao.url }}">{{ linha.acao.rotulo }}</a>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}

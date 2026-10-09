@@ -306,9 +306,10 @@ def _mm_aaaa(ano: int, mes: int) -> str:
 class _Mes:
     """Receita e situação de um mês, lidas uma vez por apuração."""
 
-    def __init__(self, empresa: Empresa, ano: int, mes: int):
+    def __init__(self, empresa: Empresa, ano: int, mes: int, composicao):
+        # A composição vem de `composicoes_do_periodo`, lida UMA vez para a janela (DL-081, A6).
         self.ano, self.mes = ano, mes
-        self.composicao = recibo.composicao_do_mes(empresa, ano, mes)
+        self.composicao = composicao
         confirmacao = recibo.confirmacao_do_mes(empresa, ano, mes)
         self.situacao = recibo.situacao_de(confirmacao, self.composicao)
 
@@ -450,9 +451,10 @@ def _avisos_de_receita_antes_da_abertura(
     indice_abertura = _indice(abertura.year, abertura.month)
     inicio = min(_indice(ano, mes) - 12, _indice(ano, 1))
     avisos: list[Aviso] = []
-    for indice in range(inicio, indice_abertura):
-        ano_do_mes, mes_do_mes = _do_indice(indice)
-        composicao = recibo.composicao_do_mes(empresa, ano_do_mes, mes_do_mes)
+    meses = [_do_indice(indice) for indice in range(inicio, indice_abertura)]
+    composicoes = recibo.composicoes_do_periodo(empresa, meses)
+    for ano_do_mes, mes_do_mes in meses:
+        composicao = composicoes[(ano_do_mes, mes_do_mes)]
         for mercado in MERCADOS:
             if composicao.total(mercado) > 0:
                 avisos.append(
@@ -576,10 +578,24 @@ def rbt12(empresa: Empresa, ano: int, mes: int) -> Rbt12:
     # Cada mês lido uma vez. A janela pode ter meses ANTES da abertura: são zero e
     # não exigem confirmação (não há receita a confirmar).
     cache: dict[int, _Mes] = {}
+    # A janela e o ano até o PA são lidos numa passagem: o saldo de devolução é percorrido uma vez
+    # (DL-081, A6). O ano pode começar antes da janela, então os dois conjuntos entram no lote.
+    indices_do_ano_ate_o_pa = [
+        _indice(ano, m) for m in range(1, mes + 1) if _indice(ano, m) >= indice_abertura
+    ]
+    indices_lidos = {i for i in indices_janela if i >= indice_abertura} | set(
+        indices_do_ano_ate_o_pa
+    )
+    composicoes = recibo.composicoes_do_periodo(
+        empresa, [_do_indice(indice) for indice in sorted(indices_lidos)]
+    )
 
     def mes_lido(indice: int) -> _Mes:
         if indice not in cache:
-            cache[indice] = _Mes(empresa, *_do_indice(indice))
+            ano_do_mes, mes_do_mes = _do_indice(indice)
+            cache[indice] = _Mes(
+                empresa, ano_do_mes, mes_do_mes, composicoes[(ano_do_mes, mes_do_mes)]
+            )
         return cache[indice]
 
     janela = []

@@ -46,9 +46,14 @@ from apps.fiscal.views_web import (
     iss_regras_municipio,
     iss_retido_a_recolher,
     iss_retido_sofrido,
+    nfe_a_escriturar,
+    nfe_conferencia,
     nfe_detalhe,
+    nfe_escriturar,
+    nfe_estornar,
     nfe_eventos_orfaos,
     nfe_recebidas,
+    nfe_reclassificar,
     notas_a_escriturar,
     pre_das,
     presumido_apuracao,
@@ -113,6 +118,23 @@ urlpatterns = [
         "nfe/empresas/<int:empresa_id>/notas/<int:documento_id>/",
         nfe_detalhe,
         name="nfe_detalhe",
+    ),
+    # DL-081 (frente B): escrituração das NF-e de saída e da devolução de venda. A lista, a
+    # conferência e a reclassificação pedem a empresa na querystring ou no formulário (sem
+    # empresa, a tela pede a escolha). A escrituração de UMA nota e o estorno levam a empresa no
+    # caminho, e a nota ou a escrituração é buscada DENTRO dela (404 fora, IDOR).
+    path("nfe/escrituracao/", nfe_a_escriturar, name="nfe_a_escriturar"),
+    path("nfe/escrituracao/conferencia/", nfe_conferencia, name="nfe_conferencia"),
+    path("nfe/escrituracao/reclassificar/", nfe_reclassificar, name="nfe_reclassificar"),
+    path(
+        "nfe/escrituracao/empresas/<int:empresa_id>/notas/<int:vinculo_id>/",
+        nfe_escriturar,
+        name="nfe_escriturar",
+    ),
+    path(
+        "nfe/escrituracao/empresas/<int:empresa_id>/escrituracoes/<int:escrituracao_id>/estornar/",
+        nfe_estornar,
+        name="nfe_estornar",
     ),
     # DL-072 (frente B): escrituração das NFS-e prestadas. A lista é por
     # querystring (`?empresa=&ano=&mes=`) porque o menu do módulo não conhece

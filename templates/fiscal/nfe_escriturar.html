@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+
+{% block titulo %}Escriturar NF-e nº {{ documento.numero }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_lista }}">NF-e a escriturar</a></li>
+            <li aria-current="page">Escriturar NF-e nº {{ documento.numero }}</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_lista }}">‹ Voltar para as NF-e a escriturar</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-081 (frente B), tela 2, arquétipo B (formulário de documento). A pergunta de verdade aparece antes
+de gravar: a conferência com o vNF, e o que a efetivação registra. A tela não confere nem calcula: o
+serviço diz se a nota confere, e o servidor recusa de novo no POST, por mais que o botão esteja habilitado.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Escriturar NF-e nº {{ documento.numero }}</h1>{% endblock %}
+
+{% block content %}
+    <dl class="lista-de-definicao documento-sem-quebra">
+        <div>
+            <dt>Modelo</dt>
+            <dd>{{ modelo_rotulo }}, série {{ documento.serie }}, número {{ documento.numero }}</dd>
+        </div>
+        <div>
+            <dt>Chave de acesso</dt>
+            <dd>{{ chave_em_grupos }}</dd>
+        </div>
+        <div>
+            <dt>Emissão (dhEmi)</dt>
+            <dd>{{ emissao|date:"d/m/Y H:i" }}</dd>
+        </div>
+        <div>
+            <dt>Competência (mês de dhEmi)</dt>
+            <dd>{{ competencia_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Papel da empresa nesta nota</dt>
+            <dd>{{ papel_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Tipo de operação (tpNF) e finalidade (finNFe)</dt>
+            <dd>{{ tp_nf_rotulo }}; finalidade {{ fin_nfe_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Emitente</dt>
+            <dd>{{ documento.emitente_nome }} ({{ emitente_documento }})</dd>
+        </div>
+        <div>
+            <dt>Destinatário</dt>
+            <dd>{{ documento.destinatario_nome|default:"(sem destinatário no documento)" }}{% if destinatario_documento %} ({{ destinatario_documento }}){% endif %}</dd>
+        </div>
+        <div>
+            <dt>Valor da nota (vNF)</dt>
+            <dd class="valor-monetario">{{ valor_nf_ptbr }}</dd>
+        </div>
+    </dl>
+
+    {% if fora_motivo %}
+        <div class="painel-etapa">
+            <h2>Esta nota não entra na escrituração desta empresa</h2>
+            <p>{{ fora_motivo }}</p>
+        </div>
+    {% else %}
+        <p>Situação: <strong>{{ situacao_rotulo }}</strong></p>
+
+        {% for aviso in avisos %}
+            <p class="mensagem mensagem-warning" role="status">
+                <strong>Atenção:</strong> {{ aviso.mensagem }}
+                <br><span class="texto-apoio">Dispositivo: {{ aviso.dispositivo }}. Não entra na receita.</span>
+            </p>
+        {% endfor %}
+
+        {% if nota and nota.situacao == "cancelada" %}
+            <p class="mensagem mensagem-error" role="alert">
+                <strong>Erro:</strong> nota cancelada não pode ser escriturada.
+            </p>
+        {% elif nota and nota.situacao == "cancelada_depois_de_escriturada" %}
+            <p class="mensagem mensagem-error" role="alert">
+                <strong>Erro:</strong> a nota foi cancelada depois de escriturada. Ela saiu da receita do mês.
+                O estorno não é automático: estorne a escrituração, com motivo.
+            </p>
+        {% endif %}
+
+        {% if leitura_rotulo == "Ilegível" %}
+            <p class="mensagem mensagem-error" role="alert">
+                <strong>Erro:</strong> itens ilegíveis, nota bloqueada. Motivo: {{ leitura_motivo }}
+            </p>
+        {% elif leitura_rotulo == "Ainda não lida" %}
+            <p class="mensagem mensagem-info" role="status">
+                <strong>Informação:</strong> os itens ainda não foram lidos. A leitura acontece ao criar o rascunho.
+            </p>
+        {% endif %}
+
+        {% if not escrituracao and lida and not nota.situacao == "cancelada" %}
+            {% if pode_escriturar %}
+                <form method="post" action="{{ url_escriturar }}" class="formulario">
+                    {% csrf_token %}
+                    <input type="hidden" name="acao" value="criar">
+                    <button type="submit" class="botao botao--primario">Criar rascunho</button>
+                </form>
+            {% else %}
+                <p class="texto-apoio">Seu papel consulta esta nota, mas não cria o rascunho.</p>
+            {% endif %}
+        {% endif %}
+
+        {% if rascunho or efetivada %}
+            <div class="painel-etapa">
+                <h2>O que vai acontecer</h2>
+                {% if rascunho %}
+                    <p>
+                        <strong>Confirmar a natureza</strong> de um item, ou de todos com a mesma sugestão, grava a
+                        escolha no rascunho. Enquanto for rascunho, a nota não entra na receita.
+                    </p>
+                    <p>
+                        <strong>Efetivar escrituração</strong> grava a receita e os valores da nota, na hora. Depois
+                        disso, só o estorno, com motivo, muda a escrituração.
+                    </p>
+                {% else %}
+                    <p>
+                        A escrituração está efetivada e compõe a receita de {{ competencia_rotulo }}. Para mudar
+                        alguma natureza, estorne a escrituração, com motivo.
+                    </p>
+                {% endif %}
+            </div>
+        {% endif %}
+
+        {% if linhas %}
+            <h2>Itens da nota</h2>
+            {% if rascunho and pode_escriturar and grupos_de_sinal %}
+                <div class="painel-etapa">
+                    <h3>Confirmar em bloco os itens de mesma sugestão</h3>
+                    <p class="texto-apoio">
+                        Atinge só os itens ainda sem natureza confirmada que têm a mesma sugestão. O servidor escolhe os itens.
+                    </p>
+                    {% for grupo in grupos_de_sinal %}
+                        <form method="post" action="{{ url_escriturar }}" class="acoes-de-linha">
+                            {% csrf_token %}
+                            <input type="hidden" name="acao" value="bloco">
+                            <input type="hidden" name="sinal" value="{{ grupo.sinal }}">
+                            <button type="submit" class="botao botao--secundario">Aplicar a todos os {{ grupo.quantidade }} itens com a sugestão "{{ grupo.rotulo }}"</button>
+                        </form>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0" aria-label="Itens da nota, com CFOP, CST ou CSOSN, NCM, valores, receita e natureza">
+            <table class="tabela-dados">
+                <caption>Itens da nota, com CFOP, CST ou CSOSN, NCM, valor, receita e natureza de cada item</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Item</th>
+                        <th scope="col">Produto</th>
+                        <th scope="col">CFOP e descrição oficial</th>
+                        <th scope="col">CST ou CSOSN</th>
+                        <th scope="col">NCM</th>
+                        <th scope="col">Valor do item (vProd)</th>
+                        <th scope="col">Receita do item</th>
+                        <th scope="col">Natureza</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in linhas %}
+                        <tr>
+                            <th scope="row">{{ linha.n_item }}</th>
+                            <td>{{ linha.x_prod }}</td>
+                            <td>
+                                {{ linha.cfop }}
+                                <br><span class="texto-apoio">{{ linha.cfop_descricao }}</span>
+                            </td>
+                            <td>{{ linha.cst_csosn }}</td>
+                            <td>{{ linha.ncm }}</td>
+                            <td class="valor-monetario">{{ linha.v_prod_ptbr }}</td>
+                            <td class="valor-monetario">{{ linha.receita_ptbr }}</td>
+                            <td>
+                                {% if rascunho and pode_escriturar %}
+                                    <form method="post" action="{{ url_escriturar }}" class="formulario">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="acao" value="item">
+                                        <input type="hidden" name="item_id" value="{{ linha.item_id }}">
+                                        <label for="id_natureza_{{ linha.item_id }}">Natureza do item {{ linha.n_item }}</label>
+                                        <select id="id_natureza_{{ linha.item_id }}" name="natureza" required aria-describedby="id_sugestao_{{ linha.item_id }}">
+                                            {% if not linha.selecionada %}
+                                                <option value="" selected>Escolha a natureza</option>
+                                            {% endif %}
+                                            {% for valor, rotulo in linha.opcoes %}
+                                                <option value="{{ valor }}"{% if valor == linha.selecionada %} selected{% endif %}>{{ rotulo }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="submit" class="botao botao--secundario botao--pequeno">Confirmar natureza</button>
+                                    </form>
+                                    <p class="texto-apoio" id="id_sugestao_{{ linha.item_id }}">
+                                        Sugestão: {{ linha.sugestao_rotulo }}. {{ linha.sugestao_motivo }}
+                                    </p>
+                                {% else %}
+                                    {% if linha.natureza_gravada %}
+                                        {{ linha.natureza_gravada_rotulo }}
+                                    {% else %}
+                                        Sem natureza confirmada
+                                    {% endif %}
+                                    <br><span class="texto-apoio">Sugestão: {{ linha.sugestao_rotulo }}. {{ linha.sugestao_motivo }}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            </div>
+
+            {% if rascunho or efetivada %}
+                <div class="painel-etapa documento-sem-quebra">
+                    <h2>Conferência com o vNF</h2>
+                    {% if conferencia %}
+                        {% if efetivada %}
+                            <p>Conferida na efetivação: a receita dos itens bate com o valor da nota.</p>
+                        {% elif conferencia_divergiu %}
+                            <p class="mensagem mensagem-error" role="alert">
+                                <strong>Não confere:</strong> a receita dos itens é diferente do valor da nota menos os
+                                tributos que ficam fora da receita. A nota não é efetivada.
+                            </p>
+                        {% elif pode_efetivar %}
+                            <p>Confere: a receita dos itens bate com o valor da nota. Não há diferença a bloquear a efetivação.</p>
+                        {% endif %}
+                        <table class="tabela-dados">
+                            <caption>Conferência da receita dos itens com o valor da nota (vNF)</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Componente</th>
+                                    <th scope="col">Valor</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <th scope="row">Receita dos itens (indTot 1)</th>
+                                    <td class="valor-monetario">{{ conferencia.receita_ptbr }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Valor da nota (vNF)</th>
+                                    <td class="valor-monetario">{{ conferencia.vnf_ptbr }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Substituição tributária (vST), fora da receita</th>
+                                    <td class="valor-monetario">{{ conferencia.vst_ptbr }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">IPI (vIPI), fora da receita</th>
+                                    <td class="valor-monetario">{{ conferencia.vipi_ptbr }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Imposto de importação (vII), fora da receita</th>
+                                    <td class="valor-monetario">{{ conferencia.vii_ptbr }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">IPI devolvido (vIPIDevol), fora da receita</th>
+                                    <td class="valor-monetario">{{ conferencia.vipi_devol_ptbr }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    {% endif %}
+                </div>
+            {% endif %}
+
+            {% if segregacao %}
+                <div class="documento-sem-quebra">
+                    <table class="tabela-dados">
+                        <caption>Receita de mercadoria por segregação do Simples (memória, sem alíquota)</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Segregação</th>
+                                <th scope="col">Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for linha_segregada in segregacao %}
+                                <tr>
+                                    <th scope="row">{{ linha_segregada.rotulo }}</th>
+                                    <td class="valor-monetario">{{ linha_segregada.valor_ptbr }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% endif %}
+
+            {% if rascunho %}
+                {% if pode_escriturar %}
+                    <form method="post" action="{{ url_escriturar }}" class="formulario">
+                        {% csrf_token %}
+                        <input type="hidden" name="acao" value="efetivar">
+                        <div class="acoes-formulario">
+                            <button type="submit" class="botao botao--primario"{% if not pode_efetivar %} disabled aria-describedby="id_motivo_efetivar"{% endif %}>Efetivar escrituração</button>
+                            {% if not pode_efetivar and motivo_efetivar %}
+                                <p class="texto-apoio" id="id_motivo_efetivar">{{ motivo_efetivar }}</p>
+                            {% endif %}
+                        </div>
+                    </form>
+                {% else %}
+                    <p class="texto-apoio">Seu papel consulta esta nota, mas não efetiva a escrituração.</p>
+                {% endif %}
+            {% endif %}
+
+            {% if efetivada %}
+                <p class="mensagem mensagem-info" role="status">
+                    <strong>Informação:</strong> escrituração efetivada. Ela compõe a receita de {{ competencia_rotulo }}.
+                </p>
+                {% if pode_escriturar %}
+                    <p>
+                        <a class="botao botao--perigoso" href="{{ url_estornar }}">Estornar escrituração</a>
+                    </p>
+                {% endif %}
+            {% endif %}
+        {% endif %}
+    {% endif %}
+{% endblock %}

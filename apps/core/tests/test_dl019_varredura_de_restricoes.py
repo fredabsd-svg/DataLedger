@@ -102,6 +102,10 @@ RESTRICOES_CONFERIDAS = {
 INDICES_UNICOS_IMPLICITOS_CONHECIDOS = {
     "accounts_usuario_username_key",
     "accounts_usuario_email_key",
+    # DL-081 (frente A): `LeituraItensNFe.documento` (OneToOne). Caminho do cliente: duas criações
+    # de rascunho em corrida. `apps.fiscal.itens_nfe.ler_itens` trata a violação (IntegrityError,
+    # savepoint) e devolve a leitura já gravada: nunca chega ao cliente como 500.
+    "fiscal_leituraitensnfe_documento_id_key",
     "tenancy_escritorio_cnpj_key",
     "tenancy_conviteescritorio_token_key",  # DL-018 — token de convite
     # DL-038: "empresas_empresa_cnpj_key" SAIU daqui — `Empresa.cnpj`

@@ -1463,6 +1463,21 @@ def apurar_trimestre(empresa: Empresa, ano, trimestre) -> Apuracao:
             )
         )
 
+    # DL-081 (HI-122; correção da rodada 1, A2): NF-e de saída ou devolução efetivada em QUALQUER
+    # mês do ano até o fim do trimestre apurado, inclusive. A receita de mercadoria ainda não entra
+    # no Presumido, e o limite da LC 224 se propaga para a frente: a NF-e do 1º trimestre também
+    # deixa parciais o 2º, o 3º e o 4º. Por isso o intervalo começa em janeiro. Trimestre sem NF-e
+    # em nenhum mês até ele não ganha esta recusa.
+    if any(
+        receita_servico.receita_de_nfe_no_mes(empresa, ano, mes)
+        for mes in range(1, 3 * trimestre + 1)
+    ):
+        recusas.append(
+            Recusa(
+                "receita_nfe_nao_integrada",
+                "receita de NF-e ainda não integrada ao Presumido",
+            )
+        )
     declaracao, valida = _declaracao_valida(empresa, ano, trimestre)
     integrais_atuais = dados.integrais
     notas = dados.notas
@@ -1593,6 +1608,17 @@ def controle_limite_ano(
         raise EntradaInvalidaPresumido("Tributo: use 'irpj' ou 'csll'.")
     validar_ano_e_trimestre(ano, 1)
     periodos, recusas, _carregados = _periodos_do_ano(empresa, ano, 4)
+    recusas = list(recusas)
+    # Reconferência da DL-081, R1: o quadro do limite do ano também ignora a receita de mercadoria
+    # (HI-122). Com NF-e efetivada em qualquer mês do ano, ele sai com a mesma recusa nomeada da
+    # apuração do trimestre, para o contador não ler limite e excedente como completos.
+    if any(receita_servico.receita_de_nfe_no_mes(empresa, ano, mes) for mes in range(1, 13)):
+        recusas.append(
+            Recusa(
+                "receita_nfe_nao_integrada",
+                "receita de NF-e ainda não integrada ao Presumido",
+            )
+        )
     medidas = list(MedidaJudicialLC224.objects.filter(empresa=empresa, ativa=True))
     suspensos = _suspensos_por_tributo(medidas, ano)
     anual = calc.apurar_ano(tributo, ano, periodos, suspensos[tributo])
