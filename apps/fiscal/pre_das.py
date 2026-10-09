@@ -44,9 +44,11 @@ do item,
 HI-130),
   pela apuração de `receita.mercadoria_do_mes`. Devolução sem segmento confirmado recusa o mês;
   rateio nunca.
-- Recusas nomeadas: natureza de combustível e serviço conjugado (`MOTIVO_NFE_FORA_DO_CORTE`); CSOSN
-103, 300
-  ou 400 (HI-131); IPI e ISS no mesmo mês; devolução sem segmento. CSOSN 900 gera aviso, não recusa.
+- Recusas nomeadas: natureza de combustível e serviço conjugado (`MOTIVO_NFE_FORA_DO_CORTE`);
+  devolução de venda de combustível, qualquer natureza (CFOP 1.660 a 1.662 e 2.660 a 2.662; A2);
+  serviço de comunicação ou de transporte sob natureza de mercadoria (A5); CSOSN 103, 300 ou 400
+  no mercado INTERNO (HI-131; A4); IPI e ISS no mesmo mês; devolução sem segmento. CSOSN 900 gera
+  aviso, não recusa; exportação direta sem CFOP 7.xxx ou sem idDest 3 gera aviso (A6).
 - `calcular_anexo` é o cálculo puro de um anexo (sem banco): é dele que os testes de cálculo partem.
 
 Segregação (HI-68, critérios 4 e 5; consulta de 08/10/2026, itens 1 a 3):
@@ -94,6 +96,10 @@ from apps.fiscal import folha_fator_r
 from apps.fiscal import rbt12 as apuracao
 from apps.fiscal import receita as receita_servico
 from apps.fiscal import simples_tabelas as tabelas
+from apps.fiscal.cfop import (
+    e_devolucao_de_venda_de_combustivel,
+    e_prestacao_de_comunicacao_ou_transporte,
+)
 from apps.fiscal.models import (
     ANEXO_I,
     ANEXO_II,
@@ -317,7 +323,8 @@ MOTIVO_NFE_FORA_DO_CORTE = {
     ),
 }
 
-# CSOSN que indica benefício ou imunidade de ICMS sem parâmetro estadual: recusa (HI-131).
+# CSOSN que indica benefício ou imunidade de ICMS sem parâmetro estadual: recusa no mercado INTERNO
+# (HI-131; A4 da rodada 1). Na exportação o ICMS já sai do DAS, e a recusa não se aplica.
 # CSOSN 900 não recusa: gera aviso (o pré-DAS calcula com a natureza, e o contador confere).
 CSOSN_BENEFICIO_SEM_PARAMETRO = frozenset({"103", "300", "400"})
 CSOSN_AVISO = "900"
@@ -1080,11 +1087,66 @@ def _recusas_de_nfe(nfe_do_mes, mercadoria, ano: int, mes: int) -> tuple[list[Bl
             )
         )
 
+    # A2 (correção da rodada 1 do DL-082): devolução de VENDA de combustível ou lubrificante recusa
+    # seja qual for a natureza. A descrição oficial (1.660 a 1.662 e 2.660 a 2.662) diz a
+    # destinação. Sem esta recusa, a devolução deduzia da receita de mercadoria comum e o DAS saía
+    # subestimado, sem aviso. A devolução de COMPRA (5.66x, 6.66x) não entra aqui
+    # (`e_devolucao_de_venda_de_combustivel`).
+    devolucao_de_combustivel = sorted(
+        {
+            f"nota {linha.numero} (CFOP {linha.cfop})"
+            for linha in nfe_do_mes
+            if e_devolucao_de_venda_de_combustivel(linha.cfop)
+        }
+    )
+    if devolucao_de_combustivel:
+        bloqueios.append(
+            Bloqueio(
+                "devolucao_combustivel_cfop",
+                f"Devolução de venda de combustível ou lubrificante em {rotulo}: "
+                f"{'; '.join(devolucao_de_combustivel)}. O pré-DAS não calcula essa devolução, "
+                "seja qual for a natureza da nota: a regra de combustível não entra no primeiro "
+                "corte (HI-132).",
+                "HI-132; tabela oficial de CFOP (Informe 2023.002 v2.10; CFOP 1.660 a 1.662 e "
+                "2.660 a 2.662)",
+            )
+        )
+
+    # A5 (correção da rodada 1 do DL-082): prestação de serviço de comunicação ou de transporte sob
+    # natureza de MERCADORIA. Tributo e anexo são outros, e o corte não os calcula. O critério é a
+    # descrição oficial do CFOP (`e_prestacao_de_comunicacao_ou_transporte`), e não o intervalo de
+    # códigos: a tabela tem 5.932 e 6.932 como transporte, fora de 5.351 a 5.360.
+    servico_sob_mercadoria = sorted(
+        {
+            f"nota {linha.numero} (CFOP {linha.cfop}, natureza {linha.natureza})"
+            for linha in nfe_do_mes
+            if linha.papel == "receita"
+            and linha.natureza in NATUREZAS_DE_MERCADORIA
+            and e_prestacao_de_comunicacao_ou_transporte(linha.cfop)
+        }
+    )
+    if servico_sob_mercadoria:
+        bloqueios.append(
+            Bloqueio(
+                "servico_de_comunicacao_ou_transporte",
+                "CFOP de prestação de serviço de comunicação ou de transporte sob natureza de "
+                f"mercadoria em {rotulo}: {'; '.join(servico_sob_mercadoria)}. O pré-DAS não "
+                "calcula esse serviço no primeiro corte. Confirme a natureza ou o CFOP do item.",
+                "HI-68; tabela oficial de CFOP (Informe 2023.002 v2.10; descrição de prestação de "
+                "comunicação ou de transporte)",
+            )
+        )
+
+    # A4 (correção da rodada 1 do DL-082): CSOSN 103, 300 e 400 recusam só no mercado INTERNO. Na
+    # exportação o ICMS já sai do DAS (Res. CGSN 140, art. 25, § 3º), e o benefício estadual não
+    # muda o cálculo: a recusa seria sobre-recusa. Decisão do arquiteto, reversível.
     com_beneficio = sorted(
         {
             f"nota {linha.numero} (CFOP {linha.cfop}, CSOSN {linha.csosn})"
             for linha in nfe_do_mes
-            if linha.papel == "receita" and linha.csosn in CSOSN_BENEFICIO_SEM_PARAMETRO
+            if linha.papel == "receita"
+            and linha.csosn in CSOSN_BENEFICIO_SEM_PARAMETRO
+            and linha.mercado == MercadoReceita.INTERNO
         }
     )
     if com_beneficio:
@@ -1110,6 +1172,26 @@ def _recusas_de_nfe(nfe_do_mes, mercadoria, ano: int, mes: int) -> tuple[list[Bl
         avisos.append(
             f"CSOSN 900 em {', '.join(com_aviso)} ({rotulo}): o pré-DAS calcula pela natureza; "
             "confira o item no PGDAS-D (HI-131)."
+        )
+
+    # A6 (correção da rodada 1 do DL-082): natureza de exportação direta sem CFOP 7.xxx OU sem
+    # idDest 3 (exterior). AVISO, não recusa: a natureza é confirmação do contador (HI-118). Mas o
+    # efeito dela é grande (tira PIS, Cofins, IPI, ICMS e ISS), e um erro de digitação do contador
+    # reduzia o DAS sem aviso.
+    exportacao_incoerente = sorted(
+        {
+            f"nota {linha.numero} (CFOP {linha.cfop}, idDest {linha.id_dest or 'ausente'})"
+            for linha in nfe_do_mes
+            if linha.papel == "receita"
+            and linha.natureza == NaturezaOperacaoNFe.EXPORTACAO_DIRETA
+            and not (linha.cfop.startswith("7") and linha.id_dest == "3")
+        }
+    )
+    if exportacao_incoerente:
+        avisos.append(
+            "Natureza de exportação direta sem CFOP 7.xxx ou sem destino no exterior (idDest 3) em "
+            f"{rotulo}: {'; '.join(exportacao_incoerente)}. O pré-DAS calcula como exportação, que "
+            "desconsidera PIS, Cofins, IPI, ICMS e ISS: confira a natureza do item."
         )
 
     # Anexo que a natureza e o CFOP não decidem (decisão do arquiteto, DL-082): recusa nomeada, com
@@ -1148,8 +1230,9 @@ def _recusas_de_nfe(nfe_do_mes, mercadoria, ano: int, mes: int) -> tuple[list[Bl
             Bloqueio(
                 "devolucao_sem_segmento_confirmado",
                 f"Devolução de venda sem segmento confirmado em {rotulo}, nota(s) "
-                f"{', '.join(sem_segmento)}: confirme o anexo e o segmento da devolução na "
-                "escrituração. O pré-DAS não rateia a devolução (HI-129).",
+                f"{', '.join(sem_segmento)}: a nota já está efetivada, e a escrituração efetivada "
+                "não muda. Para confirmar o anexo e o segmento da devolução, a nota precisa de "
+                "estorno; depois, escriture de novo. O pré-DAS não rateia a devolução (HI-129).",
                 "HI-129; Res. CGSN 140/2018, art. 17 (em cópia)",
             )
         )
@@ -1360,10 +1443,14 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
         (seg.mercado, seg.anexo, seg.segmento): (seg.bruto, seg.deduzido)
         for seg in mercadoria.segmentos
     }
+    # A7 (correção da rodada 1 do DL-082): segmento com VENDA no mês e líquido zero (devolução
+    # integral) entra com 0,00. Antes o filtro `liquido != 0` o tirava do resultado, e a tela, a API
+    # e a memória não mostravam nem a venda nem a devolução. O valor não muda: o tributo sobre 0,00
+    # é 0,00.
     linhas_mercadoria = [
         (seg.mercado, seg.anexo, seg.segmento, seg.liquido)
         for seg in mercadoria.segmentos
-        if seg.liquido != 0
+        if seg.bruto != 0 or seg.liquido != 0
     ]
 
     # 5. Fator r, só se alguma linha o exige, com folha confirmada nos meses da janela.

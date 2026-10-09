@@ -150,3 +150,42 @@ def e_devolucao_de_combustivel_para_consumo(codigo: str) -> bool:
         e_devolucao_de_combustivel(codigo)
         and _DESTINACAO_CONSUMIDOR_FINAL in cfop(codigo).descricao
     )
+
+
+def e_devolucao_de_venda_de_combustivel(codigo: str) -> bool:
+    """Devolução de VENDA de combustível ou lubrificante: 1.660 a 1.662 e 2.660 a 2.662 (A2).
+
+    Mais estreita que `e_devolucao_de_combustivel`: NÃO inclui a devolução de COMPRA (5.660 a
+    5.662 e 6.660 a 6.662). A decisão da rodada 1 do DL-082 recusa só a devolução de venda; a de
+    compra não entra no pré-DAS por este caminho.
+    """
+    info = cfop(codigo)
+    return (
+        info is not None
+        and info.ind_devol
+        and info.descricao.startswith(_PREFIXO_DEVOLUCAO_VENDA_COMBUSTIVEL)
+    )
+
+
+# Prestação de serviço de comunicação e de transporte (DL-082, A5). Pela DESCRIÇÃO da tabela
+# oficial, e não pelo intervalo de códigos nem pela flag `indComunica`/`indTransp`: a flag de
+# transporte também marca 5.931, 5.932, 6.931 e 6.932, e os 5.931 e 6.931 são lançamento, não
+# prestação. Os códigos que a descrição alcança são 5.301 a 5.307, 6.301 a 6.307, 7.301
+# (comunicação) e 5.351 a 5.357, 5.359, 5.360, 5.932, 6.351 a 6.357, 6.359, 6.360, 6.932, 7.358
+# (transporte). Conferidos no CSV.
+_PREFIXOS_PRESTACAO_COMUNICACAO_OU_TRANSPORTE = (
+    "Prestação de serviço de comunicação",
+    "Prestação de serviço de transporte",
+)
+
+
+def e_prestacao_de_comunicacao_ou_transporte(codigo: str) -> bool:
+    """O CFOP é prestação de serviço de comunicação ou de transporte, pela descrição oficial.
+
+    Aquisição (1.3xx, 2.3xx, 3.3xx) não é: a descrição começa por "Aquisição". CFOP fora da tabela,
+    ou formato inválido, não é.
+    """
+    info = cfop(codigo)
+    return info is not None and info.descricao.startswith(
+        _PREFIXOS_PRESTACAO_COMUNICACAO_OU_TRANSPORTE
+    )

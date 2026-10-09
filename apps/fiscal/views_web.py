@@ -154,6 +154,7 @@ from apps.fiscal.models import (
     TipoEscrituracaoNFe,
     VinculoDocumentoEmpresa,
     VinculoNFeEmpresa,
+    segmentos_permitidos,
 )
 from apps.fiscal.permissoes import (
     papel_pode_consultar_documentos,
@@ -2182,6 +2183,14 @@ _CODIGOS_DA_ESCRITURACAO_NFE = frozenset(
         "deducao_sem_segmento",
     }
 )
+# Recusas de nota já efetivada por CFOP ou natureza (correção da rodada 1 do DL-082, A2 e A5). A
+# tela não tem estorno: o texto da ação diz o caminho.
+_CODIGOS_DE_CFOP_EFETIVADO = frozenset(
+    {
+        "devolucao_combustivel_cfop",
+        "servico_de_comunicacao_ou_transporte",
+    }
+)
 # Códigos de bloqueio que se resolvem cadastrando ou corrigindo a atividade da empresa.
 _CODIGOS_DE_ATIVIDADE = frozenset(
     {
@@ -2394,6 +2403,15 @@ def _acao_do_bloqueio(bloqueio, empresa, ano, mes):
     # (confirmar a natureza, a marca e o segmento da devolução). A tela só leva até a lista.
     if codigo in _CODIGOS_DA_ESCRITURACAO_NFE:
         return "Abrir as NF-e a escriturar", _url_nfe_a_escriturar(empresa, ano, mes), ""
+    # DL-082 (correção da rodada 1, A2 e A5): as duas recusas são de nota já efetivada. Sem tela de
+    # estorno aqui, o texto diz o caminho, e não inventa um link.
+    if codigo in _CODIGOS_DE_CFOP_EFETIVADO:
+        return (
+            None,
+            None,
+            "Não há ação nesta tela: a nota já está efetivada. Se a natureza ou o CFOP estiver "
+            "errado, estorne a nota na escrituração e escriture de novo.",
+        )
     return (
         None,
         None,
@@ -6978,6 +6996,9 @@ _ROTULO_SEGREGACAO_NFE = {
     "normal": "Normal (revenda, produção e substituto)",
     "sujeita_st": "Sujeita a ST (natureza 3)",
     "monofasico": "Monofásico de PIS e Cofins (natureza 5 ou marca do item)",
+    # A8 (correção da rodada 1): ST com monofásico tem linha própria, e não se junta a "sujeita a
+    # ST".
+    "st_monofasico": "ST e monofásico (natureza 3 com marca de monofásico)",
     "exportacao": "Exportação (mercado externo)",
 }
 
@@ -7305,7 +7326,14 @@ def _marcas_do_item_na_tela(item, registro, natureza):
         "segmento_sugerido_rotulo": sugerido_rotulo,
         "segmento_sugerido_motivo": sugerido_motivo,
         "segmento_selecionado": segmento,
-        "opcoes_segmento": list(SegmentoDevolucao.choices),
+        # A9 (correção da rodada 1): só os segmentos que o domínio aceita para o CFOP do item.
+        # Oferecer o resto dava erro 400 depois do envio. A regra é `segmentos_permitidos`, a mesma
+        # da validação.
+        "opcoes_segmento": [
+            (valor, rotulo)
+            for valor, rotulo in SegmentoDevolucao.choices
+            if valor in segmentos_permitidos(item.cfop)
+        ],
     }
 
 
@@ -8098,6 +8126,7 @@ _ROTULO_MOTIVO_FORA_DO_LOTE = {
     servico_lote.CODIGO_W16: "Não confere com o vNF",
     servico_lote.CODIGO_CONFERENCIA: "Não fecha a conferência",
     servico_lote.CODIGO_NATUREZA_ESCOLHIDA: "Natureza já escolhida no rascunho",
+    servico_lote.CODIGO_DEVOLUCAO_SEGMENTO: "Devolução: segmento a confirmar",
 }
 
 

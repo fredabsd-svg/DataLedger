@@ -216,10 +216,13 @@ def test_exemplo_do_simples_efetiva_com_receita_2880_e_segregacao(escritorio_a, 
     assert efetivada.soma_itens == Decimal("2880.00")
     assert efetivada.devolucao == Decimal("0.00")
     assert efetivada.valor_nf == Decimal("2970.00")
+    # A8 (correção da rodada 1 do DL-082): a chave `st_monofasico` existe; sem ST com monofásico no
+    # mesmo item, vale zero. Os valores de ST e de monofásico não mudam.
     assert servico.segregacao_da_escrituracao(efetivada) == {
         "normal": Decimal("1480.00"),
         "sujeita_st": Decimal("800.00"),
         "monofasico": Decimal("600.00"),
+        "st_monofasico": Decimal("0.00"),
         "exportacao": Decimal("0.00"),
     }
 

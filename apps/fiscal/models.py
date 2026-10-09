@@ -2808,20 +2808,33 @@ def mercado_da_natureza_nfe(natureza: str) -> str:
     return CATALOGO_NATUREZA_NFE[natureza].mercado
 
 
+def e_devolucao_de_exportacao(cfop: str) -> bool:
+    """A devolução de venda com este CFOP deduz do mercado EXTERNO (e só ela tem segmento de
+    exportação).
+
+    São as 3.xxx (entrada de fora do país, DL-081) e as 1.503 a 1.506 e 2.503 a 2.506 (A3).
+    Recebe o CFOP com ou sem ponto ("1503" ou "1.503"). É a ÚNICA regra disto: mercado, sugestão e
+    validação do segmento a usam, e nenhum outro lugar compara o primeiro dígito.
+    """
+    limpo = cfop.replace(".", "")
+    if limpo[:1] == "3":
+        return True
+    return f"{limpo[:1]}.{limpo[1:]}" in ANEXO_DA_DEVOLUCAO_DE_EXPORTACAO_DE_ENTRADA
+
+
 def mercado_do_item_nfe(natureza: str, cfop: str) -> str:
     """Mercado de UM item de NF-e: o da natureza, salvo a devolução de exportação.
 
     A devolução de venda (natureza `devolucao_venda`, ou `devolucao_combustivel_consumo`, HI-140)
-    deduz do mercado da venda que ela devolve. A tabela oficial de CFOP marca como devolução de
-    exportação os códigos 3.201, 3.202, 3.211, 3.212, 3.503 e 3.553 (todos com o primeiro dígito 3,
-    que é entrada de fora do país). Essa devolução deduz o EXTERNO (correção da rodada 1, A8). A
-    natureza sozinha não diz isso, por isso o CFOP entra.
+    deduz do mercado da venda que ela devolve. Deduz o EXTERNO quando é devolução de exportação
+    (`e_devolucao_de_exportacao`): as 3.xxx (correção da rodada 1, A8) e, desde a correção A3, as
+    1.503 a 1.506 e 2.503 a 2.506. A natureza sozinha não diz isso, por isso o CFOP entra.
     """
     devolucoes = (
         NaturezaOperacaoNFe.DEVOLUCAO_VENDA,
         NaturezaOperacaoNFe.DEVOLUCAO_COMBUSTIVEL_CONSUMO,
     )
-    if natureza in devolucoes and cfop.startswith("3"):
+    if natureza in devolucoes and e_devolucao_de_exportacao(cfop):
         return MercadoReceita.EXTERNO
     return mercado_da_natureza_nfe(natureza)
 
@@ -2860,6 +2873,23 @@ SEGMENTO_SUJEITA_ST = "sujeita_st"
 SEGMENTO_MONOFASICO = "monofasico"
 SEGMENTO_ST_MONOFASICO = "st_monofasico"
 SEGMENTO_EXPORTACAO = "exportacao"
+
+# Devolução de exportação de ENTRADA (DL-082, correção da rodada 1, A3): x.503 a x.506 com
+# `indDevol` 1 na tabela oficial (Informe 2023.002 v2.10). A venda original foi ao mercado externo
+# (remessa com fim específico de exportação, ou lote de exportação). O anexo sai da descrição: 1.503
+# e 1.505 são de produção do estabelecimento (Anexo II); 1.504 e 1.506 são de mercadoria de
+# terceiros (Anexo I). Os 2.50x valem o mesmo. Os 3.50x não dizem produção ou revenda: entram no
+# mercado externo, sem anexo (ver `e_devolucao_de_exportacao`).
+ANEXO_DA_DEVOLUCAO_DE_EXPORTACAO_DE_ENTRADA: dict[str, str] = {
+    "1.503": ANEXO_II,
+    "1.504": ANEXO_I,
+    "1.505": ANEXO_II,
+    "1.506": ANEXO_I,
+    "2.503": ANEXO_II,
+    "2.504": ANEXO_I,
+    "2.505": ANEXO_II,
+    "2.506": ANEXO_I,
+}
 
 
 class SegmentoDevolucao(models.TextChoices):
@@ -3011,6 +3041,21 @@ def classificacao_da_venda(
 def classificacao_da_devolucao(segmento_confirmado: str) -> tuple[str, str] | None:
     """(anexo, segmento) de uma devolução com segmento CONFIRMADO. `None` se não há confirmação."""
     return ANEXO_E_SEGMENTO_DA_DEVOLUCAO.get(segmento_confirmado)
+
+
+def segmentos_permitidos(cfop: str) -> tuple[str, ...]:
+    """Segmentos de devolução que cabem num item com este CFOP (DL-082, correção A9).
+
+    Devolução de exportação (`e_devolucao_de_exportacao`) tem só os dois segmentos de exportação; as
+    demais têm só os outros. O anexo continua escolha do contador dentro do grupo. O seletor da tela
+    oferece só isto, e `definir_segmento_devolucao` recusa o que não couber aqui.
+    """
+    exportacao = e_devolucao_de_exportacao(cfop)
+    return tuple(
+        valor
+        for valor in SegmentoDevolucao.values
+        if (ANEXO_E_SEGMENTO_DA_DEVOLUCAO[valor][1] == SEGMENTO_EXPORTACAO) == exportacao
+    )
 
 
 class TipoEscrituracaoNFe(models.TextChoices):

@@ -811,7 +811,9 @@ TRECHOS_QUE_EXISTEM = (
     "Recebe XML de NFS-e nacional, NF-e e NFC-e",
     "Escritura NFS-e prestadas e tomadas",
     "NF-e e NFC-e de saída e devolução de venda",
-    "pré-DAS de serviços do Simples",
+    # A11 (correção da rodada 1 do DL-082): o pré-DAS de comércio e indústria existe nos casos do
+    # corte.
+    "pré-DAS do Simples de serviços e de comércio e indústria",
     "o ISS",
     "as retenções federais",
     "o IRPJ e a CSLL do Lucro Presumido",
@@ -821,7 +823,6 @@ TRECHOS_QUE_NAO_EXISTEM = (
     "não gera guias",
     "não transmite obrigações",
     "não escritura compras de mercadoria",
-    "não calcula o pré-DAS de comércio e indústria",
     "ICMS, PIS/Cofins, IPI ou IBS/CBS",
     "Livros fiscais e obrigações acessórias também não existem",
 )
@@ -868,6 +869,8 @@ def test_banner_fiscal_nao_volta_a_dizer_que_so_recebe_nfse(client, cenario):
         "recebe e consulta XML de NFS-e nacional",
         "apuração fiscal ainda não estão disponíveis",
         "Emissão, obrigações",
+        # A11: a afirmação que a correção da rodada 1 do DL-082 desmentiu não pode voltar.
+        "não calcula o pré-DAS de comércio e indústria",
     ):
         assert antigo not in textos, antigo
     contabilidade = client.get(_url("contabilidade"), parametros).context["home"]

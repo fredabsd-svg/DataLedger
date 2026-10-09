@@ -273,7 +273,9 @@ class LinhaNFe:
     `classificacao_da_devolucao`, em `models`). Ficam `None` quando a natureza não é de mercadoria
     (combustível, serviço conjugado) e quando a devolução não tem segmento confirmado. `csosn` é o
     do
-    item: CSOSN 103, 300 e 400 recusam o pré-DAS (HI-131).
+    item: CSOSN 103, 300 e 400 recusam o pré-DAS no mercado interno (HI-131; A4).
+
+    `id_dest` é o local de destino da NOTA (1, 2 ou 3). O aviso de exportação direta (A6) o compara.
     """
 
     escrituracao_id: int
@@ -287,6 +289,7 @@ class LinhaNFe:
     anexo: str | None = None
     segmento: str | None = None
     csosn: str | None = None
+    id_dest: str = ""
 
 
 def _classe_da_parcela(registro: NaturezaItemNFe, papel: str) -> tuple[str, str] | None:
@@ -362,6 +365,7 @@ def linhas_nfe_do_periodo(
                     anexo=classe[0] if classe else None,
                     segmento=classe[1] if classe else None,
                     csosn=item.csosn,
+                    id_dest=escrituracao.vinculo.documento.id_dest,
                 )
             )
     return linhas

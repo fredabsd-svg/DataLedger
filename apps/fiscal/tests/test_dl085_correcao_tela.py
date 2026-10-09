@@ -74,11 +74,15 @@ def _dados_de_confirmacao(html):
 
 
 # ---------------------------------------------------------------------------
-# A3 — devolução na tabela de grupos (T7)
+# A3 — devolução na tela do lote (T7). Substituído pela correção A1 do DL-082 (rodada 1):
+# a devolução NÃO é mais grupo do lote, então a coluna "Devolução" do grupo não tem o que mostrar.
+# O teste agora confere a saída da devolução, com o motivo de escriturar a nota individualmente.
 # ---------------------------------------------------------------------------
 
 
-def test_devolucao_de_40_aparece_na_coluna_devolucao_do_grupo(escritorio_a, gestor, posto, client):
+def test_devolucao_nao_entra_no_lote_e_sai_com_o_motivo_do_segmento(
+    escritorio_a, gestor, posto, client
+):
     receber(
         escritorio_a,
         gestor,
@@ -98,10 +102,8 @@ def test_devolucao_de_40_aparece_na_coluna_devolucao_do_grupo(escritorio_a, gest
 
     html = _html(client.get(_url(posto)))
 
-    assert '<th scope="col">Devolução</th>' in html
-    linha = next(texto for texto in _linhas(html) if "1202" in texto)
-    assert '<td class="valor-monetario">40,00</td>' in linha
-    assert "devolução de 40,00" in html
+    assert "segmento da devolução a confirmar: escriture esta nota individualmente" in html
+    assert "Devolução: segmento a confirmar" in html
 
 
 # ---------------------------------------------------------------------------

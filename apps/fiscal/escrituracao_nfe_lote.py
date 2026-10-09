@@ -12,6 +12,9 @@ a mesma conferência W16 e a mesma trilha. O lote só decide QUAIS notas e QUAIS
 PRÉVIA (`previa_do_lote`)
 - Notas: `notas_do_mes`, com tipo elegível e situação a escriturar ou em rascunho. Efetivadas e
   canceladas não entram na prévia: entram só na contagem.
+- Devolução de venda NÃO entra no lote (A1, correção do DL-085): sai com
+  `devolucao_segmento_a_confirmar` e o motivo "escriture esta nota individualmente", antes de
+  qualquer leitura. O segmento da devolução é confirmado pelo contador, nota a nota.
 - Ordem das recusas, a MESMA de `efetivar`: 2027 (HI-133); itens ilegíveis; leitura de versão
   anterior; item sem sugestão ou em conflito; atribuição do resíduo (HI-138); nota sem vNF; W16
   (HI-119). A W16 roda com as naturezas SUGERIDAS e sem gravar nada. Nota em rascunho com
@@ -117,6 +120,7 @@ from apps.fiscal.models import (
     LoteEscrituracaoNFe,
     LoteEscrituracaoNFeNota,
     NaturezaItemNFe,
+    TipoEscrituracaoNFe,
     VinculoNFeEmpresa,
 )
 
@@ -166,6 +170,14 @@ CODIGO_SEM_VNF = "sem_vnf"
 CODIGO_W16 = "w16"
 CODIGO_CONFERENCIA = "conferencia"
 CODIGO_NATUREZA_ESCOLHIDA = "natureza_escolhida"
+# A1 (correção da rodada 1 do DL-082): devolução NUNCA entra no lote. O segmento da devolução é
+# confirmado pelo contador, nota a nota, e o lote não tem como confirmá-lo. Efetivada sem segmento,
+# a nota recusa o pré-DAS e não se muda depois (gatilho do banco): por isso ela sai aqui, antes da
+# efetivação. A equivalência lote x individual (DL-085) vale para as demais notas.
+CODIGO_DEVOLUCAO_SEGMENTO = "devolucao_segmento_a_confirmar"
+MENSAGEM_DEVOLUCAO_SEGMENTO = (
+    "segmento da devolução a confirmar: escriture esta nota individualmente"
+)
 
 MENSAGEM_SEM_VNF = "A nota não tem o valor total (vNF): não há como conferir a receita."
 MENSAGEM_PREVIA_DESATUALIZADA = (
@@ -568,6 +580,11 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
     lidas: list[tuple[servico.NotaDoMes, LeituraItensNFe]] = []
     a_ler: list[int] = []
     for nota in pendentes:
+        # A1: a devolução sai antes de qualquer leitura. Não há leitura de XML para ela no lote, e o
+        # `a_ler` não a conta.
+        if nota.tipo == TipoEscrituracaoNFe.DEVOLUCAO:
+            fora.append(_fora(nota, CODIGO_DEVOLUCAO_SEGMENTO, MENSAGEM_DEVOLUCAO_SEGMENTO))
+            continue
         # Sem leitura atual, a prévia NÃO lê o XML (DL-085, leitura em partes): a nota vai para o
         # bloco "a ler", e `ler_notas_do_mes` a lê. Esta regra vem ANTES da de data, para a contagem
         # de "a ler" ser a mesma que a leitura percorre (inclusive a nota de 2027, que é lida e

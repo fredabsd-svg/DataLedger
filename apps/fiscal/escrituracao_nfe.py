@@ -68,6 +68,7 @@ from apps.fiscal.itens_nfe import (
     receita_do_item,
 )
 from apps.fiscal.models import (
+    ANEXO_DA_DEVOLUCAO_DE_EXPORTACAO_DE_ENTRADA,
     ANEXO_E_SEGMENTO_DA_DEVOLUCAO,
     ANEXO_I,
     ANEXO_II,
@@ -85,9 +86,11 @@ from apps.fiscal.models import (
     TipoEscrituracaoNFe,
     VinculoNFeEmpresa,
     classificacao_da_venda,
+    e_devolucao_de_exportacao,
     mercado_da_natureza_nfe,
     papel_da_natureza_nfe,
     segmento_da_mercadoria,
+    segmentos_permitidos,
 )
 from apps.fiscal.ncm_combustivel import (
     NCM_COMBUSTIVEL,
@@ -407,8 +410,9 @@ def segregacao_da_escrituracao(escrituracao: EscrituracaoNFe) -> dict[str, Decim
 
     Normal (revenda, produção, substituto: a operação própria), sujeita a ST (natureza 3),
     monofásico (natureza 5 ou a marca do item) e exportação (mercado externo). DL-082: ST e
-    monofásico no mesmo item é o segmento `st_monofasico` (união dos dois conjuntos, HI-127). Só
-    naturezas de receita. A receita de cada item é `receita_do_item` (DL-083): item indTot 0 entra
+    monofásico no mesmo item é a chave `st_monofasico` (união dos dois conjuntos, HI-127), e não se
+    junta a `sujeita_st` (correção A8). Só naturezas de receita. A receita de cada item é
+    `receita_do_item` (DL-083): item indTot 0 entra
     só pelo que foi cobrado. A natureza de serviço (14) não entra aqui: é segregada no pré-DAS de
     serviços. A receita de cada item já vem com a parcela do resíduo atribuída à nota (HI-138), e a
     leitura usa `atribuir_receita_da_nota_efetivada`: a nota efetivada antes da DL-083 que a regra
@@ -418,6 +422,7 @@ def segregacao_da_escrituracao(escrituracao: EscrituracaoNFe) -> dict[str, Decim
         "normal": Decimal("0.00"),
         "sujeita_st": Decimal("0.00"),
         "monofasico": Decimal("0.00"),
+        "st_monofasico": Decimal("0.00"),
         "exportacao": Decimal("0.00"),
     }
     registros = NaturezaItemNFe.objects.select_related("item").filter(escrituracao=escrituracao)
@@ -428,13 +433,11 @@ def segregacao_da_escrituracao(escrituracao: EscrituracaoNFe) -> dict[str, Decim
         info = CATALOGO_NATUREZA_NFE[registro.natureza]
         if info.papel != "receita" or info.segregacao is None:
             continue
-        # DL-082: a memória tem as quatro chaves que a tela conhece. Monofásico pela marca cai em
-        # `monofasico`. ST com monofásico no mesmo item cai em `sujeita_st`: a tela não tem rótulo
-        # de "ST e monofásico" (views_web, frente B). O pré-DAS segrega os dois tributos certos.
+        # DL-082: a memória tem as cinco chaves que a tela conhece. Monofásico pela marca cai em
+        # `monofasico`. ST com monofásico no mesmo item cai em `st_monofasico` (A8): a memória e a
+        # tela o dizem, e o pré-DAS segrega os dois tributos certos.
         classe = classificacao_da_venda(registro.natureza, registro.monofasico, registro.item.cfop)
         segmento = info.segregacao if classe is None else classe[1]
-        if segmento == "st_monofasico":
-            segmento = "sujeita_st"
         total[segmento] += atribuicao.valores[registro.item_id]
     return total
 
@@ -723,6 +726,20 @@ def _criar_rascunho_travado(vinculo: VinculoNFeEmpresa, usuario, request) -> Esc
     return escrituracao
 
 
+def natureza_incompativel_com_marca(
+    natureza: str, monofasico: bool, segmento_devolucao: str
+) -> bool:
+    """Uma natureza nova não aceita a marca de monofásico ou o segmento de devolução do item.
+
+    A marca só vale para natureza de mercadoria, e o segmento só para devolução de venda. Esta é a
+    ÚNICA regra disto: `definir_natureza` e `reclassificar_em_massa` a usam, para que a troca de
+    natureza em lote não contorne a que vale item a item (correção da rodada 1, A12).
+    """
+    if monofasico and natureza not in NATUREZAS_DE_MERCADORIA:
+        return True
+    return bool(segmento_devolucao) and natureza != NaturezaOperacaoNFe.DEVOLUCAO_VENDA
+
+
 @transaction.atomic
 def definir_natureza(
     escrituracao: EscrituracaoNFe, natureza: str, item_ids, usuario, request=None
@@ -757,9 +774,7 @@ def definir_natureza(
         raise EntradaInvalidaNFe("Algum item informado não pertence a esta nota.")
     # DL-082: a marca de monofásico e o segmento da devolução só valem para a natureza certa.
     for alvo in alvos:
-        if alvo.monofasico and natureza not in NATUREZAS_DE_MERCADORIA:
-            raise EntradaInvalidaNFe(MENSAGEM_NATUREZA_COM_MARCA)
-        if alvo.segmento_devolucao and natureza != NaturezaOperacaoNFe.DEVOLUCAO_VENDA:
+        if natureza_incompativel_com_marca(natureza, alvo.monofasico, alvo.segmento_devolucao):
             raise EntradaInvalidaNFe(MENSAGEM_NATUREZA_COM_MARCA)
     antes = {a.item_id: a.natureza for a in alvos}
     NaturezaItemNFe.objects.filter(pk__in=[a.pk for a in alvos]).update(natureza=natureza)
@@ -794,6 +809,12 @@ MENSAGEM_NATUREZA_COM_MARCA = (
     "Este item tem marca de monofásico ou segmento de devolução confirmado: tire a marca ou o "
     "segmento antes de mudar a natureza para uma que não os aceita."
 )
+# A3: o segmento de exportação e a devolução de exportação andam juntos, nos dois sentidos. O texto
+# começa por "Devolução de exportação tem CFOP 3.xxx" (as telas e os testes o citam).
+MENSAGEM_SEGMENTO_DE_EXPORTACAO = (
+    "Devolução de exportação tem CFOP 3.xxx, ou 1.503 a 1.506 e 2.503 a 2.506: o segmento de "
+    "exportação só vale com esses CFOP, e esses CFOP só com o segmento de exportação."
+)
 
 # Par (anexo, segmento) → valor de `SegmentoDevolucao`. A tabela de `models` é a fonte; esta é a
 # inversa.
@@ -817,15 +838,22 @@ def sugerir_segmento_devolucao(item, monofasico: bool) -> SugestaoSegmento:
 
     - Anexo: CFOP x.201/x.410 é produção (Anexo II); x.202/x.411 é revenda (Anexo I). CFOP 3.xxx
       segue a mesma regra e é exportação.
-    - ST: CFOP x.410/x.411, ou CSOSN/CST 500 (60), é ICMS-ST substituído.
+    - Exportação (A3): x.503 a x.506 (1.503 a 1.506 e 2.503 a 2.506) são devolução de exportação. O
+      anexo sai da descrição oficial (`ANEXO_DA_DEVOLUCAO_DE_EXPORTACAO_DE_ENTRADA`). Os 3.50x não
+      dizem produção ou revenda, e ficam sem sugestão.
+    - ST: CFOP x.410/x.411, ou CSOSN/CST 500 (60), é ICMS-ST substituído. Na exportação o ST não
+      muda o segmento: exportação tira tudo o que ST tiraria.
     - Monofásico: só a marca do item (não há tabela de NCM; HI-128).
-    - Sem anexo pelo CFOP (CFOP fora de x.201/x.202/x.410/x.411), não há sugestão.
+    - Sem anexo pelo CFOP (CFOP fora das listas acima), não há sugestão.
     """
     cfop = item.cfop
     primeiro, sufixo = cfop[0], cfop[1:]
     if primeiro not in ("1", "2", "3"):
         return SugestaoSegmento(None, f"CFOP {cfop} não é de devolução de venda")
-    if sufixo in _PRODUCAO_NA_DEVOLUCAO:
+    anexo_da_exportacao = ANEXO_DA_DEVOLUCAO_DE_EXPORTACAO_DE_ENTRADA.get(f"{primeiro}.{sufixo}")
+    if anexo_da_exportacao is not None:
+        anexo = anexo_da_exportacao
+    elif sufixo in _PRODUCAO_NA_DEVOLUCAO:
         anexo = ANEXO_II
     elif sufixo in _REVENDA_NA_DEVOLUCAO:
         anexo = ANEXO_I
@@ -835,7 +863,9 @@ def sugerir_segmento_devolucao(item, monofasico: bool) -> SugestaoSegmento:
             f"sem sugestão: CFOP {cfop} não diz se a venda original era de produção ou revenda",
         )
     st = sufixo in ("410", "411") or item.csosn in _CST_SUBSTITUIDO or item.cst in _CST_SUBSTITUIDO
-    segmento = segmento_da_mercadoria(st=st, monofasico=monofasico, exportacao=primeiro == "3")
+    segmento = segmento_da_mercadoria(
+        st=st, monofasico=monofasico, exportacao=e_devolucao_de_exportacao(cfop)
+    )
     return SugestaoSegmento(
         _SEGMENTO_DEVOLUCAO_POR_PAR[(anexo, segmento)],
         f"sugerida pelo CFOP {cfop}, pelo CSOSN/CST e pela marca de monofásico (HI-129)",
@@ -916,10 +946,10 @@ def definir_segmento_devolucao(
 ) -> EscrituracaoNFe:
     """Confirma o anexo e o segmento de UMA ou VÁRIAS devoluções de venda (DL-082, HI-129).
 
-    `segmento` vazio desfaz a confirmação. Só rascunho. A devolução de exportação tem CFOP 3.xxx: o
-    segmento de exportação só vale com CFOP 3.xxx, e o CFOP 3.xxx só com ele. Sem segmento
-    confirmado,
-    o pré-DAS do mês recusa; nunca há rateio.
+    `segmento` vazio desfaz a confirmação. Só rascunho. A devolução de exportação tem CFOP 3.xxx ou
+    1.503 a 1.506 e 2.503 a 2.506 (A3): o segmento de exportação só vale com esses CFOP, e esses
+    CFOP só com o segmento de exportação. A regra é `segmentos_permitidos`, a mesma da tela (A9).
+    Sem segmento confirmado, o pré-DAS do mês recusa; nunca há rateio.
     """
     segmento = (segmento or "").strip()
     if segmento and segmento not in SegmentoDevolucao.values:
@@ -933,11 +963,10 @@ def definir_segmento_devolucao(
             raise EntradaInvalidaNFe(
                 "O segmento confirma devolução de venda. Este item não é devolução de venda."
             )
-        if segmento and segmento.endswith("exportacao") != alvo.item.cfop.startswith("3"):
-            raise EntradaInvalidaNFe(
-                "Devolução de exportação tem CFOP 3.xxx: o segmento de exportação só vale com "
-                "CFOP 3.xxx, e o CFOP 3.xxx só com o segmento de exportação."
-            )
+        # A3: o CFOP de exportação de entrada (1.503 a 1.506, 2.503 a 2.506) conta como 3.xxx. A
+        # regra é `segmentos_permitidos`, a mesma que a tela usa (A9).
+        if segmento and segmento not in segmentos_permitidos(alvo.item.cfop):
+            raise EntradaInvalidaNFe(MENSAGEM_SEGMENTO_DE_EXPORTACAO)
     antes = {a.item_id: a.segmento_devolucao for a in alvos}
     NaturezaItemNFe.objects.filter(pk__in=[a.pk for a in alvos]).update(segmento_devolucao=segmento)
     registrar(
@@ -1363,6 +1392,24 @@ def reclassificar_em_massa(
                 "Esta natureza não cabe em alguma das notas que casam com o filtro "
                 f"({len(por_escrituracao)} nota(s) no conjunto). Nada foi alterado."
             )
+
+    # A12: a troca em massa não pode contornar a regra item a item de `definir_natureza`. Um item
+    # casado com marca de monofásico ou segmento de devolução que a natureza nova não aceita recusa
+    # a operação INTEIRA, antes de qualquer `update`. Nada muda.
+    incompativeis = [
+        registro
+        for registro in casamentos
+        if natureza_incompativel_com_marca(
+            natureza, registro.monofasico, registro.segmento_devolucao
+        )
+    ]
+    if incompativeis:
+        notas = len({registro.escrituracao_id for registro in incompativeis})
+        raise EntradaInvalidaNFe(
+            f"A natureza {natureza} não aceita a marca de monofásico ou o segmento de devolução "
+            f"de {len(incompativeis)} item(ns) em {notas} nota(s) que casam com o filtro. Tire a "
+            "marca ou o segmento desses itens antes. Nada foi alterado."
+        )
 
     afetadas = 0
     itens_alterados = 0
