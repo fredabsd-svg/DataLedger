@@ -49,7 +49,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from django.db import IntegrityError, transaction
-from django.db.models import Sum
+from django.db.models import Exists, Min, OuterRef, Sum
 from django.utils import timezone
 
 from apps.auditoria.services import registrar
@@ -60,13 +60,19 @@ from apps.fiscal.models import (
     EstadoConfirmacaoMes,
     EstadoEscrituracao,
     EstadoReceitaInformada,
+    EventoNFe,
     MercadoReceita,
+    NaturezaItemNFe,
+    NaturezaOperacaoNFe,
     OpcaoRegimeCaixaSimples,
     OrigemReceitaInformada,
     ReceitaInformada,
     SituacaoIssReceitaInformada,
     mercado_da_natureza,
+    mercado_da_natureza_nfe,
+    papel_da_natureza_nfe,
 )
+from apps.fiscal.services import CODIGOS_CANCELAMENTO_NFE, CODIGOS_EFETIVOS_NFE
 
 ZERO = Decimal("0.00")
 
@@ -142,15 +148,35 @@ def hoje_local() -> date:
 
 @dataclass(frozen=True)
 class ComposicaoMercado:
-    """Receita de UM mercado em UM mês: o que veio de documento e o que foi informado."""
+    """Receita de UM mercado em UM mês: NFS-e, informado, NF-e e devolução (DL-074, DL-081).
+
+    `documento` (NFS-e) e `informado` (receita informada confirmada) são os de sempre.
+    `mercadoria` é a receita bruta das NF-e escrituradas no mês (naturezas de receita, HI-119).
+    `devolucao` é a devolução de venda do mês, positiva. `saldo_entrada` é a devolução de meses
+    ANTERIORES que ainda não coube na receita. `deduzido` é o que o mês absorveu, e
+    `saldo_transportado` é o que passa ao mês seguinte (Res. CGSN 140, art. 17, II; HI-121).
+
+    `total` = documento + informado + mercadoria − deduzido. Num mês sem NF-e, as parcelas novas
+    ficam zero e o total é o mesmo de antes da DL-081.
+    """
 
     mercado: str
     documento: Decimal
     informado: Decimal
+    mercadoria: Decimal = ZERO
+    devolucao: Decimal = ZERO
+    saldo_entrada: Decimal = ZERO
+    deduzido: Decimal = ZERO
+    saldo_transportado: Decimal = ZERO
 
     @property
     def total(self) -> Decimal:
-        return self.documento + self.informado
+        return self.documento + self.informado + self.mercadoria - self.deduzido
+
+    @property
+    def com_nfe(self) -> bool:
+        """Há parcela de NF-e neste mês e mercado (receita, devolução ou saldo de antes)."""
+        return bool(self.mercadoria or self.devolucao or self.saldo_entrada)
 
 
 @dataclass(frozen=True)
@@ -191,12 +217,65 @@ def _informadas_confirmadas_do_mes(empresa: Empresa, ano: int, mes: int):
     )
 
 
-def composicao_do_mes(empresa: Empresa, ano: int, mes: int) -> Composicao:
-    """Receita do mês por mercado: escriturações efetivadas + informadas confirmadas.
+# ---------------------------------------------------------------------------
+# NF-e (DL-081). Quem escritura é `apps.fiscal.escrituracao_nfe`; aqui só se LÊ.
+#
+# Só entra escrituração EFETIVADA, e a NF-e cancelada depois de escriturada sai da receita (o
+# cancelamento deduz no período de origem, Res. CGSN 140, art. 18: é a mesma nota fora da
+# composição do mês dela). O cancelamento é o evento vinculado à chave, a mesma regra de
+# `services.situacao_da_nfe`, em SQL. Só itens com indTot 1 (HI-119).
+# ---------------------------------------------------------------------------
 
-    Consulta só a empresa dada (isolamento, AGENTS.md §11). O mercado de cada
-    escrituração vem de `mercado_da_natureza` (HI-67), e não é repetido aqui.
+
+def _cancelada_depois_de_escriturada(prefixo: str = ""):
+    """`Exists` do cancelamento da nota da escrituração.
+
+    `prefixo` é o caminho da escrituração até o documento (ex.: "escrituracao__").
     """
+    return EventoNFe.objects.filter(
+        escritorio_id=OuterRef(f"{prefixo}vinculo__documento__escritorio_id"),
+        chave=OuterRef(f"{prefixo}vinculo__documento__chave"),
+        tp_evento__in=CODIGOS_CANCELAMENTO_NFE,
+        c_stat__in=CODIGOS_EFETIVOS_NFE,
+    )
+
+
+def _nfe_do_mes(empresa: Empresa, ano: int, mes: int) -> dict[str, tuple[Decimal, Decimal]]:
+    """(mercadoria, devolução) de NF-e do mês, por mercado. Devolução sai positiva.
+
+    A natureza de cada item diz o papel: receita (soma), dedução (devolução) ou nada (fica fora,
+    HI-121 e HI-124). O mercado vem de `mercado_da_natureza_nfe`, a fonte única.
+    """
+    linhas = (
+        NaturezaItemNFe.objects.filter(
+            escrituracao__empresa=empresa,
+            escrituracao__estado=EstadoEscrituracao.EFETIVADA,
+            escrituracao__competencia__gte=date(ano, mes, 1),
+            escrituracao__competencia__lt=_proximo_mes(ano, mes),
+            item__ind_tot="1",
+        )
+        .exclude(natureza="")
+        .filter(~Exists(_cancelada_depois_de_escriturada("escrituracao__")))
+        .values("natureza")
+        .annotate(total=Sum("item__receita_bruta_item"))
+        .order_by()
+    )
+    mercadoria = {MercadoReceita.INTERNO: ZERO, MercadoReceita.EXTERNO: ZERO}
+    devolucao = {MercadoReceita.INTERNO: ZERO, MercadoReceita.EXTERNO: ZERO}
+    for linha in linhas:
+        papel = papel_da_natureza_nfe(linha["natureza"])
+        mercado = mercado_da_natureza_nfe(linha["natureza"])
+        if papel == "receita":
+            mercadoria[mercado] += linha["total"] or ZERO
+        elif papel == "deducao":
+            devolucao[mercado] += linha["total"] or ZERO
+    return {
+        m: (mercadoria[m], devolucao[m]) for m in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)
+    }
+
+
+def _componentes_do_mes(empresa: Empresa, ano: int, mes: int) -> dict[str, tuple]:
+    """(documento, informado, mercadoria, devolução) por mercado, sem o saldo de meses antes."""
     documento = {MercadoReceita.INTERNO: ZERO, MercadoReceita.EXTERNO: ZERO}
     linhas = (
         _escrituracoes_efetivadas_do_mes(empresa, ano, mes)
@@ -218,18 +297,99 @@ def composicao_do_mes(empresa: Empresa, ano: int, mes: int) -> Composicao:
     for linha in linhas_informadas:
         informado[linha["mercado"]] += linha["total"] or ZERO
 
-    return Composicao(
-        interno=ComposicaoMercado(
-            MercadoReceita.INTERNO,
-            documento[MercadoReceita.INTERNO],
-            informado[MercadoReceita.INTERNO],
-        ),
-        externo=ComposicaoMercado(
-            MercadoReceita.EXTERNO,
-            documento[MercadoReceita.EXTERNO],
-            informado[MercadoReceita.EXTERNO],
-        ),
+    nfe = _nfe_do_mes(empresa, ano, mes)
+    return {
+        mercado: (
+            documento[mercado],
+            informado[mercado],
+            nfe[mercado][0],
+            nfe[mercado][1],
+        )
+        for mercado in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)
+    }
+
+
+def _primeiro_mes_com_devolucao(empresa: Empresa) -> tuple[int, int] | None:
+    """(ano, mês) da devolução de NF-e mais antiga, efetivada e não cancelada. `None` se não há."""
+    primeira = (
+        NaturezaItemNFe.objects.filter(
+            escrituracao__empresa=empresa,
+            escrituracao__estado=EstadoEscrituracao.EFETIVADA,
+            escrituracao__competencia__isnull=False,
+            item__ind_tot="1",
+            natureza=NaturezaOperacaoNFe.DEVOLUCAO_VENDA,
+        )
+        .filter(~Exists(_cancelada_depois_de_escriturada("escrituracao__")))
+        .aggregate(primeira=Min("escrituracao__competencia"))["primeira"]
     )
+    return None if primeira is None else (primeira.year, primeira.month)
+
+
+def _saldo_que_entra(empresa: Empresa, ano: int, mes: int) -> dict[str, Decimal]:
+    """Saldo de devolução que chega ao mês, por mercado (Res. CGSN 140, art. 17, II; HI-121).
+
+    Anda mês a mês desde a primeira devolução. Em cada mês, a devolução soma ao saldo e a
+    receita do mês absorve o que couber; o resto segue. Só o que é de antes do mês pedido entra.
+    """
+    saldo = {MercadoReceita.INTERNO: ZERO, MercadoReceita.EXTERNO: ZERO}
+    inicio = _primeiro_mes_com_devolucao(empresa)
+    if inicio is None or inicio >= (ano, mes):
+        return saldo
+    ano_atual, mes_atual = inicio
+    while (ano_atual, mes_atual) < (ano, mes):
+        componentes = _componentes_do_mes(empresa, ano_atual, mes_atual)
+        for mercado, (doc, inf, merc, dev) in componentes.items():
+            pool = saldo[mercado] + dev
+            saldo[mercado] = pool - min(pool, doc + inf + merc)
+        proximo = _proximo_mes(ano_atual, mes_atual)
+        ano_atual, mes_atual = proximo.year, proximo.month
+    return saldo
+
+
+def composicao_do_mes(empresa: Empresa, ano: int, mes: int) -> Composicao:
+    """Receita do mês por mercado: NFS-e + informado + NF-e de saída − devolução deduzida.
+
+    Consulta só a empresa dada (isolamento, AGENTS.md §11). O mercado de cada escrituração vem de
+    `mercado_da_natureza` (NFS-e) e de `mercado_da_natureza_nfe` (NF-e), e não é repetido aqui.
+    """
+    componentes = _componentes_do_mes(empresa, ano, mes)
+    entrada = _saldo_que_entra(empresa, ano, mes)
+    por_mercado = {}
+    for mercado, (doc, inf, merc, dev) in componentes.items():
+        pool = entrada[mercado] + dev
+        deduzido = min(pool, doc + inf + merc)
+        por_mercado[mercado] = ComposicaoMercado(
+            mercado,
+            doc,
+            inf,
+            merc,
+            dev,
+            entrada[mercado],
+            deduzido,
+            pool - deduzido,
+        )
+    return Composicao(
+        interno=por_mercado[MercadoReceita.INTERNO],
+        externo=por_mercado[MercadoReceita.EXTERNO],
+    )
+
+
+def componente_nfe_no_mes(empresa: Empresa, ano: int, mes: int) -> bool:
+    """O mês tem alguma parcela de NF-e na receita (receita, devolução ou saldo de antes).
+
+    Porta do pré-DAS (DL-081, item 5): o pré-DAS de comércio e indústria ainda não trata mercadoria.
+    """
+    composicao = composicao_do_mes(empresa, ano, mes)
+    return composicao.interno.com_nfe or composicao.externo.com_nfe
+
+
+def receita_de_nfe_no_mes(empresa: Empresa, ano: int, mes: int) -> bool:
+    """O mês tem NF-e de receita OU devolução escrituradas (sem o saldo de meses anteriores).
+
+    Porta da apuração do Presumido (DL-081, item 5): o trimestre com NF-e de saída fica parcial.
+    """
+    nfe = _nfe_do_mes(empresa, ano, mes)
+    return any(merc or dev for merc, dev in nfe.values())
 
 
 @dataclass(frozen=True)

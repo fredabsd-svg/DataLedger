@@ -1463,6 +1463,19 @@ def apurar_trimestre(empresa: Empresa, ano, trimestre) -> Apuracao:
             )
         )
 
+    # DL-081 (HI-122): NF-e de saída (ou devolução) efetivada no trimestre. A receita de
+    # mercadoria ainda não é integrada ao Presumido: a apuração fica parcial, com o motivo.
+    # Trimestre sem NF-e não ganha esta recusa.
+    if any(
+        receita_servico.receita_de_nfe_no_mes(empresa, ano, mes)
+        for mes in _meses_do_trimestre(trimestre)
+    ):
+        recusas.append(
+            Recusa(
+                "receita_nfe_nao_integrada",
+                "receita de NF-e ainda não integrada ao Presumido",
+            )
+        )
     declaracao, valida = _declaracao_valida(empresa, ano, trimestre)
     integrais_atuais = dados.integrais
     notas = dados.notas

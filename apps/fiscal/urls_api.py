@@ -46,6 +46,15 @@ from apps.fiscal.api import (
     RetencoesFederaisTomadoView,
     RetidoSofridoIssView,
 )
+from apps.fiscal.api_escrituracao_nfe import (
+    ConferenciaNFeView,
+    DefinirNaturezasView,
+    EfetivarEscrituracaoNFeView,
+    EscrituracaoNFeDetalheView,
+    EscrituracaoNFeListaView,
+    EstornarEscrituracaoNFeView,
+    ReclassificarNFeView,
+)
 from apps.fiscal.api_nfe import DetalheNFeView, NotasNFeView
 from apps.fiscal.api_presumido import (
     ApuracaoPresumidoView,
@@ -74,6 +83,43 @@ urlpatterns = [
         "empresas/<int:empresa_id>/nfe/<int:documento_id>/",
         DetalheNFeView.as_view(),
         name="nfe_detalhe",
+    ),
+    # DL-081 (frente A): escrituração das NF-e de saída e da devolução de venda.
+    # Leitura: quem consulta documentos fiscais (não CLIENTE). Escrita: quem escritura.
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/",
+        EscrituracaoNFeListaView.as_view(),
+        name="nfe_escrituracao_lista",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/reclassificar/",
+        ReclassificarNFeView.as_view(),
+        name="nfe_escrituracao_reclassificar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/<int:escrituracao_id>/",
+        EscrituracaoNFeDetalheView.as_view(),
+        name="nfe_escrituracao_detalhe",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/<int:escrituracao_id>/naturezas/",
+        DefinirNaturezasView.as_view(),
+        name="nfe_escrituracao_naturezas",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/<int:escrituracao_id>/efetivar/",
+        EfetivarEscrituracaoNFeView.as_view(),
+        name="nfe_escrituracao_efetivar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/<int:escrituracao_id>/estornar/",
+        EstornarEscrituracaoNFeView.as_view(),
+        name="nfe_escrituracao_estornar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/conferencia/",
+        ConferenciaNFeView.as_view(),
+        name="nfe_conferencia",
     ),
     path(
         "empresas/<int:empresa_id>/notas-prestadas/",

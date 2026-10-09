@@ -492,6 +492,18 @@ def _mes_payload(empresa, ano: int, mes: int) -> dict:
             "informado": str(composicao.informado),
             "total": str(composicao.total),
         }
+    # DL-081: parcelas da NF-e por mercado, numa chave própria. `por_mercado` mantém o contrato da
+    # DL-074 (documento, informado, total). Mês sem NF-e tem estes valores zerados.
+    nfe_por_mercado = {}
+    for mercado in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO):
+        composicao = dados.composicao.de(mercado)
+        nfe_por_mercado[mercado] = {
+            "mercadoria": str(composicao.mercadoria),
+            "devolucao": str(composicao.devolucao),
+            "saldo_entrada": str(composicao.saldo_entrada),
+            "deduzido": str(composicao.deduzido),
+            "saldo_transportado": str(composicao.saldo_transportado),
+        }
     return {
         "ano": ano,
         "mes": mes,
@@ -500,6 +512,7 @@ def _mes_payload(empresa, ano: int, mes: int) -> dict:
         "a_retificar": bool(confirmacao and confirmacao.a_retificar),
         "motivo_reabertura": confirmacao.motivo_reabertura if confirmacao else "",
         "por_mercado": por_mercado,
+        "nfe_por_mercado": nfe_por_mercado,
         "receitas_informadas": ReceitaInformadaSerializer(
             dados.receitas_informadas, many=True
         ).data,

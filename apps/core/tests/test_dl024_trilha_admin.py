@@ -115,12 +115,16 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         DocumentoFiscal,
         DocumentoNFe,
         EscrituracaoFiscal,
+        EscrituracaoNFe,
         EscrituracaoTomada,
         EventoFiscal,
         EventoNFe,
         FolhaFatorR,
+        ItemNFe,
+        LeituraItensNFe,
         LoteDeRecepcao,
         MedidaJudicialLC224,
+        NaturezaItemNFe,
         OpcaoRegimeCaixaSimples,
         ReceitaInformada,
         ReceitaTrimestralPresumido,
@@ -191,6 +195,13 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         DocumentoNFe,
         VinculoNFeEmpresa,
         EventoNFe,
+        # DL-081 (frente A, 2026-10-09): escrituração das NF-e, quatro modelos novos do apps.fiscal
+        # na cobertura "por padrão" (R1/DE-056). Sem ModelAdmin (BL-262); a escrita é pelo serviço
+        # `apps.fiscal.escrituracao_nfe`, que grava a trilha na mesma transação. Nenhuma exclusão.
+        EscrituracaoNFe,
+        ItemNFe,
+        LeituraItensNFe,
+        NaturezaItemNFe,
         # DL-072 (frente A, 2026-10-08): `EscrituracaoFiscal`, modelo novo do
         # apps.fiscal, na cobertura "por padrão" (R1/DE-056), como os acima.
         # SEM ModelAdmin de propósito (BL-262: admin não isola por escritório),
