@@ -154,6 +154,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-086](../planos/DL-086-documentacao-e-painel-do-fiscal.md) | Fiscal: documentação e painel alinhados ao código (RC-175) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-087](../planos/DL-087-classificacao-fiscal-versionada.md) | Fiscal: classificação fiscal versionada e regras de importação (RC-175) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-088](../planos/DL-088-virada-de-2027-no-simples.md) | Fiscal: virada de 2027 no Simples Nacional (RC-175) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-089](../planos/DL-089-origem-do-lancamento-contabil.md) | Contabilidade: origem e documento de origem do lançamento (BL-72, BL-73) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -481,8 +482,11 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
       - HI-146 a HI-149.
       - **PE-92 traz prazos para o Fred**, o primeiro em **15/10/2026**.
       - Executa depois da DL-082.
-    - em seguida: a origem do lançamento contábil (BL-72), as NF-e de
-      entrada, o ICMS-TO, a integração contábil e os livros.
+    - [DL-089](../planos/DL-089-origem-do-lancamento-contabil.md): origem
+      do lançamento contábil (BL-72, BL-73). **Em desenvolvimento em
+      paralelo** (só toca a contabilidade).
+    - em seguida: as NF-e de entrada, o ICMS-TO, a integração contábil e os
+      livros.
 
 **Linha de base vigente (09/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `973dc02` — conteúdo da `main` em `3f3206c` —,

@@ -1040,7 +1040,7 @@ nível 1, e PR para a `main`.
 | 13 | [DL-084](DL-084-rotina-do-presumido.md) | Rotina do Presumido: dias sem expediente bancário, feriados locais, coerência da CSLL retida, retenção tardia, competência da receita informada, parâmetros por empresa (RC-172) | 1 | 7 |
 | 14 | [DL-086](DL-086-documentacao-e-painel-do-fiscal.md) | Documentação e painel do fiscal alinhados ao código (RC-175) | 3 | — |
 | 15 | [DL-087](DL-087-classificacao-fiscal-versionada.md) | Classificação fiscal versionada e regras de importação, corte 1, sem mudar comportamento (o "acumulador" do DataLedger; RC-175) | 1 | 11 e 12 |
-| 16 | a numerar | Origem do lançamento contábil (BL-72), pré-requisito da integração | 1 | — |
+| 16 | [DL-089](DL-089-origem-do-lancamento-contabil.md) | Origem e documento de origem do lançamento contábil (BL-72, BL-73), pré-requisito da integração | 1 | — |
 | 17 | [DL-088](DL-088-virada-de-2027-no-simples.md) | Virada de 2027 no Simples: tabelas 2027-2028 lidas no DOU, RBT12 defasado, CBS/IBS no DAS, regime regular, receita de NF-e 2027 no regime único | 1 | 11 e 12 |
 | 18 | a numerar | NF-e de entrada (compras e créditos); depois ICMS-TO em fatias; integração contábil; livros | 1 | 15 |
 

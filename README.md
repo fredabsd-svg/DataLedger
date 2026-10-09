@@ -268,6 +268,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-086** — Fiscal: documentação e painel alinhados ao que o código faz (RC-175). Situação em [estado.md](docs/agents/estado.md).
 - **DL-087** — Fiscal: classificação fiscal versionada e regras de importação, o equivalente ao acumulador, migrada sem mudar comportamento (RC-175). Situação em [estado.md](docs/agents/estado.md).
 - **DL-088** — Fiscal: virada de 2027 no Simples — tabelas 2027-2028 lidas no DOU, RBT12 dos 12 meses antecedentes ao mês anterior, CBS e IBS no DAS, opção pelo regime regular, receita de NF-e de 2027 no regime único. Situação em [estado.md](docs/agents/estado.md).
+- **DL-089** — Contabilidade: origem e documento de origem do lançamento, e permissão própria para mexer no lançamento automático (BL-72 e BL-73), pré-requisito da integração fiscal → contábil. Situação em [estado.md](docs/agents/estado.md).
 
 Ainda não existem:
 
