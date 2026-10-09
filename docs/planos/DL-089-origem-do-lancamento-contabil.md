@@ -60,6 +60,39 @@ banco. A auditoria faz uma rodada, uma correção e uma reconferência.
 - a regeração (BL-66);
 - a configuração contábil por natureza e por imposto (BL-74).
 
+## Decisões para a correção (rodada 1)
+
+A [rodada 1](../auditorias/2026-10-09-dl-089-rodada-1.md) foi **aprovada com
+ressalvas**: a matriz de permissões e a imutabilidade estão corretas, e os
+três mutantes do plano caem. Decisões do arquiteto, reversíveis pelo Fred:
+
+- **A1:** um lançamento conta como automático **também** quando a chave de
+  idempotência começa por `importacao:` ou quando há vínculo com
+  `LancamentoImportado`. Isso cobre as importações anteriores à migração
+  0026 sem tocar em linha protegida.
+- **A2:** o lançamento de zeramento (chave `zeramento:`) também é tratado
+  como automático no estorno, e passa a exigir ADMINISTRADOR ou GESTOR. O
+  estorno de zeramento infla Lucros e Prejuízos (R2 da DL-043), então não
+  pode ficar com quem só escritura.
+- **A3:** testes do `db_default`, do backfill combinado com troca de origem,
+  do identificador vazio e da migração com dado anterior.
+- **A4:** a rota do sentido documento → lançamentos fica para a integração
+  fiscal; por enquanto o serviço tem isolamento testado.
+- **A5:**
+  - o Razão fica **sem** filtro de origem (o saldo anterior soma todas as
+    origens e tem de bater com o Balancete), e a decisão vai para
+    `decisoes.md`;
+  - o Diário filtrado cita o filtro na mensagem de vazio e no cabeçalho
+    impresso;
+  - a opção "escrita fiscal" só aparece quando existir lançamento dessa
+    origem.
+- **A6:** a origem e o tipo de documento passam a ser pareados, no serviço e
+  num CHECK. O identificador não aceita espaço nas pontas. Como a migração
+  0026 ainda não foi para a `main`, a mudança é feita nela mesma.
+- **A7:** a regeração (BL-66) usa `origem == escrita_fiscal`, nunca "não
+  manual". Fica registrado no backlog.
+- **A8:** a tentativa de estorno negada pela BL-73 entra na trilha.
+
 ## Critérios de aceite
 
 1. Todo lançamento existente fica com origem `manual`, e os novos que vêm
