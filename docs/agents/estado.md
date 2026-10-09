@@ -147,6 +147,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) | Fiscal: Lucro Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224 | Integrada (PR #103, squash `6eb922e`) — rodada 1 e reconferência aprovadas com ressalvas |
 | [DL-080](../planos/DL-080-recepcao-de-nfe.md) | Fiscal: recepção de NF-e (modelo 55) e NFC-e (modelo 65), fatia 2 da DL-010 | Integrada (PR #104, squash `c01b451`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 | [DL-081](../planos/DL-081-escrituracao-das-nfe-de-saida.md) | Fiscal: escrituração das NF-e de saída e da devolução de venda | Integrada (PR #105, squash `2911eb6`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
+| [DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md) | Fiscal: pré-DAS de comércio e indústria (Anexos I e II) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -328,6 +329,14 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
     da devolução; pré-DAS recusa e Presumido parcial com NF-e. Abertos:
     HI-117 a HI-124 e **PE-85 com o Fred** (dois bloqueios conservadores);
     BL-685, BL-686 (resolver antes de subir a versão do leitor).
+
+11. **[DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md) — pré-DAS
+    de comércio e indústria (Anexos I e II): planejada.**
+    [Consulta ao contador-senior](../projeto/consultas/2026-10-09-contador-senior-pre-das-comercio.md):
+    exemplos 1, 2, 3 e 6 do Manual do PGDAS-D batem ao centavo com as tabelas
+    do repositório; um RBT12 para todos os anexos; segregação sem
+    redistribuição; devolução por segmento. HI-125 a HI-132; PE-86
+    (benefício de ICMS do Tocantins), PE-87 (conciliação real).
 
 **Linha de base vigente (09/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `578ce9e` — conteúdo da `main` em `2911eb6` —,
