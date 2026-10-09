@@ -64,6 +64,48 @@ com NFS-e, não com NFC-e.
 medida mostrar que as partes não bastam; apuração do ICMS; NFC-e em
 contingência sem protocolo, que continua recusada (HI-110).
 
+## Decisões tomadas na implementação (frente A)
+
+- **Modelo de lote** (`LoteEscrituracaoNFe` e `LoteEscrituracaoNFeNota`,
+  migração `fiscal 0013`):
+  - depois da primeira parte, as notas efetivadas saem da prévia, e só o
+    conjunto gravado diz quais notas eram do lote;
+  - o banco trava "um lote em andamento por empresa e mês"; a corrida vira
+    400 com a mensagem do registro de restrições.
+- **Chave do grupo:** o tipo da nota e o conjunto ordenado, sem repetição,
+  de (CFOP, CST ou CSOSN, natureza sugerida) dos itens.
+- **Assinatura:** SHA-256 sobre empresa, mês e cada grupo com os seus
+  vínculos e naturezas. Inclui também o conjunto de notas ainda não lidas:
+  se a prévia que o contador viu mudou, a confirmação recusa com 409.
+- **Cada nota passa pelas funções da escrituração individual**
+  (`criar_rascunho`, `definir_natureza`, `efetivar`), em transação própria.
+  - A nota que falha sai com o motivo, sem desfazer as outras.
+  - A nota já efetivada por fora do lote é pulada.
+  - A nota estornada ou alterada depois da confirmação falha e pede uma
+    prévia nova.
+- **Leitura em partes:** a prévia não lê XML. A nota nunca lida aparece no
+  bloco "a ler", e `POST .../lote/ler/` lê até 400 por chamada.
+- **Medidas** (10.000 NFC-e de 1 a 5 itens numa empresa, Python 3.13
+  local):
+
+  | Etapa | Tempo |
+  | --- | --- |
+  | Envio de 2.000 NFC-e | 7,3 a 7,8 s |
+  | Prévia sem leitura | 0,8 s (era 110,7 s antes da leitura em partes) |
+  | Leitura de 400 notas | 5,2 s em média |
+  | Prévia já lida | 2,3 s |
+  | Confirmação de 100 notas | 4,5 s em média (limite padrão 100, máximo 150) |
+  | Conferência do mês | 3,3 s |
+  | Composição da receita | 5,4 s |
+  | Presumido do trimestre | 6,9 s |
+
+- **Limite do envio (HI-22):** mantido em 2.000 arquivos. A medida não
+  testou envio maior.
+- **`apps/core`:** as restrições novas entraram no registro, e os dois
+  modelos no inventário da trilha.
+- **Medido pelo desenvolvedor:** 8.880/1/54 numa única invocação. A medida
+  de volume só roda com `DL085_MEDIR_VOLUME=1`.
+
 ## Critérios de aceite
 
 1. A prévia agrupa certo e lista cada nota fora do lote com o motivo.
