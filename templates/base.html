@@ -842,6 +842,39 @@
                                                 </ul>
                                             </div>
                                             {% comment %}
+                                            DL-081 (frente B): escrituração das NF-e de saída e da devolução de venda,
+                                            logo depois das NF-e recebidas. Mesma permissão de consulta; o servidor decide
+                                            cada ação (criar rascunho, confirmar, efetivar, estornar, reclassificar).
+                                            {% endcomment %}
+                                            <div class="menu-grupo">
+                                                <p class="menu-grupo__rotulo" id="grupo-escrituracao-nfe">Escrituração de NF-e</p>
+                                                <ul aria-labelledby="grupo-escrituracao-nfe">
+                                                    <li>
+                                                        {% if pagina_atual == "nfe_a_escriturar" %}
+                                                            <span class="item-atual" aria-current="page">NF-e a escriturar</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:nfe_a_escriturar' %}">NF-e a escriturar</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "nfe_conferencia" %}
+                                                            <span class="item-atual" aria-current="page">Conferência de NF-e</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:nfe_conferencia' %}">Conferência de NF-e</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    {% if pode_escriturar_fiscal_no_menu %}
+                                                    <li>
+                                                        {% if pagina_atual == "nfe_reclassificar" %}
+                                                            <span class="item-atual" aria-current="page">Reclassificar em massa</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:nfe_reclassificar' %}">Reclassificar em massa</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    {% endif %}
+                                                </ul>
+                                            </div>
+                                            {% comment %}
                                             DL-072 (frente B): escrituração das NFS-e prestadas. Mesma
                                             permissão de consulta do grupo acima (quem consulta
                                             documentos vê as notas a escriturar, sem o botão de

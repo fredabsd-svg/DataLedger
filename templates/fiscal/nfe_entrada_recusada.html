@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block titulo %}Entrada recusada{% endblock %}
+
+{% comment %}
+DL-081 (frente B): resposta 400 de entrada fora do formato aceito (número gigante, byte nulo, data
+fora de faixa, código fiscal com tamanho errado). A mensagem diz o que corrigir; nunca é 500.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Entrada recusada</h1>{% endblock %}
+
+{% block content %}
+    <p class="mensagem mensagem-error" role="alert">
+        <strong>Erro:</strong> {{ mensagem }}
+    </p>
+    <p>
+        <a class="botao botao--secundario" href="{% url 'tenancy:painel' %}">Voltar ao início</a>
+    </p>
+{% endblock %}

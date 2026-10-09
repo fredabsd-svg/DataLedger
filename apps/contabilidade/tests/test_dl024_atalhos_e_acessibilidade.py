@@ -1428,6 +1428,34 @@ NOMES_DE_TELA_NFE_RECEBIDAS = {
     ),
 }
 
+# DL-081, frente B (apps/fiscal/tests/test_dl081_telas*.py): escrituração das NF-e de saída e da
+# devolução de venda. Lista, escriturar (com a nota da rota), estornar (com a escrituração), a
+# reclassificação em massa e a conferência. Cada nome aponta para os testes que as cobrem.
+NOMES_DE_TELA_ESCRITURACAO_NFE = {
+    "fiscal_web:nfe_a_escriturar": (
+        "test_lista_mostra_a_nota_sem_escrituracao_com_valor_ptbr_e_botao_de_criar, "
+        "test_lista_sem_empresa_pede_a_escolha_e_nao_lista_nada, "
+        "test_telas_novas_sao_acessiveis_sem_estilo_embutido_e_com_rotulo"
+    ),
+    "fiscal_web:nfe_escriturar": (
+        "test_telas_novas_sao_acessiveis_sem_estilo_embutido_e_com_rotulo, "
+        "test_exemplo_do_simples_pela_tela_efetiva_com_receita_2880_e_segregacao, "
+        "test_trilha_da_escriturar_leva_a_lista_e_marca_a_tela_atual"
+    ),
+    "fiscal_web:nfe_estornar": (
+        "test_estorno_com_motivo_volta_a_nota_para_a_escriturar, "
+        "test_estorno_com_botao_perigoso_e_motivo_com_rotulo"
+    ),
+    "fiscal_web:nfe_reclassificar": (
+        "test_previa_conta_sem_alterar_e_confirmacao_grava_so_o_rascunho, "
+        "test_telas_novas_sao_acessiveis_sem_estilo_embutido_e_com_rotulo"
+    ),
+    "fiscal_web:nfe_conferencia": (
+        "test_conferencia_mostra_receita_por_natureza_composicao_e_totais, "
+        "test_conferencia_nao_soma_nota_cancelada_depois_de_escriturada_e_a_destaca"
+    ),
+}
+
 
 def test_toda_rota_do_produto_esta_coberta_ou_excluida():
     """BL-334: a guarda do próprio conjunto de telas. Rota nova, nomeada,
@@ -1449,6 +1477,7 @@ def test_toda_rota_do_produto_esta_coberta_ou_excluida():
         | set(NOMES_DE_TELA_LIVRO_CAIXA_FORA_DA_CONTABILIDADE)
         | set(NOMES_DE_TELA_DO_LUCRO_PRESUMIDO)
         | set(NOMES_DE_TELA_NFE_RECEBIDAS)
+        | set(NOMES_DE_TELA_ESCRITURACAO_NFE)
     )
     excluidas = set(EXCLUSOES_NOMEADAS_DE_TELA)
 

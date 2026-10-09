@@ -61,6 +61,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal, localcontext
+from functools import wraps
 from urllib.parse import urlencode
 
 from django.contrib import messages
@@ -84,6 +85,7 @@ from apps.core.requisicao import (
 )
 from apps.empresas.models import Empresa
 from apps.fiscal import escrituracao as servico_escrituracao
+from apps.fiscal import escrituracao_nfe as servico_nfe
 from apps.fiscal import folha_fator_r as servico_folha
 from apps.fiscal import iss_municipal as servico_iss
 from apps.fiscal import pre_das as servico_pre_das
@@ -95,7 +97,9 @@ from apps.fiscal import receita as servico_receita
 from apps.fiscal import retencoes as servico_retencoes
 from apps.fiscal import simples_tabelas as tabelas
 from apps.fiscal import tomadas as servico_tomadas
+from apps.fiscal.api_escrituracao_nfe import MAIOR_ID
 from apps.fiscal.api_nfe import DESCRICAO_EVENTO_NFE, direcao_para_o_cliente
+from apps.fiscal.cfop import cfop as consultar_cfop
 from apps.fiscal.formatacao_ptbr import milhar_ptbr as _milhar_ptbr
 from apps.fiscal.formatacao_ptbr import valor_ptbr as _valor_ptbr
 from apps.fiscal.models import (
@@ -106,6 +110,7 @@ from apps.fiscal.models import (
     DocumentoNFe,
     EnquadramentoAtividade,
     EscrituracaoFiscal,
+    EscrituracaoNFe,
     EscrituracaoTomada,
     EstadoConfirmacaoMes,
     EstadoEscrituracao,
@@ -114,11 +119,15 @@ from apps.fiscal.models import (
     EventoFiscal,
     EventoNFe,
     FolhaFatorR,
+    ItemNFe,
+    LeituraItensNFe,
     LoteDeRecepcao,
     MedidaJudicialLC224,
     MercadoReceita,
     ModeloNFe,
+    NaturezaItemNFe,
     NaturezaOperacao,
+    NaturezaOperacaoNFe,
     NaturezaTomada,
     OpcaoRegimeCaixaSimples,
     OrigemReceitaInformada,
@@ -6721,3 +6730,996 @@ def nfe_eventos_orfaos(request):
         "url_lista_nfe": reverse("fiscal_web:nfe_recebidas"),
     }
     return render(request, "fiscal/nfe_eventos_orfaos.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# DL-081 (frente B): telas da escrituração das NF-e de saída e da devolução de venda.
+#
+# A tela chama o serviço da frente A (`apps.fiscal.escrituracao_nfe`) e NÃO recalcula nada:
+# elegibilidade, sugestão, conferência com o vNF, efetivação, estorno e reclassificação são do
+# serviço. Aqui só se lê a entrada (formato estranho responde 400, nunca 500), decide-se a
+# permissão no servidor e o resultado vira texto em pt-BR. Arquétipos (direção de arte §2): a
+# lista e a conferência são de consulta (A e C); escriturar é formulário de documento (B);
+# estornar e reclassificar são confirmações de ação sensível (E).
+# ---------------------------------------------------------------------------
+
+_ANO_MINIMO_NFE, _ANO_MAXIMO_NFE = 1970, 2999
+_TAMANHO_NATUREZA_NFE = 24
+_ACOES_ESCRITURAR_NFE = frozenset({"criar", "item", "bloco", "efetivar"})
+_ACOES_RECLASSIFICAR_NFE = frozenset({"previa", "confirmar"})
+_MENSAGEM_SEM_CONSULTA_ESCRITURACAO_NFE = "Seu papel não permite consultar a escrituração de NF-e."
+_MENSAGEM_SEM_ESCRITA_NFE = (
+    "Seu papel consulta as NF-e, mas não escritura, estorna nem reclassifica. "
+    "Peça a um administrador, gestor, analista ou financeiro do escritório."
+)
+_ROTULO_SITUACAO_NFE_ESCRITURACAO = {
+    servico_nfe.SITUACAO_A_ESCRITURAR: "Sem escrituração",
+    servico_nfe.SITUACAO_RASCUNHO: "Rascunho, não efetivada",
+    servico_nfe.SITUACAO_EFETIVADA: "Efetivada",
+    servico_nfe.SITUACAO_CANCELADA: "Cancelada, não escriturada",
+    servico_nfe.SITUACAO_CANCELADA_DEPOIS_DE_ESCRITURADA: "Cancelada depois de escriturada",
+    servico_nfe.SITUACAO_NAO_ELEGIVEL: "Fora da escrituração",
+}
+# O serviço devolve "a escriturar" também para a nota estornada. A tela só distingue, para
+# quem lê, que ela já teve uma escrituração estornada: é um dado da própria linha, não regra.
+_ROTULO_ESTORNADA_NFE = "Estornada, a escriturar de novo"
+_ROTULO_LEITURA_NFE = {
+    LeituraItensNFe.ESTADO_LIDA: "Lida",
+    LeituraItensNFe.ESTADO_ILEGIVEL: "Ilegível",
+}
+_ROTULO_PAPEL_NATUREZA_NFE = {"receita": "Receita", "deducao": "Dedução (devolução)"}
+_ROTULO_MERCADO_NFE = {"interno": "Mercado interno", "externo": "Mercado externo"}
+_ROTULO_SEGREGACAO_NFE = {
+    "normal": "Normal (revenda, produção e substituto)",
+    "sujeita_st": "Sujeita a ST (natureza 3)",
+    "monofasico": "Monofásico de PIS e Cofins (natureza 5)",
+    "exportacao": "Exportação (mercado externo)",
+}
+
+
+class _EntradaNfeRecusada(Exception):
+    """Entrada fora do formato aceito: a tela responde 400 com a mensagem, nunca 500."""
+
+    def __init__(self, mensagem):
+        super().__init__(mensagem)
+        self.mensagem = mensagem
+
+
+def _entrada_nfe_verificada(view):
+    """Converte `_EntradaNfeRecusada` em 400 com a mensagem. Fica por DENTRO de `login_required`."""
+
+    @wraps(view)
+    def envoltorio(request, *args, **kwargs):
+        try:
+            return view(request, *args, **kwargs)
+        except _EntradaNfeRecusada as exc:
+            return render(
+                request, "fiscal/nfe_entrada_recusada.html", {"mensagem": exc.mensagem}, status=400
+            )
+
+    return envoltorio
+
+
+def _texto_seguro_nfe(valor, rotulo):
+    """Recusa byte nulo e substituto isolado: o banco responde 500 se algum deles passa."""
+    texto = "" if valor is None else valor
+    if "\x00" in texto or any(0xD800 <= ord(caractere) <= 0xDFFF for caractere in texto):
+        raise _EntradaNfeRecusada(f"'{rotulo}' tem caractere inválido.")
+    return texto
+
+
+def _texto_nfe(valor, rotulo, maximo):
+    texto = _texto_seguro_nfe(valor, rotulo).strip()
+    if len(texto) > maximo:
+        raise _EntradaNfeRecusada(f"'{rotulo}' tem no máximo {maximo} caracteres.")
+    return texto
+
+
+def _id_da_rota_nfe(valor):
+    # Identificador acima do bigint responde 400 aqui, antes do banco (que daria 500).
+    if not 1 <= valor <= MAIOR_ID:
+        raise _EntradaNfeRecusada("Identificador fora da faixa aceita.")
+    return valor
+
+
+def _id_do_formulario_nfe(bruto, rotulo):
+    texto = _texto_nfe(bruto, rotulo, 19)
+    if not re.fullmatch(r"[0-9]{1,19}", texto):
+        raise _EntradaNfeRecusada(f"'{rotulo}' inválido.")
+    return _id_da_rota_nfe(int(texto))
+
+
+def _empresa_nfe_da_rota(request, empresa_id):
+    # Empresa de OUTRO escritório é 404: não confirma que o ID existe.
+    _id_da_rota_nfe(empresa_id)
+    return get_object_or_404(Empresa, pk=empresa_id, escritorio=request.escritorio)
+
+
+def _empresa_nfe_do_campo(request, bruto):
+    """Empresa de um campo (querystring ou formulário). Vazio é `None`; de outro escritório, 404."""
+    texto = _texto_nfe(bruto, "Empresa", 20)
+    if not texto:
+        return None
+    try:
+        empresa_id = para_id(texto)
+    except IdentificadorInvalido as exc:
+        raise _EntradaNfeRecusada("'Empresa' inválida.") from exc
+    return _empresa_nfe_da_rota(request, empresa_id)
+
+
+def _vinculo_nfe_da_empresa(request, empresa, vinculo_id):
+    # Vínculo de outra empresa (mesmo escritório) também é 404 (IDOR).
+    _id_da_rota_nfe(vinculo_id)
+    return get_object_or_404(
+        VinculoNFeEmpresa.objects.select_related("documento"),
+        pk=vinculo_id,
+        empresa=empresa,
+        documento__escritorio=request.escritorio,
+    )
+
+
+def _escrituracao_nfe_da_empresa(request, empresa, escrituracao_id):
+    _id_da_rota_nfe(escrituracao_id)
+    return get_object_or_404(
+        EscrituracaoNFe.objects.select_related("vinculo__documento", "empresa"),
+        pk=escrituracao_id,
+        empresa=empresa,
+        empresa__escritorio=request.escritorio,
+    )
+
+
+def _competencia_nfe(request):
+    """(ano, mês) da consulta. Ausente: mês corrente (fuso de Brasília). Fora do formato ou da
+    faixa: 400. O tamanho é conferido ANTES do `int`, para número gigante não estourar o limite."""
+    _texto_nfe(request.GET.get("ano"), "Ano", 4)
+    _texto_nfe(request.GET.get("mes"), "Mês", 2)
+    competencia, erro = _competencia_do_filtro(request)
+    if erro:
+        raise _EntradaNfeRecusada(erro)
+    if competencia is None:
+        hoje = timezone.localdate()
+        return hoje.year, hoje.month
+    return competencia
+
+
+def _data_nfe(bruto, rotulo):
+    try:
+        data = _data_br_do_filtro(_texto_nfe(bruto, rotulo, 10), rotulo)
+    except ValueError as exc:
+        raise _EntradaNfeRecusada(str(exc)) from exc
+    if data is not None and not _ANO_MINIMO_NFE <= data.year <= _ANO_MAXIMO_NFE:
+        raise _EntradaNfeRecusada(
+            f"'{rotulo}' fora do intervalo aceito ({_ANO_MINIMO_NFE} a {_ANO_MAXIMO_NFE})."
+        )
+    return data
+
+
+def _codigo_fiscal_nfe(bruto, rotulo, padrao, descricao):
+    """CFOP, CST/CSOSN ou NCM: só dígitos, na quantidade certa. Vazio é filtro ausente."""
+    texto = _texto_nfe(bruto, rotulo, 8)
+    if not texto:
+        return None
+    if not re.fullmatch(padrao, texto):
+        raise _EntradaNfeRecusada(f"'{rotulo}' deve ter {descricao}, só dígitos.")
+    return texto
+
+
+def _contagem_do_formulario_nfe(bruto, rotulo):
+    texto = _texto_nfe(bruto, rotulo, 9)
+    if not re.fullmatch(r"[0-9]{1,9}", texto):
+        raise _EntradaNfeRecusada(f"'{rotulo}' inválido.")
+    return int(texto)
+
+
+def _vinculos_com_estorno(vinculo_ids):
+    """Vínculos com escrituração ESTORNADA. Só para a linha dizer que a nota já foi escriturada."""
+    if not vinculo_ids:
+        return set()
+    return set(
+        EscrituracaoNFe.objects.filter(
+            vinculo_id__in=vinculo_ids, estado=EstadoEscrituracao.ESTORNADA
+        ).values_list("vinculo_id", flat=True)
+    )
+
+
+def _escrituracao_ativa_nfe(vinculo):
+    """Rascunho ou efetivada da nota. A regra de unicidade é do serviço; aqui só se lê."""
+    return EscrituracaoNFe.objects.filter(
+        vinculo=vinculo,
+        estado__in=[EstadoEscrituracao.RASCUNHO, EstadoEscrituracao.EFETIVADA],
+    ).first()
+
+
+def _linha_nfe_a_escriturar(nota, empresa, pode_escriturar, estornadas):
+    """Linha da lista e da conferência. A situação vem do serviço; a tela só a traduz."""
+    documento = nota.documento
+    situacao = nota.situacao
+    rotulo = _ROTULO_SITUACAO_NFE_ESCRITURACAO.get(situacao, situacao)
+    if situacao == servico_nfe.SITUACAO_A_ESCRITURAR and nota.vinculo.pk in estornadas:
+        rotulo = _ROTULO_ESTORNADA_NFE
+    ilegivel = nota.leitura_estado == LeituraItensNFe.ESTADO_ILEGIVEL
+    url = reverse("fiscal_web:nfe_escriturar", args=[empresa.pk, nota.vinculo.pk])
+    if situacao == servico_nfe.SITUACAO_A_ESCRITURAR and pode_escriturar and not ilegivel:
+        # Botão de criar o rascunho: POST para a própria tela de escriturar (que confere a conta).
+        acao = {"tipo": "criar", "rotulo": "Criar rascunho", "url": url}
+    else:
+        if situacao == servico_nfe.SITUACAO_RASCUNHO and pode_escriturar:
+            rotulo_acao = "Continuar escrituração"
+        elif situacao in (servico_nfe.SITUACAO_EFETIVADA, servico_nfe.SITUACAO_RASCUNHO):
+            rotulo_acao = "Ver escrituração"
+        else:
+            rotulo_acao = "Ver nota"
+        acao = {"tipo": "ver", "rotulo": rotulo_acao, "url": url}
+    return {
+        "nota": nota,
+        "numero": documento.numero,
+        "serie": documento.serie,
+        "modelo": documento.get_modelo_display(),
+        "emissao": documento.dh_emissao,
+        "valor_nf_ptbr": _valor_ptbr(documento.v_nf),
+        "situacao": rotulo,
+        "destaque": situacao == servico_nfe.SITUACAO_CANCELADA_DEPOIS_DE_ESCRITURADA,
+        "leitura": _ROTULO_LEITURA_NFE.get(nota.leitura_estado, "Ainda não lida"),
+        "leitura_motivo": nota.leitura_motivo or "",
+        "ilegivel": ilegivel,
+        "acao": acao,
+    }
+
+
+# Tela 1 — arquétipo A (tabela de consulta): notas do mês a escriturar.
+
+
+@login_required
+@require_safe
+@_entrada_nfe_verificada
+def nfe_a_escriturar(request):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_ESCRITURACAO_NFE)
+
+    empresa = _empresa_nfe_do_campo(request, request.GET.get("empresa"))
+    ano, mes = _competencia_nfe(request)
+    pode = _pode_escriturar(request)
+    url_reclassificar = reverse("fiscal_web:nfe_reclassificar")
+    if empresa is not None:
+        url_reclassificar += f"?{urlencode({'empresa': empresa.pk})}"
+    contexto = {
+        "empresas_do_escritorio": Empresa.objects.filter(escritorio=request.escritorio).order_by(
+            "razao_social"
+        ),
+        "empresa": empresa,
+        "ano": ano,
+        "mes": mes,
+        "pode_escriturar": pode,
+        "pagina": None,
+        "linhas": [],
+        "url_reclassificar": url_reclassificar,
+        "url_conferencia": reverse("fiscal_web:nfe_conferencia"),
+    }
+    if empresa is None:
+        return render(request, "fiscal/nfe_a_escriturar.html", contexto)
+
+    notas = servico_nfe.notas_do_mes(empresa, ano, mes)
+    # Desempate determinístico: o serviço já ordena por dhEmi e documento_id; a paginação
+    # só corta essa ordem.
+    elegiveis = [nota for nota in notas if nota.tipo is not None]
+    pagina = Paginator(elegiveis, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
+    estornadas = _vinculos_com_estorno([nota.vinculo.pk for nota in pagina.object_list])
+    contexto.update(
+        {
+            "pagina": pagina,
+            "linhas": [
+                _linha_nfe_a_escriturar(nota, empresa, pode, estornadas)
+                for nota in pagina.object_list
+            ],
+            "total_elegiveis": len(elegiveis),
+            "fora_da_escrituracao": len(notas) - len(elegiveis),
+            "querystring_sem_pagina": _querystring_sem_pagina(request),
+        }
+    )
+    return render(request, "fiscal/nfe_a_escriturar.html", contexto)
+
+
+# Tela 2 — arquétipo B (formulário de documento): escriturar uma nota.
+
+_CONTRATO_ESCRITURAR_NFE = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "acao", "item_id", "natureza", "sinal"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na escrituração de NF-e",
+)
+
+
+def _opcoes_de_natureza(tipo):
+    return [
+        (valor, NaturezaOperacaoNFe(valor).label)
+        for valor in sorted(
+            servico_nfe.naturezas_permitidas(tipo), key=lambda v: NaturezaOperacaoNFe(v).label
+        )
+    ]
+
+
+def _linha_do_item_nfe(item, natureza, documento, tipo):
+    """Uma linha de item. CFOP (texto da tabela oficial), CST/CSOSN, NCM, valor, receita, natureza
+    gravada e sugestão com o motivo que o serviço deu. Sem sugestão, a tela diz "escolha"."""
+    sugestao = servico_nfe.sugerir_natureza_item(documento, item, tipo)
+    info = consultar_cfop(item.cfop)
+    if item.csosn:
+        cst_csosn = f"CSOSN {item.csosn}"
+    elif item.cst:
+        cst_csosn = f"CST {item.cst}"
+    else:
+        cst_csosn = "—"
+    return {
+        "item_id": item.pk,
+        "n_item": item.n_item,
+        "x_prod": item.x_prod,
+        "ncm": item.ncm,
+        "cfop": item.cfop,
+        "cfop_descricao": (
+            info.descricao if info else "CFOP fora da tabela oficial: a classificar"
+        ),
+        "cst_csosn": cst_csosn,
+        "v_prod_ptbr": _valor_ptbr(item.v_prod),
+        "receita_ptbr": (
+            _valor_ptbr(item.receita_bruta_item) if item.ind_tot == "1" else "fora do total"
+        ),
+        "natureza_gravada": natureza,
+        "natureza_gravada_rotulo": NaturezaOperacaoNFe(natureza).label if natureza else "",
+        "sugestao": sugestao.natureza or "",
+        "sugestao_rotulo": (
+            NaturezaOperacaoNFe(sugestao.natureza).label
+            if sugestao.natureza
+            else "sem sugestão — escolha"
+        ),
+        "sugestao_motivo": sugestao.motivo,
+        "opcoes": _opcoes_de_natureza(tipo),
+        "selecionada": natureza or sugestao.natureza or "",
+    }
+
+
+def _grupos_de_sinal(linhas):
+    """Itens SEM natureza confirmada, agrupados pela sugestão: o bloco confirma um grupo inteiro."""
+    contagem: dict[str, int] = {}
+    for linha in linhas:
+        if linha["natureza_gravada"] or not linha["sugestao"]:
+            continue
+        contagem[linha["sugestao"]] = contagem.get(linha["sugestao"], 0) + 1
+    return [
+        {"sinal": sinal, "rotulo": NaturezaOperacaoNFe(sinal).label, "quantidade": quantidade}
+        for sinal, quantidade in sorted(contagem.items())
+    ]
+
+
+# Mensagem de divergência com o vNF, em pt-BR. A do serviço traz os valores com ponto decimal
+# ("2880.00"), que não é a forma que o contador lê: a tela diz a mesma coisa e mostra os valores
+# na tabela da conferência.
+_MOTIVO_NAO_CONFERE_NFE = (
+    "A receita dos itens não confere com o valor da nota (vNF). "
+    "A nota não é efetivada: veja a conferência com o vNF."
+)
+
+
+def _pares_da_escrituracao(documento, escrituracao):
+    """(item, natureza) de cada item da nota. Sem escrituração, todos sem natureza ainda."""
+    if escrituracao is None:
+        return [
+            (item, "") for item in ItemNFe.objects.filter(documento=documento).order_by("n_item")
+        ]
+    registros = (
+        NaturezaItemNFe.objects.select_related("item")
+        .filter(escrituracao=escrituracao)
+        .order_by("item__n_item")
+    )
+    return [(registro.item, registro.natureza or "") for registro in registros]
+
+
+def _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada):
+    """(pode, motivo, conferência, divergiu). Efetivar só se habilita quando o serviço aceitaria: a
+    checagem é a do próprio serviço (`_conferir_valores`, função pura, sem gravar). O servidor
+    recusa de novo no POST, por mais que o botão esteja habilitado."""
+    if escrituracao is None or escrituracao.estado != EstadoEscrituracao.RASCUNHO:
+        return False, "", None, False
+    if cancelada:
+        return False, "Nota cancelada não pode ser efetivada.", None, False
+    if leitura is None or leitura.estado != LeituraItensNFe.ESTADO_LIDA:
+        motivo = "itens ainda não lidos" if leitura is None else leitura.motivo
+        return False, f"Itens ilegíveis, nota bloqueada: {motivo}", None, False
+    faltam = sum(1 for _, natureza in pares if not natureza)
+    if faltam:
+        return (
+            False,
+            f"Falta a natureza de {faltam} item(ns). Confirme a natureza de cada item.",
+            None,
+            False,
+        )
+    try:
+        conferencia = servico_nfe._conferir_valores(documento, leitura, pares)
+    except servico_nfe.EscrituracaoNFeErro as exc:
+        # Sem vNF, a mensagem do serviço não traz valor: pode ir como está.
+        if documento.v_nf is None:
+            return False, exc.mensagem, None, False
+        return False, _MOTIVO_NAO_CONFERE_NFE, None, True
+    return True, "", conferencia, False
+
+
+def _recusa_previa_da_efetivacao(vinculo, escrituracao):
+    """Motivo da recusa ANTES de chamar o serviço, em pt-BR, ou `None` se a checagem passa. O
+    serviço continua sendo a autoridade: ele confere tudo de novo, dentro da transação."""
+    documento = vinculo.documento
+    leitura = LeituraItensNFe.objects.filter(documento=documento).first()
+    pode, motivo, _, _ = _estado_da_efetivacao(
+        documento,
+        leitura,
+        escrituracao,
+        _pares_da_escrituracao(documento, escrituracao),
+        situacao_da_nfe(documento) == "cancelada",
+    )
+    return None if pode else motivo
+
+
+def _conferencia_na_tela(documento, leitura, pares, escrituracao, efetivada, conferencia):
+    """Componentes do vNF em pt-BR. Efetivada: soma e vNF são os GRAVADOS. Rascunho conferido: os
+    que o serviço devolveu. Rascunho recusado: a soma dos itens sai da mesma regra de receita, só
+    para exibir. Tributos fora da receita são os da nota; ausente fica traço, nunca zero."""
+    if efetivada and escrituracao is not None:
+        soma, valor_nf = escrituracao.soma_itens, escrituracao.valor_nf
+    elif conferencia is not None:
+        soma, valor_nf = conferencia.soma_itens, conferencia.valor_nf
+    else:
+        soma = sum(
+            (item.receita_bruta_item for item, _ in pares if item.ind_tot == "1"),
+            Decimal("0.00"),
+        )
+        valor_nf = documento.v_nf
+    return {
+        "receita_ptbr": _valor_ptbr(soma),
+        "vnf_ptbr": _valor_ptbr(valor_nf),
+        "vst_ptbr": _valor_ptbr(documento.v_st),
+        "vipi_ptbr": _valor_ptbr(documento.v_ipi),
+        "vii_ptbr": _valor_ptbr(leitura.v_ii if leitura else None),
+        "vipi_devol_ptbr": _valor_ptbr(leitura.v_ipi_devol if leitura else None),
+    }
+
+
+def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
+    documento = vinculo.documento
+    _, competencia = servico_nfe.dia_e_competencia(documento)
+    tipo = servico_nfe.tipo_da_nota(documento, vinculo.papel)
+    leitura = LeituraItensNFe.objects.filter(documento=documento).first()
+    escrituracao = _escrituracao_ativa_nfe(vinculo)
+    nota = next(
+        (
+            n
+            for n in servico_nfe.notas_do_mes(empresa, competencia.year, competencia.month)
+            if n.vinculo.pk == vinculo.pk
+        ),
+        None,
+    )
+    lida = leitura is not None and leitura.estado == LeituraItensNFe.ESTADO_LIDA
+    cancelada = situacao_da_nfe(documento) == "cancelada"
+    pode = _pode_escriturar(request)
+
+    linhas: list[dict] = []
+    pares: list[tuple] = []
+    if lida and tipo is not None:
+        pares = _pares_da_escrituracao(documento, escrituracao)
+        tipo_da_tela = escrituracao.tipo if escrituracao is not None else tipo
+        linhas = [
+            _linha_do_item_nfe(item, natureza, documento, tipo_da_tela) for item, natureza in pares
+        ]
+
+    pode_efetivar, motivo_efetivar, conferencia, divergiu = (
+        _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada)
+        if pares
+        else (False, "", None, False)
+    )
+    rascunho = escrituracao is not None and escrituracao.estado == EstadoEscrituracao.RASCUNHO
+    efetivada = escrituracao is not None and escrituracao.estado == EstadoEscrituracao.EFETIVADA
+    contexto = {
+        "empresa": empresa,
+        "vinculo": vinculo,
+        "documento": documento,
+        "papel_rotulo": _ROTULO_PAPEL_NFE[vinculo.papel],
+        "modelo_rotulo": documento.get_modelo_display(),
+        "chave_em_grupos": _chave_em_grupos(documento.chave),
+        "tp_nf_rotulo": _ROTULO_TP_NF.get(documento.tp_nf, documento.tp_nf),
+        "fin_nfe_rotulo": _ROTULO_FIN_NFE.get(documento.fin_nfe, documento.fin_nfe),
+        "emissao": documento.dh_emissao,
+        "competencia_rotulo": f"{competencia.month:02d}/{competencia.year}",
+        "emitente_documento": _documento_na_tela(
+            documento.emitente_tipo_documento, documento.emitente_documento
+        ),
+        "destinatario_documento": _documento_na_tela(
+            documento.destinatario_tipo_documento, documento.destinatario_documento
+        ),
+        "valor_nf_ptbr": _valor_ptbr(documento.v_nf),
+        "nota": nota,
+        "situacao_rotulo": (
+            _ROTULO_SITUACAO_NFE_ESCRITURACAO.get(nota.situacao, nota.situacao)
+            if nota is not None
+            else ""
+        ),
+        "fora_motivo": (
+            None
+            if tipo is not None
+            else servico_nfe.motivo_fora_da_escrituracao(documento, vinculo.papel)
+        ),
+        "escrituracao": escrituracao,
+        "rascunho": rascunho,
+        "efetivada": efetivada,
+        "lida": lida,
+        "leitura_rotulo": _ROTULO_LEITURA_NFE.get(
+            leitura.estado if leitura else None, "Ainda não lida"
+        ),
+        "leitura_motivo": leitura.motivo if leitura else "",
+        "avisos": servico_nfe.avisos_ibscbs(documento, leitura),
+        "pode_escriturar": pode,
+        "linhas": linhas,
+        "grupos_de_sinal": _grupos_de_sinal(linhas) if rascunho and pode else [],
+        "pendentes": sum(1 for _, natureza in pares if not natureza),
+        "pode_efetivar": pode_efetivar,
+        "motivo_efetivar": motivo_efetivar,
+        "conferencia": (
+            _conferencia_na_tela(documento, leitura, pares, escrituracao, efetivada, conferencia)
+            if pares and (rascunho or efetivada)
+            else None
+        ),
+        "conferencia_divergiu": divergiu,
+        "segregacao": (
+            [
+                {
+                    "rotulo": _ROTULO_SEGREGACAO_NFE[chave],
+                    "valor_ptbr": _valor_ptbr(valor),
+                }
+                for chave, valor in servico_nfe.segregacao_da_escrituracao(escrituracao).items()
+            ]
+            if efetivada or rascunho
+            else []
+        ),
+        "url_lista": (
+            reverse("fiscal_web:nfe_a_escriturar")
+            + "?"
+            + urlencode({"empresa": empresa.pk, "ano": competencia.year, "mes": competencia.month})
+        ),
+        "url_estornar": (
+            reverse("fiscal_web:nfe_estornar", args=[empresa.pk, escrituracao.pk])
+            if efetivada and escrituracao is not None
+            else ""
+        ),
+        "url_escriturar": reverse("fiscal_web:nfe_escriturar", args=[empresa.pk, vinculo.pk]),
+    }
+    return render(request, "fiscal/nfe_escriturar.html", contexto, status=status)
+
+
+def _redirecionar_escriturar_nfe(empresa, vinculo):
+    return redirect("fiscal_web:nfe_escriturar", empresa_id=empresa.pk, vinculo_id=vinculo.pk)
+
+
+def _itens_com_sugestao_pendente(documento, escrituracao, sinal):
+    """Itens SEM natureza confirmada cuja sugestão é `sinal`: o alvo do bloco é escolhido aqui,
+    no servidor, pelo mesmo serviço de sugestão. O cliente não envia lista de itens."""
+    registros = NaturezaItemNFe.objects.select_related("item").filter(
+        escrituracao=escrituracao, natureza=""
+    )
+    return [
+        registro.item_id
+        for registro in registros
+        if servico_nfe.sugerir_natureza_item(documento, registro.item, escrituracao.tipo).natureza
+        == sinal
+    ]
+
+
+def _escriturar_nfe_post(request, empresa, vinculo):
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_ESCRITURAR_NFE)
+    except DadoNaoContratado as exc:
+        raise _EntradaNfeRecusada(exc.mensagem) from exc
+    acao = request.POST.get("acao", "")
+    if acao not in _ACOES_ESCRITURAR_NFE:
+        raise _EntradaNfeRecusada("Ação desconhecida na escrituração de NF-e.")
+
+    try:
+        if acao == "criar":
+            escrituracao = servico_nfe.criar_rascunho(
+                vinculo, usuario=request.user, request=request
+            )
+            if escrituracao.criada_agora:
+                messages.success(
+                    request, "Rascunho criado. Confirme a natureza de cada item e efetive."
+                )
+            else:
+                messages.info(request, "Esta nota já tinha rascunho. Nada foi alterado.")
+            return _redirecionar_escriturar_nfe(empresa, vinculo)
+
+        escrituracao = _escrituracao_ativa_nfe(vinculo)
+        if escrituracao is None:
+            raise servico_nfe.EscrituracaoNFeErro(
+                "Esta nota não tem rascunho. Crie o rascunho antes de confirmar naturezas."
+            )
+        if acao == "efetivar":
+            # Recusa em pt-BR antes do serviço, que continua a autoridade (ver `_recusa_previa`).
+            recusa = _recusa_previa_da_efetivacao(vinculo, escrituracao)
+            if recusa:
+                messages.error(request, recusa)
+                return _tela_de_escriturar_nfe(request, empresa, vinculo, status=409)
+            efetivada = servico_nfe.efetivar(escrituracao, usuario=request.user, request=request)
+            if efetivada.criada_agora:
+                messages.success(
+                    request, "Escrituração efetivada. A receita do mês foi atualizada."
+                )
+            else:
+                messages.info(request, "Esta escrituração já estava efetivada. Nada foi alterado.")
+        elif acao == "item":
+            item_id = _id_do_formulario_nfe(request.POST.get("item_id"), "Item")
+            natureza = _texto_nfe(request.POST.get("natureza"), "Natureza", _TAMANHO_NATUREZA_NFE)
+            servico_nfe.definir_natureza(
+                escrituracao, natureza, [item_id], usuario=request.user, request=request
+            )
+            messages.success(request, "Natureza do item confirmada.")
+        else:  # bloco
+            sinal = _texto_nfe(request.POST.get("sinal"), "Sinal", _TAMANHO_NATUREZA_NFE)
+            ids = _itens_com_sugestao_pendente(vinculo.documento, escrituracao, sinal)
+            if not ids:
+                raise servico_nfe.EntradaInvalidaNFe(
+                    "Nenhum item sem natureza confirmada tem esta sugestão."
+                )
+            servico_nfe.definir_natureza(
+                escrituracao, sinal, ids, usuario=request.user, request=request
+            )
+            messages.success(
+                request, f"Natureza confirmada em {len(ids)} item(ns) com a mesma sugestão."
+            )
+    except servico_nfe.EntradaInvalidaNFe as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_escriturar_nfe(request, empresa, vinculo, status=400)
+    except servico_nfe.EscrituracaoNFeErro as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_escriturar_nfe(request, empresa, vinculo, status=409)
+    return _redirecionar_escriturar_nfe(empresa, vinculo)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+@_entrada_nfe_verificada
+def nfe_escriturar(request, empresa_id, vinculo_id):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    # POST é escrita: quem só consulta (PARALEGAL, CLIENTE) recebe 403, mesmo sem botão na tela.
+    if request.method == "POST":
+        if not _pode_escriturar(request):
+            return _resposta_sem_permissao(request, _MENSAGEM_SEM_ESCRITA_NFE)
+    elif not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_ESCRITURACAO_NFE)
+    empresa = _empresa_nfe_da_rota(request, empresa_id)
+    vinculo = _vinculo_nfe_da_empresa(request, empresa, vinculo_id)
+    if request.method == "POST":
+        return _escriturar_nfe_post(request, empresa, vinculo)
+    return _tela_de_escriturar_nfe(request, empresa, vinculo)
+
+
+# Tela 3 — arquétipo E (confirmação de ação sensível): estornar, com motivo.
+
+_CONTRATO_ESTORNAR_NFE = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no estorno da escrituração de NF-e",
+)
+
+
+def _tela_de_estornar_nfe(request, empresa, escrituracao, *, motivo, status=200):
+    contexto = {
+        "empresa": empresa,
+        "escrituracao": escrituracao,
+        "documento": escrituracao.vinculo.documento,
+        "efetivada": escrituracao.estado == EstadoEscrituracao.EFETIVADA,
+        "estado_rotulo": escrituracao.get_estado_display(),
+        "competencia_rotulo": (
+            f"{escrituracao.competencia.month:02d}/{escrituracao.competencia.year}"
+            if escrituracao.competencia
+            else "—"
+        ),
+        "receita_ptbr": _valor_ptbr(escrituracao.receita_bruta),
+        "devolucao_ptbr": _valor_ptbr(escrituracao.devolucao),
+        "motivo": motivo,
+        "motivo_maximo": servico_nfe.MOTIVO_MAXIMO,
+        "url_detalhe": reverse(
+            "fiscal_web:nfe_escriturar",
+            args=[empresa.pk, escrituracao.vinculo_id],
+        ),
+    }
+    return render(request, "fiscal/nfe_estornar.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+@_entrada_nfe_verificada
+def nfe_estornar(request, empresa_id, escrituracao_id):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_ESCRITA_NFE)
+    empresa = _empresa_nfe_da_rota(request, empresa_id)
+    escrituracao = _escrituracao_nfe_da_empresa(request, empresa, escrituracao_id)
+    if request.method == "GET":
+        return _tela_de_estornar_nfe(request, empresa, escrituracao, motivo="")
+
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_ESTORNAR_NFE)
+    except DadoNaoContratado as exc:
+        raise _EntradaNfeRecusada(exc.mensagem) from exc
+    # O tamanho e o motivo vazio são do serviço (EntradaInvalidaNFe, 400). Aqui só o byte nulo.
+    motivo = _texto_seguro_nfe(request.POST.get("motivo"), "Motivo do estorno")
+    try:
+        servico_nfe.estornar(escrituracao, motivo, usuario=request.user, request=request)
+    except servico_nfe.EntradaInvalidaNFe as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_estornar_nfe(request, empresa, escrituracao, motivo=motivo, status=400)
+    except servico_nfe.EscrituracaoNFeErro as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_estornar_nfe(request, empresa, escrituracao, motivo=motivo, status=409)
+    messages.success(
+        request, "Escrituração estornada. A nota voltou para a lista, a escriturar de novo."
+    )
+    return redirect(
+        "fiscal_web:nfe_escriturar",
+        empresa_id=empresa.pk,
+        vinculo_id=escrituracao.vinculo_id,
+    )
+
+
+# Tela 4 — arquétipo E: reclassificação em massa, com prévia e confirmação.
+
+_CONTRATO_RECLASSIFICAR_NFE = ContratoDeRequisicao(
+    campos={
+        "csrfmiddlewaretoken",
+        "acao",
+        "empresa",
+        "natureza",
+        "inicio",
+        "fim",
+        "cfop",
+        "cst_csosn",
+        "ncm",
+        "previstas_notas",
+        "previstos_itens",
+    },
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na reclassificação em massa de NF-e",
+)
+
+
+def _filtros_da_reclassificacao(post):
+    inicio = _data_nfe(post.get("inicio"), "Período de")
+    fim = _data_nfe(post.get("fim"), "Período até")
+    if inicio and fim and inicio > fim:
+        raise _EntradaNfeRecusada("'Período de' não pode ser posterior a 'Período até'.")
+    return servico_nfe.FiltrosReclassificacao(
+        inicio=inicio,
+        fim=fim,
+        cfop=_codigo_fiscal_nfe(post.get("cfop"), "CFOP", r"[0-9]{4}", "exatamente 4 dígitos"),
+        cst_csosn=_codigo_fiscal_nfe(
+            post.get("cst_csosn"), "CST/CSOSN", r"[0-9]{2,3}", "2 ou 3 dígitos"
+        ),
+        ncm=_codigo_fiscal_nfe(post.get("ncm"), "NCM", r"[0-9]{8}", "exatamente 8 dígitos"),
+    )
+
+
+def _valores_da_reclassificacao(post):
+    """Valores digitados, de volta ao formulário (só após a validação de formato)."""
+    return {
+        "natureza": _texto_nfe(post.get("natureza"), "Natureza", _TAMANHO_NATUREZA_NFE),
+        "inicio": _texto_nfe(post.get("inicio"), "Período de", 10),
+        "fim": _texto_nfe(post.get("fim"), "Período até", 10),
+        "cfop": _texto_nfe(post.get("cfop"), "CFOP", 8),
+        "cst_csosn": _texto_nfe(post.get("cst_csosn"), "CST/CSOSN", 8),
+        "ncm": _texto_nfe(post.get("ncm"), "NCM", 8),
+    }
+
+
+def _tela_de_reclassificar_nfe(request, empresa, *, valores, previa=None, status=200):
+    contexto = {
+        "empresas_do_escritorio": Empresa.objects.filter(escritorio=request.escritorio).order_by(
+            "razao_social"
+        ),
+        "empresa": empresa,
+        "valores": valores,
+        "opcoes_de_natureza": sorted(NaturezaOperacaoNFe.choices, key=lambda opcao: opcao[1]),
+        "previa": previa,
+        "url_lista": reverse("fiscal_web:nfe_a_escriturar"),
+    }
+    return render(request, "fiscal/nfe_reclassificar.html", contexto, status=status)
+
+
+def _previa_da_reclassificacao(empresa, natureza, filtros, request):
+    """Prévia: roda o SERVIÇO de verdade e desfaz tudo no fim. Assim a contagem é a que a
+    confirmação gravaria, sem uma segunda regra de filtro na tela. Nada persiste."""
+    with transaction.atomic():
+        resultado = servico_nfe.reclassificar_em_massa(
+            empresa, natureza, filtros, usuario=request.user, request=request
+        )
+        transaction.set_rollback(True)
+    return resultado
+
+
+def _reclassificar_nfe_post(request):
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_RECLASSIFICAR_NFE)
+    except DadoNaoContratado as exc:
+        raise _EntradaNfeRecusada(exc.mensagem) from exc
+    acao = request.POST.get("acao", "")
+    if acao not in _ACOES_RECLASSIFICAR_NFE:
+        raise _EntradaNfeRecusada("Ação desconhecida na reclassificação.")
+    empresa = _empresa_nfe_do_campo(request, request.POST.get("empresa"))
+    if empresa is None:
+        raise _EntradaNfeRecusada("Escolha uma empresa para reclassificar.")
+    filtros = _filtros_da_reclassificacao(request.POST)
+    valores = _valores_da_reclassificacao(request.POST)
+    natureza = valores["natureza"]
+
+    if acao == "previa":
+        try:
+            resultado = _previa_da_reclassificacao(empresa, natureza, filtros, request)
+        except servico_nfe.EntradaInvalidaNFe as exc:
+            messages.error(request, exc.mensagem)
+            return _tela_de_reclassificar_nfe(request, empresa, valores=valores, status=400)
+        previa = {
+            "notas": resultado.escrituracoes_afetadas,
+            "itens": resultado.itens_alterados,
+            "natureza_rotulo": NaturezaOperacaoNFe(natureza).label
+            if natureza in NaturezaOperacaoNFe.values
+            else natureza,
+        }
+        return _tela_de_reclassificar_nfe(request, empresa, valores=valores, previa=previa)
+
+    previstas_notas = _contagem_do_formulario_nfe(request.POST.get("previstas_notas"), "Notas")
+    previstos_itens = _contagem_do_formulario_nfe(request.POST.get("previstos_itens"), "Itens")
+    divergiu = False
+    try:
+        with transaction.atomic():
+            resultado = servico_nfe.reclassificar_em_massa(
+                empresa, natureza, filtros, usuario=request.user, request=request
+            )
+            # A confirmação só grava o que a prévia mostrou. Se os dados mudaram, desfaz tudo.
+            if (resultado.escrituracoes_afetadas, resultado.itens_alterados) != (
+                previstas_notas,
+                previstos_itens,
+            ):
+                transaction.set_rollback(True)
+                divergiu = True
+    except servico_nfe.EntradaInvalidaNFe as exc:
+        messages.error(request, exc.mensagem)
+        return _tela_de_reclassificar_nfe(request, empresa, valores=valores, status=400)
+    if divergiu:
+        messages.error(
+            request,
+            "Os dados mudaram desde a prévia: nada foi alterado. "
+            "Refaça a prévia antes de confirmar.",
+        )
+        return _tela_de_reclassificar_nfe(request, empresa, valores=valores, status=409)
+    messages.success(
+        request,
+        f"Reclassificados {resultado.itens_alterados} item(ns) em "
+        f"{resultado.escrituracoes_afetadas} nota(s) em rascunho.",
+    )
+    return redirect(
+        f"{reverse('fiscal_web:nfe_reclassificar')}?{urlencode({'empresa': empresa.pk})}"
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+@_entrada_nfe_verificada
+def nfe_reclassificar(request):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_ESCRITA_NFE)
+    if request.method == "POST":
+        return _reclassificar_nfe_post(request)
+    empresa = _empresa_nfe_do_campo(request, request.GET.get("empresa"))
+    valores = {"natureza": "", "inicio": "", "fim": "", "cfop": "", "cst_csosn": "", "ncm": ""}
+    return _tela_de_reclassificar_nfe(request, empresa, valores=valores)
+
+
+# Tela 5 — arquétipo C (conferência do mês). Relatório de CONFERÊNCIA (classe 1 da
+# personalização de relatório): só leitura, nenhum valor é recalculado aqui.
+
+
+@login_required
+@require_safe
+@_entrada_nfe_verificada
+def nfe_conferencia(request):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_ESCRITURACAO_NFE)
+    empresa = _empresa_nfe_do_campo(request, request.GET.get("empresa"))
+    ano, mes = _competencia_nfe(request)
+    contexto = {
+        "empresas_do_escritorio": Empresa.objects.filter(escritorio=request.escritorio).order_by(
+            "razao_social"
+        ),
+        "empresa": empresa,
+        "ano": ano,
+        "mes": mes,
+        "url_lista": reverse("fiscal_web:nfe_a_escriturar"),
+    }
+    if empresa is None:
+        return render(request, "fiscal/nfe_conferencia.html", contexto)
+
+    conferencia = servico_nfe.conferencia_do_mes(empresa, ano, mes)
+    composicao = servico_receita.composicao_do_mes(empresa, ano, mes)
+    notas = servico_nfe.notas_do_mes(empresa, ano, mes)
+    naturezas = sorted(
+        conferencia.receita_por_natureza.items(),
+        key=lambda par: NaturezaOperacaoNFe(par[0]).label,
+    )
+    total_nfe = sum((linha["soma_na_receita"] for _, linha in naturezas), Decimal("0.00"))
+    contexto.update(
+        {
+            "situacao": [
+                {"rotulo": "Recebidas no mês (elegíveis)", "quantidade": conferencia.recebidas},
+                {"rotulo": "Escrituradas e efetivadas", "quantidade": conferencia.escrituradas},
+                {
+                    "rotulo": "Pendentes (sem escrituração ou em rascunho)",
+                    "quantidade": conferencia.pendentes,
+                },
+                {"rotulo": "Canceladas (total)", "quantidade": conferencia.canceladas},
+                {
+                    "rotulo": "Canceladas depois de escriturada",
+                    "quantidade": conferencia.escrituradas_canceladas,
+                    "destaque": True,
+                },
+                {
+                    "rotulo": "Itens sem sugestão de natureza (em nota a escriturar)",
+                    "quantidade": conferencia.itens_sem_sugestao,
+                },
+                {
+                    "rotulo": "Fora da escrituração (compra, ajuste e outras)",
+                    "quantidade": conferencia.nao_elegiveis,
+                },
+            ],
+            "receita_de_natureza": [
+                {
+                    "rotulo": NaturezaOperacaoNFe(natureza).label,
+                    "papel": _ROTULO_PAPEL_NATUREZA_NFE[linha["papel"]],
+                    "mercado": _ROTULO_MERCADO_NFE[linha["mercado"]],
+                    "bruto_ptbr": _valor_ptbr(linha["bruto"]),
+                    "soma_ptbr": _valor_ptbr(linha["soma_na_receita"]),
+                }
+                for natureza, linha in naturezas
+                if linha["papel"] != "nao_receita"
+            ],
+            "sem_receita": [
+                {
+                    "rotulo": NaturezaOperacaoNFe(natureza).label,
+                    "bruto_ptbr": _valor_ptbr(linha["bruto"]),
+                }
+                for natureza, linha in naturezas
+                if linha["papel"] == "nao_receita"
+            ],
+            "total_nfe_ptbr": _valor_ptbr(total_nfe),
+            "valor_por_cfop": [
+                {"cfop": cfop, "valor_ptbr": _valor_ptbr(valor)}
+                for cfop, valor in sorted(conferencia.receita_por_cfop.items())
+            ],
+            "composicao": [
+                {
+                    "mercado": _ROTULO_MERCADO_NFE[mercado.mercado],
+                    "mercadoria_ptbr": _valor_ptbr(mercado.mercadoria),
+                    "devolucao_ptbr": _valor_ptbr(mercado.devolucao),
+                    "saldo_entrada_ptbr": _valor_ptbr(mercado.saldo_entrada),
+                    "deduzido_ptbr": _valor_ptbr(mercado.deduzido),
+                    "saldo_transportado_ptbr": _valor_ptbr(mercado.saldo_transportado),
+                }
+                for mercado in (composicao.interno, composicao.externo)
+            ],
+            "canceladas_depois": [
+                _linha_nfe_a_escriturar(nota, empresa, False, set())
+                for nota in notas
+                if nota.situacao == servico_nfe.SITUACAO_CANCELADA_DEPOIS_DE_ESCRITURADA
+            ],
+        }
+    )
+    return render(request, "fiscal/nfe_conferencia.html", contexto)

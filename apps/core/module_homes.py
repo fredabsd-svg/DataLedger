@@ -971,6 +971,20 @@ def _dados_fiscal(request, escopo):
         if len(empresas) == 1:
             url_nfe += "?" + urlencode({"empresa": empresas[0].pk})
         atalhos.append({"rotulo": "NF-e recebidas", "url": url_nfe})
+        # DL-081 (frente B): NF-e a escriturar no mês. Mesma regra: UMA empresa na URL; sem ela, a
+        # própria tela pede a escolha.
+        url_nfe_escriturar = (
+            reverse("fiscal_web:nfe_a_escriturar")
+            + "?"
+            + urlencode(
+                {
+                    "ano": escopo.ano,
+                    "mes": escopo.mes,
+                    **({"empresa": empresas[0].pk} if len(empresas) == 1 else {}),
+                }
+            )
+        )
+        atalhos.append({"rotulo": "NF-e a escriturar", "url": url_nfe_escriturar})
         # DL-074 (frente B): receita mensal do Simples. Mesma permissão de consulta; o
         # painel pede UMA empresa, e sem ela a própria tela pede a escolha.
         atalhos.append(

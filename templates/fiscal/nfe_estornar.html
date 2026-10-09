@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block titulo %}Estornar escrituração de NF-e nº {{ documento.numero }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_detalhe }}">Escriturar NF-e nº {{ documento.numero }}</a></li>
+            <li aria-current="page">Estornar</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_detalhe }}">‹ Voltar para a escrituração</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-081 (frente B), tela 3, arquétipo E (confirmação de ação sensível): diz o que vai acontecer e o
+que ainda dá para desfazer. O motivo é obrigatório e fica na trilha de auditoria; o estorno nunca apaga a linha.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Estornar escrituração de NF-e nº {{ documento.numero }}</h1>{% endblock %}
+
+{% block content %}
+    {% if efetivada %}
+        <div class="painel-etapa painel-etapa--risco">
+            <h2>O que vai acontecer</h2>
+            <p>
+                A escrituração da NF-e nº {{ documento.numero }} (competência {{ competencia_rotulo }}) passa a
+                estornada. Ela sai da receita do mês e a nota volta para <strong>a escriturar</strong>.
+            </p>
+            <dl class="lista-de-definicao documento-sem-quebra">
+                <div>
+                    <dt>Receita bruta da escrituração</dt>
+                    <dd class="valor-monetario">{{ receita_ptbr }}</dd>
+                </div>
+                <div>
+                    <dt>Devolução de venda da escrituração</dt>
+                    <dd class="valor-monetario">{{ devolucao_ptbr }}</dd>
+                </div>
+            </dl>
+            <p>
+                A linha não é apagada: o estorno, o motivo e quem estornou ficam registrados na trilha de auditoria.
+                Para escriturar de novo, é preciso efetivar outra vez.
+            </p>
+        </div>
+
+        <form method="post" action="{% url 'fiscal_web:nfe_estornar' empresa.id escrituracao.id %}" class="formulario">
+            {% csrf_token %}
+            <div class="campo">
+                <label for="id_motivo">Motivo do estorno</label>
+                <textarea id="id_motivo" name="motivo" required rows="3" maxlength="{{ motivo_maximo }}"
+                          aria-describedby="id_motivo_ajuda">{{ motivo }}</textarea>
+                <p class="texto-apoio" id="id_motivo_ajuda">
+                    Obrigatório. Fica na trilha de auditoria desta escrituração, com até {{ motivo_maximo }} caracteres.
+                </p>
+            </div>
+            <button type="submit" class="botao botao--perigoso">Estornar escrituração de NF-e nº {{ documento.numero }}</button>
+        </form>
+    {% else %}
+        <p class="mensagem mensagem-error" role="alert">
+            <strong>Erro:</strong> só a escrituração efetivada pode ser estornada. Esta está "{{ estado_rotulo }}".
+        </p>
+        <p>
+            <a class="botao botao--secundario" href="{{ url_detalhe }}">Voltar para a escrituração</a>
+        </p>
+    {% endif %}
+{% endblock %}

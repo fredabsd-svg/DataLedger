@@ -49,7 +49,7 @@ from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
 from apps.empresas.models import Empresa
 from apps.empresas.permissoes import papel_pode_ler_carteira
 from apps.empresas.views import PodeGerenciarEmpresa
-from apps.fiscal.permissoes import papel_pode_consultar_documentos
+from apps.fiscal.permissoes import papel_pode_consultar_documentos, papel_pode_escriturar_fiscal
 
 # Rótulo de exibição por (namespace, url_name) — única fonte, usada pela
 # trilha PADRÃO (abaixo). Rota sem entrada aqui simplesmente não ganha um
@@ -120,6 +120,12 @@ ROTULOS_DE_TELA = {
     ("fiscal_web", "escriturar_nota"): "Escriturar nota",
     ("fiscal_web", "escrituracao_detalhe"): "Escrituração",
     ("fiscal_web", "escrituracao_estornar"): "Estornar escrituração",
+    # DL-081 (frente B): escrituração das NF-e de saída e da devolução de venda.
+    ("fiscal_web", "nfe_a_escriturar"): "NF-e a escriturar",
+    ("fiscal_web", "nfe_escriturar"): "Escriturar NF-e",
+    ("fiscal_web", "nfe_estornar"): "Estornar escrituração de NF-e",
+    ("fiscal_web", "nfe_reclassificar"): "Reclassificar NF-e em massa",
+    ("fiscal_web", "nfe_conferencia"): "Conferência de NF-e",
     # DL-074 (frente B): receita mensal do Simples Nacional e suas telas de ação.
     ("fiscal_web", "receita_do_mes"): "Receita do mês",
     ("fiscal_web", "receita_informada_nova"): "Lançar receita informada",
@@ -284,6 +290,9 @@ def navegacao_do_menu(request):
     contexto = {
         "pode_ler_contabilidade_no_menu": papel_pode_ler_contabilidade(papel),
         "pode_consultar_fiscal_no_menu": papel_pode_consultar_documentos(papel),
+        # DL-081 (frente B): quem escritura NF-e vê a reclassificação em massa no menu. Mesma função
+        # que o servidor usa para recusar (`apps.fiscal.permissoes`), nunca uma lista no template.
+        "pode_escriturar_fiscal_no_menu": papel_pode_escriturar_fiscal(papel),
         # DL-055: o servidor recusa (403) o cadastro de empresas a quem não lê
         # a carteira (hoje, o CLIENTE). Esta flag só evita CONVIDAR a uma
         # tela que o usuário não pode abrir — mesma função que a API usa

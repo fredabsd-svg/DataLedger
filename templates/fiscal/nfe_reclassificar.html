@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block titulo %}Reclassificar NF-e em massa{% if empresa %} — {{ empresa.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa.razao_social }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_lista }}">NF-e a escriturar</a></li>
+            <li aria-current="page">Reclassificar em massa</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_lista }}">‹ Voltar para as NF-e a escriturar</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-081 (frente B), tela 4, arquétipo E (confirmação de ação sensível). Primeiro a PRÉVIA, com a contagem
+de itens e de notas que o serviço mudaria; depois a confirmação, que refaz a conta e só grava se bater
+com a prévia. Só altera nota em rascunho: efetivada e estornada não entram.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Reclassificar NF-e em massa</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Troca a natureza dos itens de todas as notas em <strong>rascunho</strong> que casam com os filtros.
+        Notas efetivadas e estornadas não mudam. Cada nota alterada fica registrada na trilha de auditoria.
+    </p>
+
+    <form method="post" action="{{ request.path }}" class="formulario">
+        {% csrf_token %}
+        <div class="campo">
+            <label for="id_rec_empresa">Empresa</label>
+            <select id="id_rec_empresa" name="empresa" required>
+                <option value="">Escolha uma empresa</option>
+                {% for opcao in empresas_do_escritorio %}
+                    <option value="{{ opcao.pk }}"{% if empresa and opcao.pk == empresa.pk %} selected{% endif %}>{{ opcao.razao_social }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_rec_natureza">Natureza para a qual trocar</label>
+            <select id="id_rec_natureza" name="natureza" required>
+                <option value="">Escolha a natureza</option>
+                {% for valor, rotulo in opcoes_de_natureza %}
+                    <option value="{{ valor }}"{% if valor == valores.natureza %} selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_rec_inicio">Período de (emissão)</label>
+            <input type="text" id="id_rec_inicio" name="inicio" value="{{ valores.inicio }}" maxlength="10"
+                   inputmode="numeric" aria-describedby="id_rec_filtros_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_rec_fim">Período até (emissão)</label>
+            <input type="text" id="id_rec_fim" name="fim" value="{{ valores.fim }}" maxlength="10"
+                   inputmode="numeric" aria-describedby="id_rec_filtros_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_rec_cfop">CFOP</label>
+            <input type="text" id="id_rec_cfop" name="cfop" value="{{ valores.cfop }}" maxlength="8"
+                   inputmode="numeric" aria-describedby="id_rec_filtros_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_rec_cst">CST ou CSOSN</label>
+            <input type="text" id="id_rec_cst" name="cst_csosn" value="{{ valores.cst_csosn }}" maxlength="8"
+                   inputmode="numeric" aria-describedby="id_rec_filtros_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_rec_ncm">NCM</label>
+            <input type="text" id="id_rec_ncm" name="ncm" value="{{ valores.ncm }}" maxlength="8"
+                   inputmode="numeric" aria-describedby="id_rec_filtros_ajuda">
+        </div>
+        <p class="texto-apoio" id="id_rec_filtros_ajuda">
+            Filtros combinados por E. Deixe em branco o que não for filtro. Datas em dd/mm/aaaa; CFOP com 4 dígitos,
+            CST ou CSOSN com 2 ou 3, NCM com 8.
+        </p>
+        <div class="acoes-formulario">
+            <button type="submit" name="acao" value="previa" class="botao botao--secundario">Ver prévia</button>
+        </div>
+    </form>
+
+    {% if previa %}
+        <div class="painel-etapa documento-sem-quebra">
+            <h2>Prévia: nada foi alterado ainda</h2>
+            <p>
+                Passariam para <strong>{{ previa.natureza_rotulo }}</strong>:
+                <strong>{{ previa.itens }}</strong> item(ns), em <strong>{{ previa.notas }}</strong> nota(s) em rascunho.
+            </p>
+            {% if previa.itens %}
+                <form method="post" action="{{ request.path }}" class="formulario">
+                    {% csrf_token %}
+                    <input type="hidden" name="acao" value="confirmar">
+                    <input type="hidden" name="empresa" value="{{ empresa.pk }}">
+                    <input type="hidden" name="natureza" value="{{ valores.natureza }}">
+                    <input type="hidden" name="inicio" value="{{ valores.inicio }}">
+                    <input type="hidden" name="fim" value="{{ valores.fim }}">
+                    <input type="hidden" name="cfop" value="{{ valores.cfop }}">
+                    <input type="hidden" name="cst_csosn" value="{{ valores.cst_csosn }}">
+                    <input type="hidden" name="ncm" value="{{ valores.ncm }}">
+                    <input type="hidden" name="previstas_notas" value="{{ previa.notas }}">
+                    <input type="hidden" name="previstos_itens" value="{{ previa.itens }}">
+                    <p class="texto-apoio">
+                        Ao confirmar, o servidor refaz a conta. Se algum item tiver mudado desde esta prévia, nada é gravado.
+                    </p>
+                    <button type="submit" class="botao botao--perigoso">Confirmar a troca de {{ previa.itens }} item(ns) para {{ previa.natureza_rotulo }}</button>
+                </form>
+            {% else %}
+                <p class="texto-apoio">Nenhum item muda com estes filtros. Não há o que confirmar.</p>
+            {% endif %}
+        </div>
+    {% endif %}
+{% endblock %}
