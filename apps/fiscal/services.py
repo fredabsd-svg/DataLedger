@@ -30,16 +30,20 @@ from django.db.models.functions import Substr
 from apps.auditoria.services import registrar
 from apps.empresas.models import Empresa, Estabelecimento
 from apps.empresas.validators import normalizar_cnpj, normalizar_cpf
-from apps.fiscal import leitor
+from apps.fiscal import leitor, leitor_nfe
 from apps.fiscal.models import (
     DocumentoFiscal,
+    DocumentoNFe,
     EventoFiscal,
+    EventoNFe,
     LoteDeRecepcao,
     PapelDocumento,
+    PapelNFe,
     ResultadoDoArquivo,
     TipoDocumentoFiscal,
     TipoResultadoArquivo,
     VinculoDocumentoEmpresa,
+    VinculoNFeEmpresa,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,7 +63,11 @@ logger = logging.getLogger(__name__)
 # medimos o teto real do escritório.
 LIMITE_TAMANHO_ENVIO_BYTES = 50 * 1024 * 1024  # 50 MB
 LIMITE_ARQUIVOS_NO_ENVIO = 2_000
-LIMITE_TAMANHO_XML_BYTES = 1 * 1024 * 1024  # 1 MB por XML
+LIMITE_TAMANHO_XML_BYTES = 1 * 1024 * 1024  # 1 MB por XML de NFS-e
+# DL-080 (HI-112): a NF-e admite até 990 itens (leiauteNFe_v4.00.xsd:867), e uma nota grande
+# passaria de 1 MB. O teto de 4 MB vale só para o namespace da NF-e; a NFS-e segue em 1 MB, e
+# os limites do lote (envio, quantidade de arquivos e descompactado) não mudam.
+LIMITE_TAMANHO_XML_NFE_BYTES = 4 * 1024 * 1024  # 4 MB por XML de NF-e
 LIMITE_DESCOMPACTADO_BYTES = 200 * 1024 * 1024  # 200 MB
 
 # DE-076 item 1 (achado A3): um envio por vez, por escritório. Namespace
@@ -471,6 +479,309 @@ def _motivo_de_duplicado(existente, sha256_novo: str, rotulo: str, *, vinculo_no
     return base
 
 
+# ---------------------------------------------------------------------------
+# DL-080 (frente A): NF-e modelo 55, NFC-e modelo 65 e eventos de NF-e.
+#
+# Tabelas próprias (`DocumentoNFe`, `VinculoNFeEmpresa`, `EventoNFe`). A identificação
+# de empresa é o MESMO ponto único da NFS-e (`localizar_empresa_do_escritorio`): a
+# empresa vem só de `emit` e `dest`, nunca da chave, nem de `autXML`, transportador,
+# retirada, entrega ou informação adicional (riscos de isolamento, pesquisa seção 5).
+# ---------------------------------------------------------------------------
+
+# Status do retorno que faz um evento de NF-e valer. Só estes registram o evento. Sem
+# retorno, ou com retorno rejeitado, o evento não tem efeito (pesquisa, seção 2). 155 é
+# citado no MOC 7.0 (MOC:6181) e não consta do quadro de códigos do próprio MOC.
+CODIGOS_EFETIVOS_NFE = frozenset({"135", "136", "155"})
+
+# Eventos que CANCELAM a nota. 110111 é o cancelamento (MOC:1495). 110112 é o cancelamento
+# por substituição: o MOC o descreve só para a NFC-e (MOC:1497 e :2445-2475), mas a pesquisa não
+# encontrou regra que o proíba na NF-e, então os dois entram aqui. Carta de correção (110110),
+# manifestações, eventos da reforma e 110001 NÃO cancelam (MOC:1398-1404).
+CODIGOS_CANCELAMENTO_NFE = frozenset({"110111", "110112"})
+
+
+def efeito_do_evento_nfe(evento: EventoNFe) -> str:
+    """`"cancela"` ou `"sem efeito"` para o evento, pela MESMA regra de `situacao_da_nfe`.
+
+    Usado pela API para explicar um evento. A situação da nota não usa este valor: ela consulta
+    o banco com `Exists`, para que a ordem de chegada (nota antes ou depois do evento) não importe.
+    """
+    if evento.tp_evento in CODIGOS_CANCELAMENTO_NFE and evento.c_stat in CODIGOS_EFETIVOS_NFE:
+        return "cancela"
+    return "sem efeito"
+
+
+def _vincular_participantes_nfe(escritorio, lido: leitor_nfe.DocumentoNFeLido, *, mapa=None):
+    """Lista de `(empresa, papel)` a vincular e a marca de transferência entre estabelecimentos.
+
+    Emitente e destinatário são identificados pelo mesmo ponto único da NFS-e. Se os dois forem a
+    MESMA empresa (matriz e filial, por exemplo), fica um vínculo só, como emitente, com a marca
+    `transferencia` (HI-111). Nota sem parte do escritório é recusada com a MESMA mensagem da
+    NFS-e, exista ou não o CNPJ em outro escritório (critério 27 da DL-010).
+    """
+    empresa_emitente = localizar_empresa_do_escritorio(escritorio, lido.emitente, mapa=mapa)
+    empresa_destinatario = localizar_empresa_do_escritorio(escritorio, lido.destinatario, mapa=mapa)
+    vinculos = []
+    transferencia = False
+    if empresa_emitente is not None:
+        vinculos.append((empresa_emitente, PapelNFe.EMITENTE))
+    if empresa_destinatario is not None:
+        if empresa_emitente is not None and empresa_destinatario.pk == empresa_emitente.pk:
+            transferencia = True
+        else:
+            vinculos.append((empresa_destinatario, PapelNFe.DESTINATARIO))
+    if not vinculos:
+        partes = (lido.emitente, lido.destinatario)
+        if any(parte is not None and parte.tipo_documento == "CPF" for parte in partes):
+            raise leitor.ArquivoRecusado(MENSAGEM_PARTICIPANTE_PESSOA_FISICA_SEM_CADASTRO)
+        raise leitor.ArquivoRecusado(MENSAGEM_NENHUM_PARTICIPANTE_DO_ESCRITORIO)
+    return vinculos, transferencia
+
+
+def _criar_documento_nfe(
+    escritorio, lido: leitor_nfe.DocumentoNFeLido, *, mapa=None
+) -> DocumentoNFe:
+    # A checagem de isolamento acontece ANTES de qualquer escrita: nota sem parte do escritório
+    # nunca chega a tocar o banco.
+    vinculos, transferencia = _vincular_participantes_nfe(escritorio, lido, mapa=mapa)
+    destinatario = lido.destinatario
+
+    documento = DocumentoNFe.objects.create(
+        escritorio=escritorio,
+        modelo=lido.modelo,
+        versao=lido.versao,
+        chave=lido.chave,
+        xml_original=lido.xml_bytes,
+        sha256_arquivo=lido.sha256,
+        serie=lido.serie,
+        numero=lido.numero,
+        dh_emissao=lido.dh_emissao,
+        tp_nf=lido.tp_nf,
+        fin_nfe=lido.fin_nfe,
+        tp_nf_debito=lido.tp_nf_debito,
+        tp_nf_credito=lido.tp_nf_credito,
+        id_dest=lido.id_dest,
+        c_uf=lido.c_uf,
+        emitente_tipo_documento=lido.emitente.tipo_documento,
+        emitente_documento=lido.emitente.documento,
+        emitente_nome=lido.emitente.nome,
+        emitente_crt=lido.crt,
+        destinatario_tipo_documento=destinatario.tipo_documento if destinatario else "",
+        destinatario_documento=destinatario.documento if destinatario else "",
+        destinatario_nome=destinatario.nome if destinatario else "",
+        v_nf=lido.v_nf,
+        v_prod=lido.v_prod,
+        v_icms=lido.v_icms,
+        v_st=lido.v_st,
+        v_ipi=lido.v_ipi,
+        v_pis=lido.v_pis,
+        v_cofins=lido.v_cofins,
+        v_desc=lido.v_desc,
+        v_frete=lido.v_frete,
+        c_stat=lido.c_stat,
+        n_prot=lido.n_prot,
+        dh_recbto=lido.dh_recbto,
+        quantidade_itens=lido.quantidade_itens,
+        tem_ibscbs_total=lido.tem_ibscbs_total,
+        tem_ibscbs_item=lido.tem_ibscbs_item,
+        transferencia_entre_estabelecimentos=transferencia,
+    )  # pode levantar IntegrityError (escritorio+chave já existe) — tratado em
+    # `_processar_um_arquivo_nfe`, fora deste savepoint.
+
+    for empresa, papel in vinculos:
+        VinculoNFeEmpresa.objects.create(documento=documento, empresa=empresa, papel=papel)
+    return documento
+
+
+def _adicionar_vinculos_que_faltam_nfe(documento, escritorio, lido, *, mapa=None):
+    """Reenvio de uma nota já recebida: acrescenta o vínculo que faltava (empresa cadastrada
+    depois).
+
+    Mesmo molde de `_adicionar_vinculos_que_faltam` da NFS-e (achado A5), com a regra da NF-e. Só
+    cria o que não existe; a unicidade `(documento, empresa)` é respeitada também sob corrida.
+    Devolve a primeira empresa recém-vinculada, ou `None` se nada mudou.
+    """
+    try:
+        vinculos_alvo, _transferencia = _vincular_participantes_nfe(escritorio, lido, mapa=mapa)
+    except leitor.ArquivoRecusado:
+        return None
+    ja_vinculadas = set(documento.vinculos.values_list("empresa_id", flat=True))
+    vinculada_agora = None
+    for empresa, papel in vinculos_alvo:
+        if empresa.pk in ja_vinculadas:
+            continue
+        try:
+            with transaction.atomic():
+                VinculoNFeEmpresa.objects.create(documento=documento, empresa=empresa, papel=papel)
+        except IntegrityError:
+            continue
+        vinculada_agora = empresa
+    return vinculada_agora
+
+
+def _criar_evento_nfe(escritorio, lido: leitor_nfe.EventoNFeLido, *, mapa=None) -> EventoNFe:
+    # Evento ÓRFÃO (sem empresa do escritório como autor) é aceito e guardado, como na NFS-e. Ele
+    # só não tem `empresa` preenchida. Nunca é recusado por falta de participante.
+    empresa = localizar_empresa_do_escritorio(escritorio, lido.autor, mapa=mapa)
+    return EventoNFe.objects.create(
+        escritorio=escritorio,
+        identificador=lido.identificador,
+        tp_evento=lido.tp_evento,
+        n_seq_evento=lido.n_seq_evento,
+        chave=lido.chave,
+        dh_evento=lido.dh_evento,
+        autor_tipo_documento=lido.autor.tipo_documento,
+        autor_documento=lido.autor.documento,
+        c_stat=lido.c_stat,
+        xml_original=lido.xml_bytes,
+        sha256_arquivo=lido.sha256,
+        empresa=empresa,
+    )  # pode levantar IntegrityError (escritorio+identificador+sha256 já existe: MESMO conteúdo)
+    # — tratado em `_processar_um_arquivo_nfe`, fora deste savepoint.
+
+
+def _processar_um_arquivo_nfe(escritorio, lido, *, mapa=None) -> dict:
+    """Grava UM arquivo de NF-e ou de evento de NF-e. Mesma forma de `_processar_um_arquivo`.
+
+    Devolve o dicionário de `ResultadoDoArquivo` (com `documento_nfe` ou `evento_nfe`).
+    Nunca levanta:
+    recusa, duplicata e erro de dados viram resultado do arquivo, e o envio continua.
+    """
+    eh_documento = isinstance(lido, leitor_nfe.DocumentoNFeLido)
+    try:
+        # Savepoint por arquivo (DE-074 item 5, critério 28): ver `_processar_um_arquivo`.
+        with transaction.atomic():
+            if eh_documento:
+                documento = _criar_documento_nfe(escritorio, lido, mapa=mapa)
+            else:
+                evento = _criar_evento_nfe(escritorio, lido, mapa=mapa)
+    except leitor.ArquivoRecusado as exc:
+        return {"resultado": TipoResultadoArquivo.RECUSADO, "motivo": str(exc)}
+    except IntegrityError:
+        # Mesma chave (documento), ou mesmo identificador e MESMO conteúdo (evento) já gravados.
+        # Nunca se sobrescreve: o original fica. Evento de mesmo Id com conteúdo diferente NÃO cai
+        # aqui (a unicidade é por identificador + sha256): é gravado como registro novo abaixo.
+        if eh_documento:
+            existente = DocumentoNFe.objects.filter(escritorio=escritorio, chave=lido.chave).first()
+            vinculo_novo = None
+            if existente is not None:
+                vinculo_novo = _adicionar_vinculos_que_faltam_nfe(
+                    existente, escritorio, lido, mapa=mapa
+                )
+            return {
+                "resultado": TipoResultadoArquivo.DUPLICADO,
+                "motivo": _motivo_de_duplicado(
+                    existente, lido.sha256, "NF-e", vinculo_novo=vinculo_novo
+                ),
+                "documento_nfe": existente,
+            }
+        existente = EventoNFe.objects.filter(
+            escritorio=escritorio, identificador=lido.identificador, sha256_arquivo=lido.sha256
+        ).first()
+        return {
+            "resultado": TipoResultadoArquivo.DUPLICADO,
+            "motivo": _motivo_de_duplicado(existente, lido.sha256, "Evento de NF-e"),
+            "evento_nfe": existente,
+        }
+    except DataError as exc:
+        # Mesma defesa da NFS-e (achado N1): mensagem neutra, detalhe só no log.
+        logger.warning(
+            "Erro de dados ao gravar arquivo fiscal de NF-e (escritório %s): %s",
+            escritorio.pk,
+            exc,
+            exc_info=True,
+        )
+        return {
+            "resultado": TipoResultadoArquivo.RECUSADO,
+            "motivo": MENSAGEM_ERRO_DE_DADOS_NO_ARQUIVO,
+        }
+
+    if eh_documento:
+        return {
+            "resultado": TipoResultadoArquivo.RECEBIDO,
+            "motivo": "",
+            "documento_nfe": documento,
+        }
+    # Mesmo Id com conteúdo diferente de um registro já gravado: o evento entra como registro novo
+    # (um retorno rejeitado seguido de um cancelamento aceito, com o mesmo Id, precisa cancelar a
+    # nota) e o lote SINALIZA. Nada é sobrescrito.
+    motivo = ""
+    if (
+        EventoNFe.objects.filter(escritorio=escritorio, identificador=lido.identificador)
+        .exclude(sha256_arquivo=lido.sha256)
+        .exists()
+    ):
+        motivo = (
+            "Mesmo evento, conteúdo diferente do já recebido: gravado como registro novo "
+            "— conferir."
+        )
+    return {"resultado": TipoResultadoArquivo.RECEBIDO, "motivo": motivo, "evento_nfe": evento}
+
+
+def vinculos_nfe_da_empresa(
+    escritorio, empresa, *, inicio=None, fim=None, papel=None, modelo=None, situacao=None
+):
+    """Vínculos de NF-e da empresa, anotados com `cancelada` (booleano, calculado no banco).
+
+    Uma linha por (nota, empresa): a mesma nota aparece em duas empresas com papéis diferentes, e
+    cada linha leva o seu papel, que define a direção para o cliente (ver
+    `apps.fiscal.api_nfe`).
+    `escritorio` é filtro obrigatório, além do da empresa: isolamento em duas camadas.
+    `inicio`/`fim`: datas (`dh_emissao`). `papel`: `PapelNFe`. `modelo`: `ModeloNFe`.
+    `situacao`: "valida" ou "cancelada". Valor fora desses levanta `ValueError`.
+    """
+    qs = VinculoNFeEmpresa.objects.filter(
+        empresa=empresa,
+        empresa__escritorio=escritorio,
+        documento__escritorio=escritorio,
+    ).select_related("documento", "empresa")
+    if inicio is not None:
+        qs = qs.filter(documento__dh_emissao__date__gte=inicio)
+    if fim is not None:
+        qs = qs.filter(documento__dh_emissao__date__lte=fim)
+    if papel is not None:
+        if papel not in PapelNFe.values:
+            raise ValueError(f"papel desconhecido: {papel!r}.")
+        qs = qs.filter(papel=papel)
+    if modelo is not None:
+        qs = qs.filter(documento__modelo=modelo)
+
+    # A situação é DERIVADA dos eventos do mesmo escritório cuja chave é a da nota, nunca gravada.
+    # Mesma regra de `situacao_da_nfe`, em SQL, para a lista inteira custar uma consulta.
+    eventos_de_cancelamento = EventoNFe.objects.filter(
+        escritorio_id=OuterRef("documento__escritorio_id"),
+        chave=OuterRef("documento__chave"),
+        tp_evento__in=CODIGOS_CANCELAMENTO_NFE,
+        c_stat__in=CODIGOS_EFETIVOS_NFE,
+    )
+    qs = qs.annotate(cancelada=Exists(eventos_de_cancelamento)).order_by("-documento__dh_emissao")
+    if situacao is None:
+        return qs
+    if situacao == "cancelada":
+        return qs.filter(cancelada=True)
+    if situacao == "valida":
+        return qs.filter(cancelada=False)
+    raise ValueError(f"situacao deve ser 'valida' ou 'cancelada' (recebido {situacao!r}).")
+
+
+def situacao_da_nfe(documento: DocumentoNFe) -> str:
+    """`"valida"` ou `"cancelada"`, consultando os eventos do mesmo escritório pela chave da nota.
+
+    A consulta vale nas duas ordens de chegada: evento antes da nota ou depois. Nada é gravado na
+    nota, então não há campo de estado para ficar desatualizado. Se a nota já estiver anotada com
+    `cancelada` (vinda de `vinculos_nfe_da_empresa`), usa a anotação, sem consulta nova.
+    """
+    cancelada = getattr(documento, "cancelada", None)
+    if cancelada is None:
+        cancelada = EventoNFe.objects.filter(
+            escritorio_id=documento.escritorio_id,
+            chave=documento.chave,
+            tp_evento__in=CODIGOS_CANCELAMENTO_NFE,
+            c_stat__in=CODIGOS_EFETIVOS_NFE,
+        ).exists()
+    return "cancelada" if cancelada else "valida"
+
+
 def _processar_um_arquivo(escritorio, conteudo: bytes, *, mapa=None) -> dict:
     """Processa UM arquivo já extraído (XML solto, ou uma entrada do ZIP).
 
@@ -485,12 +796,24 @@ def _processar_um_arquivo(escritorio, conteudo: bytes, *, mapa=None) -> dict:
     `mapa`: ver `localizar_empresa_do_escritorio` (achado A4).
     """
     if len(conteudo) > LIMITE_TAMANHO_XML_BYTES:
-        return {
-            "resultado": TipoResultadoArquivo.RECUSADO,
-            "motivo": (
-                f"Arquivo acima do limite de {LIMITE_TAMANHO_XML_BYTES} bytes por XML (HI-22)."
-            ),
-        }
+        # DL-080 (HI-112): o teto depende do tipo. Só a RAIZ decide, lida sem parse
+        # completo (`namespace_da_raiz`). Fora do namespace da NF-e, a mensagem da
+        # NFS-e fica exatamente como era.
+        if leitor.namespace_da_raiz(conteudo) != leitor.NS_NFE:
+            return {
+                "resultado": TipoResultadoArquivo.RECUSADO,
+                "motivo": (
+                    f"Arquivo acima do limite de {LIMITE_TAMANHO_XML_BYTES} bytes por XML (HI-22)."
+                ),
+            }
+        if len(conteudo) > LIMITE_TAMANHO_XML_NFE_BYTES:
+            return {
+                "resultado": TipoResultadoArquivo.RECUSADO,
+                "motivo": (
+                    f"NF-e acima do limite de {LIMITE_TAMANHO_XML_NFE_BYTES} bytes por XML "
+                    "(HI-112)."
+                ),
+            }
 
     sha256 = hashlib.sha256(conteudo).hexdigest()
 
@@ -498,6 +821,11 @@ def _processar_um_arquivo(escritorio, conteudo: bytes, *, mapa=None) -> dict:
         lido = leitor.ler_arquivo(conteudo, sha256)
     except leitor.ArquivoRecusado as exc:
         return {"resultado": TipoResultadoArquivo.RECUSADO, "motivo": str(exc)}
+
+    # NF-e e NFC-e (e eventos de NF-e) têm tabelas próprias: caminho separado, com a
+    # mesma regra de savepoint por arquivo e o mesmo `ResultadoDoArquivo`.
+    if isinstance(lido, (leitor_nfe.DocumentoNFeLido, leitor_nfe.EventoNFeLido)):
+        return _processar_um_arquivo_nfe(escritorio, lido, mapa=mapa)
 
     eh_documento = isinstance(lido, leitor.DocumentoLido)
 
@@ -786,18 +1114,23 @@ def _itens_do_zip(conteudo: bytes) -> list[tuple[str, bytes]]:
             continue
         try:
             with arquivo_zip.open(info) as membro:
-                # Lê no máximo LIMITE_TAMANHO_XML_BYTES + 1 bytes desta
-                # ENTRADA — nunca o resto da cota total (correção do
-                # arquiteto): o limite por arquivo já é 1 MB (HI-22); ler até
-                # ~200 MB de uma única entrada só para descartá-la depois como
-                # "recusado" (arquivo grande demais) desperdiça memória à toa
-                # e é o mesmo ataque do ZIP que mente no `file_size` do
-                # cabeçalho, só que por dentro de uma entrada só. Este limite
-                # NÃO precisa ser lido por inteiro para sabermos que excede: o
-                # byte a mais já prova isso, e o conteúdo truncado nunca chega
-                # a ser interpretado como XML — `_processar_um_arquivo` recusa
-                # pelo tamanho ANTES de chamar o leitor.
+                # Lê no máximo o teto da NFS-e + 1 byte desta ENTRADA — nunca o
+                # resto da cota total (correção do arquiteto): ler até ~200 MB de
+                # uma única entrada só para descartá-la depois como "recusado"
+                # desperdiça memória à toa e é o mesmo ataque do ZIP que mente no
+                # `file_size` do cabeçalho, só que por dentro de uma entrada só.
+                # O byte a mais já prova que excede, e o conteúdo truncado nunca é
+                # interpretado como XML.
                 dados = membro.read(LIMITE_TAMANHO_XML_BYTES + 1)
+                # DL-080 (HI-112): só uma entrada cujo INÍCIO é do namespace da NF-e
+                # pode passar do teto da NFS-e, e até o teto da NF-e (4 MB + 1). A
+                # leitura continua capada: nunca a entrada inteira. A entrada da NFS-e
+                # não é lida além de 1 MB + 1, como antes desta frente.
+                if (
+                    len(dados) > LIMITE_TAMANHO_XML_BYTES
+                    and leitor.namespace_da_raiz(dados) == leitor.NS_NFE
+                ):
+                    dados += membro.read(LIMITE_TAMANHO_XML_NFE_BYTES - LIMITE_TAMANHO_XML_BYTES)
         except (zipfile.BadZipFile, zlib.error, NotImplementedError, EOFError, OSError) as exc:
             # Achado A2 da auditoria: só o CONSTRUTOR de `ZipFile` estava
             # protegido — abrir/ler uma entrada com deflate corrompido

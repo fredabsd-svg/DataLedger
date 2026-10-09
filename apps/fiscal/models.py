@@ -55,10 +55,9 @@ class EscrituracaoImutavel(Exception):
 
 
 class TipoDocumentoFiscal(models.TextChoices):
-    """Só `NFSE_NACIONAL` é alcançável nesta fatia. Os demais tipos que o
-    leitor RECONHECE (NF-e) são recusados antes de qualquer gravação — ver
-    `apps.fiscal.leitor.ler_arquivo` — e por isso nunca aparecem aqui. O
-    enum já existe pronto para a fatia 2 (NF-e modelo 55, DL-010 mãe)."""
+    """Tipo de NFS-e, o único de `DocumentoFiscal`. A NF-e (55 e 65) não usa este
+    enum: ela tem tabelas próprias desde a DL-080 (`DocumentoNFe`, `EventoNFe`),
+    e o leitor a despacha para `apps.fiscal.leitor_nfe`."""
 
     NFSE_NACIONAL = "nfse_nacional", "NFS-e nacional"
 
@@ -331,6 +330,22 @@ class ResultadoDoArquivo(models.Model):
         on_delete=models.SET_NULL,
         related_name="resultados",
     )
+    # DL-080 (frente A): NF-e e NFC-e ficam em `DocumentoNFe`, e eventos de NF-e
+    # em `EventoNFe`. Uma linha tem no máximo um dos quatro vínculos preenchido.
+    documento_nfe = models.ForeignKey(
+        "DocumentoNFe",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="resultados",
+    )
+    evento_nfe = models.ForeignKey(
+        "EventoNFe",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="resultados",
+    )
     criado_em = models.DateTimeField("criado em", auto_now_add=True)
 
     class Meta:
@@ -340,6 +355,260 @@ class ResultadoDoArquivo(models.Model):
 
     def __str__(self):
         return f"{self.caminho_no_zip or '(arquivo solto)'} — {self.get_resultado_display()}"
+
+
+# ---------------------------------------------------------------------------
+# DL-080 (frente A): NF-e modelo 55 e NFC-e modelo 65 — tabelas PRÓPRIAS.
+#
+# Não reutilizam `DocumentoFiscal`, `VinculoDocumentoEmpresa` nem `EventoFiscal`:
+# essas são da NFS-e (competência, valor do serviço e retenção são obrigatórios),
+# e receita, ISS, pré-DAS e tomadas as consultam presumindo NFS-e. Uma NF-e
+# aqui nunca aparece por engano num cálculo de NFS-e (pesquisa, seção 7).
+#
+# Imutabilidade: a fatia 1 (NFS-e) NÃO tem gatilho no banco nem `save()` que
+# impeça alteração de `DocumentoFiscal` ou `EventoFiscal`; só o serviço não
+# altera. A NF-e segue o mesmo padrão, sem gatilho. Limite declarado.
+# ---------------------------------------------------------------------------
+
+
+class ModeloNFe(models.TextChoices):
+    """`ide/mod`: 55 (NF-e) e 65 (NFC-e). Mesmo esquema, MOC 7.0, TB:359-367."""
+
+    NFE = "55", "NF-e"
+    NFCE = "65", "NFC-e"
+
+
+class TipoParticipanteNFe(models.TextChoices):
+    """Como emitente, destinatário ou autor de evento foi identificado no XML:
+    xs:choice CNPJ|CPF, e idEstrangeiro só no destinatário."""
+
+    CNPJ = "CNPJ", "CNPJ"
+    CPF = "CPF", "CPF"
+    ID_ESTRANGEIRO = "idEstrangeiro", "Identificação de estrangeiro"
+
+
+class PapelNFe(models.TextChoices):
+    """Papel da EMPRESA na nota. O sentido para o cliente (entrada ou saída) sai do
+    papel combinado com `tpNF`, nunca de `tpNF` sozinho (ver `apps.fiscal.api_nfe`)."""
+
+    EMITENTE = "emitente", "Emitente"
+    DESTINATARIO = "destinatario", "Destinatário"
+
+
+class DocumentoNFe(models.Model):
+    """NF-e (55) ou NFC-e (65) autorizada, recebida. Campos extraídos do XML; o
+    original fica em `xml_original`, íntegro (DE-074 item 1).
+
+    A unicidade é por `(escritorio, chave)`: a mesma chave de acesso é a mesma nota
+    para o escritório, qualquer que seja a pasta de onde veio. Escritórios diferentes
+    nunca compartilham a linha (mesmo CNPJ em dois escritórios, DL-041).
+    """
+
+    escritorio = models.ForeignKey(
+        Escritorio,
+        verbose_name="escritório",
+        on_delete=models.PROTECT,
+        related_name="documentos_nfe",
+    )
+    modelo = models.CharField("modelo (mod)", max_length=2, choices=ModeloNFe.choices)
+    # TVerNFe: "4.00" (leiauteNFe_v4.00.xsd:7561-7569). Só o 4.00 entra (HI-110).
+    versao = models.CharField("versão do leiaute", max_length=4)
+    # TChNFe (tiposBasico_v4.00.xsd:49-58): 44 posições, com CNPJ alfanumérico.
+    chave = models.CharField("chave de acesso", max_length=44)
+    xml_original = models.BinaryField("XML original", editable=False)
+    sha256_arquivo = models.CharField("SHA-256 do arquivo", max_length=64)
+    # Série: "0" ou 1 a 3 dígitos (TB:384). Número: 1 a 9 dígitos (TB:375). Texto,
+    # nunca inteiro: o zero à esquerda da chave é parte do dado.
+    serie = models.CharField("série (serie)", max_length=3)
+    numero = models.CharField("número (nNF)", max_length=9)
+    # dhEmi com fuso (leiauteNFe_v4.00.xsd:66).
+    dh_emissao = models.DateTimeField("data/hora de emissão (dhEmi)")
+    # Sentido do ponto de vista do EMITENTE: 0 entrada, 1 saída (XSD:81-92).
+    tp_nf = models.CharField("tipo de operação (tpNF)", max_length=1)
+    fin_nfe = models.CharField("finalidade (finNFe)", max_length=1)
+    # Notas de débito e de crédito (opcionais). Vazios quando não vêm.
+    tp_nf_debito = models.CharField(
+        "finalidade de débito (tpNFDebito)", max_length=2, blank=True, default=""
+    )
+    tp_nf_credito = models.CharField(
+        "finalidade de crédito (tpNFCredito)", max_length=2, blank=True, default=""
+    )
+    id_dest = models.CharField("local de destino (idDest)", max_length=1)
+    c_uf = models.CharField("UF do emitente (cUF)", max_length=2)
+    # Emitente: CNPJ (alfanumérico, 14) ou CPF (11 dígitos), sempre TEXTO.
+    emitente_tipo_documento = models.CharField(
+        "tipo de documento do emitente", max_length=14, choices=TipoParticipanteNFe.choices
+    )
+    emitente_documento = models.CharField("documento do emitente", max_length=14)
+    # xNome: 2 a 60 caracteres (TString, maxLength 60, leiauteNFe_v4.00.xsd:537-545).
+    emitente_nome = models.CharField("nome do emitente", max_length=60, blank=True, default="")
+    emitente_crt = models.CharField(
+        "regime tributário do emitente (CRT)", max_length=1, blank=True, default=""
+    )
+    # Destinatário é OPCIONAL (XSD:734; a NFC-e normalmente não o traz). Vazio = ausente.
+    destinatario_tipo_documento = models.CharField(
+        "tipo de documento do destinatário",
+        max_length=14,
+        choices=TipoParticipanteNFe.choices,
+        blank=True,
+        default="",
+    )
+    destinatario_documento = models.CharField(
+        "documento do destinatário", max_length=20, blank=True, default=""
+    )
+    destinatario_nome = models.CharField(
+        "nome do destinatário", max_length=60, blank=True, default=""
+    )
+    # Totais do ICMSTot (XSD:5333-5480) em Decimal 15,2, pelo padrão TDec_1302
+    # (13 inteiros + 2 casas). `None` = o campo não veio no XML: ausente, nunca zero.
+    v_nf = models.DecimalField(
+        "valor total da nota (vNF)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_prod = models.DecimalField(
+        "valor dos produtos (vProd)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_icms = models.DecimalField(
+        "ICMS (vICMS)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_st = models.DecimalField(
+        "ICMS-ST (vST)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_ipi = models.DecimalField(
+        "IPI (vIPI)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_pis = models.DecimalField(
+        "PIS (vPIS)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_cofins = models.DecimalField(
+        "COFINS (vCOFINS)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_desc = models.DecimalField(
+        "desconto (vDesc)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    v_frete = models.DecimalField(
+        "frete (vFrete)", max_digits=15, decimal_places=2, null=True, blank=True
+    )
+    # Protocolo de autorização (protNFe/infProt). Só 100 e 150 chegam aqui (HI-109).
+    c_stat = models.CharField("status do protocolo (cStat)", max_length=4)
+    n_prot = models.CharField("número do protocolo (nProt)", max_length=17, blank=True, default="")
+    dh_recbto = models.DateTimeField("data/hora de recebimento (dhRecbto)")
+    # Só a contagem de `det` e a presença de IBS/CBS (política da fatia 1, PE-39).
+    quantidade_itens = models.PositiveIntegerField("quantidade de itens")
+    tem_ibscbs_total = models.BooleanField("traz total IBS/CBS (IBSCBSTot)", default=False)
+    tem_ibscbs_item = models.BooleanField("traz IBS/CBS em algum item", default=False)
+    # Emitente e destinatário são a mesma empresa (HI-111): um vínculo só, como emitente.
+    transferencia_entre_estabelecimentos = models.BooleanField(
+        "transferência entre estabelecimentos", default=False
+    )
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "documento de NF-e"
+        verbose_name_plural = "documentos de NF-e"
+        ordering = ["-dh_emissao"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["escritorio", "chave"],
+                name="documento_nfe_unico_por_escritorio",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.get_modelo_display()} {self.chave} ({self.escritorio})"
+
+
+class VinculoNFeEmpresa(models.Model):
+    """Liga um `DocumentoNFe` a uma `Empresa` do MESMO escritório, num papel.
+
+    Uma nota com emitente e destinatário clientes distintos gera DOIS vínculos. Se
+    os dois lados forem a mesma empresa (transferência entre estabelecimentos), o
+    vínculo é um só, como emitente, com `transferencia_entre_estabelecimentos`.
+    """
+
+    documento = models.ForeignKey(DocumentoNFe, on_delete=models.CASCADE, related_name="vinculos")
+    empresa = models.ForeignKey(Empresa, on_delete=models.PROTECT, related_name="vinculos_nfe")
+    papel = models.CharField("papel", max_length=12, choices=PapelNFe.choices)
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "vínculo de NF-e com empresa"
+        verbose_name_plural = "vínculos de NF-e com empresa"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["documento", "empresa"],
+                name="vinculo_nfe_empresa_unico",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.documento_id} — {self.empresa} ({self.get_papel_display()})"
+
+
+class EventoNFe(models.Model):
+    """Evento de NF-e (procEventoNFe), inclusive ÓRFÃO: sem a nota no acervo.
+
+    `chave` é a chave de acesso da nota referenciada (44 posições, a mesma de
+    `DocumentoNFe.chave`). O evento só tem efeito sobre a situação com o status do
+    retorno em `services.CODIGOS_EFETIVOS_NFE` (135, 136 ou 155).
+
+    Unicidade por (escritório, identificador, sha256). O mesmo evento reimportado (mesmo Id e
+    mesmo conteúdo) é duplicado. O mesmo Id com CONTEÚDO diferente é um registro novo, e não
+    se perde: um retorno rejeitado seguido de um cancelamento aceito, com o mesmo Id, tem que
+    cancelar a nota. A situação consulta todos os registros com `Exists`, então a ordem de
+    chegada não importa.
+    """
+
+    escritorio = models.ForeignKey(
+        Escritorio,
+        verbose_name="escritório",
+        on_delete=models.PROTECT,
+        related_name="eventos_nfe",
+    )
+    # "ID" + tpEvento(6) + chave(44) + nSeqEvento(2) = 54 posições. A pesquisa
+    # escreveu 52; a conta do padrão do XSD (leiauteEvento_v1.00.xsd:136) dá 54.
+    identificador = models.CharField("identificador (Id) do evento", max_length=54)
+    tp_evento = models.CharField("tipo do evento (tpEvento)", max_length=6)
+    n_seq_evento = models.PositiveSmallIntegerField("sequência do evento (nSeqEvento)")
+    chave = models.CharField("chave de acesso da nota (chNFe)", max_length=44)
+    dh_evento = models.DateTimeField("data/hora do evento (dhEvento)")
+    autor_tipo_documento = models.CharField(
+        "tipo de documento do autor", max_length=14, choices=TipoParticipanteNFe.choices
+    )
+    autor_documento = models.CharField("documento do autor", max_length=14)
+    # Status do retorno (retEvento/infEvento/cStat). `None` quando o retorno não vem:
+    # sem retorno, o evento não tem efeito sobre a situação.
+    c_stat = models.CharField("status do retorno (cStat)", max_length=4, null=True, blank=True)
+    xml_original = models.BinaryField("XML original", editable=False)
+    sha256_arquivo = models.CharField("SHA-256 do arquivo", max_length=64)
+    # Empresa do escritório que é o autor do evento, quando o CNPJ/CPF casa com ela.
+    # NULL é o caso normal do órfão (autor de outro escritório, ou nenhum cliente).
+    empresa = models.ForeignKey(
+        Empresa,
+        verbose_name="empresa (quando identificável)",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="eventos_nfe",
+    )
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "evento de NF-e"
+        verbose_name_plural = "eventos de NF-e"
+        ordering = ["-dh_evento"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["escritorio", "identificador", "sha256_arquivo"],
+                name="evento_nfe_unico_por_identificador_e_conteudo",
+            ),
+        ]
+        indexes = [
+            # A situação "cancelada" consulta por (escritório, chave) a cada lista.
+            models.Index(fields=["escritorio", "chave"], name="evento_nfe_escritorio_chave"),
+        ]
+
+    def __str__(self):
+        return f"{self.tp_evento} — {self.identificador} ({self.escritorio})"
 
 
 # ---------------------------------------------------------------------------

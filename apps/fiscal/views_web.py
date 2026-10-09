@@ -468,7 +468,10 @@ def relatorio_envio(request, lote_id):
         )
     lote = _lote_do_escritorio_ativo(request, lote_id)
 
-    resultados = lote.resultados.select_related("documento", "evento").order_by("id")
+    # DL-080: NF-e, NFC-e e eventos de NF-e também vêm no relatório (vínculos próprios).
+    resultados = lote.resultados.select_related(
+        "documento", "evento", "documento_nfe", "evento_nfe"
+    ).order_by("id")
     linhas = [
         {
             "resultado": resultado,

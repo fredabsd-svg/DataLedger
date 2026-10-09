@@ -1,5 +1,9 @@
 """Leitura segura de XML de NFS-e nacional e de evento — DL-010, fatia 1.
 
+Desde a DL-080 (frente A), o namespace da NF-e é lido por `apps.fiscal.leitor_nfe`, e este
+módulo só despacha para ele. A NF-e não é NFS-e: não passa pelas regras de competência, ISS
+ou retenção deste arquivo.
+
 Fonte dos caminhos, tipos e regras de formato citados nos comentários:
 esquemas XSD oficiais do Portal Nacional da NFS-e, pacote
 NFSe-ESQUEMAS_XSD-v1.01-20260209 (SE/CGNFS-e), consultados em 2026-09-25
@@ -16,27 +20,27 @@ resultado (gravar, marcar como duplicado etc.).
 
 from __future__ import annotations
 
+import io
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
 from defusedxml.common import DefusedXmlException
-from defusedxml.ElementTree import ParseError, fromstring
+from defusedxml.ElementTree import ParseError, fromstring, iterparse
+
+from apps.fiscal import leitor_nfe
+from apps.fiscal.leitor_nfe import NS_NFE
 
 # Namespace oficial da NFS-e nacional — RC-65 (medido no acervo real do
 # escritório) e NFSe_v1.0x.xsd/evento_v1.0x.xsd (targetNamespace). Não muda
 # entre as versões 1.00 e 1.01 do leiaute.
 NS_NFSE = "http://www.sped.fazenda.gov.br/nfse"
 
-# Namespace da NF-e — confirmado no levantamento de leiaute do plano-mãe
-# (docs/planos/DL-010-recepcao-de-documentos-fiscais.md, seção "O que está
-# confirmado": "Namespace único, que não varia por versão"). Serve só para
-# dar ao usuário a mensagem específica "tipo ainda não suportado: NF-e" —
-# qualquer OUTRO namespace (NFCom, CT-e, GTVe, ou raiz não reconhecida) cai
-# no ramo genérico em `ler_arquivo`, porque esta fatia não teve acesso aos
-# XSD desses formatos (RC-71/critério 18; "fora desta fatia" no plano).
-NS_NFE = "http://www.portalfiscal.inf.br/nfe"
+# Namespace da NF-e (definido em `leitor_nfe`). Desde a DL-080 (frente A) ele é
+# lido pelo leitor próprio, e não mais recusado de forma genérica. Qualquer
+# OUTRO namespace (NFCom, CT-e, GTVe, ou raiz não reconhecida) continua no ramo
+# genérico de `ler_arquivo` (RC-71/critério 18).
 
 _NS = {"n": NS_NFSE}
 
@@ -309,17 +313,39 @@ def _raiz_segura(conteudo: bytes):
         raise ArquivoRecusado(f"XML malformado: {exc}") from exc
 
 
+def namespace_da_raiz(conteudo: bytes) -> str | None:
+    """Namespace do elemento raiz, lido só até o primeiro `start` do parser.
+
+    Serve para escolher o limite de tamanho ANTES de a leitura completa: a NF-e
+    tem teto de 4 MB e a NFS-e continua em 1 MB (HI-112). O parser para no
+    primeiro elemento e não lê o resto do arquivo. `None` quando nem o início
+    é XML legível; quem chama trata como "não é NF-e" e mantém o limite menor.
+    """
+    try:
+        for _evento, elemento in iterparse(
+            io.BytesIO(conteudo), events=("start",), forbid_dtd=True
+        ):
+            tag = elemento.tag
+            if isinstance(tag, str) and tag.startswith("{"):
+                return tag[1:].partition("}")[0]
+            return None
+    except (DefusedXmlException, ParseError, ValueError, LookupError):
+        return None
+    return None
+
+
 def ler_arquivo(conteudo: bytes, sha256: str) -> DocumentoLido | EventoLido:
-    """Lê um XML de NFS-e nacional (elemento raiz `NFSe`) ou de evento
-    (elemento raiz `evento`).
+    """Lê um XML de NFS-e nacional (elemento raiz `NFSe`), de evento de NFS-e
+    (elemento raiz `evento`), ou do namespace da NF-e (`apps.fiscal.leitor_nfe`).
 
     Classifica pela RAIZ e pelo NAMESPACE do documento (RC-71, critério 18
     — nunca pelo nome do arquivo ou da pasta: o acervo real tem uma GTVe
     com "_evento_" no nome, dentro de uma pasta "DESCONHECIDO"). Levanta
     `ArquivoRecusado` — com motivo — para qualquer arquivo que não seja um
-    destes dois; quem chama (`apps.fiscal.services.receber_envio`) converte
+    destes; quem chama (`apps.fiscal.services.receber_envio`) converte
     isso em um `ResultadoDoArquivo` "recusado" e segue para o próximo
-    arquivo do envio.
+    arquivo do envio. Para a NF-e devolve `leitor_nfe.DocumentoNFeLido` ou
+    `leitor_nfe.EventoNFeLido`.
     """
     raiz = _raiz_segura(conteudo)
 
@@ -328,7 +354,7 @@ def ler_arquivo(conteudo: bytes, sha256: str) -> DocumentoLido | EventoLido:
     namespace, _, localname = raiz.tag[1:].partition("}")
 
     if namespace == NS_NFE:
-        raise ArquivoRecusado("tipo ainda não suportado: NF-e")
+        return _ler_nfe(raiz, conteudo, sha256)
     if namespace != NS_NFSE:
         raise ArquivoRecusado(f"tipo ainda não suportado: {namespace}")
 
@@ -337,6 +363,15 @@ def ler_arquivo(conteudo: bytes, sha256: str) -> DocumentoLido | EventoLido:
     if localname == "evento":
         return _ler_evento(raiz, conteudo, sha256)
     raise ArquivoRecusado(f"tipo ainda não suportado: {localname}")
+
+
+def _ler_nfe(raiz, conteudo: bytes, sha256: str):
+    """Ponte para `leitor_nfe`: a recusa de lá vira `ArquivoRecusado` daqui, para
+    o restante do fluxo de recepção tratar a NF-e como qualquer outro arquivo."""
+    try:
+        return leitor_nfe.ler_nfe(raiz, conteudo, sha256)
+    except leitor_nfe.RecusaNFe as exc:
+        raise ArquivoRecusado(str(exc)) from exc
 
 
 def _ler_nfse(raiz, conteudo: bytes, sha256: str) -> DocumentoLido:
