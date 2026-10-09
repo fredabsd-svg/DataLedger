@@ -79,12 +79,12 @@ _FORMATO_DATA_HORA = re.compile(
 # TAmb (tiposBasico_v4.00.xsd:458): 1 produção, 2 homologação. Obrigatório em ide, em
 # infEvento e no retorno do evento (XSD sem minOccurs). Ausente é recusa, nunca presunção.
 _DOMINIO_TP_AMB = frozenset({"1", "2"})
-# Séries 890 a 919: notas avulsas emitidas no site do Fisco (NFA-e). A chave leva o CNPJ ou o
-# CPF da SEFAZ, e não o do emitente (pesquisa, seção 3, MOC:1047-1053; a faixa 900-919 é
-# SEFAZ). Fora dessa faixa, o CNPJ/CPF da chave tem de ser o do emitente. A faixa 920-969 é
-# de aplicativo do contribuinte com CPF: a chave leva o CPF da própria empresa, e a conferência
-# vale. A pesquisa não cita a faixa 970-999, e por isso ela também é conferida (pendência).
-_SERIES_NFA_E = range(890, 920)
+# Séries 890 a 899: NF-e avulsa emitida no site da SEFAZ (NFA-e). A chave leva o CNPJ da SEFAZ,
+# e não o do emitente (MOC 7.0, Tabela 2-4, "Faixas de Série Reservadas", lida em 09/10/2026).
+# Nas faixas 900-909 e 910-919 (site da SEFAZ, NT 2018.001) e 920-969 (aplicativo com CPF), a
+# mesma tabela diz que a chave leva o CNPJ ou o CPF do PRÓPRIO emitente: a conferência vale
+# (reconferência da DL-080, R2). Fora de 890-899, o CNPJ/CPF da chave tem de ser o do emitente.
+_SERIES_NFA_E = range(890, 900)
 _LIMITE_TEXTO_CAMPO_TSTRING = 60  # xNome de emitente e destinatário (maxLength 60)
 _LIMITE_ID_ESTRANGEIRO = 20
 
@@ -405,6 +405,10 @@ def _ler_nfe_proc(raiz, conteudo: bytes, sha256: str) -> DocumentoNFeLido:
     if len(raiz.findall("n:NFe", _NS)) > 1:
         raise RecusaNFe("nfeProc com mais de uma NFe: só entra um XML por nota, com seu protocolo.")
 
+    # TNfeProc tem exatamente um protNFe (leiauteNFe_v4.00.xsd:6954-6962). Com dois, o arquivo
+    # guardado contradiz o que foi lido (reconferência da DL-080, R3).
+    if len(raiz.findall("n:protNFe", _NS)) > 1:
+        raise RecusaNFe("nfeProc com mais de um protNFe: só entra a nota com o seu protocolo.")
     prot = raiz.find("n:protNFe", _NS)
     if prot is None:
         raise RecusaNFe(
@@ -430,6 +434,13 @@ def _ler_nfe_proc(raiz, conteudo: bytes, sha256: str) -> DocumentoNFeLido:
     if inf_prot is None:
         raise RecusaNFe("NF-e sem protocolo de autorização: protNFe sem infProt.")
 
+    # protNFe/infProt/tpAmb é obrigatório no XSD: protocolo de homologação não autoriza nota de
+    # produção (reconferência da DL-080, R3).
+    _conferir_ambiente(
+        _obrigatorio(inf_prot, "n:tpAmb", "tpAmb do protocolo"),
+        "tpAmb do protocolo",
+        "Protocolo de autorização emitido em ambiente de homologação (teste), sem valor fiscal.",
+    )
     c_stat = _formato(_obrigatorio(inf_prot, "n:cStat", "cStat"), _FORMATO_CSTAT, "cStat")
     if c_stat in _CSTAT_DENEGADA:
         raise RecusaNFe(f"NF-e denegada — sem efeito fiscal (cStat {c_stat}).")

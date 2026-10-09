@@ -222,7 +222,7 @@ def test_nota_sem_parte_do_escritorio_e_recusada_com_a_mensagem_da_nfse(
 def test_chave_com_cnpj_de_cliente_nao_liga_a_empresa(escritorio_a, usuario_gestor_a, emitente):
     # A chave não liga empresa (pesquisa, seção 5). Aqui ela traz o CNPJ de um cliente, e o emitente
     # do XML é de fora. Desde a correção da rodada 1 (A8), a própria chave é conferida contra o
-    # emitente fora das séries de NFA-e (890 a 919): a recusa vem dessa conferência, antes de
+    # emitente fora das séries de NFA-e (890 a 899): a recusa vem dessa conferência, antes de
     # qualquer participante. O invariante continua o mesmo: a nota não entra e nada é vinculado.
     chave_com_cnpj_do_cliente = chave_nfe(emitente=CNPJ_EMITENTE_A)
     lote = _enviar(

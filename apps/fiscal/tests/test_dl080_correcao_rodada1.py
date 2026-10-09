@@ -437,18 +437,19 @@ def test_retorno_com_tipo_e_sequencia_iguais_e_aceito():
     assert (lido.tp_evento, lido.n_seq_evento, lido.c_stat) == ("110111", 1, "135")
 
 
-@pytest.mark.parametrize("serie", ["890", "899", "900", "919"])
+@pytest.mark.parametrize("serie", ["890", "899"])
 def test_nfa_e_com_cnpj_da_sefaz_na_chave_e_aceita(serie):
-    """Séries 890 a 919 (pesquisa, seção 3): a chave leva o CNPJ da SEFAZ, e não o do emitente."""
+    """Séries 890 a 899 (MOC 7.0, Tabela 2-4): a chave leva o CNPJ da SEFAZ, e não o do emitente."""
     sefaz = chave_nfe(emitente="99888777000166", serie=serie)
     lido = _ler(xml_nfe(serie=serie, chave=sefaz))
     assert lido.emitente.documento == CNPJ_EMITENTE_A
 
 
-@pytest.mark.parametrize("serie", ["889", "920", "970"])
+@pytest.mark.parametrize("serie", ["889", "900", "909", "910", "919", "920", "970"])
 def test_chave_com_cnpj_de_outro_fora_das_series_de_nfa_e_recusada(serie):
-    """889 é de aplicativo do contribuinte. 920 é de CPF da empresa. 970 não aparece na pesquisa:
-    por ora é conferida como as demais (pendência do relatório da rodada 1)."""
+    """889 é de aplicativo do contribuinte. 900 a 919 são do site da SEFAZ, mas a chave leva o
+    documento do próprio emitente (MOC 7.0, Tabela 2-4; reconferência, R2). 920 é de CPF da
+    empresa. 970 não aparece no MOC: é conferida como as demais."""
     chave_de_outro = chave_nfe(emitente="99888777000166", serie=serie)
     mensagem = _recusa(xml_nfe(serie=serie, chave=chave_de_outro))
     assert "diferente do emitente" in mensagem
