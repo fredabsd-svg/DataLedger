@@ -123,6 +123,8 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         ItemNFe,
         LeituraItensNFe,
         LoteDeRecepcao,
+        LoteEscrituracaoNFe,
+        LoteEscrituracaoNFeNota,
         MedidaJudicialLC224,
         NaturezaItemNFe,
         OpcaoRegimeCaixaSimples,
@@ -286,6 +288,14 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         ImportacaoLancamentos,
         LancamentoImportado,
         DeParaConta,
+        # DL-085 (frente A, 2026-10-09): `LoteEscrituracaoNFe` e `LoteEscrituracaoNFeNota`, o lote
+        # de escrituração de NF-e em partes. Entram na cobertura "por padrão" (R1/DE-056) e NÃO têm
+        # ModelAdmin (BL-262): o admin não isola por escritório, e o lote só é gravado pelo serviço
+        # `apps.fiscal.escrituracao_nfe_lote`. Esse serviço grava a trilha por `registrar()`: a
+        # criação do lote (`escrituracao_nfe.lote_confirmado`) na MESMA transação da criação; as
+        # partes e a conclusão, depois, cada uma com a sua trilha. Nenhuma exclusão foi adicionada.
+        LoteEscrituracaoNFe,
+        LoteEscrituracaoNFeNota,
     }
     assert cobertos == esperados_cobertos, (
         f"DL-030: cobertura da trilha divergente.\n"

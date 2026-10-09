@@ -48,11 +48,14 @@ from apps.fiscal.api import (
 )
 from apps.fiscal.api_escrituracao_nfe import (
     ConferenciaNFeView,
+    ConfirmarLoteNFeView,
     DefinirNaturezasView,
     EfetivarEscrituracaoNFeView,
     EscrituracaoNFeDetalheView,
     EscrituracaoNFeListaView,
     EstornarEscrituracaoNFeView,
+    LerLoteNFeView,
+    PreviaLoteNFeView,
     ReclassificarNFeView,
 )
 from apps.fiscal.api_nfe import DetalheNFeView, NotasNFeView
@@ -120,6 +123,22 @@ urlpatterns = [
         "empresas/<int:empresa_id>/nfe/conferencia/",
         ConferenciaNFeView.as_view(),
         name="nfe_conferencia",
+    ),
+    # DL-085 (frente A): prévia do mês em lote (leitura) e confirmação em bloco (escrita).
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/lote/previa/",
+        PreviaLoteNFeView.as_view(),
+        name="nfe_lote_previa",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/lote/confirmar/",
+        ConfirmarLoteNFeView.as_view(),
+        name="nfe_lote_confirmar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/lote/ler/",
+        LerLoteNFeView.as_view(),
+        name="nfe_lote_ler",
     ),
     path(
         "empresas/<int:empresa_id>/notas-prestadas/",

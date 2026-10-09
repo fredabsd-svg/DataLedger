@@ -198,6 +198,12 @@ MENSAGENS_DE_RESTRICAO = {
         "Opção pelo regime de caixa fora de 2000-2026. A partir de 2027 a base é a "
         "competência (HI-66)."
     ),
+    # DL-085 (frente A): um lote de escrituração em andamento por empresa e mês. O serviço
+    # (`apps.fiscal.escrituracao_nfe_lote`) confere a trava da empresa antes de gravar; esta
+    # restrição é a segunda defesa. A corrida que passa pela checagem vira 400, não 500.
+    "lote_nfe_em_andamento_unico_por_mes": (
+        "Já existe um lote de escrituração em andamento para esta empresa e este mês."
+    ),
 }
 
 # Achado D1 da auditoria da DL-039 rodada 1 (BL-533): os dois gatilhos de
@@ -1185,6 +1191,29 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "as linhas de natureza são criadas uma por item, em `criar_rascunho`, com `bulk_create` "
         "sobre os itens da nota. Nenhum caminho do cliente insere uma segunda linha para o mesmo "
         "item: o pedido de natureza só atualiza as linhas existentes."
+    ),
+    # DL-085 (frente A): `CheckConstraint` do lote. Só `_criar_lote` (cria em andamento) e
+    # `_concluir_se_terminou` (passa a concluído) escrevem o estado, com valores fixos no código.
+    # Nenhum caminho de escrita do cliente alcança a tabela do lote.
+    "lote_nfe_estado_valido": (
+        "Estado do lote fora de em andamento e concluído: só o serviço do lote escreve o estado."
+    ),
+    # DL-085 (frente A): `concluido_em` é gravado junto com o estado concluído, em
+    # `_concluir_se_terminou`, na mesma transação. Sem caminho de escrita por cliente.
+    "lote_nfe_concluido_tem_data": (
+        "Lote concluído sem data de conclusão: `_concluir_se_terminou` grava as duas juntas."
+    ),
+    # DL-085 (frente A): a linha de nota do lote é criada uma por vínculo, no mesmo
+    # `bulk_create` de `_criar_lote`, sob a trava da empresa. Nenhum caminho do cliente insere
+    # linha de lote.
+    "lote_nfe_nota_unica_por_lote": (
+        "Duas linhas da mesma nota no mesmo lote: `_criar_lote` cria uma por vínculo, sob trava. "
+        "Sem caminho de escrita por cliente hoje."
+    ),
+    # DL-085 (frente A): estado da linha do lote fora de pendente, efetivada, já efetivada e
+    # falhou. Só `_gravar_estado` (apps.fiscal.escrituracao_nfe_lote) escreve o estado.
+    "lote_nfe_nota_estado_valido": (
+        "Estado da linha do lote fora do conjunto fixo: só o serviço do lote escreve o estado."
     ),
 }
 

@@ -3299,3 +3299,149 @@ class NaturezaItemNFe(models.Model):
 
     def __str__(self):
         return f"Natureza do item {self.item_id} na escrituração {self.escrituracao_id}"
+
+
+class EstadoLoteEscrituracaoNFe(models.TextChoices):
+    EM_ANDAMENTO = "em_andamento", "Em andamento"
+    CONCLUIDO = "concluido", "Concluído"
+
+
+class EstadoNotaDoLoteNFe(models.TextChoices):
+    PENDENTE = "pendente", "Pendente"
+    EFETIVADA = "efetivada", "Efetivada pelo lote"
+    JA_EFETIVADA = "ja_efetivada", "Já efetivada (pulada)"
+    FALHOU = "falhou", "Falhou"
+
+
+class LoteEscrituracaoNFe(models.Model):
+    """Lote de escrituração de NF-e e NFC-e de UM mês de UMA empresa (DL-085, frente A).
+
+    Guarda o CONJUNTO de notas que o contador confirmou, com a assinatura da prévia. Sem o lote,
+    a parte seguinte não sabe quais notas eram as confirmadas: depois da primeira parte, elas saem
+    da prévia (já estão efetivadas), e a assinatura da prévia muda. Por isso o conjunto é gravado
+    na confirmação, em `LoteEscrituracaoNFeNota`, e as partes seguintes o referem pelo id.
+
+    Um lote em andamento por empresa e mês, no máximo: o banco recusa o segundo (a trava de
+    `select_for_update` no serviço é a primeira defesa, esta é a segunda).
+
+    `escolhas` são as trocas de natureza feitas na confirmação, por grupo: já validadas contra a
+    prévia e contra o tipo de nota. A trilha de cada efetivação é a da escrituração individual.
+    """
+
+    escritorio = models.ForeignKey(
+        Escritorio, on_delete=models.PROTECT, related_name="lotes_escrituracao_nfe"
+    )
+    # Redundante com `empresa.escritorio`, como na escrituração: a consulta por escritório não
+    # precisa atravessar a empresa. A igualdade é garantida em `save()`.
+    empresa = models.ForeignKey(
+        Empresa, on_delete=models.PROTECT, related_name="lotes_escrituracao_nfe"
+    )
+    competencia = models.DateField("competência (primeiro dia do mês)")
+    assinatura = models.CharField("assinatura da prévia", max_length=64)
+    escolhas = models.JSONField("escolhas de natureza por grupo", default=dict, blank=True)
+    estado = models.CharField(
+        "estado",
+        max_length=12,
+        choices=EstadoLoteEscrituracaoNFe.choices,
+        default=EstadoLoteEscrituracaoNFe.EM_ANDAMENTO,
+    )
+    quantidade_notas = models.PositiveIntegerField("notas confirmadas", default=0)
+    quantidade_itens = models.PositiveIntegerField("itens confirmados", default=0)
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="confirmado por",
+    )
+    concluido_em = models.DateTimeField("concluído em", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "lote de escrituração de NF-e"
+        verbose_name_plural = "lotes de escrituração de NF-e"
+        ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["empresa", "competencia"],
+                condition=Q(estado="em_andamento"),
+                name="lote_nfe_em_andamento_unico_por_mes",
+            ),
+            models.CheckConstraint(
+                condition=Q(estado__in=["em_andamento", "concluido"]),
+                name="lote_nfe_estado_valido",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(estado="em_andamento", concluido_em__isnull=True)
+                    | Q(estado="concluido", concluido_em__isnull=False)
+                ),
+                name="lote_nfe_concluido_tem_data",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        # Isolamento: um lote de um escritório nunca aponta para empresa de outro (AGENTS.md §11).
+        if self.escritorio_id != self.empresa.escritorio_id:
+            raise ValidationError("O lote deve ser do escritório da empresa.")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Lote de NF-e {self.pk} — empresa {self.empresa_id} ({self.get_estado_display()})"
+
+
+class LoteEscrituracaoNFeNota(models.Model):
+    """Uma nota do conjunto confirmado de um lote, com as naturezas FIXADAS na confirmação.
+
+    `itens` é a lista de `[item_id, natureza_sugerida, natureza_escolhida]`, na ordem do nItem. A
+    parte que efetiva compara a sugestão de hoje com a gravada: se a nota mudou desde a
+    confirmação (itens lidos de novo, sugestão diferente), a nota falha com motivo, e não é
+    efetivada com a natureza de uma leitura que o contador não viu.
+
+    `escrituracao` é preenchida quando a nota é efetivada pelo lote (ou quando já estava efetivada,
+    caso em que a nota é "pulada" e não se cria escrituração nova).
+    """
+
+    lote = models.ForeignKey(
+        LoteEscrituracaoNFe, on_delete=models.PROTECT, related_name="notas", verbose_name="lote"
+    )
+    vinculo = models.ForeignKey(
+        VinculoNFeEmpresa,
+        on_delete=models.PROTECT,
+        related_name="notas_de_lote_nfe",
+        verbose_name="vínculo de NF-e com empresa",
+    )
+    chave_grupo = models.CharField("grupo da prévia", max_length=40)
+    itens = models.JSONField("itens com natureza fixada", default=list)
+    estado = models.CharField(
+        "estado",
+        max_length=12,
+        choices=EstadoNotaDoLoteNFe.choices,
+        default=EstadoNotaDoLoteNFe.PENDENTE,
+    )
+    motivo = models.CharField("motivo (quando falhou)", max_length=500, blank=True, default="")
+    escrituracao = models.ForeignKey(
+        EscrituracaoNFe,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="escrituração",
+    )
+    processada_em = models.DateTimeField("processada em", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "nota de lote de escrituração de NF-e"
+        verbose_name_plural = "notas de lote de escrituração de NF-e"
+        ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["lote", "vinculo"], name="lote_nfe_nota_unica_por_lote"
+            ),
+            models.CheckConstraint(
+                condition=Q(estado__in=["pendente", "efetivada", "ja_efetivada", "falhou"]),
+                name="lote_nfe_nota_estado_valido",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Nota {self.vinculo_id} do lote {self.lote_id} ({self.get_estado_display()})"
