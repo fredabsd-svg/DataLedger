@@ -465,6 +465,8 @@ def notas_do_mes(empresa, ano: int, mes: int) -> list[NotaDoMes]:
         tp_evento__in=CODIGOS_CANCELAMENTO_NFE,
         c_stat__in=CODIGOS_EFETIVOS_NFE,
     )
+    # `xml_original` não é carregado: a lista do mês só precisa do cabeçalho e dos itens. A leitura
+    # de itens, que precisa do XML, carrega o campo na hora (DL-085, auditoria A7).
     vinculos = list(
         VinculoNFeEmpresa.objects.filter(
             empresa=empresa,
@@ -473,6 +475,7 @@ def notas_do_mes(empresa, ano: int, mes: int) -> list[NotaDoMes]:
             documento__dh_emissao__lt=fim,
         )
         .select_related("documento")
+        .defer("documento__xml_original")
         .annotate(cancelada=Exists(eventos_de_cancelamento))
         .order_by("-documento__dh_emissao", "-documento_id")
     )

@@ -71,21 +71,25 @@ DESEMPENHO
   notas. Sem consulta por nota. A primeira leitura de uma nota nunca lida custa uma leitura de XML,
   documentada acima.
 - O tamanho da parte (`LIMITE_PADRAO_DA_PARTE`) é medido, com os tempos no comentário da constante.
-- LIMITE CONHECIDO: a PRIMEIRA prévia de um mês de 10.000 notas nunca lidas levou 110,7 s, porque
-  cada nota custa uma leitura de XML (cerca de 11 ms). Passa do teto do servidor. Com as notas já
-  lidas, a mesma prévia leva 2,7 s. A confirmação em partes não tem esse problema, mas a tela
-  precisa de uma leitura em partes ou de leitura na recepção: decisão do arquiteto.
+- Orçamento de tempo: cada parte (de efetivação e de leitura) para depois da nota em que o tempo
+  decorrido passa de `ORCAMENTO_DA_PARTE_SEGUNDOS`. O que sobrou fica pendente, e `restam` (ou
+  `restantes`) diz quanto. A chamada não depende só do número de notas.
+- A prévia não lê XML. A leitura de uma nota nunca lida custa uma leitura de XML, e é feita em
+  partes por `ler_notas_do_mes` (`LIMITE_PADRAO_DA_LEITURA`), não na prévia.
+- Memória: as consultas da prévia e das partes não carregam `xml_original` (é adiado com `defer`),
+  salvo na leitura, que precisa dele. Medida em `apps/fiscal/tests/test_dl085_memoria.py`.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import time
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from decimal import Decimal
 
-from django.db import DatabaseError, transaction
+from django.db import DatabaseError, OperationalError, transaction
 from django.db.models import Count
 from django.utils import timezone
 
@@ -109,6 +113,7 @@ from apps.fiscal.models import (
     LeituraItensNFe,
     LoteEscrituracaoNFe,
     LoteEscrituracaoNFeNota,
+    NaturezaItemNFe,
     VinculoNFeEmpresa,
 )
 
@@ -118,8 +123,13 @@ from apps.fiscal.models import (
 # primeira parte) levou 7,9 s. O teto do servidor é de cerca de 30 s; a chamada deve caber em 10 s.
 LIMITE_PADRAO_DA_PARTE = 100
 # Teto que a API aceita por parte. A média medida é de 44 ms por nota: 150 notas dão cerca de 6,6 s,
-# e o orçamento de cada chamada é de 10 s. Acima disso, a parte come a folga do servidor.
+# dentro do orçamento de tempo da parte. Acima disso, a parte come a folga do servidor.
 LIMITE_MAXIMO_DA_PARTE = 150
+# Tempo, em segundos, que uma parte (de efetivação ou de leitura) pode consumir. Passado o
+# orçamento, a parte para depois da nota em que ele estourou; o resto fica pendente (DL-085, A6).
+ORCAMENTO_DA_PARTE_SEGUNDOS = 10
+# Relógio das partes. Injetável nos testes: o tempo do teste é controlado, não o do servidor.
+_relogio = time.monotonic
 
 ANO_MINIMO, ANO_MAXIMO = 1970, 2999
 # Notas por consulta de itens. Mantém o `IN (...)` longe do limite de parâmetros do PostgreSQL.
@@ -152,6 +162,7 @@ CODIGO_ATRIBUICAO = "atribuicao"
 CODIGO_SEM_VNF = "sem_vnf"
 CODIGO_W16 = "w16"
 CODIGO_CONFERENCIA = "conferencia"
+CODIGO_NATUREZA_ESCOLHIDA = "natureza_escolhida"
 
 MENSAGEM_SEM_VNF = "A nota não tem o valor total (vNF): não há como conferir a receita."
 MENSAGEM_PREVIA_DESATUALIZADA = (
@@ -175,6 +186,16 @@ MENSAGEM_ESTORNADA_DEPOIS = (
     "pela escrituração individual."
 )
 MENSAGEM_SEM_PENDENTES = "Não há nota pendente de escrituração neste mês."
+MENSAGEM_NATUREZA_ESCOLHIDA = (
+    "natureza já escolhida no rascunho: escriture esta nota individualmente"
+)
+# Estado devolvido por `_processar_nota` quando a linha já estava processada por OUTRA chamada (duas
+# partes correndo ao mesmo tempo). Não é estado do banco, e não entra em `efetivadas` nem na trilha.
+_OUTRA_CHAMADA = "outra_chamada"
+# Deadlock do PostgreSQL (SQLSTATE 40P01): o banco desfaz a transação da vítima por inteiro. A nota
+# é tentada de novo, sem estado parcial. Três tentativas bastam: o outro lado termina na primeira.
+_TENTATIVAS_POR_DEADLOCK = 3
+_SQLSTATE_DEADLOCK = "40P01"
 MENSAGEM_ESCOLHA_SEM_CONFERENCIA = (
     "Com a natureza escolhida, a nota {numero} não fecha a conferência: {motivo}. Nada foi "
     "efetivado; escolha outra natureza."
@@ -479,6 +500,34 @@ def _lote_da_empresa(empresa, lote_id: int) -> LoteEscrituracaoNFe:
     return lote
 
 
+def _naturezas_dos_rascunhos(escrituracao_ids) -> dict[int, dict[int, str]]:
+    """{escrituração: {item: natureza}} das naturezas JÁ GRAVADAS nos rascunhos (só as não vazias).
+
+    Uma consulta para o mês inteiro: a prévia não paga uma consulta por nota.
+    """
+    ids = list(escrituracao_ids)
+    gravadas: dict[int, dict[int, str]] = {}
+    if not ids:
+        return gravadas
+    linhas = (
+        NaturezaItemNFe.objects.filter(escrituracao_id__in=ids)
+        .exclude(natureza="")
+        .values_list("escrituracao_id", "item_id", "natureza")
+    )
+    for escrituracao_id, item_id, natureza in linhas:
+        gravadas.setdefault(escrituracao_id, {})[item_id] = natureza
+    return gravadas
+
+
+def _diverge_do_rascunho(gravadas: dict[int, str], sugeridas) -> bool:
+    """True se o rascunho já tem natureza escolhida que não é a sugerida de algum item.
+
+    `sugeridas`: pares (item_id, natureza sugerida). Item sem natureza gravada não diverge: o
+    rascunho sem escolha entra no lote como antes (DL-085, auditoria A2, opção (a)).
+    """
+    return any(gravadas.get(item_id) not in (None, sugerida) for item_id, sugerida in sugeridas)
+
+
 # ---------------------------------------------------------------------------
 # Prévia
 # ---------------------------------------------------------------------------
@@ -548,6 +597,9 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
             continue
         lidas.append((nota, leitura))
 
+    gravadas_dos_rascunhos = _naturezas_dos_rascunhos(
+        nota.escrituracao.pk for nota, _ in lidas if nota.escrituracao is not None
+    )
     itens_das_notas = _itens_dos_documentos([nota.documento.pk for nota, _ in lidas])
     candidatas: dict[int, _Candidata] = {}
     acumulado: dict[tuple, list[NotaDoLote]] = {}
@@ -566,6 +618,16 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
             codigo = CODIGO_CONFLITO if motivo.startswith("conflito") else CODIGO_SEM_SUGESTAO
             extra = f" (e mais {len(sem_sugestao) - 1} item(ns))" if len(sem_sugestao) > 1 else ""
             fora.append(_fora(nota, codigo, f"item {item.n_item}: {motivo}{extra}"))
+            continue
+        # Rascunho com natureza escolhida pelo contador que difere da sugestão: não é sobrescrito em
+        # silêncio. Sai do lote com o motivo (DL-085, auditoria A2, opção (a)).
+        gravadas = (
+            gravadas_dos_rascunhos.get(nota.escrituracao.pk, {})
+            if nota.escrituracao is not None
+            else {}
+        )
+        if _diverge_do_rascunho(gravadas, [(item.pk, natureza) for item, natureza in pares]):
+            fora.append(_fora(nota, CODIGO_NATUREZA_ESCOLHIDA, MENSAGEM_NATUREZA_ESCOLHIDA))
             continue
 
         conferencia, recusa = _conferencia_ou_recusa(documento, leitura, pares)
@@ -630,8 +692,8 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
 # ---------------------------------------------------------------------------
 
 # Notas por parte da leitura. Medida em 10.000 NFC-e (test_dl085_volume.py): 25 partes de 400 notas,
-# de 5,01 s a 5,61 s (média 5,22 s), ou ~13 ms por nota. O orçamento de cada chamada é de ~5 s, e o
-# teto do servidor é de cerca de 30 s.
+# de 5,01 s a 5,61 s (média 5,22 s), ou ~13 ms por nota. Dentro do orçamento de tempo da parte
+# (`ORCAMENTO_DA_PARTE_SEGUNDOS`, 10 s); o teto do servidor é de cerca de 30 s.
 LIMITE_PADRAO_DA_LEITURA = 400
 LIMITE_MAXIMO_DA_LEITURA = 800
 
@@ -687,6 +749,8 @@ def ler_notas_do_mes(
     - Ilegível é resultado, não erro: a nota vira ilegível e sai da conta de "a ler".
     - Idempotente: a nota já lida não é tocada (`ler_itens` devolve a leitura atual). Repetir a
       chamada lê o que sobrou e nunca duplica item.
+    - Orçamento de tempo: passado `ORCAMENTO_DA_PARTE_SEGUNDOS`, a parte para antes da nota
+      seguinte. O que sobra fica em `restam`.
     - Só lê. Não cria escrituração, rascunho nem lote.
     """
     _validar_competencia(ano, mes)
@@ -697,7 +761,10 @@ def ler_notas_do_mes(
     )
     lidas = ilegiveis = 0
     falhas: list[FalhaDeLeitura] = []
-    for nota in pendentes[:limite]:
+    inicio = _relogio()
+    for indice, nota in enumerate(pendentes[:limite]):
+        if indice and _relogio() - inicio >= ORCAMENTO_DA_PARTE_SEGUNDOS:
+            break
         try:
             with transaction.atomic():
                 leitura = ler_itens(nota.documento)
@@ -873,6 +940,19 @@ def _grupos_do_lote(lote: LoteEscrituracaoNFe) -> set[str]:
     )
 
 
+def _grupos_divergem(empresa, ano: int, mes: int, aberto, grupos: list[str] | None) -> bool:
+    """Os grupos da repetição são os do lote em andamento? (DL-085, auditoria A4).
+
+    `grupos` informado: tem de ser exatamente o conjunto gravado. `None` significa "a prévia
+    inteira": então o lote só serve se nenhum grupo da prévia de agora ficou de fora dele.
+    """
+    gravados = _grupos_do_lote(aberto)
+    if grupos is not None:
+        return set(grupos) != gravados
+    previa = _calcular(empresa, ano, mes, aberto)
+    return any(grupo.chave not in gravados for grupo in previa.grupos)
+
+
 def _criar_lote(
     empresa,
     ano: int,
@@ -984,22 +1064,63 @@ def _por_natureza(itens) -> list[tuple[str, list[int]]]:
     return sorted(agrupado.items())
 
 
-def _gravar_estado(linha_id: int, estado: str, escrituracao=None, motivo: str = "") -> None:
-    """Muda o estado da linha SÓ se ainda estiver pendente. Não sobrescreve a parte concorrente."""
-    LoteEscrituracaoNFeNota.objects.filter(pk=linha_id, estado=EstadoNotaDoLoteNFe.PENDENTE).update(
+def _gravar_estado(linha_id: int, estado: str, escrituracao=None, motivo: str = "") -> bool:
+    """Muda o estado da linha SÓ se ainda estiver pendente. Devolve True se ESTA chamada a mudou.
+
+    Não sobrescreve a parte concorrente: se outra chamada já processou a linha, o UPDATE não casa e
+    devolve False (DL-085, auditoria A1). Quem chama conta só o que esta chamada gravou.
+    """
+    atualizadas = LoteEscrituracaoNFeNota.objects.filter(
+        pk=linha_id, estado=EstadoNotaDoLoteNFe.PENDENTE
+    ).update(
         estado=estado,
         escrituracao=escrituracao,
         motivo=motivo[:500],
         processada_em=timezone.now(),
     )
+    return atualizadas == 1
+
+
+def _marcar_sob_trava(linha_id: int, estado: str, escrituracao=None) -> None:
+    """Grava o estado final de uma nota que ESTA transação travou. A linha tem de estar pendente:
+    a trava garante isso. Se não estiver, é defeito, e a transação é desfeita (nada pela metade)."""
+    if not _gravar_estado(linha_id, estado, escrituracao=escrituracao):
+        raise RuntimeError(f"linha {linha_id} do lote mudou sob a trava: transação desfeita")
 
 
 def _processar_nota(lote, linha_id: int, usuario, request, estornadas: set[int]) -> tuple[str, str]:
-    """Uma nota, na PRÓPRIA transação. Devolve (estado final, motivo).
+    """Uma nota, na PRÓPRIA transação. Nova tentativa se o banco desfizer a transação por deadlock.
 
-    A ordem das travas é a da receita (DL-072/DL-074): a empresa primeiro, depois a linha do lote e
-    a escrituração. A recusa do serviço vira `falhou` fora da transação, para que o rollback não a
+    Deadlock com a criação individual de rascunho da mesma nota é possível: a individual trava o
+    vínculo e depois insere a escrituração, que precisa da linha da empresa (chave estrangeira). O
+    banco escolhe uma vítima, e a vítima tem a transação desfeita por inteiro. Repetir a nota é
+    seguro: nada da tentativa foi gravado.
+    """
+    for tentativa in range(1, _TENTATIVAS_POR_DEADLOCK + 1):
+        try:
+            return _processar_nota_uma_vez(lote, linha_id, usuario, request, estornadas)
+        except OperationalError as exc:
+            causa = exc.__cause__
+            deadlock = getattr(causa, "sqlstate", None) == _SQLSTATE_DEADLOCK
+            if not deadlock or tentativa == _TENTATIVAS_POR_DEADLOCK:
+                raise
+    raise AssertionError("inalcançável: o laço sempre devolve ou levanta")
+
+
+def _processar_nota_uma_vez(
+    lote, linha_id: int, usuario, request, estornadas: set[int]
+) -> tuple[str, str]:
+    """Uma tentativa de `_processar_nota`. Devolve (estado final, motivo).
+
+    Ordem das travas: a empresa, a linha do lote, o VÍNCULO e só então a escrituração (DL-085,
+    auditoria A5), a mesma ordem vínculo-escrituração da criação individual. Essa ordem sozinha NÃO
+    evita o deadlock com a criação individual: a inserção da escrituração também precisa da linha
+    da empresa (chave estrangeira), que o lote já trava. Por isso `_processar_nota` repete a nota
+    no deadlock. A recusa do serviço vira `falhou` fora da transação, para que o rollback não a
     apague.
+
+    Se a linha já não está pendente (outra chamada a processou), devolve `_OUTRA_CHAMADA`: não é
+    efetivação desta chamada e não entra na contagem nem na trilha.
     """
     try:
         with transaction.atomic():
@@ -1007,10 +1128,14 @@ def _processar_nota(lote, linha_id: int, usuario, request, estornadas: set[int])
             linha = (
                 LoteEscrituracaoNFeNota.objects.select_for_update(of=("self",))
                 .select_related("vinculo__documento")
+                .defer("vinculo__documento__xml_original")
                 .get(pk=linha_id)
             )
             if linha.estado != EstadoNotaDoLoteNFe.PENDENTE:
-                return linha.estado, ""
+                return _OUTRA_CHAMADA, ""
+            VinculoNFeEmpresa.objects.select_for_update(of=("self",)).only("pk").get(
+                pk=linha.vinculo_id
+            )
             ativa = (
                 EscrituracaoNFe.objects.select_for_update(of=("self",))
                 .filter(
@@ -1022,13 +1147,20 @@ def _processar_nota(lote, linha_id: int, usuario, request, estornadas: set[int])
             # Já efetivada (por outra ação, ou por uma parte que caiu antes de gravar a linha):
             # pula, sem criar escrituração nova. É a idempotência do lote.
             if ativa is not None and ativa.estado == EstadoEscrituracao.EFETIVADA:
-                _gravar_estado(linha.pk, EstadoNotaDoLoteNFe.JA_EFETIVADA, escrituracao=ativa)
+                _marcar_sob_trava(linha.pk, EstadoNotaDoLoteNFe.JA_EFETIVADA, escrituracao=ativa)
                 return EstadoNotaDoLoteNFe.JA_EFETIVADA, ""
             if linha.vinculo_id in estornadas:
                 raise servico.EscrituracaoNFeErro(MENSAGEM_ESTORNADA_DEPOIS)
             desvio = _desvio_desde_a_confirmacao(linha)
             if desvio is not None:
                 raise servico.EscrituracaoNFeErro(desvio)
+            if ativa is not None:
+                # Rascunho com natureza escolhida que difere da sugestão gravada: a nota não é
+                # sobrescrita. É a mesma regra da prévia, revalidada no momento da efetivação.
+                gravadas = _naturezas_dos_rascunhos([ativa.pk]).get(ativa.pk, {})
+                sugeridas = [(int(item_id), sugerida) for item_id, sugerida, _final in linha.itens]
+                if _diverge_do_rascunho(gravadas, sugeridas):
+                    raise servico.EscrituracaoNFeErro(MENSAGEM_NATUREZA_ESCOLHIDA)
 
             escrituracao = servico.criar_rascunho(linha.vinculo, usuario=usuario, request=request)
             for natureza, ids in _por_natureza(linha.itens):
@@ -1036,17 +1168,23 @@ def _processar_nota(lote, linha_id: int, usuario, request, estornadas: set[int])
                     escrituracao, natureza, ids, usuario=usuario, request=request
                 )
             escrituracao = servico.efetivar(escrituracao, usuario=usuario, request=request)
-            _gravar_estado(linha.pk, EstadoNotaDoLoteNFe.EFETIVADA, escrituracao=escrituracao)
+            _marcar_sob_trava(linha.pk, EstadoNotaDoLoteNFe.EFETIVADA, escrituracao=escrituracao)
             return EstadoNotaDoLoteNFe.EFETIVADA, ""
     except servico.EscrituracaoNFeErro as exc:
         motivo = exc.mensagem
     with transaction.atomic():
-        _gravar_estado(linha_id, EstadoNotaDoLoteNFe.FALHOU, motivo=motivo)
+        if not _gravar_estado(linha_id, EstadoNotaDoLoteNFe.FALHOU, motivo=motivo):
+            # A outra chamada já fechou a linha: a falha desta não é gravada por cima.
+            return _OUTRA_CHAMADA, ""
     return EstadoNotaDoLoteNFe.FALHOU, motivo
 
 
 def _processar_parte(lote, usuario, request, limite: int) -> _Parte:
-    """Efetiva até `limite` notas pendentes, na ordem do vínculo, cada uma na própria transação."""
+    """Efetiva até `limite` notas pendentes, na ordem do vínculo, cada uma na própria transação.
+
+    Para depois da nota em que o orçamento de tempo da parte (`ORCAMENTO_DA_PARTE_SEGUNDOS`)
+    estoura. As notas que sobram ficam pendentes e a próxima parte as pega.
+    """
     pendentes = list(
         LoteEscrituracaoNFeNota.objects.filter(lote=lote, estado=EstadoNotaDoLoteNFe.PENDENTE)
         .order_by("vinculo_id", "pk")
@@ -1055,12 +1193,13 @@ def _processar_parte(lote, usuario, request, limite: int) -> _Parte:
     parte = _Parte()
     if not pendentes:
         return parte
-    # Número e série só das notas desta parte, numa consulta: a falha mostra a nota, não o id.
+    # Número e série só das notas desta parte, numa consulta: a falha mostra a nota, não o id. O XML
+    # não é carregado: a efetivação não o usa (a leitura já foi feita e gravada).
     documentos = {
         vinculo.pk: vinculo.documento
-        for vinculo in VinculoNFeEmpresa.objects.select_related("documento").filter(
-            pk__in=[vinculo_id for _pk, vinculo_id in pendentes]
-        )
+        for vinculo in VinculoNFeEmpresa.objects.select_related("documento")
+        .defer("documento__xml_original")
+        .filter(pk__in=[vinculo_id for _pk, vinculo_id in pendentes])
     }
     # Estornada DEPOIS da confirmação: o lote não a reefetiva (ver MENSAGEM_ESTORNADA_DEPOIS).
     estornadas = set(
@@ -1070,6 +1209,7 @@ def _processar_parte(lote, usuario, request, limite: int) -> _Parte:
             estornada_em__gte=lote.criado_em,
         ).values_list("vinculo_id", flat=True)
     )
+    inicio = _relogio()
     for linha_id, vinculo_id in pendentes:
         estado, motivo = _processar_nota(lote, linha_id, usuario, request, estornadas)
         if estado == EstadoNotaDoLoteNFe.EFETIVADA:
@@ -1081,6 +1221,8 @@ def _processar_parte(lote, usuario, request, limite: int) -> _Parte:
             parte.falhas.append(
                 FalhaDaNota(vinculo_id, motivo, numero=nota.numero, serie=nota.serie)
             )
+        if _relogio() - inicio >= ORCAMENTO_DA_PARTE_SEGUNDOS:
+            break
     return parte
 
 
@@ -1235,7 +1377,7 @@ def confirmar_lote(
             if (
                 assinatura != aberto.assinatura
                 or (escolhas_do_pedido and escolhas_do_pedido != aberto.escolhas)
-                or (grupos is not None and set(grupos) != _grupos_do_lote(aberto))
+                or _grupos_divergem(travada, ano, mes, aberto, grupos)
             ):
                 raise LoteEmAndamento(MENSAGEM_LOTE_EM_ANDAMENTO)
             lote = aberto

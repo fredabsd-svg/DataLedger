@@ -7832,6 +7832,8 @@ _CAMPOS_FIXOS_DO_LOTE = frozenset(
     {"csrfmiddlewaretoken", "acao", "ano", "mes", "assinatura", "grupo", "incluir", "lote_id"}
 )
 _ACOES_DO_LOTE_NFE = frozenset({"ler", "confirmar", "continuar"})
+# Progresso de uma parte, guardado na sessão entre o POST e o GET que o mostra (Post/Redirect/Get).
+_CHAVE_PROGRESSO_NFE = "dl085_progresso_do_lote_nfe"
 # Forma da chave que o serviço gera (tipo, hífen, 16 hexadecimais). A chave vira NOME de campo no
 # formulário, então qualquer outra forma é recusada antes de chegar ao contrato.
 _CHAVE_DO_GRUPO_NFE = re.compile(r"[a-z_]+-[0-9a-f]{16}")
@@ -7847,6 +7849,7 @@ _ROTULO_MOTIVO_FORA_DO_LOTE = {
     servico_lote.CODIGO_SEM_VNF: "Nota sem valor total (vNF)",
     servico_lote.CODIGO_W16: "Não confere com o vNF",
     servico_lote.CODIGO_CONFERENCIA: "Não fecha a conferência",
+    servico_lote.CODIGO_NATUREZA_ESCOLHIDA: "Natureza já escolhida no rascunho",
 }
 
 
@@ -7962,6 +7965,17 @@ def _linha_do_grupo_no_lote(grupo, posicao, preenchido):
         "notas": grupo.quantidade_notas,
         "itens": grupo.quantidade_itens,
         "receita_ptbr": _valor_ptbr(grupo.receita_bruta),
+        "devolucao_ptbr": _valor_ptbr(grupo.devolucao),
+        # Nome próprio da caixa "incluir": sem ele, todas as caixas se chamam igual para o leitor de
+        # tela. Traz a posição, para ser único mesmo se dois grupos tiverem o mesmo CFOP e natureza.
+        "rotulo_acessivel": "Incluir o grupo {}: {}".format(
+            posicao,
+            "; ".join(
+                f"CFOP {combinacao.cfop}, CST ou CSOSN {combinacao.cst_csosn or '—'}, "
+                f"natureza {NaturezaOperacaoNFe(combinacao.natureza).label}"
+                for combinacao in grupo.assinaturas
+            ),
+        ),
         "opcoes": _opcoes_de_natureza(grupo.tipo),
         "incluido": preenchido is None or chave in preenchido["incluidos"],
         "selecionada": preenchido["escolhas"].get(chave, "") if preenchido else "",
@@ -8015,6 +8029,9 @@ def _tela_do_lote_nfe(request, empresa, ano, mes, *, status=200, preenchido=None
         "total_grupos": len(previa.grupos),
         "total_notas_do_lote": sum(grupo.quantidade_notas for grupo in previa.grupos),
         "total_itens_do_lote": sum(grupo.quantidade_itens for grupo in previa.grupos),
+        "total_devolucao_ptbr": _valor_ptbr(
+            sum((grupo.devolucao for grupo in previa.grupos), Decimal("0.00"))
+        ),
         "a_ler": a_ler,
         # O serviço lê no máximo este tanto por clique. O rótulo do botão diz quantas são desta vez.
         "proximas_leituras": min(a_ler, servico_lote.LIMITE_PADRAO_DA_LEITURA),
@@ -8032,41 +8049,46 @@ def _tela_do_lote_nfe(request, empresa, ano, mes, *, status=200, preenchido=None
     return render(request, "fiscal/nfe_lote.html", contexto, status=status)
 
 
-def _tela_do_progresso_nfe(request, empresa, progresso, *, status=200):
+def _dados_do_progresso(empresa, progresso) -> dict:
+    """O que a tela mostra do progresso de uma parte, em tipos simples (vai para a sessão)."""
+    return {
+        "ano": progresso.ano,
+        "mes": progresso.mes,
+        "lote_id": progresso.lote_id,
+        "assinatura": progresso.assinatura,
+        "terminou": progresso.terminou,
+        "total_notas": progresso.total_notas,
+        "efetivadas_nesta_chamada": progresso.efetivadas_nesta_chamada,
+        "efetivadas_total": progresso.efetivadas_total,
+        "ja_efetivadas_total": progresso.ja_efetivadas_total,
+        "restantes": progresso.restantes,
+        "falhas_total": progresso.falhas_total,
+        "falhas": [
+            {
+                "rotulo": f"nº {falha.numero}, série {falha.serie}",
+                "url": reverse("fiscal_web:nfe_escriturar", args=[empresa.pk, falha.vinculo_id]),
+                "motivo": falha.motivo,
+            }
+            for falha in progresso.falhas_nesta_chamada
+        ],
+    }
+
+
+def _tela_do_progresso_nfe(request, empresa, dados):
     """O que a última parte fez: efetivadas, o que resta, falhas com motivo e o resumo do lote."""
     contexto = {
         "empresa": empresa,
-        "ano": progresso.ano,
-        "mes": progresso.mes,
-        "competencia_rotulo": f"{progresso.mes:02d}/{progresso.ano}",
+        "ano": dados["ano"],
+        "mes": dados["mes"],
+        "competencia_rotulo": f"{dados['mes']:02d}/{dados['ano']}",
         "pode_escriturar": _pode_escriturar(request),
         "pode_confirmar": False,
         "url_lote": reverse("fiscal_web:nfe_lote", args=[empresa.pk]),
-        "url_previa": _url_previa_do_lote(empresa, progresso.ano, progresso.mes),
+        "url_previa": _url_previa_do_lote(empresa, dados["ano"], dados["mes"]),
         "url_lista": reverse("fiscal_web:nfe_a_escriturar")
         + "?"
-        + urlencode({"empresa": empresa.pk, "ano": progresso.ano, "mes": progresso.mes}),
-        "progresso": {
-            "lote_id": progresso.lote_id,
-            "assinatura": progresso.assinatura,
-            "terminou": progresso.terminou,
-            "total_notas": progresso.total_notas,
-            "efetivadas_nesta_chamada": progresso.efetivadas_nesta_chamada,
-            "efetivadas_total": progresso.efetivadas_total,
-            "ja_efetivadas_total": progresso.ja_efetivadas_total,
-            "restantes": progresso.restantes,
-            "falhas_total": progresso.falhas_total,
-            "falhas": [
-                {
-                    "rotulo": f"nº {falha.numero}, série {falha.serie}",
-                    "url": reverse(
-                        "fiscal_web:nfe_escriturar", args=[empresa.pk, falha.vinculo_id]
-                    ),
-                    "motivo": falha.motivo,
-                }
-                for falha in progresso.falhas_nesta_chamada
-            ],
-        },
+        + urlencode({"empresa": empresa.pk, "ano": dados["ano"], "mes": dados["mes"]}),
+        "progresso": dados,
         "vazio": False,
         "grupos": [],
         "a_ler": 0,
@@ -8077,7 +8099,29 @@ def _tela_do_progresso_nfe(request, empresa, progresso, *, status=200):
         "pagina": None,
         "querystring_sem_pagina": "",
     }
-    return render(request, "fiscal/nfe_lote.html", contexto, status=status)
+    return render(request, "fiscal/nfe_lote.html", contexto)
+
+
+def _redirecionar_com_progresso(request, empresa, progresso):
+    """Post/Redirect/Get (DL-085, auditoria A9): o progresso vai para a sessão e o GET o mostra uma
+    vez. Recarregar a página depois não reenvia o POST, e o POST não é repetido sem querer."""
+    request.session[_CHAVE_PROGRESSO_NFE] = {
+        "empresa_id": empresa.pk,
+        "dados": _dados_do_progresso(empresa, progresso),
+    }
+    return redirect(_url_previa_do_lote(empresa, progresso.ano, progresso.mes))
+
+
+def _progresso_guardado(request, empresa, ano, mes):
+    """O progresso que o POST deixou na sessão, se for desta empresa e deste mês. Sai da sessão ao
+    ser lido: a página seguinte, recarregada, mostra a prévia de novo."""
+    guardado = request.session.pop(_CHAVE_PROGRESSO_NFE, None)
+    if not guardado or guardado.get("empresa_id") != empresa.pk:
+        return None
+    dados = guardado["dados"]
+    if (dados["ano"], dados["mes"]) != (ano, mes):
+        return None
+    return dados
 
 
 def _progresso_ou_recusa(request, empresa, ano, mes, operacao, *, preenchido=None):
@@ -8151,7 +8195,7 @@ def _continuar_post(request, empresa, ano, mes, post):
     )
     if resposta is not None:
         return resposta
-    return _tela_do_progresso_nfe(request, empresa, progresso)
+    return _redirecionar_com_progresso(request, empresa, progresso)
 
 
 def _confirmar_post(request, empresa, ano, mes, post, grupos):
@@ -8182,7 +8226,7 @@ def _confirmar_post(request, empresa, ano, mes, post, grupos):
     )
     if resposta is not None:
         return resposta
-    return _tela_do_progresso_nfe(request, empresa, progresso)
+    return _redirecionar_com_progresso(request, empresa, progresso)
 
 
 def _lote_nfe_post(request, empresa):
@@ -8219,4 +8263,7 @@ def nfe_lote(request, empresa_id):
     if request.method == "POST":
         return _lote_nfe_post(request, empresa)
     ano, mes = _competencia_nfe(request)
+    progresso = _progresso_guardado(request, empresa, ano, mes)
+    if progresso is not None:
+        return _tela_do_progresso_nfe(request, empresa, progresso)
     return _tela_do_lote_nfe(request, empresa, ano, mes)

@@ -145,7 +145,8 @@ conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do
             <section aria-labelledby="id_grupos">
                 <h2 id="id_grupos">Prévia por grupo</h2>
                 <p class="texto-apoio">
-                    {{ total_grupos }} grupo(s), com {{ total_notas_do_lote }} nota(s) e {{ total_itens_do_lote }} item(ns).
+                    {{ total_grupos }} grupo(s), com {{ total_notas_do_lote }} nota(s), {{ total_itens_do_lote }} item(ns),
+                    devolução de {{ total_devolucao_ptbr }}.
                     "Manter a sugestão" aceita a natureza sugerida. Uma natureza escolhida para o grupo vale para todas as
                     combinações de CFOP e CST que ele tem. Um grupo desmarcado fica de fora do lote: suas notas não são tocadas.
                 </p>
@@ -164,9 +165,9 @@ conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do
                     <input type="hidden" name="mes" value="{{ mes }}">
                     <input type="hidden" name="assinatura" value="{{ assinatura }}">
                 {% endif %}
-                    <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0" aria-label="Grupos da prévia, com a natureza sugerida e o valor de receita">
+                    <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0" aria-label="Grupos da prévia, com a natureza sugerida, a receita e a devolução">
                         <table class="tabela-dados">
-                            <caption>Grupos de notas do mês {{ competencia_rotulo }}: tipo, CFOP, CST ou CSOSN, natureza sugerida, notas, itens e valor de receita</caption>
+                            <caption>Grupos de notas do mês {{ competencia_rotulo }}: tipo, CFOP, CST ou CSOSN, natureza sugerida, notas, itens, valor de receita e devolução</caption>
                             <thead>
                                 <tr>
                                     {% if pode_confirmar %}<th scope="col">Incluir</th>{% endif %}
@@ -177,6 +178,7 @@ conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do
                                     <th scope="col">Notas</th>
                                     <th scope="col">Itens</th>
                                     <th scope="col">Valor de receita</th>
+                                    <th scope="col">Devolução</th>
                                     {% if pode_confirmar %}<th scope="col">Natureza do grupo</th>{% endif %}
                                 </tr>
                             </thead>
@@ -186,7 +188,7 @@ conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do
                                         {% if pode_confirmar %}
                                             <td>
                                                 <div class="campo campo--caixa">
-                                                    <input type="checkbox" id="id_incluir_{{ grupo.posicao }}" name="incluir" value="{{ grupo.chave }}"{% if grupo.incluido %} checked{% endif %}>
+                                                    <input type="checkbox" id="id_incluir_{{ grupo.posicao }}" name="incluir" value="{{ grupo.chave }}" aria-label="{{ grupo.rotulo_acessivel }}"{% if grupo.incluido %} checked{% endif %}>
                                                     <label for="id_incluir_{{ grupo.posicao }}">Incluir este grupo</label>
                                                 </div>
                                                 <input type="hidden" name="grupo" value="{{ grupo.chave }}">
@@ -202,6 +204,7 @@ conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do
                                         <td class="valor-monetario">{{ grupo.notas }}</td>
                                         <td class="valor-monetario">{{ grupo.itens }}</td>
                                         <td class="valor-monetario">{{ grupo.receita_ptbr }}</td>
+                                        <td class="valor-monetario">{{ grupo.devolucao_ptbr }}</td>
                                         {% if pode_confirmar %}
                                             <td>
                                                 <label class="visualmente-oculto" for="id_escolha_{{ grupo.posicao }}">Natureza do grupo {{ grupo.posicao }}</label>

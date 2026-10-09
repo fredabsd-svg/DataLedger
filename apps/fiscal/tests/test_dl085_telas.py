@@ -268,7 +268,7 @@ def test_confirmar_com_todos_os_grupos_efetiva_as_notas_do_lote_e_so_elas(
     _ler_tudo(client, posto)
     html = _html(client.get(_url(posto)))
 
-    resposta = _post(client, posto, _dados_de_confirmacao(html))
+    resposta = _post(client, posto, _dados_de_confirmacao(html), follow=True)
 
     assert resposta.status_code == 200
     assert "Lote concluído" in _html(resposta)
@@ -296,7 +296,7 @@ def test_grupo_desmarcado_fica_intacto_e_os_marcados_sao_efetivados(
     html = _html(client.get(_url(posto)))
     combustivel = _chave_do_grupo_com(html, CHAVE_COMBUSTIVEL)
 
-    resposta = _post(client, posto, _dados_de_confirmacao(html, excluir=[combustivel]))
+    resposta = _post(client, posto, _dados_de_confirmacao(html, excluir=[combustivel]), follow=True)
 
     assert resposta.status_code == 200
     assert "Lote concluído" in _html(resposta)
@@ -356,21 +356,21 @@ def test_continuar_processa_as_partes_ate_concluir_sem_duplicar(
     _ler_tudo(client, posto)
     html = _html(client.get(_url(posto)))
 
-    html = _html(_post(client, posto, _dados_de_confirmacao(html)))
+    html = _html(_post(client, posto, _dados_de_confirmacao(html), follow=True))
     assert "Lote em andamento" in html
     assert "Efetivadas <strong>2</strong>, restam <strong>3</strong>" in html
     lote = _lote_id(html)
 
     continuar = {"acao": "continuar", "ano": ANO, "mes": MES, "lote_id": lote}
-    html = _html(_post(client, posto, continuar))
+    html = _html(_post(client, posto, continuar, follow=True))
     assert "Efetivadas <strong>4</strong>, restam <strong>1</strong>" in html
 
-    html = _html(_post(client, posto, continuar))
+    html = _html(_post(client, posto, continuar, follow=True))
     assert "Lote concluído" in html
     assert "<strong>5</strong> efetivada(s)" in html
 
     # Repetir depois de concluído não processa nada: nenhuma escrituração a mais.
-    html = _html(_post(client, posto, continuar))
+    html = _html(_post(client, posto, continuar, follow=True))
     assert "Lote concluído" in html
     assert _efetivadas(posto) == 5
     assert EscrituracaoNFe.objects.filter(empresa=posto).count() == 5
@@ -384,7 +384,7 @@ def test_lote_em_andamento_aparece_na_previa_e_nao_oferece_confirmar_outro(
     _cenario(escritorio_a, gestor, posto)
     client.force_login(gestor)
     _ler_tudo(client, posto)
-    _post(client, posto, _dados_de_confirmacao(_html(client.get(_url(posto)))))
+    _post(client, posto, _dados_de_confirmacao(_html(client.get(_url(posto)))), follow=True)
 
     html = _html(client.get(_url(posto)))
 
@@ -409,6 +409,7 @@ def test_escolha_de_outra_natureza_para_um_grupo_e_aplicada(escritorio_a, gestor
         client,
         posto,
         _dados_de_confirmacao(html, escolhas={grupo: NATUREZA_DO_POSTO}),
+        follow=True,
     )
 
     assert resposta.status_code == 200
@@ -466,7 +467,7 @@ def test_progresso_mostra_a_falha_com_o_motivo_e_a_nota(escritorio_a, gestor, po
         return original(escrituracao, **kwargs)
 
     with mock.patch.object(servico_nfe, "efetivar", side_effect=efetivar_com_falha):
-        resposta = _post(client, posto, _dados_de_confirmacao(html))
+        resposta = _post(client, posto, _dados_de_confirmacao(html), follow=True)
 
     html = _html(resposta)
     assert "Lote concluído" in html
@@ -597,7 +598,9 @@ def test_continuar_lote_de_outra_empresa_responde_404_e_nao_mexe_no_lote(
     _cenario(escritorio_a, gestor, posto)
     client.force_login(gestor)
     _ler_tudo(client, posto)
-    html = _html(_post(client, posto, _dados_de_confirmacao(_html(client.get(_url(posto))))))
+    html = _html(
+        _post(client, posto, _dados_de_confirmacao(_html(client.get(_url(posto)))), follow=True)
+    )
     lote = _lote_id(html)
     andamento = LoteEscrituracaoNFe.objects.get(pk=lote)
 

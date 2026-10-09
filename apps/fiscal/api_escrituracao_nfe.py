@@ -748,8 +748,8 @@ def _progresso_payload(progresso: lote_servico.ProgressoDoLote) -> dict:
 
 class PreviaLoteNFeView(_EmpresaComIdValido, APIView):
     """GET — prévia do mês em lote: grupos (quantidades, receita, naturezas), notas fora do lote com
-    o motivo, e a assinatura que a confirmação exige. Só lê (a primeira leitura de uma nota é a
-    única escrita, documentada em `escrituracao_nfe_lote`)."""
+    o motivo, e a assinatura que a confirmação exige. Só lê o banco: não grava nada e não lê XML.
+    As notas ainda não lidas vêm em `a_ler`; o POST `.../lote/ler/` as lê em partes."""
 
     permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
 
