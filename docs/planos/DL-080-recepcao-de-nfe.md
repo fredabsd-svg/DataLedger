@@ -140,6 +140,37 @@ por engano num cálculo de NFS-e.
 - O relatório do lote (tela já existente) passou a mostrar NF-e, NFC-e e
   eventos de NF-e já nesta frente.
 
+## Decisões tomadas na correção (rodada 1)
+
+[Rodada 1](../auditorias/2026-10-09-dl-080-rodada-1.md): **reprovada** por A1
+(data absurda aceita travava a lista, o detalhe e o relatório do lote com erro
+de servidor). O núcleo do risco se sustentou: nenhuma empresa ligada por
+chave ou terceiros, nenhuma cancelada como válida, nenhum vazamento entre
+escritórios. Correção única:
+
+- **Datas** (A1): `dhEmi`, `dhRecbto` e `dhEvento` só no padrão do XSD (ano
+  20xx); fora dele, recusa com o campo nomeado.
+- **Paginação** (A2): ordem com desempate determinístico na lista e nos
+  eventos sem nota.
+- **Ambiente** (A3, A8): evento de homologação recusado como a nota;
+  `tpAmb` ausente recusado (o XSD o exige).
+- **`cStat` 136** (A7, HI-116): "registrado, mas não vinculado a NF-e" não
+  cancela; o evento é guardado e mostrado com o aviso de conferir. Só 135 e
+  155 têm efeito.
+- **Leniências do leitor** (A8): `nfeProc` com mais de uma nota recusado;
+  retorno do evento com tipo ou sequência diferentes do evento recusado; CNPJ
+  da chave conferido com o do emitente fora da faixa de séries da SEFAZ (890
+  a 999).
+- **Totais da tela** (A5): a soma do `vNF` das autorizadas sai separada por
+  direção (saídas, entradas); a cancelada continua fora.
+- **Testes** (A4, A6): os casos que os mutantes sobreviventes expuseram e o
+  corpus de XML validado contra o XSD montado pelo auditor.
+- **Interface** (A9): documento sem quebra no meio; rolagem só dentro da
+  tabela em telas estreitas; rótulos ("Carta de Correção", "NF-e já
+  recebida", nome do módulo de recepção).
+- **Imutabilidade sem gatilho** (A10): aceita nesta fatia, como na NFS-e;
+  BL-683.
+
 ## Critérios de aceite
 
 1. Os aceitos e cada recusa do item 1 têm teste com XML sintético montado

@@ -144,7 +144,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-076](../planos/DL-076-iss-por-municipio-palmas.md) | Fiscal: ISS por município, começando por Palmas (alíquota informada, conferência por nota, apuração fora do Simples, retido sofrido, outros municípios) | Integrada (PR #99, squash `6c2baf7`) — rodada 1 e reconferência aprovadas com ressalvas |
 | [DL-077](../planos/DL-077-importacao-e-exportacao-contabil-em-txt.md) | Contabilidade: importar e exportar plano de contas e lançamentos em TXT e Excel | Integrada (PR #100, squash `929a79a`; PR #101, squash `b60560b`) — efetivação parcial suspensa (BL-676) |
 | [DL-078](../planos/DL-078-servicos-tomados-e-retencoes.md) | Fiscal: serviços tomados, ISS retido pelo tomador e retenções federais | Integrada (PR #102, squash `49eacba`) — rodada 1 e reconferência aprovadas com ressalvas |
-| [DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) | Fiscal: Lucro Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224 | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) | Fiscal: Lucro Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224 | Integrada (PR #103, squash `6eb922e`) — rodada 1 e reconferência aprovadas com ressalvas |
 | [DL-080](../planos/DL-080-recepcao-de-nfe.md) | Fiscal: recepção de NF-e (modelo 55) e NFC-e (modelo 65), fatia 2 da DL-010 | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
@@ -293,48 +293,36 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    HI-98). Abertos: HI-93 a HI-99 e **PE-82 com o Fred**; BL-678, BL-679.
 
 8. **[DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) — Lucro
-   Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224:
-   implementada fora da branch (cópia isolada `dl079`, rebaseada sobre a
-   `main` com a DL-078: frente A `29d179d`, frente B `22b52ae`);
-   [rodada 1](../auditorias/2026-10-09-dl-079-rodada-1.md) APROVADA COM
-   RESSALVAS (cálculo igual ao centavo à implementação independente do
-   auditor; A1 a A5 médios, A6 a A15 baixos; suíte 7.786 aprovados, 1
-   reprovado de ambiente, 53 pulados); correção única `c8ab98a` (A1 a A8,
-   A10, A12, A14; 63 testes novos; suíte do desenvolvedor 7.849 aprovados, 1
-   reprovado de ambiente, 53 pulados);
-   [reconferência](../auditorias/2026-10-09-dl-079-reconferencia.md) APROVADA
-   COM RESSALVAS (7.849 aprovados, 1 reprovado de ambiente, 53 pulados; 69
-   dos 70 mutantes da rodada 1 caem, o restante é equivalente). R1 e R2
-   fechados por ajuste do arquiteto e R4 pelos testes do auditor (`822de58`);
-   R3 e R5 no BL-682; R6 na PE-83. Suíte da branch integrada (`72f684c`,
-   arquiteto, invocação única): 7.861 aprovados, 1 reprovado (ambiente), 53
-   pulados. PR aberto, aguardando a CI; merge autorizado (RC-171).** HI-114,
-   HI-115 e BL-680 registrados. Frente A: tabelas com fonte, seis cadastros,
-   migração `fiscal 0009` com gatilhos, apuração do trimestre com as três
-   colunas (sem LC 224, com LC 224, parcela), controle do limite com sobra e
-   os casos I a III do 4º trimestre, retenções confirmadas, quotas e
-   vencimentos, medida judicial, 11 rotas de API. Frente B: 16 telas, menu
-   "Lucro Presumido", e a dedução do 4º trimestre sem os trimestres com
-   medida judicial. Suíte do desenvolvedor (invocação única): 7.771
-   aprovados, 1 reprovado (ambiente), 53 pulados.
-   [Consulta ao contador-senior](../projeto/consultas/2026-10-08-contador-senior-presumido.md):
-   acréscimo ×1,10; IRPJ desde o 1º trimestre de 2026 e CSLL desde o 2º.
-   HI-100 a HI-108; **PE-83 com o Fred** (rotina do Presumido; não bloqueia).
+   Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224: INTEGRADA**
+   pelo PR #103 (squash `6eb922e`), com os quatro checks verdes em todas as
+   execuções do último commit (RC-171). [Rodada 1](../auditorias/2026-10-09-dl-079-rodada-1.md)
+   e [reconferência](../auditorias/2026-10-09-dl-079-reconferencia.md)
+   aprovadas com ressalvas; o cálculo bate ao centavo com a implementação
+   independente do auditor. Tabelas com fonte, controle do limite da LC 224
+   com sobra e os casos I a III, três colunas (sem LC 224, com, parcela),
+   retenções confirmadas, medida judicial, quotas e vencimentos; 11 rotas de
+   API e 16 telas. Abertos: HI-100 a HI-108, HI-114, HI-115 e **PE-83 com o
+   Fred**; BL-680, BL-682.
 
 9. **[DL-080](../planos/DL-080-recepcao-de-nfe.md) — recepção de NF-e e
-   NFC-e: frente A em conclusão** (cópia isolada `dl080` sobre a DL-079;
-   leitor, tabelas próprias, eventos, API; BL-681). [Pesquisa do leiaute](../projeto/consultas/2026-10-09-leiaute-nfe.md)
-   no Portal Nacional da NF-e (pacote PL 010f, leiaute 4.00, eventos e NTs
-   até 01/10/2026). Tabelas próprias para a NF-e, para nada contaminar os
-   cálculos de NFS-e. HI-109 a HI-113; **PE-84 com o Fred** (NFC-e,
-   denegada, transferência; não bloqueia).
+   NFC-e: implementada fora da branch (cópia isolada `dl080`: frente A
+   `67fb073`, frente B `b41c8ed`);
+   [rodada 1](../auditorias/2026-10-09-dl-080-rodada-1.md) REPROVADA por A1
+   (data absurda aceita travava a lista e o relatório do lote com erro de
+   servidor), em correção única.** O núcleo se sustentou: nenhuma empresa
+   ligada por chave ou terceiros, nenhuma cancelada como válida, nenhum
+   vazamento entre escritórios; suíte 8.083 aprovados, 1 reprovado
+   (ambiente), 53 pulados.
+   [Pesquisa do leiaute](../projeto/consultas/2026-10-09-leiaute-nfe.md)
+   (PL 010f, leiaute 4.00). HI-109 a HI-113, HI-116; **PE-84 com o Fred**;
+   BL-681, BL-683.
 
-**Linha de base vigente (08/10/2026, contêiner Linux, Python 3.13.16,
-PostgreSQL 16 local, sobre `5c6673d` — conteúdo da `main` em `49eacba` —,
-medida pelo arquiteto numa única invocação):** `pytest` completo **7.542
+**Linha de base vigente (09/10/2026, contêiner Linux, Python 3.13.16,
+PostgreSQL 16 local, sobre `72f684c` — conteúdo da `main` em `6eb922e` —,
+medida pelo arquiteto numa única invocação):** `pytest` completo **7.861
 aprovados, 1 reprovado, 53 pulados**; a reprovação é a conhecida de ambiente
 (`test_versao_minima_python.py`, exige Python 3.14). `ruff`, `check` e
-`makemigrations --check` limpos (512 arquivos). A suíte leva cerca de 10 a 11
+`makemigrations --check` limpos (526 arquivos). A suíte leva cerca de 10 a 11
 min: o job "Lint e testes" tem limite de 20 min. Lição da DL-075: a suíte
 **em fatias** esconde interação entre migrações — só vale a invocação única.
 
