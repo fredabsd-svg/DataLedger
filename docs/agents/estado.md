@@ -148,6 +148,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-080](../planos/DL-080-recepcao-de-nfe.md) | Fiscal: recepção de NF-e (modelo 55) e NFC-e (modelo 65), fatia 2 da DL-010 | Integrada (PR #104, squash `c01b451`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 | [DL-081](../planos/DL-081-escrituracao-das-nfe-de-saida.md) | Fiscal: escrituração das NF-e de saída e da devolução de venda | Integrada (PR #105, squash `2911eb6`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 | [DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md) | Fiscal: pré-DAS de comércio e indústria (Anexos I e II) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-083](../planos/DL-083-receita-de-nfe-no-presumido.md) | Fiscal: receita de NF-e no Lucro Presumido e regras de receita da RC-172 | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-084](../planos/DL-084-rotina-do-presumido.md) | Fiscal: rotina do Lucro Presumido (RC-172) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -303,8 +305,8 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    independente do auditor. Tabelas com fonte, controle do limite da LC 224
    com sobra e os casos I a III, três colunas (sem LC 224, com, parcela),
    retenções confirmadas, medida judicial, quotas e vencimentos; 11 rotas de
-   API e 16 telas. Abertos: HI-100 a HI-108, HI-114, HI-115 e **PE-83 com o
-   Fred**; BL-680, BL-682.
+   API e 16 telas. Abertos: HI-100 a HI-108, HI-114, HI-115; BL-680, BL-682.
+   A PE-83 foi respondida por delegação (RC-172); as mudanças estão na DL-084.
 
 9. **[DL-080](../planos/DL-080-recepcao-de-nfe.md) — recepção de NF-e e
    NFC-e: INTEGRADA** pelo PR #104 (squash `c01b451`), com os quatro checks
@@ -315,7 +317,8 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    PL 010f com recusas nomeadas; empresa só por emitente e destinatário;
    cancelamento só com retorno 135 ou 155; exceção da chave só nas séries
    890 a 899 (MOC 7.0, Tabela 2-4); telas e API de conferência. Abertos:
-   HI-109 a HI-113, HI-116 e **PE-84 com o Fred**; BL-681, BL-683, BL-684.
+   HI-109 a HI-113, HI-116; BL-681, BL-683, BL-684. A PE-84 foi respondida
+   por delegação (RC-172); as mudanças do leitor estão no BL-687.
 
 10. **[DL-081](../planos/DL-081-escrituracao-das-nfe-de-saida.md) —
     escrituração das NF-e de saída e da devolução de venda: INTEGRADA** pelo
@@ -327,8 +330,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
     itens lidos pelo XSD; natureza por item; receita por item com
     conferência W16; NF-e na receita do Simples e no RBT12; devolução no mês
     da devolução; pré-DAS recusa e Presumido parcial com NF-e. Abertos:
-    HI-117 a HI-124 e **PE-85 com o Fred** (dois bloqueios conservadores);
-    BL-685, BL-686 (resolver antes de subir a versão do leitor).
+    HI-117 a HI-124; BL-685, BL-686 (resolver antes de subir a versão do
+    leitor). A PE-85 foi respondida por delegação (RC-172): os dois bloqueios
+    conservadores saem na DL-083.
 
 11. **[DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md) — pré-DAS
     de comércio e indústria (Anexos I e II): planejada.**
@@ -336,7 +340,27 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
     exemplos 1, 2, 3 e 6 do Manual do PGDAS-D batem ao centavo com as tabelas
     do repositório; um RBT12 para todos os anexos; segregação sem
     redistribuição; devolução por segmento. HI-125 a HI-132; PE-86
-    (benefício de ICMS do Tocantins), PE-87 (conciliação real).
+    (benefício de ICMS do Tocantins), PE-87 (conciliação real). **Executa
+    depois da DL-083.**
+
+12. **Respostas da PE-83, da PE-84 e da PE-85 (RC-172, 09/10/2026):
+    registradas.** O Fred delegou as três ao `contador-senior` (Fable). A
+    [consulta](../projeto/consultas/2026-10-09-contador-senior-pe83-pe84-pe85.md)
+    leu na fonte oficial as Leis 9.430, 9.249, 9.779, 9.093, 14.759 e 10.833,
+    a LC 87, o DL 1.598, o MOC 7.0 e as NT 2026.008 e 2026.009. As hipóteses
+    afetadas foram atualizadas em [requisitos.md](../projeto/requisitos.md):
+    HI-102 a HI-107, HI-109, HI-111, HI-113 e HI-117 a HI-124. Também entraram
+    as novas HI-133 a HI-136. A fonte do limite por pessoa jurídica foi
+    corrigida: é a Lei 9.430 e a LC 224, e não a Lei 9.779. Os fatos que só a
+    carteira do Fred responde estão na **PE-88**, que não bloqueia nada. Três
+    destinos:
+    - [DL-083](../planos/DL-083-receita-de-nfe-no-presumido.md): receita de
+      NF-e no Presumido; os dois bloqueios conservadores saem pela fórmula do
+      MOC; combustível em duas naturezas; receita de 2027 bloqueada. **É a
+      próxima a executar**, antes da DL-082.
+    - [DL-084](../planos/DL-084-rotina-do-presumido.md): rotina do Presumido,
+      depois da DL-082.
+    - BL-687: mudanças do leitor de NF-e, que dependem do BL-686.
 
 **Linha de base vigente (09/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `578ce9e` — conteúdo da `main` em `2911eb6` —,

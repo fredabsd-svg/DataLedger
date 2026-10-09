@@ -1028,6 +1028,9 @@ nível 1, e PR para a `main`.
 | 7 | [DL-079](DL-079-lucro-presumido-irpj-csll.md) | Presumido: IRPJ/CSLL trimestral, depois de ler LC 224/2025 e IN RFB 2.306/2026 no texto oficial | 1 | 1 |
 | 8 | [DL-080](DL-080-recepcao-de-nfe.md) | NF-e (DL-010 fatia 2) e o restante do roteiro de ondas acima | 1 e 2 | 1 |
 | 9 | [DL-081](DL-081-escrituracao-das-nfe-de-saida.md) | Escrituração das NF-e de saída e da devolução de venda; receita de mercadoria no Simples e no RBT12 | 1 | 8 |
+| 10 | [DL-083](DL-083-receita-de-nfe-no-presumido.md) | Receita de NF-e no Presumido; item fora do total, ICMS desonerado, combustível em duas naturezas, receita de 2027 bloqueada (RC-172) | 1 | 7 e 9 |
+| 11 | [DL-082](DL-082-pre-das-de-comercio-e-industria.md) | Pré-DAS de comércio e indústria (Anexos I e II) com segregação | 1 | 10 |
+| 12 | [DL-084](DL-084-rotina-do-presumido.md) | Rotina do Presumido: dias sem expediente bancário, feriados locais, coerência da CSLL retida, retenção tardia, competência da receita informada, parâmetros por empresa (RC-172) | 1 | 7 |
 
 O que continua bloqueado, mesmo com a delegação: alíquota, prazo ou leiaute
 **sem fonte oficial com data** (HI-54) e qualquer transmissão de obrigação

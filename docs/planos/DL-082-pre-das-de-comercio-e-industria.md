@@ -11,6 +11,8 @@ uma correção e uma reconferência.
 **É pré-apuração, nunca transmissão.** O produto calcula para o contador
 conferir contra o PGDAS-D. Não gera DAS nem transmite (HI-55).
 
+**Depende da [DL-083](DL-083-receita-de-nfe-no-presumido.md)** (RC-172, PE-85.3 e 85.5): a receita do item passa a ser uma função única, com o item fora do total e o ICMS desonerado, e a natureza "combustível" se divide em duas. O pré-DAS usa essa função e recusa as duas naturezas de combustível (HI-132).
+
 ## Base
 
 [Consulta ao contador-senior sobre o pré-DAS de comércio e indústria](../projeto/consultas/2026-10-09-contador-senior-pre-das-comercio.md),
