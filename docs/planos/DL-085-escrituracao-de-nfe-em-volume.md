@@ -106,6 +106,24 @@ contingência sem protocolo, que continua recusada (HI-110).
 - **Medido pelo desenvolvedor:** 8.880/1/54 numa única invocação. A medida
   de volume só roda com `DL085_MEDIR_VOLUME=1`.
 
+## Decisões tomadas na frente B e no ajuste de domínio
+
+- **Grupos parciais:** a confirmação aceita só os grupos marcados.
+  - Os desmarcados ficam intactos, sem rascunho; o contador os escritura
+    nota a nota.
+  - A assinatura continua sendo a da prévia inteira.
+  - Os grupos confirmados ficam nas linhas de nota do lote e na trilha
+    `lote_confirmado`, sem campo próprio.
+- **Escolha de natureza por grupo:** vale para todas as combinações CFOP,
+  CST e CSOSN do grupo. Grupo com combinações que pedem naturezas
+  diferentes se desmarca e se escritura individualmente (decisão do
+  arquiteto, reversível).
+- **Sem permissão:** para o PARALEGAL, os botões aparecem desabilitados com
+  o motivo (direção de arte, §2.B), e o servidor recusa o POST com 403.
+- **Campos novos:** o valor da nota (vNF) nas notas fora do lote; número e
+  série nas falhas, ambos vindos do domínio.
+- **Medido pelo desenvolvedor:** 8.924/1/54 numa única invocação.
+
 ## Critérios de aceite
 
 1. A prévia agrupa certo e lista cada nota fora do lote com o motivo.

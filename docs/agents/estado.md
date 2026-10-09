@@ -419,8 +419,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
       confirmadas, efetiva em partes de 100 pelas funções individuais e lê
       os itens em partes de 400. Com 10.000 NFC-e, cada chamada fica entre
       4 e 8 s.
-    - **Frente B (telas):** em andamento, com o Haiku, na cópia `dl085b`.
-    - Depois: auditoria (Sonnet), correção, reconferência e PR.
+    - **Frente B integrada** (`d17b734`), com o ajuste de domínio dos grupos
+      parciais e dos botões desabilitados para o PARALEGAL.
+    - Próximo: a auditoria (Sonnet), a correção, a reconferência e o PR.
 
 **Linha de base vigente (09/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `973dc02` — conteúdo da `main` em `3f3206c` —,
