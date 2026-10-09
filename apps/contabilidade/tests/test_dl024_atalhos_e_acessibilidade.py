@@ -1454,6 +1454,15 @@ NOMES_DE_TELA_ESCRITURACAO_NFE = {
         "test_conferencia_mostra_receita_por_natureza_composicao_e_totais, "
         "test_conferencia_nao_soma_nota_cancelada_depois_de_escriturada_e_a_destaca"
     ),
+    # DL-085, frente B (apps/fiscal/tests/test_dl085_telas.py): escrituração do mês em lote.
+    "fiscal_web:nfe_lote": (
+        "test_depois_de_ler_mostra_grupos_fora_do_lote_com_motivo_e_link, "
+        "test_ler_em_partes_pela_tela_ate_zerar, "
+        "test_confirmar_com_todos_os_grupos_efetiva_as_notas_do_lote_e_so_elas, "
+        "test_assinatura_desatualizada_mostra_a_mensagem_recarrega_a_previa_e_nada_efetiva, "
+        "test_continuar_processa_as_partes_ate_concluir_sem_duplicar, "
+        "test_paralegal_ve_a_previa_sem_botoes_e_o_post_e_recusado"
+    ),
 }
 
 

@@ -52,6 +52,7 @@ from apps.fiscal.views_web import (
     nfe_escriturar,
     nfe_estornar,
     nfe_eventos_orfaos,
+    nfe_lote,
     nfe_recebidas,
     nfe_reclassificar,
     notas_a_escriturar,
@@ -126,6 +127,10 @@ urlpatterns = [
     path("nfe/escrituracao/", nfe_a_escriturar, name="nfe_a_escriturar"),
     path("nfe/escrituracao/conferencia/", nfe_conferencia, name="nfe_conferencia"),
     path("nfe/escrituracao/reclassificar/", nfe_reclassificar, name="nfe_reclassificar"),
+    # DL-085 (frente B): escrituração do mês em lote. A empresa vai no caminho; o mês, na
+    # querystring (GET) ou no formulário (POST). A prévia, o lote e as notas são buscados DENTRO
+    # da empresa, e lote de outra empresa é 404.
+    path("nfe/escrituracao/empresas/<int:empresa_id>/lote/", nfe_lote, name="nfe_lote"),
     path(
         "nfe/escrituracao/empresas/<int:empresa_id>/notas/<int:vinculo_id>/",
         nfe_escriturar,

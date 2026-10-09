@@ -86,6 +86,7 @@ from apps.core.requisicao import (
 from apps.empresas.models import Empresa
 from apps.fiscal import escrituracao as servico_escrituracao
 from apps.fiscal import escrituracao_nfe as servico_nfe
+from apps.fiscal import escrituracao_nfe_lote as servico_lote
 from apps.fiscal import folha_fator_r as servico_folha
 from apps.fiscal import iss_municipal as servico_iss
 from apps.fiscal import pre_das as servico_pre_das
@@ -140,6 +141,7 @@ from apps.fiscal.models import (
     RegimeIssEmpresa,
     RegraIssMunicipio,
     SituacaoIssReceitaInformada,
+    TipoEscrituracaoNFe,
     VinculoDocumentoEmpresa,
     VinculoNFeEmpresa,
 )
@@ -7814,3 +7816,433 @@ def nfe_conferencia(request):
         }
     )
     return render(request, "fiscal/nfe_conferencia.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# Tela 6 — DL-085 (frente B): escrituração do mês em lote.
+#
+# Prévia por grupo, notas fora do lote com o motivo, leitura em partes e confirmação em partes.
+# A tela só monta o formulário e traduz o resultado: agrupamento, assinatura, natureza, receita e
+# efetivação são do serviço `escrituracao_nfe_lote`, e nenhuma dessas regras é repetida aqui.
+# ---------------------------------------------------------------------------
+
+# Campos fixos do formulário do lote. Os de cada grupo (`escolha_<chave>` e `assinatura_<chave>`)
+# entram em `_contrato_do_lote`, com as chaves que a própria prévia listou.
+_CAMPOS_FIXOS_DO_LOTE = frozenset(
+    {"csrfmiddlewaretoken", "acao", "ano", "mes", "assinatura", "grupo", "incluir", "lote_id"}
+)
+_ACOES_DO_LOTE_NFE = frozenset({"ler", "confirmar", "continuar"})
+# Forma da chave que o serviço gera (tipo, hífen, 16 hexadecimais). A chave vira NOME de campo no
+# formulário, então qualquer outra forma é recusada antes de chegar ao contrato.
+_CHAVE_DO_GRUPO_NFE = re.compile(r"[a-z_]+-[0-9a-f]{16}")
+# Rótulo curto de cada código de recusa da prévia. A explicação completa é a do serviço.
+_ROTULO_MOTIVO_FORA_DO_LOTE = {
+    servico_lote.CODIGO_2027: "Receita de 2027",
+    servico_lote.CODIGO_SEM_LEITURA: "Itens não lidos",
+    servico_lote.CODIGO_ILEGIVEL: "Itens ilegíveis",
+    servico_lote.CODIGO_LEITURA_ANTIGA: "Leitura de versão anterior",
+    servico_lote.CODIGO_SEM_SUGESTAO: "Sem sugestão de natureza",
+    servico_lote.CODIGO_CONFLITO: "Sugestões em conflito",
+    servico_lote.CODIGO_ATRIBUICAO: "Atribuição do resíduo",
+    servico_lote.CODIGO_SEM_VNF: "Nota sem valor total (vNF)",
+    servico_lote.CODIGO_W16: "Não confere com o vNF",
+    servico_lote.CODIGO_CONFERENCIA: "Não fecha a conferência",
+}
+# A caixa "incluir este grupo" existe na tela, mas o serviço ainda confirma a prévia inteira.
+# Por isso um grupo desmarcado é recusado aqui, sem gravar nada, em vez de ser ignorado em silêncio.
+_MENSAGEM_GRUPO_FORA_DO_LOTE = (
+    "A confirmação ainda não deixa grupo de fora: o lote efetiva todos os grupos da prévia. "
+    "Marque todos os grupos para confirmar. Nada foi efetivado."
+)
+
+
+def _inteiro_do_formulario_lote(bruto, rotulo):
+    texto = _texto_nfe(bruto, rotulo, 9)
+    if not re.fullmatch(r"[0-9]{1,9}", texto):
+        raise _EntradaNfeRecusada(f"'{rotulo}' inválido.")
+    return int(texto)
+
+
+def _competencia_do_formulario_lote(post):
+    """Ano e mês do formulário. Fora do formato ou da faixa do serviço: 400, nunca 500."""
+    ano = _inteiro_do_formulario_lote(post.get("ano"), "Ano")
+    mes = _inteiro_do_formulario_lote(post.get("mes"), "Mês")
+    if not servico_lote.ANO_MINIMO <= ano <= servico_lote.ANO_MAXIMO:
+        raise _EntradaNfeRecusada(
+            f"Ano fora do intervalo aceito ({servico_lote.ANO_MINIMO} a {servico_lote.ANO_MAXIMO})."
+        )
+    if not 1 <= mes <= 12:
+        raise _EntradaNfeRecusada("Mês inválido: deve estar entre 1 e 12.")
+    return ano, mes
+
+
+def _url_previa_do_lote(empresa, ano, mes):
+    return (
+        reverse("fiscal_web:nfe_lote", args=[empresa.pk])
+        + "?"
+        + urlencode({"ano": ano, "mes": mes})
+    )
+
+
+def _grupos_do_formulario(post):
+    """Chaves dos grupos que a prévia listou, como o formulário as devolve."""
+    grupos = []
+    for bruto in post.getlist("grupo"):
+        chave = _texto_nfe(bruto, "Grupo", 80)
+        if not _CHAVE_DO_GRUPO_NFE.fullmatch(chave):
+            raise _EntradaNfeRecusada("Grupo desconhecido: atualize a prévia e confirme de novo.")
+        grupos.append(chave)
+    return grupos
+
+
+def _contrato_do_lote(grupos):
+    campos = set(_CAMPOS_FIXOS_DO_LOTE)
+    for chave in grupos:
+        campos.update((f"escolha_{chave}", f"assinatura_{chave}"))
+    return ContratoDeRequisicao(
+        campos=campos,
+        cabecalhos_ignorados=("Idempotency-Key",),
+        contexto="no lote de escrituração de NF-e",
+    )
+
+
+def _grupos_marcados(post, grupos):
+    """Grupos com a caixa "incluir" marcada. Chave que a prévia não listou: recusa."""
+    marcados = {_texto_nfe(bruto, "Grupo", 80) for bruto in post.getlist("incluir")}
+    if marcados - set(grupos):
+        raise _EntradaNfeRecusada("Grupo desconhecido: atualize a prévia e confirme de novo.")
+    return marcados
+
+
+def _escolhas_do_formulario(post, grupos):
+    """{chave: {id da combinação: natureza}}, só para os grupos com seletor trocado.
+
+    O seletor vale para TODAS as combinações CFOP/CST/natureza do grupo: os ids vêm no próprio
+    formulário, copiados da prévia. O serviço confere cada id (precisa ser do grupo) e cada natureza
+    (precisa caber no tipo) antes de gravar, e descarta a escolha igual à sugestão.
+    """
+    escolhas = {}
+    for chave in grupos:
+        natureza = _texto_nfe(post.get(f"escolha_{chave}"), "Natureza", _TAMANHO_NATUREZA_NFE)
+        if not natureza:
+            continue
+        ids = [
+            _texto_nfe(bruto, "Combinação do grupo", 100)
+            for bruto in post.getlist(f"assinatura_{chave}")
+        ]
+        if not ids:
+            raise _EntradaNfeRecusada(
+                "A prévia não trouxe as combinações do grupo: atualize a prévia."
+            )
+        escolhas[chave] = dict.fromkeys(ids, natureza)
+    return escolhas
+
+
+def _preenchimento_do_post(post, grupos):
+    """O que volta ao formulário quando a confirmação recusa: caixas e seletores como foram
+    enviados, para o contador não digitar de novo. Só valores já validados antes desta chamada."""
+    return {
+        "incluidos": _grupos_marcados(post, grupos),
+        "escolhas": {
+            chave: _texto_nfe(post.get(f"escolha_{chave}"), "Natureza", _TAMANHO_NATUREZA_NFE)
+            for chave in grupos
+        },
+    }
+
+
+def _rotulos_das_notas(empresa, vinculo_ids):
+    """Número e série de cada vínculo, sempre DENTRO da empresa (IDOR): vínculo de outra empresa
+    não aparece."""
+    notas = VinculoNFeEmpresa.objects.select_related("documento").filter(
+        empresa=empresa, pk__in=list(vinculo_ids)
+    )
+    return {nota.pk: f"nº {nota.documento.numero}, série {nota.documento.serie}" for nota in notas}
+
+
+def _linha_do_grupo_no_lote(grupo, posicao, preenchido):
+    chave = grupo.chave
+    return {
+        "posicao": posicao,
+        "chave": chave,
+        "tipo_rotulo": TipoEscrituracaoNFe(grupo.tipo).label,
+        "combinacoes": [
+            {
+                "id": combinacao.id,
+                "cfop": combinacao.cfop,
+                "cst_csosn": combinacao.cst_csosn or "—",
+                "natureza_rotulo": NaturezaOperacaoNFe(combinacao.natureza).label,
+            }
+            for combinacao in grupo.assinaturas
+        ],
+        "notas": grupo.quantidade_notas,
+        "itens": grupo.quantidade_itens,
+        "receita_ptbr": _valor_ptbr(grupo.receita_bruta),
+        "opcoes": _opcoes_de_natureza(grupo.tipo),
+        "incluido": preenchido is None or chave in preenchido["incluidos"],
+        "selecionada": preenchido["escolhas"].get(chave, "") if preenchido else "",
+    }
+
+
+def _linha_fora_do_lote(recusa, empresa, valores):
+    return {
+        "numero": recusa.numero,
+        "serie": recusa.serie,
+        "emissao": recusa.dh_emissao,
+        "valor_nf_ptbr": _valor_ptbr(valores.get(recusa.documento_id)),
+        "rotulo_motivo": _ROTULO_MOTIVO_FORA_DO_LOTE.get(recusa.codigo, recusa.codigo),
+        "motivo": recusa.motivo,
+        "url": reverse("fiscal_web:nfe_escriturar", args=[empresa.pk, recusa.vinculo_id]),
+    }
+
+
+def _tela_do_lote_nfe(request, empresa, ano, mes, *, status=200, preenchido=None):
+    """A prévia de agora. Cada chamada recalcula a prévia: nada é guardado na tela."""
+    try:
+        previa = servico_lote.previa_do_lote(empresa, ano, mes)
+    except servico_nfe.EntradaInvalidaNFe as exc:
+        raise _EntradaNfeRecusada(exc.mensagem) from exc
+    pode = _pode_escriturar(request)
+    pagina = Paginator(previa.fora, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
+    valores = dict(
+        DocumentoNFe.objects.filter(
+            escritorio=request.escritorio,
+            pk__in=[recusa.documento_id for recusa in pagina.object_list],
+        ).values_list("pk", "v_nf")
+    )
+    aberto = previa.lote_em_andamento
+    lote_aberto = servico_lote.resumo_do_lote(aberto) if aberto is not None else None
+    a_ler = len(previa.a_ler)
+    # Confirmar só quando a prévia viu o mês inteiro (nada a ler) e nenhum lote está em andamento.
+    # O serviço recusa de qualquer forma; aqui a tela só deixa de oferecer o botão.
+    pode_confirmar = pode and bool(previa.grupos) and a_ler == 0 and lote_aberto is None
+    contexto = {
+        "empresa": empresa,
+        "ano": ano,
+        "mes": mes,
+        "competencia_rotulo": f"{mes:02d}/{ano}",
+        "pode_escriturar": pode,
+        "pode_confirmar": pode_confirmar,
+        "url_lote": reverse("fiscal_web:nfe_lote", args=[empresa.pk]),
+        "url_previa": _url_previa_do_lote(empresa, ano, mes),
+        "url_lista": reverse("fiscal_web:nfe_a_escriturar")
+        + "?"
+        + urlencode({"empresa": empresa.pk, "ano": ano, "mes": mes}),
+        "assinatura": previa.assinatura,
+        "grupos": [
+            _linha_do_grupo_no_lote(grupo, posicao, preenchido)
+            for posicao, grupo in enumerate(previa.grupos, start=1)
+        ],
+        "total_grupos": len(previa.grupos),
+        "total_notas_do_lote": sum(grupo.quantidade_notas for grupo in previa.grupos),
+        "total_itens_do_lote": sum(grupo.quantidade_itens for grupo in previa.grupos),
+        "a_ler": a_ler,
+        # O serviço lê no máximo este tanto por clique. O rótulo do botão diz quantas são desta vez.
+        "proximas_leituras": min(a_ler, servico_lote.LIMITE_PADRAO_DA_LEITURA),
+        "ja_efetivadas": previa.ja_efetivadas,
+        "canceladas": previa.canceladas,
+        "nao_elegiveis": previa.nao_elegiveis,
+        "fora_total": len(previa.fora),
+        "fora_linhas": [_linha_fora_do_lote(r, empresa, valores) for r in pagina.object_list],
+        "pagina": pagina,
+        "querystring_sem_pagina": urlencode({"ano": ano, "mes": mes}),
+        "lote_aberto": lote_aberto,
+        "vazio": not previa.grupos and a_ler == 0 and not previa.fora and aberto is None,
+        "progresso": None,
+    }
+    return render(request, "fiscal/nfe_lote.html", contexto, status=status)
+
+
+def _tela_do_progresso_nfe(request, empresa, progresso, *, status=200):
+    """O que a última parte fez: efetivadas, o que resta, falhas com motivo e o resumo do lote."""
+    numeros = _rotulos_das_notas(empresa, [f.vinculo_id for f in progresso.falhas_nesta_chamada])
+    contexto = {
+        "empresa": empresa,
+        "ano": progresso.ano,
+        "mes": progresso.mes,
+        "competencia_rotulo": f"{progresso.mes:02d}/{progresso.ano}",
+        "pode_escriturar": _pode_escriturar(request),
+        "pode_confirmar": False,
+        "url_lote": reverse("fiscal_web:nfe_lote", args=[empresa.pk]),
+        "url_previa": _url_previa_do_lote(empresa, progresso.ano, progresso.mes),
+        "url_lista": reverse("fiscal_web:nfe_a_escriturar")
+        + "?"
+        + urlencode({"empresa": empresa.pk, "ano": progresso.ano, "mes": progresso.mes}),
+        "progresso": {
+            "lote_id": progresso.lote_id,
+            "assinatura": progresso.assinatura,
+            "terminou": progresso.terminou,
+            "total_notas": progresso.total_notas,
+            "efetivadas_nesta_chamada": progresso.efetivadas_nesta_chamada,
+            "efetivadas_total": progresso.efetivadas_total,
+            "ja_efetivadas_total": progresso.ja_efetivadas_total,
+            "restantes": progresso.restantes,
+            "falhas_total": progresso.falhas_total,
+            "falhas": [
+                {
+                    "rotulo": numeros.get(falha.vinculo_id, "nota"),
+                    "url": reverse(
+                        "fiscal_web:nfe_escriturar", args=[empresa.pk, falha.vinculo_id]
+                    ),
+                    "motivo": falha.motivo,
+                }
+                for falha in progresso.falhas_nesta_chamada
+            ],
+        },
+        "vazio": False,
+        "grupos": [],
+        "a_ler": 0,
+        "proximas_leituras": 0,
+        "lote_aberto": None,
+        "fora_total": 0,
+        "fora_linhas": [],
+        "pagina": None,
+        "querystring_sem_pagina": "",
+    }
+    return render(request, "fiscal/nfe_lote.html", contexto, status=status)
+
+
+def _progresso_ou_recusa(request, empresa, ano, mes, operacao, *, preenchido=None):
+    """(progresso, None) quando o serviço andou. Recusa: (None, resposta com a prévia de agora e a
+    mensagem). A recusa vem do serviço, que não grava nada; aqui só se escolhe o status."""
+    try:
+        return operacao(), None
+    except servico_lote.LoteNaoEncontrado as exc:
+        # Lote de outra empresa, ou inexistente: 404, sem confirmar que o ID existe.
+        raise Http404("Lote de escrituração não encontrado nesta empresa.") from exc
+    except servico_lote.PreviaDesatualizada as exc:
+        # 409: a prévia mudou desde que foi exibida. A tela recarrega a prévia de agora.
+        erro, status = exc, 409
+    except servico_lote.LoteEmAndamento as exc:
+        erro, status = exc, 409
+    except servico_nfe.EntradaInvalidaNFe as exc:
+        erro, status = exc, 400
+    except servico_nfe.EscrituracaoNFeErro as exc:
+        erro, status = exc, 409
+    messages.error(request, erro.mensagem)
+    resposta = _tela_do_lote_nfe(request, empresa, ano, mes, status=status, preenchido=preenchido)
+    return None, resposta
+
+
+def _ler_post(request, empresa, ano, mes):
+    try:
+        leitura = servico_lote.ler_notas_do_mes(
+            empresa, ano, mes, limite=servico_lote.LIMITE_PADRAO_DA_LEITURA
+        )
+    except servico_nfe.EntradaInvalidaNFe as exc:
+        raise _EntradaNfeRecusada(exc.mensagem) from exc
+    messages.success(
+        request,
+        f"Nesta parte, lidas {leitura.lidas_nesta_chamada} nota(s); restam {leitura.restam} a ler.",
+    )
+    if leitura.ilegiveis_nesta_chamada:
+        messages.info(
+            request,
+            f"{leitura.ilegiveis_nesta_chamada} nota(s) com itens ilegíveis: elas ficam fora do "
+            "lote, com o motivo.",
+        )
+    if leitura.falhas_nesta_chamada:
+        messages.error(
+            request,
+            f"{len(leitura.falhas_nesta_chamada)} nota(s) não foram lidas nesta parte: "
+            f"{leitura.falhas_nesta_chamada[0].motivo}. Repita a leitura.",
+        )
+    # Post/Redirect/Get: a prévia é recalculada uma vez, no GET, e não no POST da leitura.
+    return redirect(_url_previa_do_lote(empresa, ano, mes))
+
+
+def _continuar_post(request, empresa, ano, mes, post):
+    lote_id = _id_do_formulario_nfe(post.get("lote_id"), "Lote")
+    assinatura = _texto_nfe(post.get("assinatura"), "Assinatura da prévia", 64) or None
+    progresso, resposta = _progresso_ou_recusa(
+        request,
+        empresa,
+        ano,
+        mes,
+        lambda: servico_lote.confirmar_lote(
+            empresa,
+            None,
+            None,
+            assinatura,
+            None,
+            usuario=request.user,
+            request=request,
+            limite=servico_lote.LIMITE_PADRAO_DA_PARTE,
+            lote_id=lote_id,
+        ),
+    )
+    if resposta is not None:
+        return resposta
+    return _tela_do_progresso_nfe(request, empresa, progresso)
+
+
+def _confirmar_post(request, empresa, ano, mes, post, grupos):
+    marcados = _grupos_marcados(post, grupos)
+    if set(grupos) - marcados:
+        messages.error(request, _MENSAGEM_GRUPO_FORA_DO_LOTE)
+        return _tela_do_lote_nfe(
+            request,
+            empresa,
+            ano,
+            mes,
+            status=400,
+            preenchido=_preenchimento_do_post(post, grupos),
+        )
+    escolhas = _escolhas_do_formulario(post, grupos)
+    assinatura = _texto_nfe(post.get("assinatura"), "Assinatura da prévia", 64) or None
+    progresso, resposta = _progresso_ou_recusa(
+        request,
+        empresa,
+        ano,
+        mes,
+        lambda: servico_lote.confirmar_lote(
+            empresa,
+            ano,
+            mes,
+            assinatura,
+            escolhas,
+            usuario=request.user,
+            request=request,
+            limite=servico_lote.LIMITE_PADRAO_DA_PARTE,
+        ),
+        preenchido=_preenchimento_do_post(post, grupos),
+    )
+    if resposta is not None:
+        return resposta
+    return _tela_do_progresso_nfe(request, empresa, progresso)
+
+
+def _lote_nfe_post(request, empresa):
+    grupos = _grupos_do_formulario(request.POST)
+    try:
+        recusar_dado_nao_contratado(request, _contrato_do_lote(grupos))
+    except DadoNaoContratado as exc:
+        raise _EntradaNfeRecusada(exc.mensagem) from exc
+    acao = request.POST.get("acao", "")
+    if acao not in _ACOES_DO_LOTE_NFE:
+        raise _EntradaNfeRecusada("Ação desconhecida no lote de escrituração.")
+    ano, mes = _competencia_do_formulario_lote(request.POST)
+    if acao == "ler":
+        return _ler_post(request, empresa, ano, mes)
+    if acao == "continuar":
+        return _continuar_post(request, empresa, ano, mes, request.POST)
+    return _confirmar_post(request, empresa, ano, mes, request.POST, grupos)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+@_entrada_nfe_verificada
+def nfe_lote(request, empresa_id):
+    """Escriturar o mês em lote (DL-085). GET: a prévia. POST: ler, confirmar ou continuar."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    # POST é escrita: quem só consulta (PARALEGAL, CLIENTE) recebe 403, mesmo sem botão na tela.
+    if request.method == "POST":
+        if not _pode_escriturar(request):
+            return _resposta_sem_permissao(request, _MENSAGEM_SEM_ESCRITA_NFE)
+    elif not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_ESCRITURACAO_NFE)
+    empresa = _empresa_nfe_da_rota(request, empresa_id)
+    if request.method == "POST":
+        return _lote_nfe_post(request, empresa)
+    ano, mes = _competencia_nfe(request)
+    return _tela_do_lote_nfe(request, empresa, ano, mes)

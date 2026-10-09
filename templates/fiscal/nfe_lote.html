@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+
+{% block titulo %}Escriturar o mês em lote — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Competência</span>
+        <strong>{{ competencia_rotulo }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_lista }}">NF-e a escriturar</a></li>
+            <li aria-current="page">Escriturar o mês em lote</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_lista }}">‹ Voltar para as NF-e a escriturar</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-085 (frente B), tela 6. Arquétipo B (formulário de documento) para a confirmação: a pergunta do
+documento fica visível antes de gravar (o que entra no lote, com que natureza e com que receita), e
+a confirmação leva a assinatura da prévia. A leitura e a lista de notas fora do lote são de
+conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do lote devolveu.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Escriturar o mês em lote</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Agrupa as NF-e e NFC-e do mês que ainda não estão efetivadas, por tipo, CFOP, CST ou CSOSN e natureza
+        sugerida. Cada nota é efetivada pela mesma regra da escrituração individual: o lote não tem atalho.
+    </p>
+
+    {% if progresso %}
+        <section class="painel-etapa" aria-labelledby="id_lote_progresso">
+            <h2 id="id_lote_progresso">{% if progresso.terminou %}Lote concluído{% else %}Lote em andamento{% endif %}</h2>
+            {% if progresso.terminou %}
+                <p>
+                    Resumo do lote: <strong>{{ progresso.efetivadas_total }}</strong> efetivada(s),
+                    <strong>{{ progresso.ja_efetivadas_total }}</strong> já efetivada(s) antes,
+                    <strong>{{ progresso.falhas_total }}</strong> falha(s), de {{ progresso.total_notas }} nota(s).
+                </p>
+            {% else %}
+                <p>
+                    Efetivadas <strong>{{ progresso.efetivadas_total }}</strong>, restam <strong>{{ progresso.restantes }}</strong>,
+                    falhas <strong>{{ progresso.falhas_total }}</strong>, de {{ progresso.total_notas }} nota(s) do lote.
+                    Nesta parte, efetivadas {{ progresso.efetivadas_nesta_chamada }}.
+                </p>
+            {% endif %}
+            {% if progresso.falhas %}
+                <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0" aria-label="Notas que falharam nesta parte, com o motivo">
+                    <table class="tabela-dados">
+                        <caption>Notas que falharam nesta parte, com o motivo</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Nota</th>
+                                <th scope="col">Motivo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for falha in progresso.falhas %}
+                                <tr>
+                                    <td><a href="{{ falha.url }}">{{ falha.rotulo }}</a></td>
+                                    <td>{{ falha.motivo }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% endif %}
+            {% if not progresso.terminou and pode_escriturar %}
+                <form method="post" action="{{ url_lote }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="acao" value="continuar">
+                    <input type="hidden" name="ano" value="{{ ano }}">
+                    <input type="hidden" name="mes" value="{{ mes }}">
+                    <input type="hidden" name="lote_id" value="{{ progresso.lote_id }}">
+                    <input type="hidden" name="assinatura" value="{{ progresso.assinatura }}">
+                    <button type="submit" class="botao botao--primario">Continuar: próxima parte ({{ progresso.restantes }} nota(s) restam)</button>
+                </form>
+            {% endif %}
+            <p><a href="{{ url_previa }}">Ver a prévia do mês</a></p>
+        </section>
+    {% else %}
+        {% if lote_aberto %}
+            <section class="painel-etapa" aria-labelledby="id_lote_aberto">
+                <h2 id="id_lote_aberto">Lote em andamento neste mês</h2>
+                <p>
+                    Efetivadas <strong>{{ lote_aberto.efetivadas }}</strong>, restam <strong>{{ lote_aberto.restantes }}</strong>,
+                    falhas <strong>{{ lote_aberto.falhas }}</strong>. Continue o lote antes de confirmar outro:
+                    a prévia não confirma enquanto ele não termina.
+                </p>
+                {% if pode_escriturar %}
+                    <form method="post" action="{{ url_lote }}">
+                        {% csrf_token %}
+                        <input type="hidden" name="acao" value="continuar">
+                        <input type="hidden" name="ano" value="{{ ano }}">
+                        <input type="hidden" name="mes" value="{{ mes }}">
+                        <input type="hidden" name="lote_id" value="{{ lote_aberto.lote_id }}">
+                        <input type="hidden" name="assinatura" value="{{ lote_aberto.assinatura }}">
+                        <button type="submit" class="botao botao--primario">Continuar o lote: próxima parte</button>
+                    </form>
+                {% else %}
+                    <p class="texto-apoio">Seu papel consulta o lote, mas não o continua: por isso não há botão de continuar.</p>
+                {% endif %}
+            </section>
+        {% endif %}
+
+        <section class="painel-etapa" aria-labelledby="id_a_ler">
+            <h2 id="id_a_ler">A ler</h2>
+            {% if a_ler %}
+                <p>
+                    <strong>{{ a_ler }} nota(s) ainda não lida(s).</strong>
+                    Os itens de cada nota vêm do XML e são lidos em partes. Sem a leitura, a nota não entra na prévia.
+                </p>
+                {% if pode_escriturar %}
+                    <form method="post" action="{{ url_lote }}">
+                        {% csrf_token %}
+                        <input type="hidden" name="acao" value="ler">
+                        <input type="hidden" name="ano" value="{{ ano }}">
+                        <input type="hidden" name="mes" value="{{ mes }}">
+                        <button type="submit" class="botao botao--primario">Ler as próximas {{ proximas_leituras }}</button>
+                    </form>
+                {% else %}
+                    <p class="texto-apoio">Seu papel consulta esta prévia, mas não lê as notas: por isso não há botão de leitura.</p>
+                {% endif %}
+            {% else %}
+                <p>Todas as notas do mês já foram lidas.</p>
+            {% endif %}
+        </section>
+
+        {% if grupos %}
+            <section aria-labelledby="id_grupos">
+                <h2 id="id_grupos">Prévia por grupo</h2>
+                <p class="texto-apoio">
+                    {{ total_grupos }} grupo(s), com {{ total_notas_do_lote }} nota(s) e {{ total_itens_do_lote }} item(ns).
+                    "Manter a sugestão" aceita a natureza sugerida. Uma natureza escolhida para o grupo vale para todas as
+                    combinações de CFOP e CST que ele tem.
+                </p>
+                {% if not pode_escriturar %}
+                    <p class="texto-apoio">Seu papel consulta a prévia, mas não confirma o lote: por isso não há seletores nem botão de confirmar.</p>
+                {% elif a_ler %}
+                    <p class="texto-apoio">Leia as {{ a_ler }} nota(s) pendente(s) antes de confirmar: a confirmação só efetiva um mês que a prévia viu inteiro.</p>
+                {% elif lote_aberto %}
+                    <p class="texto-apoio">Há um lote em andamento neste mês: continue-o acima, em vez de confirmar outro.</p>
+                {% endif %}
+                {% if pode_confirmar %}
+                <form method="post" action="{{ url_lote }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="acao" value="confirmar">
+                    <input type="hidden" name="ano" value="{{ ano }}">
+                    <input type="hidden" name="mes" value="{{ mes }}">
+                    <input type="hidden" name="assinatura" value="{{ assinatura }}">
+                {% endif %}
+                    <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0" aria-label="Grupos da prévia, com a natureza sugerida e o valor de receita">
+                        <table class="tabela-dados">
+                            <caption>Grupos de notas do mês {{ competencia_rotulo }}: tipo, CFOP, CST ou CSOSN, natureza sugerida, notas, itens e valor de receita</caption>
+                            <thead>
+                                <tr>
+                                    {% if pode_confirmar %}<th scope="col">Incluir</th>{% endif %}
+                                    <th scope="col">Tipo</th>
+                                    <th scope="col">CFOP</th>
+                                    <th scope="col">CST ou CSOSN</th>
+                                    <th scope="col">Natureza sugerida</th>
+                                    <th scope="col">Notas</th>
+                                    <th scope="col">Itens</th>
+                                    <th scope="col">Valor de receita</th>
+                                    {% if pode_confirmar %}<th scope="col">Natureza do grupo</th>{% endif %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for grupo in grupos %}
+                                    <tr>
+                                        {% if pode_confirmar %}
+                                            <td>
+                                                <div class="campo campo--caixa">
+                                                    <input type="checkbox" id="id_incluir_{{ grupo.posicao }}" name="incluir" value="{{ grupo.chave }}"{% if grupo.incluido %} checked{% endif %}>
+                                                    <label for="id_incluir_{{ grupo.posicao }}">Incluir este grupo</label>
+                                                </div>
+                                                <input type="hidden" name="grupo" value="{{ grupo.chave }}">
+                                                {% for combinacao in grupo.combinacoes %}
+                                                    <input type="hidden" name="assinatura_{{ grupo.chave }}" value="{{ combinacao.id }}">
+                                                {% endfor %}
+                                            </td>
+                                        {% endif %}
+                                        <td>{{ grupo.tipo_rotulo }}</td>
+                                        <td>{% for combinacao in grupo.combinacoes %}{{ combinacao.cfop }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
+                                        <td>{% for combinacao in grupo.combinacoes %}{{ combinacao.cst_csosn }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
+                                        <td>{% for combinacao in grupo.combinacoes %}{{ combinacao.natureza_rotulo }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
+                                        <td class="valor-monetario">{{ grupo.notas }}</td>
+                                        <td class="valor-monetario">{{ grupo.itens }}</td>
+                                        <td class="valor-monetario">{{ grupo.receita_ptbr }}</td>
+                                        {% if pode_confirmar %}
+                                            <td>
+                                                <label class="visualmente-oculto" for="id_escolha_{{ grupo.posicao }}">Natureza do grupo {{ grupo.posicao }}</label>
+                                                <select id="id_escolha_{{ grupo.posicao }}" name="escolha_{{ grupo.chave }}">
+                                                    <option value="">Manter a sugestão</option>
+                                                    {% for valor, rotulo in grupo.opcoes %}
+                                                        <option value="{{ valor }}"{% if valor == grupo.selecionada %} selected{% endif %}>{{ rotulo }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </td>
+                                        {% endif %}
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% if pode_confirmar %}
+                        <div class="acoes-formulario">
+                            <button type="submit" class="botao botao--primario">Confirmar o lote: {{ total_notas_do_lote }} nota(s) em {{ total_grupos }} grupo(s)</button>
+                        </div>
+                </form>
+                {% endif %}
+            </section>
+        {% endif %}
+
+        {% if fora_total %}
+            <section aria-labelledby="id_fora">
+                <h2 id="id_fora">Fora do lote: {{ fora_total }} nota(s)</h2>
+                <p class="texto-apoio">
+                    Estas notas não entram no lote, e cada uma tem o motivo. Para escriturar uma delas, abra a escrituração individual.
+                </p>
+                <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0" aria-label="Notas fora do lote, com o motivo">
+                    <table class="tabela-dados">
+                        <caption>Notas do mês fora do lote, com o valor, o motivo e o link para a escrituração individual</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Nota</th>
+                                <th scope="col">Emissão</th>
+                                <th scope="col">Valor da nota (vNF)</th>
+                                <th scope="col">Motivo</th>
+                                <th scope="col">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for linha in fora_linhas %}
+                                <tr>
+                                    <td>nº {{ linha.numero }}, série {{ linha.serie }}</td>
+                                    <td>{{ linha.emissao|date:"d/m/Y H:i" }}</td>
+                                    <td class="valor-monetario">{{ linha.valor_nf_ptbr }}</td>
+                                    <td>
+                                        <strong>{{ linha.rotulo_motivo }}</strong>
+                                        <br><span class="texto-apoio">{{ linha.motivo }}</span>
+                                    </td>
+                                    <td>
+                                        <a class="botao botao--secundario botao--pequeno" href="{{ linha.url }}">Escriturar esta nota</a>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% include "fiscal/_paginacao.html" %}
+            </section>
+        {% endif %}
+
+        {% if vazio %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo">
+                    <strong>Nada a escriturar em {{ competencia_rotulo }}.</strong>
+                </p>
+                <p class="estado-vazio__descricao">
+                    {{ ja_efetivadas }} nota(s) já efetivada(s), {{ canceladas }} cancelada(s) e {{ nao_elegiveis }} fora da escrituração.
+                </p>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}

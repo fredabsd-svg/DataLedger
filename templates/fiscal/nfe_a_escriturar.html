@@ -18,6 +18,7 @@
 {% block acoes_pagina %}
     {% if empresa %}
         <a class="botao botao--fantasma" href="{{ url_conferencia }}?empresa={{ empresa.pk }}&amp;ano={{ ano }}&amp;mes={{ mes }}">Conferência do mês</a>
+        <a class="botao botao--secundario" href="{% url 'fiscal_web:nfe_lote' empresa.pk %}?ano={{ ano }}&amp;mes={{ mes }}">Escriturar o mês em lote</a>
         {% if pode_escriturar %}
             <a class="botao botao--secundario" href="{{ url_reclassificar }}">Reclassificar em massa</a>
         {% endif %}
