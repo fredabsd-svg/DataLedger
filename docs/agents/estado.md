@@ -151,6 +151,8 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-083](../planos/DL-083-receita-de-nfe-no-presumido.md) | Fiscal: receita de NF-e no Lucro Presumido e regras de receita da RC-172 | Integrada (PR #106, squash `3f3206c`) — rodada 1 e reconferência reprovadas; ajustes do arquiteto (§3.1) |
 | [DL-084](../planos/DL-084-rotina-do-presumido.md) | Fiscal: rotina do Lucro Presumido (RC-172) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-085](../planos/DL-085-escrituracao-de-nfe-em-volume.md) | Fiscal: escrituração de NF-e e NFC-e em volume (RC-173) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-086](../planos/DL-086-documentacao-e-painel-do-fiscal.md) | Fiscal: documentação e painel alinhados ao código (RC-175) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-087](../planos/DL-087-classificacao-fiscal-versionada.md) | Fiscal: classificação fiscal versionada e regras de importação (RC-175) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -436,8 +438,23 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
     - mapa de lacunas medido no código;
     - acumuladores, no manual e na internet, com palavras nossas.
 
-    Depois: consulta ao `contador-senior` sobre o desenho e os planos
-    DL-086 em diante.
+    Resultado:
+    - [Revisão do fiscal](../projeto/revisao-do-fiscal-2026-10-09.md): o
+      que existe e o que falta, medido no código.
+    - [Pesquisa sobre os acumuladores](../projeto/pesquisa-acumuladores-2026-10-09.md).
+    - [Consulta ao `contador-senior`](../projeto/consultas/2026-10-09-contador-senior-classificacao-fiscal.md):
+      HI-141 a HI-145 e as PE-90 e PE-91, para o Fred.
+
+    Planos:
+    - [DL-086](../planos/DL-086-documentacao-e-painel-do-fiscal.md):
+      documentação e painel;
+    - [DL-087](../planos/DL-087-classificacao-fiscal-versionada.md):
+      classificação fiscal versionada, corte 1, depois da DL-085 e da
+      DL-082;
+    - em seguida, na ordem recomendada: a origem do lançamento contábil
+      (BL-72), a virada de 2027 no Simples (depois da leitura oficial da Res.
+      CGSN 190/2026), as NF-e de entrada, o ICMS-TO, a integração contábil e
+      os livros.
 
 **Linha de base vigente (09/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `973dc02` — conteúdo da `main` em `3f3206c` —,
