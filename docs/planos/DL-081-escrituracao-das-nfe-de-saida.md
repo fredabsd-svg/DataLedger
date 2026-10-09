@@ -124,9 +124,9 @@ HI-117 a HI-124 e pendência PE-85.
   BL-685.
 - **`vNF` ausente** bloqueia, em vez de valer zero, porque o campo é
   obrigatório no XSD.
-- **Devolução:** não é ligada à nota de origem (o `NFref` não é lido),
-  deduz no mês em que ocorre e entra sempre no mercado interno. A devolução
-  de exportação fica no BL-685.
+- **Devolução:** não é ligada à nota de origem (o `NFref` não é lido) e
+  deduz no mês em que ocorre. O mercado segue o CFOP: devolução com CFOP
+  iniciado por 3 deduz o mercado externo (correção da rodada 1, A8).
 - **Proteção ampliada:** o pré-DAS recusa e o Presumido fica parcial também
   no mês ou trimestre que recebe só devolução ou saldo de devolução.
 - **Serviço em NF-e conjugada** (natureza 14) entra no RBT12, que soma toda a
@@ -153,8 +153,9 @@ a receita). O cálculo bateu ao centavo com o do auditor. Correção única:
 - **Conferência com o `vNF`** (A4), pela regra W16 do MOC 7.0: o `vFCPST` é
   subtraído; desconto, frete, seguro e outras despesas entram de todos os
   itens. Item fora do total (`indTot` 0) com essas despesas, e ICMS
-  desonerado deduzido do total, bloqueiam com mensagem que nomeia o motivo
-  (decisão do Fred, PE-85).
+  desonerado deduzido do total, bloqueiam com mensagem que nomeia o motivo.
+  O bloqueio é decisão do arquiteto, conservadora; a regra de receita
+  nesses dois casos é pergunta ao Fred (PE-85).
 - **Valor acima do campo** (A5): nota ilegível com motivo, nunca erro de
   servidor.
 - **Desempenho** (A6): saldo de devolução percorrido uma vez por janela;
@@ -171,6 +172,25 @@ a receita). O cálculo bateu ao centavo com o do auditor. Correção única:
 - **Ajustes** (A12): o campo da conferência por CFOP é renomeado para valor
   bruto; a conferência de valores é pública; a mensagem da API sai em pt-BR;
   o filtro de CFOP com ponto é aceito.
+
+## Decisões tomadas na reconferência
+
+[Reconferência](../auditorias/2026-10-09-dl-081-reconferencia.md): aprovada com
+ressalvas; A1, A2 e A3 fechados com evidência. O gerador de notas pela regra
+W16 do auditor deu zero nota errada aceita e zero nota correta bloqueada, fora
+dos dois bloqueios da PE-85. Pela regra de parada do §3.1 não houve nova
+correção:
+
+- **R1** (o controle do limite do ano do Presumido ignorava a NF-e):
+  ajuste do arquiteto, com a mesma recusa nomeada da apuração.
+- **N4b** (efetivação com leitura de versão antiga, sem teste): teste
+  integrado pelo arquiteto.
+- **R8** (documentação desatualizada): a HI-119, a PE-85 e este plano foram
+  corrigidos.
+- **R2** (deadlock da releitura dos itens contra a reclassificação),
+  **R3** (troca da versão do leitor sem saída para nota estornada; resolver
+  **antes** de subir a versão do leitor), **R4** a **R7** e as lacunas de
+  teste X7, N11c, N14 e N21: BL-686.
 
 ## Critérios de aceite
 

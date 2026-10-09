@@ -328,8 +328,11 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
     leitura de itens com IPI/ISSQN, A2 Presumido dos trimestres seguintes, A3
     itens sem gatilho); correção única `9767151` (A1 a A12; suíte do
     desenvolvedor 8.576 aprovados, 1 reprovado de ambiente, 53 pulados; 35
-    mutantes mortos), em reconferência.** O cálculo bateu ao centavo com o do
-    auditor. BL-685 registrado. Tabela oficial
+    mutantes mortos); [reconferência](../auditorias/2026-10-09-dl-081-reconferencia.md)
+    APROVADA COM RESSALVAS (8.576 aprovados, 1 reprovado de ambiente, 53
+    pulados). R1 fechado e N4b testado por ajuste do arquiteto; R8 nos
+    documentos; R2 a R7 no BL-686. Em integração na branch e PR.** O cálculo
+    bateu ao centavo com o do auditor. BL-685 registrado. Tabela oficial
     de CFOP do Portal da NF-e (IT 2023.002 v2.10) como dado com fonte.
     [Consulta ao contador-senior](../projeto/consultas/2026-10-09-contador-senior-escrituracao-nfe.md):
     receita bruta por item sem ICMS-ST e IPI, devolução no mês da devolução,
