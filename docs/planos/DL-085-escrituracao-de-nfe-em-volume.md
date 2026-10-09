@@ -124,6 +124,31 @@ contingência sem protocolo, que continua recusada (HI-110).
   série nas falhas, ambos vindos do domínio.
 - **Medido pelo desenvolvedor:** 8.924/1/54 numa única invocação.
 
+## Decisões para a correção (rodada 1)
+
+A [rodada 1](../auditorias/2026-10-09-dl-085-rodada-1.md) foi **aprovada com
+ressalvas**: o lote é equivalente ao individual nas 24 notas do roteiro do
+auditor, e os quatro mutantes do critério 8 caem. Decisões do arquiteto
+para a correção única:
+
+- **A1:** os contadores e a trilha da parte contam só o que a própria
+  chamada mudou.
+- **A2:** um rascunho com natureza já escolhida, diferente da sugestão, sai
+  do lote com o motivo nomeado. O lote nunca sobrescreve a escolha do
+  contador.
+- **A3:** coluna "Devolução" na tela.
+- **A4:** `grupos` ausente significa "todos os grupos da prévia"; grupos
+  diferentes dos do lote dão 409.
+- **A5:** ordem de travas empresa → vínculo → escrituração, a mesma da
+  escrituração individual.
+- **A6:** orçamento de tempo de 10 s por parte, além do limite de notas.
+- **A7:** a lista do mês não carrega o XML.
+- **A8:** comentários desatualizados corrigidos.
+- **A9:** rótulo distinto em cada grupo, e redirecionamento depois do POST.
+  O avanço automático das partes vai para o backlog.
+- **Testes T1 a T10** do auditor, inclusive dois lotes em andamento ao
+  mesmo tempo.
+
 ## Critérios de aceite
 
 1. A prévia agrupa certo e lista cada nota fora do lote com o motivo.

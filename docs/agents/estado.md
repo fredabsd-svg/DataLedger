@@ -421,7 +421,13 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
       4 e 8 s.
     - **Frente B integrada** (`d17b734`), com o ajuste de domínio dos grupos
       parciais e dos botões desabilitados para o PARALEGAL.
-    - Próximo: a auditoria (Sonnet), a correção, a reconferência e o PR.
+    - [Rodada 1](../auditorias/2026-10-09-dl-085-rodada-1.md): **aprovada
+      com ressalvas**. Não houve achado alto; A1 a A3 são médios.
+    - **Correção única em andamento** (Haiku, cópia `dl085d`).
+
+15. **[DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md):** a
+    frente A está em andamento em paralelo (Haiku, cópia `dl082` sobre
+    `a59d853`).
 
 **Linha de base vigente (09/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `973dc02` — conteúdo da `main` em `3f3206c` —,
