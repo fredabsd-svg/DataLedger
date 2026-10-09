@@ -894,6 +894,7 @@ def _pre_das_payload(resultado: pre_das_servico.PreDas) -> dict:
         "mes": resultado.mes,
         "total": str(resultado.total),
         "total_por_tributo": {nome: str(valor) for nome, valor in resultado.total_por_tributo},
+        "avisos": list(resultado.avisos),
         "rbt12": {mercado: dec(valor) for mercado, valor in resultado.rbt12.items()},
         "fator_r": (
             {
@@ -923,6 +924,10 @@ def _pre_das_payload(resultado: pre_das_servico.PreDas) -> dict:
                     {
                         "segmento": seg.segmento,
                         "receita": str(seg.receita),
+                        # DL-082: a receita de mercadoria sai líquida da devolução do próprio
+                        # segmento; `bruto` é a venda e `deduzido` a devolução que caiu nele.
+                        "bruto": str(seg.bruto),
+                        "deduzido": str(seg.deduzido),
                         "total": str(seg.total),
                         "tributos": [
                             {

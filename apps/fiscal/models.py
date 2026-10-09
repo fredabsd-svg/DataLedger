@@ -2832,6 +2832,128 @@ def papel_da_natureza_nfe(natureza: str) -> str:
     return CATALOGO_NATUREZA_NFE[natureza].papel
 
 
+# ---------------------------------------------------------------------------
+# Anexo e segmento da mercadoria no Simples (DL-082, HI-125, HI-127, HI-128, HI-129).
+#
+# Fonte única da classificação de MERCADORIA. O anexo vem da natureza do item (revenda → Anexo I;
+# produção própria → Anexo II), nunca da atividade padrão da empresa. O segmento diz quais tributos
+# saem do DAS (Res. CGSN 140, art. 25, §§ 3º, 6º a 8º, em cópia): ICMS-ST substituído tira o ICMS;
+# monofásico tira PIS e Cofins; exportação tira Cofins, PIS, IPI, ICMS e ISS. Combinações tiram a
+# união dos conjuntos (o pré-DAS faz a união; aqui só se diz o segmento).
+#
+# LIMITE DECLARADO (DL-082): o catálogo tem UMA natureza por item e não separa "revenda" de
+# "produção"
+# nas naturezas de ST substituído, substituto e exportação. Essas caem no Anexo I (regra da consulta
+# de 09/10/2026, item 1). Indústria com ST, substituição ou exportação de produção própria fica sem
+# natureza própria; é pendência para o arquiteto (ver docs/planos/DL-082).
+# ---------------------------------------------------------------------------
+
+ANEXO_I = "I"
+ANEXO_II = "II"
+
+SEGMENTO_NORMAL = "normal"
+SEGMENTO_SUJEITA_ST = "sujeita_st"
+SEGMENTO_MONOFASICO = "monofasico"
+SEGMENTO_ST_MONOFASICO = "st_monofasico"
+SEGMENTO_EXPORTACAO = "exportacao"
+
+
+class SegmentoDevolucao(models.TextChoices):
+    """Anexo e segmento de UMA devolução de venda, confirmados pelo contador (HI-129).
+
+    Cada valor é um par (anexo, segmento) fixo. A devolução deduz SÓ dentro do mesmo par. Ver
+    `ANEXO_E_SEGMENTO_DA_DEVOLUCAO`.
+    """
+
+    REVENDA = "revenda", "Devolução de revenda, Anexo I, sem ST nem monofásico"
+    PRODUCAO = "producao", "Devolução de produção própria, Anexo II, sem ST nem monofásico"
+    REVENDA_ST = "revenda_st", "Devolução de revenda com ST substituído, Anexo I"
+    PRODUCAO_ST = "producao_st", "Devolução de produção com ST substituído, Anexo II"
+    REVENDA_MONOFASICO = "revenda_monofasico", "Devolução de revenda monofásica, Anexo I"
+    PRODUCAO_MONOFASICO = "producao_monofasico", "Devolução de produção monofásica, Anexo II"
+    REVENDA_ST_MONOFASICO = (
+        "revenda_st_monofasico",
+        "Devolução de revenda com ST e monofásico, Anexo I",
+    )
+    PRODUCAO_ST_MONOFASICO = (
+        "producao_st_monofasico",
+        "Devolução de produção com ST e monofásico, Anexo II",
+    )
+    REVENDA_EXPORTACAO = "revenda_exportacao", "Devolução de revenda exportada, Anexo I"
+    PRODUCAO_EXPORTACAO = "producao_exportacao", "Devolução de produção exportada, Anexo II"
+
+
+# Tamanho do campo: cabe o maior valor de `SegmentoDevolucao` ("producao_st_monofasico", 22).
+TAMANHO_SEGMENTO_DEVOLUCAO = 24
+
+ANEXO_E_SEGMENTO_DA_DEVOLUCAO: dict[str, tuple[str, str]] = {
+    SegmentoDevolucao.REVENDA: (ANEXO_I, SEGMENTO_NORMAL),
+    SegmentoDevolucao.PRODUCAO: (ANEXO_II, SEGMENTO_NORMAL),
+    SegmentoDevolucao.REVENDA_ST: (ANEXO_I, SEGMENTO_SUJEITA_ST),
+    SegmentoDevolucao.PRODUCAO_ST: (ANEXO_II, SEGMENTO_SUJEITA_ST),
+    SegmentoDevolucao.REVENDA_MONOFASICO: (ANEXO_I, SEGMENTO_MONOFASICO),
+    SegmentoDevolucao.PRODUCAO_MONOFASICO: (ANEXO_II, SEGMENTO_MONOFASICO),
+    SegmentoDevolucao.REVENDA_ST_MONOFASICO: (ANEXO_I, SEGMENTO_ST_MONOFASICO),
+    SegmentoDevolucao.PRODUCAO_ST_MONOFASICO: (ANEXO_II, SEGMENTO_ST_MONOFASICO),
+    SegmentoDevolucao.REVENDA_EXPORTACAO: (ANEXO_I, SEGMENTO_EXPORTACAO),
+    SegmentoDevolucao.PRODUCAO_EXPORTACAO: (ANEXO_II, SEGMENTO_EXPORTACAO),
+}
+
+# Naturezas de venda de mercadoria e o anexo que a natureza fixa (HI-125, consulta de 09/10/2026).
+_ANEXO_DA_NATUREZA_DE_MERCADORIA = {
+    NaturezaOperacaoNFe.REVENDA: ANEXO_I,
+    NaturezaOperacaoNFe.PRODUCAO_PROPRIA: ANEXO_II,
+    NaturezaOperacaoNFe.REVENDA_ST_SUBSTITUIDO: ANEXO_I,
+    NaturezaOperacaoNFe.SUBSTITUTO_ST: ANEXO_I,
+    NaturezaOperacaoNFe.MONOFASICO: ANEXO_I,
+    NaturezaOperacaoNFe.EXPORTACAO_DIRETA: ANEXO_I,
+    NaturezaOperacaoNFe.COMERCIAL_EXPORTADORA: ANEXO_I,
+}
+
+# Naturezas de mercadoria: as que têm anexo e aceitam a marca de monofásico (DL-082).
+NATUREZAS_DE_MERCADORIA = frozenset(_ANEXO_DA_NATUREZA_DE_MERCADORIA)
+
+
+def segmento_da_mercadoria(*, st: bool, monofasico: bool, exportacao: bool) -> str:
+    """Segmento pela união dos tributos que saem (Res. CGSN 140, art. 25, §§ 3º, 6º a 8º).
+
+    Exportação já tira PIS, Cofins, IPI, ICMS e ISS: com ela, ST e monofásico não acrescentam nada
+    e o segmento é `exportacao` (§ 3º, "tão somente").
+    """
+    if exportacao:
+        return SEGMENTO_EXPORTACAO
+    if st and monofasico:
+        return SEGMENTO_ST_MONOFASICO
+    if st:
+        return SEGMENTO_SUJEITA_ST
+    if monofasico:
+        return SEGMENTO_MONOFASICO
+    return SEGMENTO_NORMAL
+
+
+def classificacao_da_venda(natureza: str, monofasico_marcado: bool) -> tuple[str, str] | None:
+    """(anexo, segmento) de um item de VENDA de mercadoria, ou `None` se não é mercadoria.
+
+    `monofasico` vale pela natureza `monofasico` OU pela marca do contador no item (HI-128). Sem
+    marca e sem natureza monofásica, o item é normal (lado conservador: paga a mais, nunca a menos).
+    """
+    anexo = _ANEXO_DA_NATUREZA_DE_MERCADORIA.get(natureza)
+    if anexo is None:
+        return None
+    segmento = segmento_da_mercadoria(
+        st=natureza == NaturezaOperacaoNFe.REVENDA_ST_SUBSTITUIDO,
+        monofasico=monofasico_marcado or natureza == NaturezaOperacaoNFe.MONOFASICO,
+        exportacao=natureza
+        in (NaturezaOperacaoNFe.EXPORTACAO_DIRETA, NaturezaOperacaoNFe.COMERCIAL_EXPORTADORA),
+    )
+    return anexo, segmento
+
+
+def classificacao_da_devolucao(segmento_confirmado: str) -> tuple[str, str] | None:
+    """(anexo, segmento) de uma devolução com segmento CONFIRMADO. `None` se não há confirmação."""
+    return ANEXO_E_SEGMENTO_DA_DEVOLUCAO.get(segmento_confirmado)
+
+
 class TipoEscrituracaoNFe(models.TextChoices):
     """Tipo da nota para a escrituração, decidido na criação pela regra de elegibilidade."""
 
@@ -3283,6 +3405,21 @@ class NaturezaItemNFe(models.Model):
         # 29 caracteres: "devolucao_combustivel_consumo" (DL-083, HI-140).
         max_length=29,
         choices=NaturezaOperacaoNFe.choices,
+        blank=True,
+        default="",
+    )
+    # Marca de monofásico de PIS e Cofins dada pelo contador (DL-082, HI-128). Separada da natureza
+    # de ICMS, para permitir "ST e monofásico" no mesmo item. Sem marca, o item é normal. Só vale
+    # para natureza de mercadoria, e só enquanto a escrituração é rascunho (gatilho da DL-081).
+    monofasico = models.BooleanField(
+        "monofásico de PIS e Cofins (marca do contador)", default=False
+    )
+    # Segmento CONFIRMADO de uma devolução de venda (DL-082, HI-129). Vazio = sem confirmação: o
+    # pré-DAS do mês recusa. Só vale para `devolucao_venda`, e só em rascunho.
+    segmento_devolucao = models.CharField(
+        "segmento da devolução (confirmado)",
+        max_length=TAMANHO_SEGMENTO_DEVOLUCAO,
+        choices=SegmentoDevolucao.choices,
         blank=True,
         default="",
     )

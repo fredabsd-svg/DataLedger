@@ -69,6 +69,8 @@ from apps.fiscal.models import (
     OrigemReceitaInformada,
     ReceitaInformada,
     SituacaoIssReceitaInformada,
+    classificacao_da_devolucao,
+    classificacao_da_venda,
     mercado_da_natureza,
     mercado_do_item_nfe,
     papel_da_natureza_nfe,
@@ -262,12 +264,16 @@ class LinhaNFe:
     """Um item de NF-e escriturado e efetivado, com a receita que ele compõe (DL-083).
 
     `papel` é "receita" ou "deducao" (devolução). `valor` é a receita do item DEPOIS da atribuição
-    da
-    nota (HI-138): num item de receita, inclui a parcela do resíduo de frete ou desconto de item que
-    não é receita. Positivo quando é venda e também positivo quando é devolução: quem diz que é
-    dedução é o `papel`. Vem da mesma
-    consulta para o Simples (`_nfe_do_periodo`) e para o Presumido (`presumido`), sem cálculo
-    paralelo.
+    da nota (HI-138): num item de receita, inclui a parcela do resíduo de frete ou desconto de item
+    que não é receita. Positivo quando é venda e também positivo quando é devolução: quem diz que é
+    dedução é o `papel`. Vem da mesma consulta para o Simples (`_nfe_do_periodo`) e para o Presumido
+    (`presumido`), sem cálculo paralelo.
+
+    DL-082: `anexo` e `segmento` dizem onde a mercadoria cai no Simples (`classificacao_da_venda` e
+    `classificacao_da_devolucao`, em `models`). Ficam `None` quando a natureza não é de mercadoria
+    (combustível, serviço conjugado) e quando a devolução não tem segmento confirmado. `csosn` é o
+    do
+    item: CSOSN 103, 300 e 400 recusam o pré-DAS (HI-131).
     """
 
     escrituracao_id: int
@@ -278,6 +284,23 @@ class LinhaNFe:
     papel: str
     mercado: str
     valor: Decimal
+    anexo: str | None = None
+    segmento: str | None = None
+    csosn: str | None = None
+
+
+def _classe_da_parcela(registro: NaturezaItemNFe, papel: str) -> tuple[str, str] | None:
+    """(anexo, segmento) da mercadoria de um item de NF-e, ou `None` (DL-082).
+
+    Venda: pela natureza e pela marca de monofásico. Devolução: pelo segmento CONFIRMADO pelo
+    contador (HI-129); sem confirmação, `None`, e o pré-DAS do mês recusa. Devolução de combustível
+    não tem classe: o pré-DAS a recusa pela natureza.
+    """
+    if papel == "receita":
+        return classificacao_da_venda(registro.natureza, registro.monofasico)
+    if registro.natureza == NaturezaOperacaoNFe.DEVOLUCAO_VENDA:
+        return classificacao_da_devolucao(registro.segmento_devolucao)
+    return None
 
 
 def linhas_nfe_do_periodo(
@@ -304,11 +327,10 @@ def linhas_nfe_do_periodo(
         .filter(~Exists(_cancelada_depois_de_escriturada("escrituracao__")))
         .order_by("escrituracao__competencia", "escrituracao_id", "item__n_item")
     )
-    # A atribuição (HI-138) é por NOTA: o resíduo de item que não é receita (indTot 0 ou 1) vai
-    # para os
-    # itens de receita da mesma escrituração. Por isso as naturezas da nota entram todas, e só
-    # depois se
-    # filtra o papel. A nota que a atribuição recusa não pode estar efetivada (a efetivação
+    # A atribuição (HI-138) é por NOTA: o resíduo de item que não é receita (indTot 0 ou 1) vai para
+    # os itens de receita da mesma escrituração. Por isso as naturezas da nota entram todas, e só
+    # depois se filtra o papel. A nota que a atribuição recusa não pode estar efetivada (a
+    # efetivação
     # recusou).
     por_escrituracao: dict[int, list[NaturezaItemNFe]] = {}
     for registro in registros:
@@ -324,6 +346,7 @@ def linhas_nfe_do_periodo(
                 continue
             item = registro.item
             escrituracao = registro.escrituracao
+            classe = _classe_da_parcela(registro, papel)
             linhas.append(
                 LinhaNFe(
                     escrituracao_id=escrituracao.pk,
@@ -336,34 +359,12 @@ def linhas_nfe_do_periodo(
                     # externo (A8).
                     mercado=mercado_do_item_nfe(registro.natureza, item.cfop),
                     valor=atribuicao.valores[item.pk],
+                    anexo=classe[0] if classe else None,
+                    segmento=classe[1] if classe else None,
+                    csosn=item.csosn,
                 )
             )
     return linhas
-
-
-def _nfe_do_periodo(
-    empresa: Empresa, inicio: tuple[int, int], fim: tuple[int, int]
-) -> dict[tuple[int, int], dict[str, tuple[Decimal, Decimal]]]:
-    """(mercadoria, devolução) de NF-e de cada mês do período, por mercado. Devolução sai positiva.
-
-    A natureza de cada item diz o papel: receita (soma), dedução (devolução) ou nada (fica fora,
-    HI-121 e HI-124). O mercado vem de `mercado_do_item_nfe`, a fonte única.
-    """
-    por_mes: dict[tuple[int, int], dict[str, list[Decimal]]] = {}
-    for linha in linhas_nfe_do_periodo(empresa, inicio, fim):
-        mes = (linha.competencia.year, linha.competencia.month)
-        celulas = por_mes.setdefault(
-            mes, {MercadoReceita.INTERNO: [ZERO, ZERO], MercadoReceita.EXTERNO: [ZERO, ZERO]}
-        )
-        indice = 0 if linha.papel == "receita" else 1
-        celulas[linha.mercado][indice] += linha.valor
-    return {
-        mes: {
-            m: (celulas[m][0], celulas[m][1])
-            for m in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)
-        }
-        for mes, celulas in por_mes.items()
-    }
 
 
 def _documentos_do_periodo(
@@ -416,32 +417,119 @@ def _informados_do_periodo(
     return por_mes
 
 
-def _componentes_do_periodo(
-    empresa: Empresa, inicio: tuple[int, int], fim: tuple[int, int]
-) -> dict[tuple[int, int], dict[str, tuple]]:
-    """(documento, informado, mercadoria, devolução) por mercado, de cada mês do período.
+# Chave de parcela SEM segmento: anexo e segmento vazios. Vale para combustível, serviço conjugado
+# e devolução sem segmento confirmado. Essas parcelas não têm segmento e nunca são rateadas.
+SEM_SEGMENTO = ("", "")
 
-    Três consultas para o período inteiro, não uma por mês (DL-081, A6). Mês sem lançamento sai
-    com zeros, e não some do resultado.
+
+@dataclass(frozen=True)
+class _ParcelasDoMes:
+    """Parcelas de UM mês. `vendas` e `devolucoes` são indexadas por (mercado, anexo, segmento)."""
+
+    documento: dict[str, Decimal]
+    informado: dict[str, Decimal]
+    vendas: dict[tuple[str, str, str], Decimal]
+    devolucoes: dict[tuple[str, str, str], Decimal]
+
+
+def _parcelas_do_periodo(
+    empresa: Empresa, inicio: tuple[int, int], fim: tuple[int, int]
+) -> dict[tuple[int, int], _ParcelasDoMes]:
+    """Parcelas de cada mês do período: NFS-e, informado e NF-e por segmento. Três consultas.
+
+    Mês sem lançamento sai com zeros, e não some do resultado (DL-081, A6).
     """
     documento = _documentos_do_periodo(empresa, inicio, fim)
     informado = _informados_do_periodo(empresa, inicio, fim)
-    nfe = _nfe_do_periodo(empresa, inicio, fim)
-    resultado = {}
-    for mes in _meses_do_intervalo(inicio, fim):
-        doc_mes = documento.get(mes, _zeros_por_mercado())
-        inf_mes = informado.get(mes, _zeros_por_mercado())
-        nfe_mes = nfe.get(mes, {})
-        resultado[mes] = {
-            mercado: (
-                doc_mes[mercado],
-                inf_mes[mercado],
-                nfe_mes.get(mercado, (ZERO, ZERO))[0],
-                nfe_mes.get(mercado, (ZERO, ZERO))[1],
-            )
-            for mercado in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)
-        }
-    return resultado
+    vendas: dict[tuple[int, int], dict] = {}
+    devolucoes: dict[tuple[int, int], dict] = {}
+    for linha in linhas_nfe_do_periodo(empresa, inicio, fim):
+        mes = (linha.competencia.year, linha.competencia.month)
+        destino = vendas if linha.papel == "receita" else devolucoes
+        celulas = destino.setdefault(mes, {})
+        chave = (linha.mercado, linha.anexo or "", linha.segmento or "")
+        celulas[chave] = celulas.get(chave, ZERO) + linha.valor
+    return {
+        mes: _ParcelasDoMes(
+            documento=documento.get(mes, _zeros_por_mercado()),
+            informado=informado.get(mes, _zeros_por_mercado()),
+            vendas=vendas.get(mes, {}),
+            devolucoes=devolucoes.get(mes, {}),
+        )
+        for mes in _meses_do_intervalo(inicio, fim)
+    }
+
+
+@dataclass(frozen=True)
+class _Apuracao:
+    """Um mês apurado: a composição e o detalhamento por segmento que o pré-DAS usa."""
+
+    composicao: Composicao
+    vendas: dict[tuple[str, str, str], Decimal]
+    deducoes: dict[tuple[str, str, str], Decimal]
+    saldo_saida: dict[tuple[str, str, str], Decimal]
+
+
+def _apurar_mes(parcelas: _ParcelasDoMes, saldo_entrada: dict) -> _Apuracao:
+    """Deduz a devolução de um mês e diz o que passa ao mês seguinte (Res. CGSN 140, art. 17, II).
+
+    1. Chave COM segmento: a devolução deduz só da venda do MESMO (mercado, anexo, segmento). O
+    saldo
+       de meses anteriores entra no mesmo pool, e o que não cabe segue para o mês seguinte. Outro
+       segmento não consome esse saldo (HI-130: leitura literal de "receitas segregadas").
+    2. Chave SEM segmento (devolução sem confirmação): deduz do que sobrou do mercado, como antes da
+       DL-082. Isto é um total e não uma alocação por segmento, e por isso o pré-DAS do mês recusa
+       quando há essa dedução. Rateio nunca (HI-129).
+    """
+    vendas = parcelas.vendas
+    devolucoes = parcelas.devolucoes
+    deducoes: dict[tuple[str, str, str], Decimal] = {}
+    saldo_saida: dict[tuple[str, str, str], Decimal] = {}
+    com_segmento = {c for c in set(vendas) | set(devolucoes) | set(saldo_entrada) if c[1]}
+    for chave in sorted(com_segmento):
+        pool = saldo_entrada.get(chave, ZERO) + devolucoes.get(chave, ZERO)
+        deduzido = min(pool, vendas.get(chave, ZERO))
+        deducoes[chave] = deduzido
+        saldo_saida[chave] = pool - deduzido
+
+    composicao_por_mercado = {}
+    for mercado in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO):
+        sem = (mercado, *SEM_SEGMENTO)
+        venda_mercado = sum((v for c, v in vendas.items() if c[0] == mercado), ZERO)
+        dev_mercado = sum((v for c, v in devolucoes.items() if c[0] == mercado), ZERO)
+        entrada_mercado = sum((v for c, v in saldo_entrada.items() if c[0] == mercado), ZERO)
+        ded_com_segmento = sum((deducoes[c] for c in com_segmento if c[0] == mercado), ZERO)
+        sobra = (
+            parcelas.documento[mercado]
+            + parcelas.informado[mercado]
+            + venda_mercado
+            - ded_com_segmento
+        )
+        pool_sem = saldo_entrada.get(sem, ZERO) + devolucoes.get(sem, ZERO)
+        deduzido_sem = min(pool_sem, sobra)
+        deducoes[sem] = deduzido_sem
+        saldo_saida[sem] = pool_sem - deduzido_sem
+        deduzido_mercado = sum((deducoes[c] for c in deducoes if c[0] == mercado), ZERO)
+        saida_mercado = sum((v for c, v in saldo_saida.items() if c[0] == mercado), ZERO)
+        composicao_por_mercado[mercado] = ComposicaoMercado(
+            mercado,
+            parcelas.documento[mercado],
+            parcelas.informado[mercado],
+            venda_mercado,
+            dev_mercado,
+            entrada_mercado,
+            deduzido_mercado,
+            saida_mercado,
+        )
+    return _Apuracao(
+        composicao=Composicao(
+            interno=composicao_por_mercado[MercadoReceita.INTERNO],
+            externo=composicao_por_mercado[MercadoReceita.EXTERNO],
+        ),
+        vendas=vendas,
+        deducoes=deducoes,
+        saldo_saida=saldo_saida,
+    )
 
 
 def _primeiro_mes_com_devolucao(empresa: Empresa) -> tuple[int, int] | None:
@@ -462,13 +550,12 @@ def _primeiro_mes_com_devolucao(empresa: Empresa) -> tuple[int, int] | None:
     return None if primeira is None else (primeira.year, primeira.month)
 
 
-def composicoes_do_periodo(empresa: Empresa, meses) -> dict[tuple[int, int], Composicao]:
-    """Composição de cada (ano, mês) pedido, com o saldo de devolução percorrido UMA vez (A6).
+def _apurar_periodo(empresa: Empresa, meses) -> dict[tuple[int, int], _Apuracao]:
+    """Apuração de cada (ano, mês) pedido, com o saldo de devolução percorrido UMA vez (A6).
 
     O período vai de `min(primeiro mês pedido, primeira devolução)` ao último mês pedido. Lê-se o
-    período em três consultas (`_componentes_do_periodo`) e anda-se mês a mês, uma vez. Cada mês
-    pedido recebe o saldo que CHEGA a ele, isto é, o que sobrou dos meses anteriores (Res. CGSN 140,
-    art. 17, II; HI-121). A devolução do próprio mês não entra no saldo de entrada.
+    período em três consultas (`_parcelas_do_periodo`) e anda-se mês a mês. Cada mês pedido recebe o
+    saldo que CHEGA a ele, isto é, o que sobrou dos meses anteriores (HI-121, HI-130).
     """
     pedidos = sorted(set(meses))
     if not pedidos:
@@ -476,40 +563,21 @@ def composicoes_do_periodo(empresa: Empresa, meses) -> dict[tuple[int, int], Com
     primeira = _primeiro_mes_com_devolucao(empresa)
     inicio = pedidos[0] if primeira is None else min(pedidos[0], primeira)
     fim = pedidos[-1]
-    componentes = _componentes_do_periodo(empresa, inicio, fim)
+    parcelas = _parcelas_do_periodo(empresa, inicio, fim)
     pedidos_set = set(pedidos)
-    saldo = _zeros_por_mercado()
-    resultado: dict[tuple[int, int], Composicao] = {}
+    saldo: dict[tuple[str, str, str], Decimal] = {}
+    resultado: dict[tuple[int, int], _Apuracao] = {}
     for mes in _meses_do_intervalo(inicio, fim):
-        por_mercado = componentes[mes]
+        apuracao = _apurar_mes(parcelas[mes], saldo)
         if mes in pedidos_set:
-            resultado[mes] = _composicao_do_mes(por_mercado, saldo)
-        for mercado, (doc, inf, merc, dev) in por_mercado.items():
-            pool = saldo[mercado] + dev
-            saldo[mercado] = pool - min(pool, doc + inf + merc)
+            resultado[mes] = apuracao
+        saldo = apuracao.saldo_saida
     return resultado
 
 
-def _composicao_do_mes(componentes: dict[str, tuple], entrada: dict[str, Decimal]) -> Composicao:
-    """Monta a `Composicao` de um mês a partir das parcelas e do saldo que chega a ele."""
-    por_mercado = {}
-    for mercado, (doc, inf, merc, dev) in componentes.items():
-        pool = entrada[mercado] + dev
-        deduzido = min(pool, doc + inf + merc)
-        por_mercado[mercado] = ComposicaoMercado(
-            mercado,
-            doc,
-            inf,
-            merc,
-            dev,
-            entrada[mercado],
-            deduzido,
-            pool - deduzido,
-        )
-    return Composicao(
-        interno=por_mercado[MercadoReceita.INTERNO],
-        externo=por_mercado[MercadoReceita.EXTERNO],
-    )
+def composicoes_do_periodo(empresa: Empresa, meses) -> dict[tuple[int, int], Composicao]:
+    """Composição de cada (ano, mês) pedido. Ver `_apurar_periodo` para o saldo por segmento."""
+    return {mes: apuracao.composicao for mes, apuracao in _apurar_periodo(empresa, meses).items()}
 
 
 def composicao_do_mes(empresa: Empresa, ano: int, mes: int) -> Composicao:
@@ -525,10 +593,65 @@ def composicao_do_mes(empresa: Empresa, ano: int, mes: int) -> Composicao:
 def componente_nfe_no_mes(empresa: Empresa, ano: int, mes: int) -> bool:
     """O mês tem alguma parcela de NF-e na receita (receita, devolução ou saldo de antes).
 
-    Porta do pré-DAS (DL-081, item 5): o pré-DAS de comércio e indústria ainda não trata mercadoria.
+    Não é mais a porta do pré-DAS (DL-082 trocou a recusa geral por recusas nomeadas). Continua
+    útil para a tela e para a conferência do mês.
     """
     composicao = composicao_do_mes(empresa, ano, mes)
     return composicao.interno.com_nfe or composicao.externo.com_nfe
+
+
+@dataclass(frozen=True)
+class SegmentoDeMercadoria:
+    """Receita de mercadoria de UM (mercado, anexo, segmento) no mês, depois da devolução (DL-082).
+
+    `bruto` é a venda do mês nesse segmento. `deduzido` é a devolução que caiu nele, inclusive o
+    saldo de meses anteriores do mesmo segmento. `liquido` é o que o pré-DAS segrega.
+    """
+
+    mercado: str
+    anexo: str
+    segmento: str
+    bruto: Decimal
+    deduzido: Decimal
+
+    @property
+    def liquido(self) -> Decimal:
+        return self.bruto - self.deduzido
+
+
+@dataclass(frozen=True)
+class MercadoriaDoMes:
+    """Mercadoria do mês por segmento (DL-082). `deduzido_sem_segmento` tem o que não pôde ser
+    atribuído a um segmento, por mercado. Qualquer valor ali faz o pré-DAS recusar o mês."""
+
+    segmentos: tuple[SegmentoDeMercadoria, ...]
+    deduzido_sem_segmento: dict[str, Decimal]
+
+
+def mercadoria_do_mes(empresa: Empresa, ano: int, mes: int) -> MercadoriaDoMes:
+    """Receita de mercadoria do mês por (mercado, anexo, segmento), para o pré-DAS (DL-082).
+
+    Usa a MESMA apuração de `composicao_do_mes`: o total por mercado é a soma destes segmentos mais
+    o
+    que não tem segmento. Só lê a empresa dada.
+    """
+    apuracao = _apurar_periodo(empresa, [(ano, mes)])[(ano, mes)]
+    segmentos = tuple(
+        SegmentoDeMercadoria(
+            mercado=chave[0],
+            anexo=chave[1],
+            segmento=chave[2],
+            bruto=apuracao.vendas[chave],
+            deduzido=apuracao.deducoes.get(chave, ZERO),
+        )
+        for chave in sorted(apuracao.vendas)
+        if chave[1]
+    )
+    deduzido_sem = {
+        mercado: apuracao.deducoes.get((mercado, *SEM_SEGMENTO), ZERO)
+        for mercado in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)
+    }
+    return MercadoriaDoMes(segmentos=segmentos, deduzido_sem_segmento=deduzido_sem)
 
 
 @dataclass(frozen=True)

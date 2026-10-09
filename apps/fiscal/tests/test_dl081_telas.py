@@ -770,7 +770,9 @@ def test_estorno_com_botao_perigoso_e_motivo_com_rotulo(client, cenario):
     assert 'class="botao botao--perigoso"' in html
 
 
-def test_pre_das_mostra_legivel_a_recusa_por_receita_de_nfe(client, gestor, emitente, escritorio_a):
+def test_pre_das_nao_mostra_mais_a_recusa_hi122_por_receita_de_nfe(
+    client, gestor, emitente, escritorio_a
+):
     _logar(client, gestor)
     vinculo_ = _nota(escritorio_a, gestor, emitente, numero="1")
     _escriturar_com_o_exemplo(client, emitente, vinculo_)
@@ -780,7 +782,8 @@ def test_pre_das_mostra_legivel_a_recusa_por_receita_de_nfe(client, gestor, emit
         client.get(reverse("fiscal_web:pre_das"), {"empresa": emitente.pk, "ano": ANO, "mes": MES})
     )
 
-    assert "receita de mercadoria (NF-e) no mês" in html
+    # DL-082: a recusa geral por NF-e saiu (HI-122). A tela não repete o motivo antigo.
+    assert "receita de mercadoria (NF-e) no mês" not in html
     assert "receita_de_mercadoria" not in html
 
 

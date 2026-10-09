@@ -49,7 +49,9 @@ from apps.fiscal.api import (
 from apps.fiscal.api_escrituracao_nfe import (
     ConferenciaNFeView,
     ConfirmarLoteNFeView,
+    DefinirMarcaMonofasicoView,
     DefinirNaturezasView,
+    DefinirSegmentoDevolucaoView,
     EfetivarEscrituracaoNFeView,
     EscrituracaoNFeDetalheView,
     EscrituracaoNFeListaView,
@@ -108,6 +110,16 @@ urlpatterns = [
         "empresas/<int:empresa_id>/nfe/escrituracao/<int:escrituracao_id>/naturezas/",
         DefinirNaturezasView.as_view(),
         name="nfe_escrituracao_naturezas",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/<int:escrituracao_id>/marca-monofasico/",
+        DefinirMarcaMonofasicoView.as_view(),
+        name="nfe_escrituracao_marca_monofasico",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/<int:escrituracao_id>/segmento-devolucao/",
+        DefinirSegmentoDevolucaoView.as_view(),
+        name="nfe_escrituracao_segmento_devolucao",
     ),
     path(
         "empresas/<int:empresa_id>/nfe/escrituracao/<int:escrituracao_id>/efetivar/",

@@ -58,6 +58,12 @@ def _nota_saida(escritorio, gestor, empresa, numero):
     )
 
 
+def _natureza_do_item(esc):
+    # DL-082 (0014): em estados anteriores à 0014 a coluna nova não existe, e `.get()` leria todas
+    # as colunas do modelo. Lê-se só a natureza, que é a coluna que estes testes verificam.
+    return NaturezaItemNFe.objects.filter(escrituracao=esc).values_list("natureza", flat=True).get()
+
+
 @pytest.fixture
 def rascunho(escritorio_a):
     gestor, empresa = _gestor_e_empresa(escritorio_a)
@@ -82,7 +88,8 @@ def test_reversao_recusa_com_item_em_rascunho_com_natureza_nova_e_nao_muda_nada(
     # Nada mudou: o CHECK novo continua como estava, e a natureza continua no item.
     assert convalidado_antes is True
     assert _check_do_banco()[0] is True
-    assert NaturezaItemNFe.objects.get(escrituracao=esc).natureza == "combustivel_revenda"
+    assert _natureza_do_item(esc) == "combustivel_revenda"
+    call_command("migrate", "fiscal", verbosity=0)  # head (DL-082, 0014)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -95,7 +102,7 @@ def test_reversao_passa_com_efetivada_estornada_e_o_check_antigo_fica_not_valid(
     )
     servico.efetivar(esc, usuario=gestor)
     servico.estornar(esc, "migração DL083: teste de reversão", usuario=gestor)
-    assert NaturezaItemNFe.objects.get(escrituracao=esc).natureza == "combustivel_revenda"
+    assert _natureza_do_item(esc) == "combustivel_revenda"
 
     call_command("migrate", "fiscal", ULTIMA_ANTES, verbosity=0)
 
@@ -104,7 +111,7 @@ def test_reversao_passa_com_efetivada_estornada_e_o_check_antigo_fica_not_valid(
     assert "combustivel_revenda" not in definicao
     assert "devolucao_combustivel_consumo" not in definicao
     # A estornada é imutável: a natureza continua no item, e o banco aceita a leitura.
-    assert NaturezaItemNFe.objects.get(escrituracao=esc).natureza == "combustivel_revenda"
+    assert _natureza_do_item(esc) == "combustivel_revenda"
 
     # (iii) reaplicação: o CHECK com a lista nova volta, validado.
     call_command("migrate", "fiscal", "0012", verbosity=0)
@@ -112,6 +119,7 @@ def test_reversao_passa_com_efetivada_estornada_e_o_check_antigo_fica_not_valid(
     assert convalidado is True
     assert "combustivel_revenda" in definicao
     assert "devolucao_combustivel_consumo" in definicao
+    call_command("migrate", "fiscal", verbosity=0)  # head (DL-082, 0014)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -144,6 +152,5 @@ def test_reaplicacao_com_devolucao_de_combustivel_consumo_estornada_valida_o_che
     call_command("migrate", "fiscal", "0012", verbosity=0)
 
     assert _check_do_banco()[0] is True
-    assert NaturezaItemNFe.objects.get(escrituracao=esc).natureza == (
-        "devolucao_combustivel_consumo"
-    )
+    assert _natureza_do_item(esc) == "devolucao_combustivel_consumo"
+    call_command("migrate", "fiscal", verbosity=0)  # head (DL-082, 0014)

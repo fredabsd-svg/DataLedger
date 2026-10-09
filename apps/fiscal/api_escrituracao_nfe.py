@@ -56,6 +56,7 @@ MAIOR_ID = 2**63 - 1
 _ANO_MINIMO_DATA, _ANO_MAXIMO_DATA = 1970, 2999
 # Reconferência da DL-083, R1: o limite vem do campo do modelo, nunca de um literal.
 _TAMANHO_NATUREZA = NaturezaItemNFe._meta.get_field("natureza").max_length
+_TAMANHO_SEGMENTO_DEVOLUCAO = NaturezaItemNFe._meta.get_field("segmento_devolucao").max_length
 _TAMANHO_MOTIVO = servico.MOTIVO_MAXIMO
 _MAXIMO_ITENS_POR_PEDIDO = 5000
 
@@ -68,6 +69,16 @@ CONTRATO_NATUREZAS = ContratoDeRequisicao(
     campos={"natureza", "itens"},
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na definição da natureza dos itens",
+)
+CONTRATO_MARCA_MONOFASICO = ContratoDeRequisicao(
+    campos={"monofasico", "itens"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na marca de monofásico dos itens da escrituração de NF-e",
+)
+CONTRATO_SEGMENTO_DEVOLUCAO = ContratoDeRequisicao(
+    campos={"segmento", "itens"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no segmento confirmado da devolução de NF-e",
 )
 CONTRATO_EFETIVAR = ContratoDeRequisicao(
     campos=frozenset(),
@@ -155,6 +166,28 @@ class CriarRascunhoEntradaSerializer(serializers.Serializer):
 class NaturezasEntradaSerializer(serializers.Serializer):
     natureza = serializers.CharField(
         max_length=_TAMANHO_NATUREZA, validators=[_sem_caractere_invalido]
+    )
+    itens = serializers.ListField(
+        child=serializers.IntegerField(min_value=1, max_value=MAIOR_ID),
+        min_length=1,
+        max_length=_MAXIMO_ITENS_POR_PEDIDO,
+    )
+
+
+class MarcaMonofasicoEntradaSerializer(serializers.Serializer):
+    monofasico = serializers.BooleanField()
+    itens = serializers.ListField(
+        child=serializers.IntegerField(min_value=1, max_value=MAIOR_ID),
+        min_length=1,
+        max_length=_MAXIMO_ITENS_POR_PEDIDO,
+    )
+
+
+class SegmentoDevolucaoEntradaSerializer(serializers.Serializer):
+    segmento = serializers.CharField(
+        max_length=_TAMANHO_SEGMENTO_DEVOLUCAO,
+        allow_blank=True,
+        validators=[_sem_caractere_invalido],
     )
     itens = serializers.ListField(
         child=serializers.IntegerField(min_value=1, max_value=MAIOR_ID),
@@ -307,7 +340,20 @@ def _item_payload(
         "avisos": list(avisos),
         "natureza": natureza.natureza or None,
         "sugestao": {"natureza": sugestao.natureza, "motivo": sugestao.motivo},
+        # DL-082 (HI-128, HI-129): marca de monofásico e segmento confirmado da devolução. A
+        # sugestão do segmento só aparece para CFOP de devolução (indDevol 1).
+        "monofasico": natureza.monofasico,
+        "segmento_devolucao": natureza.segmento_devolucao or None,
+        "sugestao_segmento_devolucao": _sugestao_segmento_payload(item, natureza),
     }
+
+
+def _sugestao_segmento_payload(item: ItemNFe, natureza: NaturezaItemNFe) -> dict | None:
+    info = consultar_cfop(item.cfop)
+    if info is None or not info.ind_devol:
+        return None
+    sugestao = servico.sugerir_segmento_devolucao(item, natureza.monofasico)
+    return {"segmento": sugestao.segmento, "motivo": sugestao.motivo}
 
 
 def _escrituracao_payload(escrituracao: EscrituracaoNFe) -> dict:
@@ -471,6 +517,67 @@ class DefinirNaturezasView(_EmpresaComIdValido, APIView):
         except servico.EscrituracaoNFeErro as exc:
             return _resposta_de_conflito(exc)
         return Response(_escrituracao_payload(atualizada), status=status.HTTP_200_OK)
+
+
+class _DefinirItensView(_EmpresaComIdValido, APIView):
+    """Base dos POST que marcam itens da escrituração. Só rascunho (a recusa vem do serviço)."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+    contrato = None
+    serializer = None
+
+    def _aplicar(self, escrituracao, entrada, request):
+        raise NotImplementedError
+
+    def post(self, request, empresa_id, escrituracao_id):
+        _recusar_dado_nao_contratado(request, self.contrato)
+        empresa = self.get_empresa()
+        _id_valido(escrituracao_id)
+        escrituracao = get_object_or_404(EscrituracaoNFe, pk=escrituracao_id, empresa=empresa)
+        entrada = self.serializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        try:
+            atualizada = self._aplicar(escrituracao, entrada.validated_data, request)
+        except servico.EntradaInvalidaNFe as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except servico.EscrituracaoNFeErro as exc:
+            return _resposta_de_conflito(exc)
+        return Response(_escrituracao_payload(atualizada), status=status.HTTP_200_OK)
+
+
+class DefinirMarcaMonofasicoView(_DefinirItensView):
+    """POST — marca (ou desmarca) o monofásico de PIS e Cofins de itens da escrituração (DL-082)."""
+
+    contrato = CONTRATO_MARCA_MONOFASICO
+    serializer = MarcaMonofasicoEntradaSerializer
+
+    def _aplicar(self, escrituracao, dados, request):
+        return servico.definir_marca_monofasico(
+            escrituracao,
+            dados["itens"],
+            dados["monofasico"],
+            usuario=request.user,
+            request=request,
+        )
+
+
+class DefinirSegmentoDevolucaoView(_DefinirItensView):
+    """POST — confirma o anexo e o segmento de devoluções de venda (DL-082, HI-129).
+
+    Segmento vazio desfaz a confirmação.
+    """
+
+    contrato = CONTRATO_SEGMENTO_DEVOLUCAO
+    serializer = SegmentoDevolucaoEntradaSerializer
+
+    def _aplicar(self, escrituracao, dados, request):
+        return servico.definir_segmento_devolucao(
+            escrituracao,
+            dados["itens"],
+            dados["segmento"],
+            usuario=request.user,
+            request=request,
+        )
 
 
 class EfetivarEscrituracaoNFeView(_EmpresaComIdValido, APIView):
