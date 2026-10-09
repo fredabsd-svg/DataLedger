@@ -331,7 +331,10 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
     mutantes mortos); [reconferência](../auditorias/2026-10-09-dl-081-reconferencia.md)
     APROVADA COM RESSALVAS (8.576 aprovados, 1 reprovado de ambiente, 53
     pulados). R1 fechado e N4b testado por ajuste do arquiteto; R8 nos
-    documentos; R2 a R7 no BL-686. Em integração na branch e PR.** O cálculo
+    documentos; R2 a R7 no BL-686. Suíte da branch integrada (`578ce9e`,
+    arquiteto, invocação única, sem a variável dos XSD): 8.558 aprovados, 1
+    reprovado (ambiente), 53 pulados. PR aberto, aguardando a CI; merge
+    autorizado (RC-171).** O cálculo
     bateu ao centavo com o do auditor. BL-685 registrado. Tabela oficial
     de CFOP do Portal da NF-e (IT 2023.002 v2.10) como dado com fonte.
     [Consulta ao contador-senior](../projeto/consultas/2026-10-09-contador-senior-escrituracao-nfe.md):
