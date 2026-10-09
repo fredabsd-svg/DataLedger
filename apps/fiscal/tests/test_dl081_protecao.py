@@ -1,8 +1,8 @@
 """DL-081 (frente A), proteção dos cálculos que ainda não tratam mercadoria (item 5; HI-122).
 
-- O pré-DAS recusa o MÊS com receita de NF-e, com o motivo nomeado.
-- O Presumido fica PARCIAL no TRIMESTRE com NF-e, com o motivo "receita de NF-e ainda não
-integrada".
+- O pré-DAS recusa o MÊS com receita de NF-e, com o motivo nomeado (sem alteração na DL-083).
+- DL-083 (HI-134): a NF-e efetivada JÁ entra no Presumido (testes em `test_dl083_presumido_nfe.py`).
+  A recusa que sobrou é a NF-e ainda NÃO escriturada do período: `nfe_nao_escriturada`.
 - Meses e trimestres sem NF-e não mudam: a lista de recusas é a mesma de antes da NF-e.
 """
 
@@ -27,7 +27,8 @@ pytestmark = pytest.mark.django_db
 MENSAGEM_PRE_DAS = (
     "receita de mercadoria (NF-e) no mês — pré-DAS de comércio e indústria ainda não disponível"
 )
-MENSAGEM_PRESUMIDO = "receita de NF-e ainda não integrada ao Presumido"
+CODIGO_NAO_ESCRITURADA = "nfe_nao_escriturada"
+MENSAGEM_NAO_ESCRITURADA = "NF-e do trimestre ainda não escriturada"
 
 
 @pytest.fixture
@@ -127,15 +128,30 @@ def test_pre_das_mes_sem_nfe_tem_a_mesma_lista_de_antes(empresa):
     assert all(codigo != "receita_de_mercadoria" for codigo, _ in bloqueios)
 
 
-# --- Presumido ---------------------------------------------------------------------------------
+# --- Presumido (DL-083) ------------------------------------------------------------------------
 
 
-def test_presumido_fica_parcial_no_trimestre_com_nfe_com_motivo_nomeado(
+def nfe_pendente(escritorio, gestor, empresa, *, numero, valor, dh_emi):
+    """NF-e recebida e ainda NÃO escriturada: o vínculo fica `a_escriturar`, sem rascunho."""
+    return receber(
+        escritorio,
+        gestor,
+        xml.nfe(
+            dets=[xml.det(1, cfop="5102", vprod=valor, icms_xml=xml.icms(csosn="102"))],
+            vnf=valor,
+            totais={"vProd": valor},
+            numero=str(numero),
+            dh_emi=dh_emi,
+        ),
+    )
+
+
+def test_presumido_fica_parcial_com_nfe_nao_escriturada_e_motivo_nomeado(
     escritorio_a, gestor, empresa_presumido
 ):
     situacao, codigos = codigos_do_presumido(empresa_presumido, 2026, 1)
-    assert "receita_nfe_nao_integrada" not in codigos
-    nfe_de_revenda(
+    assert CODIGO_NAO_ESCRITURADA not in codigos
+    nfe_pendente(
         escritorio_a,
         gestor,
         empresa_presumido,
@@ -145,17 +161,32 @@ def test_presumido_fica_parcial_no_trimestre_com_nfe_com_motivo_nomeado(
     )
     situacao, codigos = codigos_do_presumido(empresa_presumido, 2026, 1)
     assert situacao == "parcial"
-    assert "receita_nfe_nao_integrada" in codigos
+    assert CODIGO_NAO_ESCRITURADA in codigos
     apuracao = presumido_servico.apurar_trimestre(empresa_presumido, 2026, 1)
-    motivos = [r.mensagem for r in apuracao.recusas if r.codigo == "receita_nfe_nao_integrada"]
-    assert motivos == [MENSAGEM_PRESUMIDO]
+    motivos = [r.mensagem for r in apuracao.recusas if r.codigo == CODIGO_NAO_ESCRITURADA]
+    assert motivos == [MENSAGEM_NAO_ESCRITURADA]
 
 
-def test_presumido_trimestre_sem_nfe_ate_ele_nao_muda(escritorio_a, gestor, empresa_presumido):
+def test_nfe_efetivada_entra_no_presumido_sem_recusa(escritorio_a, gestor, empresa_presumido):
+    """DL-083: a NF-e efetivada não recusa mais o trimestre. A receita entra no cálculo."""
+    nfe_de_revenda(
+        escritorio_a,
+        gestor,
+        empresa_presumido,
+        numero=4,
+        valor="100.00",
+        dh_emi="2026-02-10T10:00:00-03:00",
+    )
+    apuracao = presumido_servico.apurar_trimestre(empresa_presumido, 2026, 1)
+    assert CODIGO_NAO_ESCRITURADA not in [r.codigo for r in apuracao.recusas]
+    assert apuracao.irpj is not None
+
+
+def test_trimestre_sem_nfe_ate_ele_nao_muda(escritorio_a, gestor, empresa_presumido):
     """Trimestre 2 (abr-jun) sem NF-e em nenhum mês até ele: a lista de recusas é idêntica antes
     e depois de uma NF-e do T3, que vem DEPOIS do T2 e não o afeta."""
     antes = codigos_do_presumido(empresa_presumido, 2026, 2)
-    nfe_de_revenda(
+    nfe_pendente(
         escritorio_a,
         gestor,
         empresa_presumido,
@@ -165,18 +196,18 @@ def test_presumido_trimestre_sem_nfe_ate_ele_nao_muda(escritorio_a, gestor, empr
     )
     depois = codigos_do_presumido(empresa_presumido, 2026, 2)
     assert antes == depois
-    assert "receita_nfe_nao_integrada" not in depois[1]
+    assert CODIGO_NAO_ESCRITURADA not in depois[1]
 
 
-# Correção da rodada 1 (A2): o limite da LC 224 é recursivo para a frente. Uma NF-e do trimestre
-# anterior deixava o seguinte completo, com IRPJ 1.500,00 a menos (cenário do relatório).
+# Correção da rodada 1 (A2): o limite da LC 224 é recursivo para a frente. Uma NF-e pendente do
+# trimestre anterior deixa o seguinte parcial, com o mesmo motivo.
 
 
 @pytest.mark.parametrize("trimestre", [1, 2, 3, 4])
-def test_nfe_so_no_t1_deixa_parcial_o_t1_ao_t4_com_o_motivo(
+def test_nfe_pendente_so_no_t1_deixa_parcial_o_t1_ao_t4_com_o_motivo(
     escritorio_a, gestor, empresa_presumido, trimestre
 ):
-    nfe_de_revenda(
+    nfe_pendente(
         escritorio_a,
         gestor,
         empresa_presumido,
@@ -186,13 +217,13 @@ def test_nfe_so_no_t1_deixa_parcial_o_t1_ao_t4_com_o_motivo(
     )
     situacao, codigos = codigos_do_presumido(empresa_presumido, 2026, trimestre)
     assert situacao == "parcial"
-    assert "receita_nfe_nao_integrada" in codigos
+    assert CODIGO_NAO_ESCRITURADA in codigos
 
 
-def test_nfe_so_no_t2_nao_parcializa_o_t1_e_parcializa_o_t2_ao_t4(
+def test_nfe_pendente_so_no_t2_nao_parcializa_o_t1_e_parcializa_o_t2_ao_t4(
     escritorio_a, gestor, empresa_presumido
 ):
-    nfe_de_revenda(
+    nfe_pendente(
         escritorio_a,
         gestor,
         empresa_presumido,
@@ -201,16 +232,16 @@ def test_nfe_so_no_t2_nao_parcializa_o_t1_e_parcializa_o_t2_ao_t4(
         dh_emi="2026-05-10T10:00:00-03:00",
     )
     _, codigos_t1 = codigos_do_presumido(empresa_presumido, 2026, 1)
-    assert "receita_nfe_nao_integrada" not in codigos_t1
+    assert CODIGO_NAO_ESCRITURADA not in codigos_t1
     for trimestre in (2, 3, 4):
         _, codigos = codigos_do_presumido(empresa_presumido, 2026, trimestre)
-        assert "receita_nfe_nao_integrada" in codigos, trimestre
+        assert CODIGO_NAO_ESCRITURADA in codigos, trimestre
 
 
 def test_presumido_sem_nfe_nenhuma_nao_tem_o_motivo_em_nenhum_trimestre(empresa_presumido):
     for trimestre in (1, 2, 3, 4):
         _, codigos = codigos_do_presumido(empresa_presumido, 2026, trimestre)
-        assert "receita_nfe_nao_integrada" not in codigos, trimestre
+        assert CODIGO_NAO_ESCRITURADA not in codigos, trimestre
 
 
 def test_nfe_de_outra_empresa_nao_parcializa_o_presumido(escritorio_a, gestor, empresa):
@@ -233,4 +264,4 @@ def test_nfe_de_outra_empresa_nao_parcializa_o_presumido(escritorio_a, gestor, e
     NaturezaItemNFe.objects.filter(escrituracao=esc).update(natureza=NaturezaOperacaoNFe.REVENDA)
     servico.efetivar(esc, usuario=gestor)
     _, codigos = codigos_do_presumido(empresa, 2026, 1)
-    assert "receita_nfe_nao_integrada" not in codigos
+    assert CODIGO_NAO_ESCRITURADA not in codigos

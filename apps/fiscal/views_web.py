@@ -102,6 +102,7 @@ from apps.fiscal.api_nfe import DESCRICAO_EVENTO_NFE, direcao_para_o_cliente
 from apps.fiscal.cfop import cfop as consultar_cfop
 from apps.fiscal.formatacao_ptbr import milhar_ptbr as _milhar_ptbr
 from apps.fiscal.formatacao_ptbr import valor_ptbr as _valor_ptbr
+from apps.fiscal.itens_nfe import receita_do_item
 from apps.fiscal.models import (
     AliquotaIssMunicipal,
     AtividadeEmpresa,
@@ -6209,6 +6210,32 @@ def _pres_apuracao_na_tela(apuracao, ano, trimestre) -> dict:
             }
             for r in apuracao.receitas
         ],
+        # DL-083: as linhas de NF-e do trimestre (origem "NF-e"), a devolução deduzida e o saldo
+        # que passa ao trimestre seguinte. Só apresentação: o valor e a atividade vêm do serviço.
+        "nfe": [
+            {
+                "origem": linha.origem,
+                "numero": linha.numero,
+                "competencia": (
+                    f"{linha.data_competencia.month:02d}/{linha.data_competencia.year}"
+                ),
+                "natureza": NaturezaOperacaoNFe(linha.natureza).label,
+                "cfop": linha.cfop,
+                "atividade": tab_presumido.ATIVIDADES_POR_CODIGO[linha.atividade].rotulo,
+                "papel": _ROTULO_PAPEL_NATUREZA_NFE[linha.papel],
+                "valor": _valor_ptbr(linha.valor),
+            }
+            for linha in apuracao.nfe
+        ],
+        "devolucao_deduzida": _valor_ptbr(apuracao.devolucao_deduzida),
+        "saldo_devolucao_transportado": _valor_ptbr(apuracao.saldo_devolucao_transportado),
+        # HI-140: uma linha por atividade, com a de comércio e indústria sempre (zero se não há).
+        "devolucao_por_atividade_tela": _linhas_de_devolucao_por_atividade(
+            apuracao.devolucao_por_atividade, apuracao.saldo_por_atividade
+        ),
+        "mostra_devolucao": bool(
+            apuracao.nfe or apuracao.devolucao_deduzida or apuracao.saldo_devolucao_transportado
+        ),
         "integrais_atuais": _valor_ptbr(apuracao.integrais_atuais),
         "declaracao": _pres_declaracao_na_tela(apuracao),
         "tributos": tributos,
@@ -6219,6 +6246,39 @@ def _pres_apuracao_na_tela(apuracao, ano, trimestre) -> dict:
             tab_presumido.FONTE_PERCENTUAIS,
         ],
     }
+
+
+# Nome de cada atividade na linha de devolução da memória. Comércio e indústria mantém o rótulo
+# que a tela já usava. As demais usam o rótulo do catálogo (HI-140).
+_NOME_DA_ATIVIDADE_NA_DEVOLUCAO = {
+    tab_presumido.COMERCIO_INDUSTRIA_TRANSPORTE_CARGA: "comércio e indústria",
+}
+
+
+def _linhas_de_devolucao_por_atividade(devolucao_por_atividade, saldo_por_atividade):
+    """Linhas da memória: (nome, deduzida, saldo) de cada atividade, na ordem do catálogo.
+
+    Comércio e indústria sempre aparece (com zero, se não há devolução), para a memória não mudar de
+    forma nos trimestres sem devolução de combustível.
+    """
+    deduzida = dict(devolucao_por_atividade)
+    saldo = dict(saldo_por_atividade)
+    codigos = [tab_presumido.COMERCIO_INDUSTRIA_TRANSPORTE_CARGA] + [
+        codigo
+        for codigo in tab_presumido.CODIGOS_DE_ATIVIDADE
+        if codigo != tab_presumido.COMERCIO_INDUSTRIA_TRANSPORTE_CARGA
+        and (codigo in deduzida or codigo in saldo)
+    ]
+    return [
+        {
+            "nome": _NOME_DA_ATIVIDADE_NA_DEVOLUCAO.get(
+                codigo, tab_presumido.ATIVIDADES_POR_CODIGO[codigo].rotulo
+            ),
+            "deduzida": _valor_ptbr(deduzida.get(codigo, Decimal("0.00"))),
+            "saldo": _valor_ptbr(saldo.get(codigo, Decimal("0.00"))),
+        }
+        for codigo in codigos
+    ]
 
 
 @login_required
@@ -6749,7 +6809,9 @@ def nfe_eventos_orfaos(request):
 # ---------------------------------------------------------------------------
 
 _ANO_MINIMO_NFE, _ANO_MAXIMO_NFE = 1970, 2999
-_TAMANHO_NATUREZA_NFE = 24
+# Reconferência da DL-083, R1: o limite vem do campo do modelo, nunca de um literal. A natureza
+# `devolucao_combustivel_consumo` tem 29 caracteres, e o 24 antigo a recusava na tela.
+_TAMANHO_NATUREZA_NFE = NaturezaItemNFe._meta.get_field("natureza").max_length
 _ACOES_ESCRITURAR_NFE = frozenset({"criar", "item", "bloco", "efetivar"})
 _ACOES_RECLASSIFICAR_NFE = frozenset({"previa", "confirmar"})
 _MENSAGEM_SEM_CONSULTA_ESCRITURACAO_NFE = "Seu papel não permite consultar a escrituração de NF-e."
@@ -7044,9 +7106,12 @@ def _opcoes_de_natureza(tipo):
     ]
 
 
-def _linha_do_item_nfe(item, natureza, documento, tipo):
+def _linha_do_item_nfe(item, natureza, documento, tipo, avisos=(), receita_atribuida=None):
     """Uma linha de item. CFOP (texto da tabela oficial), CST/CSOSN, NCM, valor, receita, natureza
-    gravada e sugestão com o motivo que o serviço deu. Sem sugestão, a tela diz "escolha"."""
+    gravada e sugestão com o motivo que o serviço deu. Sem sugestão, a tela diz "escolha".
+
+    DL-083: a receita é `receita_do_item` (regra única; item indTot 0 entra só pelo que foi
+    cobrado) e os avisos do item vêm do serviço. A tela não soma nem decide receita."""
     sugestao = servico_nfe.sugerir_natureza_item(documento, item, tipo)
     info = consultar_cfop(item.cfop)
     if item.csosn:
@@ -7066,9 +7131,12 @@ def _linha_do_item_nfe(item, natureza, documento, tipo):
         ),
         "cst_csosn": cst_csosn,
         "v_prod_ptbr": _valor_ptbr(item.v_prod),
-        "receita_ptbr": (
-            _valor_ptbr(item.receita_bruta_item) if item.ind_tot == "1" else "fora do total"
+        # A receita que a conta usa (HI-138). Sem atribuição (a nota recusa): o do próprio item.
+        "receita_ptbr": _valor_ptbr(
+            receita_do_item(item) if receita_atribuida is None else receita_atribuida
         ),
+        # Avisos do item, da nota inteira (HI-138: o que foi atribuído à venda) e do próprio item.
+        "avisos": list(avisos),
         "natureza_gravada": natureza,
         "natureza_gravada_rotulo": NaturezaOperacaoNFe(natureza).label if natureza else "",
         "sugestao": sugestao.natureza or "",
@@ -7127,6 +7195,11 @@ def _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada):
         return False, "", None, False
     if cancelada:
         return False, "Nota cancelada não pode ser efetivada.", None, False
+    # A8: regra de data (receita de 2027) desabilita o botão com o motivo, antes de qualquer conta.
+    # O servidor recusa de novo no POST, com a mesma mensagem.
+    motivo_de_data = servico_nfe.motivo_bloqueio_efetivacao(documento)
+    if motivo_de_data is not None:
+        return False, motivo_de_data, None, False
     if leitura is None or leitura.estado != LeituraItensNFe.ESTADO_LIDA:
         motivo = "itens ainda não lidos" if leitura is None else leitura.motivo
         return False, f"Itens ilegíveis, nota bloqueada: {motivo}", None, False
@@ -7174,10 +7247,10 @@ def _conferencia_na_tela(documento, leitura, pares, escrituracao, efetivada, con
     elif conferencia is not None:
         soma, valor_nf = conferencia.soma_itens, conferencia.valor_nf
     else:
-        soma = sum(
-            (item.receita_bruta_item for item, _ in pares if item.ind_tot == "1"),
-            Decimal("0.00"),
-        )
+        # Rascunho sem conferência (natureza faltando, ou o serviço recusou): a soma sai da MESMA
+        # função que a conferência usa, `receita_do_item` sobre todos os itens. O serviço não expõe
+        # essa soma sem conferir, então a tela só a refaz com a função dele, nunca com uma soma sua.
+        soma = sum((receita_do_item(item) for item, _ in pares), Decimal("0.00"))
         valor_nf = documento.v_nf
     return {
         "receita_ptbr": _valor_ptbr(soma),
@@ -7206,8 +7279,18 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
     if lida and tipo is not None:
         pares = _pares_da_escrituracao(documento, escrituracao)
         tipo_da_tela = escrituracao.tipo if escrituracao is not None else tipo
+        avisos_por_item = servico_nfe.avisos_da_nota(pares)
+        receitas = servico_nfe.receitas_atribuidas(pares)
         linhas = [
-            _linha_do_item_nfe(item, natureza, documento, tipo_da_tela) for item, natureza in pares
+            _linha_do_item_nfe(
+                item,
+                natureza,
+                documento,
+                tipo_da_tela,
+                avisos_por_item.get(item.pk, ()),
+                None if receitas is None else receitas.get(item.pk),
+            )
+            for item, natureza in pares
         ]
 
     pode_efetivar, motivo_efetivar, conferencia, divergiu = (

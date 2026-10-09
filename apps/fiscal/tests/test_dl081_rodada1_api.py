@@ -107,21 +107,23 @@ def test_valor_acima_do_campo_vira_nota_ilegivel_sem_500_na_api(
 # --- A4 na API: bloqueio nomeado, com 409 e a regra pendente -------------------------------------
 
 
-def test_efetivar_com_item_fora_do_total_responde_409_com_a_regra_pendente(
+def test_efetivar_com_item_fora_do_total_responde_409_com_a_mensagem_nomeada(
     escritorio_a, usuario_gestor_a, empresa, client
 ):
-    from apps.fiscal.escrituracao_nfe import MENSAGEM_ITEM_FORA_DO_TOTAL
+    """DL-083 (item 3): item indTot 0 com frete e natureza sem receita recusa com a mensagem
+    nomeada. Antes da DL-083, o mesmo caso recusava com a regra pendente da PE-85."""
+    from apps.fiscal.escrituracao_nfe import MENSAGEM_ITEM_FORA_DO_TOTAL_COM_VALOR
 
     dets = [
         xml.det(1, vprod="100.00"),
         xml.det(2, vprod="50.00", ind_tot="0", vfrete="10.00"),
     ]
     documento = _nota(escritorio_a, usuario_gestor_a, dets, vnf="100.00", numero=32)
-    esc = _rascunho_com_natureza(usuario_gestor_a, empresa, documento)
+    esc = _rascunho_com_natureza(usuario_gestor_a, empresa, documento, natureza="bonificacao")
     client.force_login(usuario_gestor_a)
     resposta = _post(client, _url("nfe_escrituracao_efetivar", empresa.pk, esc.pk), {})
     assert resposta.status_code == 409
-    assert _json(resposta)["detail"] == MENSAGEM_ITEM_FORA_DO_TOTAL
+    assert _json(resposta)["detail"] == MENSAGEM_ITEM_FORA_DO_TOTAL_COM_VALOR
     esc.refresh_from_db()
     assert esc.estado == EstadoEscrituracao.RASCUNHO
 

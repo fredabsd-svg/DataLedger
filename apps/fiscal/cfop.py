@@ -105,3 +105,48 @@ def cfop(codigo: str) -> Cfop | None:
         return None
     limpo = codigo.replace(".", "")
     return _tabela().get(f"{limpo[0]}.{limpo[1:]}")
+
+
+# Devolução de combustível, pela DESCRIÇÃO da tabela oficial (DL-083, PE-85.2, HI-134 e HI-140).
+#
+# Dois sentidos, com o mesmo fato econômico (devolução de combustível ou lubrificante):
+# - devolução de VENDA, na entrada própria da empresa: 1.660 a 1.662 e 2.660 a 2.662. O emitente
+#   da nota de entrada é a empresa, e o CFOP diz a destinação original da venda;
+# - devolução de COMPRA, recebida pela empresa como destinatária: 5.660 a 5.662 e 6.660 a 6.662.
+#   O CFOP é o do cliente, que devolveu a venda à empresa.
+# Os dois são `indDevol` 1. A tabela diz a destinação pelo texto ("destinados a consumidor ou
+# usuário
+# final", "destinados à comercialização", "destinados à industrialização subsequente"), e o texto é
+# o que decide, não o terceiro dígito do código.
+_PREFIXO_DEVOLUCAO_VENDA_COMBUSTIVEL = "Devolução de venda de combustíveis ou lubrificantes"
+_PREFIXO_DEVOLUCAO_COMPRA_COMBUSTIVEL = "Devolução de compra de combustíveis ou lubrificantes"
+_DESTINACAO_CONSUMIDOR_FINAL = "consumidor ou usuário final"
+
+
+def e_devolucao_de_combustivel(codigo: str) -> bool:
+    """O CFOP é devolução de combustível ou lubrificante, de venda ou de compra (`indDevol` 1).
+
+    CFOP fora da tabela, ou formato inválido, não é: quem chama trata como "a classificar". Não
+    separa combustível de lubrificante: quem separa é o NCM (`ncm_combustivel`).
+    """
+    info = cfop(codigo)
+    return (
+        info is not None
+        and info.ind_devol
+        and info.descricao.startswith(
+            (_PREFIXO_DEVOLUCAO_VENDA_COMBUSTIVEL, _PREFIXO_DEVOLUCAO_COMPRA_COMBUSTIVEL)
+        )
+    )
+
+
+def e_devolucao_de_combustivel_para_consumo(codigo: str) -> bool:
+    """Devolução de combustível cuja destinação original é o consumidor ou usuário final.
+
+    É a que sai do 1,6% (Lei 9.249, art. 15, § 1º, I) quando o NCM é de combustível. Pela descrição
+    da tabela: "destinados a consumidor ou usuário final" (x.662) ou "adquiridos por consumidor ou
+    usuário final" (5.662, 6.662).
+    """
+    return (
+        e_devolucao_de_combustivel(codigo)
+        and _DESTINACAO_CONSUMIDOR_FINAL in cfop(codigo).descricao
+    )

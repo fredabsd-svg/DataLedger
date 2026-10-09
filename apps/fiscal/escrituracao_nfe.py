@@ -13,10 +13,19 @@ Hipóteses HI-117 a HI-124 (requisitos.md). Decisões que o código não explica
   apontam naturezas DIFERENTES, a sugestão fica em branco ("conflito"). CFOP fora da tabela
   fica "a classificar". Comercial exportadora, bonificação e monofásico nunca têm sugestão.
 - DEVOLUÇÃO identificada pelo `indDevol` da tabela oficial, nunca pela faixa do CFOP.
-- CONFERÊNCIA (HI-119): a receita dos itens com `indTot` 1 tem de bater com
-  `vNF − vST − vIPI − vII − vIPIDevol`, com tolerância ZERO. Nota sem vNF não é conferida: é
-  recusa, porque o total é obrigatório no XSD. vST, vIPI, vII e vIPIDevol ausentes valem zero
-  só nessa fórmula, e a divergência bloqueia a efetivação com os valores na mensagem.
+- RECEITA DO ITEM (DL-083): a receita de cada item é `itens_nfe.receita_do_item`, com a parcela do
+  resíduo de item que não é receita atribuída à nota (HI-138, `atribuir_receita_da_nota`). Item
+  `indTot` 0 não tem o vProd na receita; o frete, o seguro e as outras despesas de item que não é
+  receita vão para a receita da venda da mesma nota, com aviso. Toda soma de receita passa pela
+  atribuição.
+- CONFERÊNCIA (HI-119; DL-083): a receita de TODOS os itens tem de bater com
+  `vNF − vST − vFCPST − vIPI − vII − vIPIDevol`, com tolerância ZERO. Nota sem vNF não é
+  conferida: é recusa, porque o total é obrigatório no XSD. vST, vFCPST, vIPI, vII e vIPIDevol
+  ausentes valem zero só nessa fórmula, e a divergência bloqueia a efetivação com os valores na
+  mensagem. A atribuição (HI-138) bloqueia nos três casos de `itens_nfe`: sem item de receita, com
+  resíduo negativo maior que a receita, e sem base para rateio.
+- 2027 (HI-133; consulta PE-84.4): nota com dhEmi em 2027 ou depois (fuso de São Paulo) não é
+  efetivada, porque a NT 2026.008 não diz como fica o vNF.
 - Competência = mês de `dhEmi` no fuso de São Paulo (consulta, item 1).
 - Nada aqui calcula ICMS, guia ou alíquota. Só se escritura e se confere.
 - Concorrência: cada serviço que escreve roda em `transaction.atomic()` e trava a EMPRESA
@@ -40,9 +49,24 @@ from django.utils import timezone
 from apps.auditoria.services import registrar
 from apps.fiscal import receita as receita_servico
 from apps.fiscal import services
-from apps.fiscal.cfop import cfop as consultar_cfop
+from apps.fiscal.cfop import (
+    cfop as consultar_cfop,
+)
+from apps.fiscal.cfop import (
+    e_devolucao_de_combustivel,
+    e_devolucao_de_combustivel_para_consumo,
+)
 from apps.fiscal.formatacao_ptbr import valor_ptbr
-from apps.fiscal.itens_nfe import VERSAO_LEITOR_ITENS, ler_itens
+from apps.fiscal.itens_nfe import (
+    MENSAGEM_ITEM_FORA_DO_TOTAL_COM_VALOR,  # noqa: F401 (reexportada: a API e a tela a comparam)
+    VERSAO_LEITOR_ITENS,
+    ResiduoNaoAtribuivel,
+    atribuir_receita_da_nota,
+    atribuir_receita_da_nota_efetivada,
+    avisos_da_atribuicao,
+    ler_itens,
+    receita_do_item,
+)
 from apps.fiscal.models import (
     CATALOGO_NATUREZA_NFE,
     EscrituracaoNFe,
@@ -58,6 +82,12 @@ from apps.fiscal.models import (
     mercado_da_natureza_nfe,
     papel_da_natureza_nfe,
 )
+from apps.fiscal.ncm_combustivel import (
+    NCM_COMBUSTIVEL,
+    NCM_COMBUSTIVEL_SE_CFOP_DE_COMBUSTIVEL,
+    NCM_LUBRIFICANTE,
+    normalizar_ncm,
+)
 from apps.fiscal.services import CODIGOS_CANCELAMENTO_NFE, CODIGOS_EFETIVOS_NFE
 
 FUSO_SP = ZoneInfo("America/Sao_Paulo")
@@ -66,6 +96,14 @@ _NOME_RESTRICAO_UNICA = "escrituracao_nfe_ativa_unica_por_vinculo"
 
 # Naturezas que só cabem em um tipo de nota (consulta, item 2 e Hipóteses 2 e 3).
 _NATUREZA_DE_AJUSTE = NaturezaOperacaoNFe.AJUSTE
+# Devolução de venda: a natureza comum (deduz do 8%) e a de combustível para consumo (deduz do 1,6%,
+# HI-140). A escolha é do contador, e a sugestão só aponta a segunda com CFOP e NCM que dizem isso.
+_NATUREZAS_DE_DEVOLUCAO = frozenset(
+    {
+        NaturezaOperacaoNFe.DEVOLUCAO_VENDA,
+        NaturezaOperacaoNFe.DEVOLUCAO_COMBUSTIVEL_CONSUMO,
+    }
+)
 _NATUREZA_DE_DEVOLUCAO = NaturezaOperacaoNFe.DEVOLUCAO_VENDA
 
 # Situações da nota, como a tela e a API as mostram.
@@ -81,6 +119,17 @@ ORIGEM_FIN_NFE = "finalidade (finNFe)"
 ORIGEM_CFOP = "CFOP"
 ORIGEM_CST = "CST/CSOSN"
 ORIGEM_ID_DEST = "local de destino (idDest)"
+ORIGEM_NCM_LUBRIFICANTE = (
+    "NCM de lubrificante: fora do 1,6% (Lei 9.249, art. 15, § 1º, I; revenda a 8%)"
+)
+# NCM de combustível que o CFOP de "combustíveis ou lubrificantes" confirma: a lista positiva mais
+# álcool e diesel B (HI-139). Com CFOP genérico, só a lista positiva conta (ver
+# `_sugestao_de_devolucao`).
+_NCM_DE_COMBUSTIVEL_PELO_CFOP = NCM_COMBUSTIVEL | NCM_COMBUSTIVEL_SE_CFOP_DE_COMBUSTIVEL
+_MOTIVO_SEM_NCM_DE_COMBUSTIVEL = (
+    "sem sugestão: CFOP de combustível com NCM ausente ou fora da lista de combustível "
+    "(escolha a natureza)"
+)
 
 # CFOP de comercial exportadora e de bonificação: a consulta não dá sinal suficiente (HI-118).
 _CFOP_SEM_SUGESTAO = frozenset({"501", "502", "910", "911"})
@@ -160,12 +209,13 @@ def motivo_fora_da_escrituracao(documento, papel: str) -> str:
 
 
 def naturezas_permitidas(tipo: str) -> frozenset[str]:
-    """Naturezas aceitas por tipo de nota. Ajuste só ajuste; devolução só natureza 9."""
+    """Naturezas aceitas por tipo de nota. Ajuste só ajuste; devolução só as de devolução
+    (HI-140)."""
     if tipo == TipoEscrituracaoNFe.AJUSTE:
         return frozenset({_NATUREZA_DE_AJUSTE})
     if tipo == TipoEscrituracaoNFe.DEVOLUCAO:
-        return frozenset({_NATUREZA_DE_DEVOLUCAO})
-    return frozenset(CATALOGO_NATUREZA_NFE) - {_NATUREZA_DE_AJUSTE, _NATUREZA_DE_DEVOLUCAO}
+        return frozenset(_NATUREZAS_DE_DEVOLUCAO)
+    return frozenset(CATALOGO_NATUREZA_NFE) - {_NATUREZA_DE_AJUSTE} - _NATUREZAS_DE_DEVOLUCAO
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +227,40 @@ def naturezas_permitidas(tipo: str) -> frozenset[str]:
 class Sugestao:
     natureza: str | None
     motivo: str
+
+
+# Venda de combustível pela DESCRIÇÃO oficial da tabela de `cfop.py` (PE-85.1; HI-118). Só o que a
+# descrição confirma. "Consumidor final" → "para consumo" (1,6% no IRPJ): 5.656 e 6.656 (adquiridos
+# de terceiros), 5.667 e 6.667 (outra UF). "Comercialização" → "para revenda" (8%): 5.655 e 6.655. A
+# produção própria (5.653, 6.653 e o resto de x.651 a x.653) fica SEM sugestão: a descrição é de
+# "produção do estabelecimento", e a natureza não está confirmada pelo CFOP.
+_VENDA_DE_COMBUSTIVEL = (
+    (
+        "Venda de combustíveis ou lubrificantes adquiridos ou recebidos de terceiros destinados a "
+        "consumidor ou usuário final",
+        NaturezaOperacaoNFe.COMBUSTIVEL,
+    ),
+    (
+        "Venda de combustíveis ou lubrificantes a consumidor ou usuário final",
+        NaturezaOperacaoNFe.COMBUSTIVEL,
+    ),
+    (
+        "Venda de combustíveis ou lubrificantes adquiridos ou recebidos de terceiros destinados à "
+        "comercialização",
+        NaturezaOperacaoNFe.COMBUSTIVEL_REVENDA,
+    ),
+)
+
+
+def _natureza_de_combustivel_pelo_cfop(codigo: str) -> str | None:
+    """Natureza de combustível que a descrição oficial do CFOP confirma, ou `None`."""
+    info = consultar_cfop(codigo)
+    if info is None:
+        return None
+    for prefixo, natureza in _VENDA_DE_COMBUSTIVEL:
+        if info.descricao.startswith(prefixo):
+            return natureza
+    return None
 
 
 def _candidatos_do_item(documento, item) -> list[tuple[str, str]]:
@@ -193,18 +277,78 @@ def _candidatos_do_item(documento, item) -> list[tuple[str, str]]:
         candidatos.append((NaturezaOperacaoNFe.CUPOM_NFCE, ORIGEM_CFOP))
     if sufixo in _CFOP_TRANSFERENCIA and documento.transferencia_entre_estabelecimentos:
         candidatos.append((NaturezaOperacaoNFe.TRANSFERENCIA, ORIGEM_CFOP))
+    natureza_combustivel = None
+    # CFOP de "combustíveis ou lubrificantes", com ou sem sugestão pelo NCM. Vale para o CSOSN 500 /
+    # CST 60 (ICMS já recolhido), que não é sinal de substituto nessa venda (DL-083, ajuste de
+    # integração).
+    cfop_de_combustivel = False
     if primeiro in ("5", "6"):
         if sufixo in _CFOP_REVENDA:
             candidatos.append((NaturezaOperacaoNFe.REVENDA, ORIGEM_CFOP))
         elif sufixo in _CFOP_PRODUCAO:
             candidatos.append((NaturezaOperacaoNFe.PRODUCAO_PROPRIA, ORIGEM_CFOP))
+        natureza_combustivel = _natureza_de_combustivel_pelo_cfop(cfop_digitos)
+        cfop_de_combustivel = natureza_combustivel is not None
+        ncm = normalizar_ncm(item.ncm)
+        # HI-139: o CFOP diz "combustíveis ou lubrificantes", e só o NCM separa os dois.
+        # Lubrificante
+        # fica fora do 1,6% (Lei 9.249, art. 15, § 1º, I): sugere a revenda, com o aviso. NCM
+        # ausente
+        # ou fora das listas não tem sugestão pelo CFOP (ver `sugerir_natureza_item`).
+        if natureza_combustivel is not None and ncm in NCM_LUBRIFICANTE:
+            candidatos.append((NaturezaOperacaoNFe.REVENDA, ORIGEM_NCM_LUBRIFICANTE))
+        elif natureza_combustivel is not None and ncm in _NCM_DE_COMBUSTIVEL_PELO_CFOP:
+            candidatos.append((natureza_combustivel, ORIGEM_CFOP))
 
     csosn, cst = item.csosn, item.cst
-    if csosn in _CST_SUBSTITUIDO or cst in _CST_SUBSTITUIDO:
+    # Ajuste de integração do arquiteto (DL-083): na venda de combustível, o ICMS já recolhido
+    # antes (CSOSN 500, CST 60) é o caso normal do posto, não um segundo sinal. A natureza de
+    # combustível já carrega o ICMS fora do DAS (HI-132). Sem isto, toda NFC-e de posto ficaria
+    # sem sugestão, e a escrituração em volume (DL-085, RC-173) não teria o que confirmar. O sinal
+    # de SUBSTITUTO (ST retida na saída) continua contando e gera conflito.
+    if (csosn in _CST_SUBSTITUIDO or cst in _CST_SUBSTITUIDO) and not cfop_de_combustivel:
         candidatos.append((NaturezaOperacaoNFe.REVENDA_ST_SUBSTITUIDO, ORIGEM_CST))
     if csosn in _CST_SUBSTITUTO or cst in _CST_SUBSTITUTO:
         candidatos.append((NaturezaOperacaoNFe.SUBSTITUTO_ST, ORIGEM_CST))
     return candidatos
+
+
+def _sugestao_de_devolucao(item) -> Sugestao:
+    """Natureza sugerida para a devolução (HI-140). Sugere; nunca grava.
+
+    - devolução de combustível (CFOP da tabela oficial) com NCM de lubrificante: `devolucao_venda`,
+      deduz do 8%, porque lubrificante fica fora do 1,6%;
+    - x.662 (destinação a consumidor final) com NCM de combustível: `devolucao_combustivel_consumo`,
+      do 1,6%. Com NCM ausente ou fora da lista: sem sugestão;
+    - x.660 e x.661 (industrialização e comercialização): `devolucao_venda`, do 8%;
+    - CFOP genérico de devolução com NCM de combustível: sem sugestão. Só o contador sabe se a
+      venda original foi para consumo (1,6%) ou para revenda (8%);
+    - sem sinal: `devolucao_venda`, como antes da DL-083.
+    """
+    ncm = normalizar_ncm(item.ncm)
+    if not e_devolucao_de_combustivel(item.cfop):
+        if ncm in NCM_COMBUSTIVEL:
+            return Sugestao(
+                None,
+                "devolução de combustível: escolha consumo (1,6%) ou revenda (8%)",
+            )
+        return Sugestao(_NATUREZA_DE_DEVOLUCAO, f"{ORIGEM_FIN_NFE} 4 e CFOP com indDevol 1")
+    if ncm in NCM_LUBRIFICANTE:
+        return Sugestao(
+            _NATUREZA_DE_DEVOLUCAO,
+            "devolução de lubrificante: fora do 1,6% (Lei 9.249, art. 15, § 1º, I)",
+        )
+    if e_devolucao_de_combustivel_para_consumo(item.cfop):
+        if ncm in _NCM_DE_COMBUSTIVEL_PELO_CFOP:
+            return Sugestao(
+                NaturezaOperacaoNFe.DEVOLUCAO_COMBUSTIVEL_CONSUMO,
+                "devolução de combustível para consumo (CFOP x.662 e NCM de combustível)",
+            )
+        return Sugestao(None, _MOTIVO_SEM_NCM_DE_COMBUSTIVEL)
+    return Sugestao(
+        _NATUREZA_DE_DEVOLUCAO,
+        "devolução de combustível para industrialização ou comercialização (CFOP x.660 ou x.661)",
+    )
 
 
 def sugerir_natureza_item(documento, item, tipo: str | None = None) -> Sugestao:
@@ -226,7 +370,7 @@ def sugerir_natureza_item(documento, item, tipo: str | None = None) -> Sugestao:
     if fin == "4":
         # Devolução: a coluna indDevol da tabela decide. A faixa do CFOP não decide.
         if info.ind_devol:
-            return Sugestao(_NATUREZA_DE_DEVOLUCAO, f"{ORIGEM_FIN_NFE} 4 e CFOP com indDevol 1")
+            return _sugestao_de_devolucao(item)
         return Sugestao(None, "conflito: finNFe 4 com CFOP sem indDevol (não é devolução)")
 
     sufixo = item.cfop[1:]
@@ -241,6 +385,8 @@ def sugerir_natureza_item(documento, item, tipo: str | None = None) -> Sugestao:
     candidatos = _candidatos_do_item(documento, item)
     naturezas = {natureza for natureza, _ in candidatos}
     if not candidatos:
+        if _natureza_de_combustivel_pelo_cfop(item.cfop) is not None:
+            return Sugestao(None, _MOTIVO_SEM_NCM_DE_COMBUSTIVEL)
         return Sugestao(None, "sem sinal suficiente: escolha a natureza")
     if len(naturezas) > 1:
         origens = ", ".join(sorted({origem for _, origem in candidatos}))
@@ -253,8 +399,12 @@ def segregacao_da_escrituracao(escrituracao: EscrituracaoNFe) -> dict[str, Decim
     """Receita de mercadoria por segregação do Simples (consulta, item 3): memória, sem alíquota.
 
     Normal (revenda, produção, substituto: a operação própria), sujeita a ST (natureza 3),
-    monofásico (natureza 5) e exportação (mercado externo). Só itens de receita, com indTot 1.
+    monofásico (natureza 5) e exportação (mercado externo). Só naturezas de receita. A receita de
+    cada item é `receita_do_item` (DL-083): item indTot 0 entra só pelo que foi cobrado.
     A natureza de serviço (14) não entra aqui: é segregada no pré-DAS de serviços, fora deste corte.
+    A receita de cada item já vem com a parcela do resíduo atribuída à nota (HI-138), e a
+    leitura usa `atribuir_receita_da_nota_efetivada`: a nota efetivada antes da DL-083 que a regra
+    nova recusaria é lida pelo critério anterior, sem derrubar a receita do mês (reconferência, R2).
     """
     total = {
         "normal": Decimal("0.00"),
@@ -262,16 +412,15 @@ def segregacao_da_escrituracao(escrituracao: EscrituracaoNFe) -> dict[str, Decim
         "monofasico": Decimal("0.00"),
         "exportacao": Decimal("0.00"),
     }
-    registros = NaturezaItemNFe.objects.select_related("item").filter(
-        escrituracao=escrituracao, item__ind_tot="1"
-    )
+    registros = NaturezaItemNFe.objects.select_related("item").filter(escrituracao=escrituracao)
+    atribuicao = atribuir_receita_da_nota_efetivada([(r.item, r.natureza) for r in registros])
     for registro in registros:
         if not registro.natureza:
             continue
         info = CATALOGO_NATUREZA_NFE[registro.natureza]
         if info.papel != "receita" or info.segregacao is None:
             continue
-        total[info.segregacao] += registro.item.receita_bruta_item
+        total[info.segregacao] += atribuicao.valores[registro.item_id]
     return total
 
 
@@ -607,57 +756,114 @@ class _ConferenciaDaNota:
     valor_nf: Decimal
 
 
-# Bloqueios que nomeiam a regra ainda não decidida (PE-85, pendência do Fred). Até a decisão, a nota
-# não é efetivada: falha fechada, com o motivo na mensagem. O texto é fixo, porque a API e a tela o
-# repetem e a tela o procura.
-MENSAGEM_ITEM_FORA_DO_TOTAL = (
-    "item fora do total da nota com desconto ou despesas — regra a decidir (PE-85)"
-)
-MENSAGEM_ICMS_DESONERADO_DEDUZIDO = (
-    "ICMS desonerado deduzido do total da nota — regra a decidir (PE-85)"
+# Regra de receita de 2027 pendente (HI-133; consulta PE-84.4): a NT 2026.008 diz que IBS, CBS e IS
+# compõem o vProd a partir de 2027, e não diz como fica o vNF. Até a Receita publicar a regra, a
+# nota
+# não tem receita efetivada. O texto é fixo: a tela o mostra no botão, e o servidor, na recusa.
+MENSAGEM_RECEITA_2027_PENDENTE = "regra de receita de 2027 pendente: NT 2026.008 e vNF"
+# Texto da recusa de NF-e de 2027 no Presumido (A8): a nota não pode ser escriturada.
+MENSAGEM_NFE_2027_PENDENTE = (
+    "NF-e de 2027 sem regra de receita (NT 2026.008 e vNF): não pode ser escriturada"
 )
 
 
-def _tem_desconto_ou_despesa(item) -> bool:
-    """vDesc, vFrete, vSeg ou vOutro presente. O XSD não aceita zero em campo opcional, mas o teste
-    de valor (`bool`) é o que importa: `None` e zero ficam de fora."""
-    return any((item.v_desc, item.v_frete, item.v_seg, item.v_outro))
+def motivo_bloqueio_efetivacao(documento) -> str | None:
+    """Por que a nota não pode ser efetivada por regra de DATA, ou `None` (checagem pura, A8).
+
+    Hoje só a receita de 2027 (HI-133). Quem chama é a tela (desabilita o botão com o motivo) e o
+    serviço de efetivação (recusa no POST). O ano é o de São Paulo: 31/12/2026 23:59 é de 2026.
+    """
+    dia, _competencia = dia_e_competencia(documento)
+    if dia.year >= 2027:
+        return MENSAGEM_RECEITA_2027_PENDENTE
+    return None
+
+
+def avisos_do_item(item) -> tuple[str, ...]:
+    """Avisos de UM item na escrituração (DL-083, itens 3 e 4). Texto para a memória e a tela.
+
+    Só informa: quem decide a receita é `receita_do_item` com a atribuição da nota, e quem confere é
+    `conferir_valores`. O aviso de atribuição (frete, desconto etc. que foi para a venda) vem de
+    `avisos_da_nota`, porque depende da nota inteira.
+    """
+    avisos = []
+    if item.ind_tot != "1" and item.v_prod is not None:
+        avisos.append(
+            f"item {item.n_item} fora do total: vProd R$ {valor_ptbr(item.v_prod)} "
+            "não compõe a receita"
+        )
+    if item.ind_deduz_deson == "1" and item.v_icms_deson is not None:
+        avisos.append(f"ICMS desonerado deduzido do total: R$ {valor_ptbr(item.v_icms_deson)}")
+    return tuple(avisos)
+
+
+def receitas_atribuidas(pares) -> dict[int, Decimal] | None:
+    """Receita de cada item (`ItemNFe.pk`) depois da atribuição, ou `None` se a regra recusa.
+
+    Para a API e a tela mostrarem o valor que a conta usa. Não grava nada.
+    """
+    try:
+        return atribuir_receita_da_nota(pares).valores
+    except ResiduoNaoAtribuivel:
+        return None
+
+
+def avisos_da_nota(pares) -> dict[int, tuple[str, ...]]:
+    """Avisos de cada item da nota, por `ItemNFe.pk`: os do item e o da atribuição de resíduo
+    (HI-138).
+
+    Se a atribuição recusa, o aviso de atribuição não sai: a recusa já aparece na efetivação, com a
+    mensagem nomeada. Não é silêncio: a nota não pode ser efetivada enquanto a regra recusar.
+    """
+    try:
+        atribuicao = atribuir_receita_da_nota(pares)
+    except ResiduoNaoAtribuivel:
+        atribuicao = None
+    por_numero = avisos_da_atribuicao(atribuicao) if atribuicao is not None else {}
+    resultado: dict[int, tuple[str, ...]] = {}
+    for item, _natureza in pares:
+        resultado[item.pk] = avisos_do_item(item) + por_numero.get(item.n_item, ())
+    return resultado
 
 
 def conferir_valores(documento, leitura, itens_e_naturezas) -> _ConferenciaDaNota:
-    """Conferência da receita com o vNF, pela regra W16 do MOC 7.0 (HI-119). Divergência bloqueia.
+    """Conferência da receita com o vNF, pela regra W16 do MOC 7.0 (HI-119; DL-083).
 
-    A regra, com todas as parcelas da nota:
+    Tolerância zero.
 
-        Σ vProd (indTot 1) − Σ vDesc (todos) + Σ (vFrete + vSeg + vOutro) (todos)
-            = vNF − vST − vFCPST − vIPI − vII − vIPIDevol
+    A regra, com a receita de TODOS os itens (`receita_do_item`):
 
-    `receita_bruta_item` é vProd − vDesc + vFrete + vSeg + vOutro, e só vale para indTot 1. Quando
-    todo desconto e toda despesa estão em itens indTot 1, o lado esquerdo é a soma dessas receitas.
-    Dois casos saem da fórmula e BLOQUEIAM com mensagem, em vez de chutar um termo:
-      - item indTot 0 com desconto ou despesa: o total da nota compõe esses valores, e a regra
-        de como tratá-los não foi decidida (PE-85);
-      - ICMS desonerado deduzido do total (indDeduzDeson 1): idem (PE-85).
+        Σ receita_do_item (todos os itens) = vNF − vST − vFCPST − vIPI − vII − vIPIDevol
 
-    `vFCPST` é o total declarado em ICMSTot (`leitura.v_fcp_st_total`), e vale zero se ausente. É o
-    que a nota declara, e não a soma dos itens. `itens_e_naturezas`: lista de (ItemNFe, natureza).
+    Cada item já traz o que a regra manda: `indTot` 0 sem o vProd, e `vICMSDeson` deduzido só com
+    `indDeduzDeson` 1 (W04a). `vFCPST` é o total declarado em ICMSTot (`leitura.v_fcp_st_total`), e
+    vale zero se ausente. É o que a nota declara, e não a soma dos itens.
+
+    Antes, a receita de cada item passa pela atribuição por nota (HI-138,
+    `atribuir_receita_da_nota`):
+    o valor de item que não é receita (indTot 0 ou 1) vai para a receita da venda da mesma nota. Os
+    bloqueios são os da atribuição, com mensagem fixa: nota sem item de receita com resíduo; resíduo
+    negativo maior que a receita; resíduo sem base para ratear. A soma da nota não muda com a
+    atribuição, então a W16 é a mesma. `itens_e_naturezas`: lista de (ItemNFe, natureza).
     """
+    pares = list(itens_e_naturezas)
+    try:
+        atribuicao = atribuir_receita_da_nota(pares)
+    except ResiduoNaoAtribuivel as exc:
+        raise EscrituracaoNFeErro(exc.motivo) from exc
     soma = Decimal("0.00")
     receita = Decimal("0.00")
     devolucao = Decimal("0.00")
-    for item, natureza in itens_e_naturezas:
-        if item.ind_deduz_deson == "1":
-            raise EscrituracaoNFeErro(MENSAGEM_ICMS_DESONERADO_DEDUZIDO)
-        if item.ind_tot != "1":
-            if _tem_desconto_ou_despesa(item):
-                raise EscrituracaoNFeErro(MENSAGEM_ITEM_FORA_DO_TOTAL)
+    for item, natureza in pares:
+        if not natureza:
             continue
-        soma += item.receita_bruta_item
+        valor = receita_do_item(item)
         papel = papel_da_natureza_nfe(natureza)
+        soma += valor
         if papel == "receita":
-            receita += item.receita_bruta_item
+            receita += atribuicao.valores[item.pk]
         elif papel == "deducao":
-            devolucao += item.receita_bruta_item
+            devolucao += valor
 
     if documento.v_nf is None:
         raise EscrituracaoNFeErro(
@@ -702,6 +908,12 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
     documento = travada.vinculo.documento
     if services.situacao_da_nfe(documento) == "cancelada":
         raise EscrituracaoNFeErro("Nota cancelada não pode ser efetivada.")
+    # Receita de 2027 não se efetiva (HI-133). O ano é o de São Paulo, não o de UTC: 31/12/2026
+    # 23:59 em SP é 01/01/2027 02:59 UTC, e uma comparação em UTC recusaria a nota de 2026.
+    motivo = motivo_bloqueio_efetivacao(documento)
+    if motivo is not None:
+        raise EscrituracaoNFeErro(motivo)
+    dia, competencia = dia_e_competencia(documento)
     leitura = LeituraItensNFe.objects.filter(documento=documento).first()
     if leitura is None or leitura.estado != LeituraItensNFe.ESTADO_LIDA:
         motivo = "itens ainda não lidos" if leitura is None else leitura.motivo
@@ -729,7 +941,6 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
         _validar_natureza_para_o_tipo(natureza, travada.tipo)
 
     conferencia = conferir_valores(documento, leitura, pares)
-    dia, competencia = dia_e_competencia(documento)
     agora = timezone.now()
     antes = _snapshot(travada)
     atualizadas = EscrituracaoNFe.objects.filter(
@@ -1060,8 +1271,10 @@ class ConferenciaDoMes:
     escrituradas_canceladas: int = 0
     itens_sem_sugestao: int = 0
     receita_por_natureza: dict = field(default_factory=dict)
-    # Valor BRUTO por CFOP, dos itens indTot 1 efetivados (inclui o que não é receita). A soma da
-    # receita não sai daqui; sai de `receita_por_natureza` (A12: o nome antigo enganava).
+    # Valor BRUTO por CFOP (`ItemNFe.receita_bruta_item`), dos itens indTot 1 efetivados, inclusive
+    # o que não é receita (DL-083: o bruto não é a receita, e o item indTot 0 não entra aqui).
+    # A soma
+    # da receita não sai daqui; sai de `receita_por_natureza` (A12: o nome antigo enganava).
     valor_bruto_por_cfop: dict = field(default_factory=dict)
     nao_elegiveis: int = 0
     # As notas que a conferência já leu. A tela usa estas, e não chama `notas_do_mes` de novo (A6).
@@ -1123,41 +1336,58 @@ def _itens_sem_sugestao_do_mes(notas: list[NotaDoMes]) -> dict[int, int]:
 
 
 def _preencher_receita(empresa, ano: int, mes: int, resultado: ConferenciaDoMes) -> None:
-    """Receita por natureza e por CFOP, das escriturações efetivadas do mês, sem canceladas."""
+    """Receita por natureza e por CFOP, das escriturações efetivadas do mês, sem canceladas.
+
+    A receita de cada item é a ATRIBUIDA à nota (HI-138): o resíduo de frete, desconto etc. de item
+    que não é receita já está nos itens de receita. Por isso a atribuição roda por escrituração, e
+    não por item.
+    """
     inicio = date(ano, mes, 1)
     proximo = receita_servico._proximo_mes(ano, mes)
-    itens = (
+    registros = (
         NaturezaItemNFe.objects.select_related("item")
         .filter(
             escrituracao__empresa=empresa,
             escrituracao__estado=EstadoEscrituracao.EFETIVADA,
             escrituracao__competencia__gte=inicio,
             escrituracao__competencia__lt=proximo,
-            item__ind_tot="1",
         )
         .exclude(natureza="")
         .filter(~Exists(receita_servico._cancelada_depois_de_escriturada("escrituracao__")))
     )
+    por_escrituracao: dict[int, list] = {}
+    for registro in registros:
+        por_escrituracao.setdefault(registro.escrituracao_id, []).append(registro)
     por_natureza: dict[str, dict] = {}
     por_cfop: dict[str, Decimal] = {}
-    for registro in itens:
-        natureza = registro.natureza
-        papel = papel_da_natureza_nfe(natureza)
-        valor = registro.item.receita_bruta_item
-        linha = por_natureza.setdefault(
-            natureza,
-            {
-                "papel": papel,
-                "mercado": mercado_da_natureza_nfe(natureza),
-                "bruto": Decimal("0.00"),
-                "soma_na_receita": Decimal("0.00"),
-            },
+    for registros_da_nota in por_escrituracao.values():
+        atribuicao = atribuir_receita_da_nota_efetivada(
+            [(r.item, r.natureza) for r in registros_da_nota]
         )
-        linha["bruto"] += valor
-        if papel == "receita":
-            linha["soma_na_receita"] += valor
-        elif papel == "deducao":
-            linha["soma_na_receita"] -= valor
-        por_cfop[registro.item.cfop] = por_cfop.get(registro.item.cfop, Decimal("0.00")) + valor
+        for registro in registros_da_nota:
+            natureza = registro.natureza
+            papel = papel_da_natureza_nfe(natureza)
+            item = registro.item
+            linha = por_natureza.setdefault(
+                natureza,
+                {
+                    "papel": papel,
+                    "mercado": mercado_da_natureza_nfe(natureza),
+                    "bruto": Decimal("0.00"),
+                    "soma_na_receita": Decimal("0.00"),
+                },
+            )
+            # "bruto" é o valor bruto dos itens com indTot 1 (como antes da DL-083). A receita é a
+            # atribuída de cada item, e é ela que entra na soma (DL-083, HI-138).
+            if item.ind_tot == "1":
+                linha["bruto"] += item.receita_bruta_item
+                por_cfop[item.cfop] = (
+                    por_cfop.get(item.cfop, Decimal("0.00")) + item.receita_bruta_item
+                )
+            valor = atribuicao.valores[item.pk]
+            if papel == "receita":
+                linha["soma_na_receita"] += valor
+            elif papel == "deducao":
+                linha["soma_na_receita"] -= valor
     resultado.receita_por_natureza = por_natureza
     resultado.valor_bruto_por_cfop = por_cfop

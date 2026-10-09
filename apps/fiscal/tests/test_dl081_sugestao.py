@@ -26,8 +26,10 @@ def nota(**campos):
     return SimpleNamespace(**base)
 
 
-def item(cfop, csosn=None, cst=None):
-    return SimpleNamespace(cfop=cfop, csosn=csosn, cst=cst)
+def item(cfop, csosn=None, cst=None, ncm="22030000"):
+    # NCM padrão de cerveja (fora de combustível e lubrificante): a sugestão de combustível (HI-139)
+    # lê o NCM de todo item de devolução e de venda com CFOP de combustível.
+    return SimpleNamespace(cfop=cfop, csosn=csosn, cst=cst, ncm=ncm)
 
 
 # --- sinais de CFOP ---------------------------------------------------------------------------
@@ -215,7 +217,12 @@ def test_modelo_fora_de_55_e_65_fica_fora():
 
 def test_naturezas_permitidas_por_tipo():
     assert servico.naturezas_permitidas(TipoEscrituracaoNFe.AJUSTE) == {N.AJUSTE}
-    assert servico.naturezas_permitidas(TipoEscrituracaoNFe.DEVOLUCAO) == {N.DEVOLUCAO_VENDA}
+    # HI-140: a devolução aceita as duas naturezas de devolução (a do 8% e a do 1,6%).
+    assert servico.naturezas_permitidas(TipoEscrituracaoNFe.DEVOLUCAO) == {
+        N.DEVOLUCAO_VENDA,
+        N.DEVOLUCAO_COMBUSTIVEL_CONSUMO,
+    }
     saida = servico.naturezas_permitidas(TipoEscrituracaoNFe.SAIDA_PROPRIA)
-    assert N.DEVOLUCAO_VENDA not in saida and N.AJUSTE not in saida
+    assert N.DEVOLUCAO_VENDA not in saida and N.DEVOLUCAO_COMBUSTIVEL_CONSUMO not in saida
+    assert N.AJUSTE not in saida
     assert N.REVENDA in saida and N.CUPOM_NFCE in saida

@@ -146,7 +146,11 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-078](../planos/DL-078-servicos-tomados-e-retencoes.md) | Fiscal: serviços tomados, ISS retido pelo tomador e retenções federais | Integrada (PR #102, squash `49eacba`) — rodada 1 e reconferência aprovadas com ressalvas |
 | [DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) | Fiscal: Lucro Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224 | Integrada (PR #103, squash `6eb922e`) — rodada 1 e reconferência aprovadas com ressalvas |
 | [DL-080](../planos/DL-080-recepcao-de-nfe.md) | Fiscal: recepção de NF-e (modelo 55) e NFC-e (modelo 65), fatia 2 da DL-010 | Integrada (PR #104, squash `c01b451`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
-| [DL-081](../planos/DL-081-escrituracao-das-nfe-de-saida.md) | Fiscal: escrituração das NF-e de saída e da devolução de venda | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-081](../planos/DL-081-escrituracao-das-nfe-de-saida.md) | Fiscal: escrituração das NF-e de saída e da devolução de venda | Integrada (PR #105, squash `2911eb6`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
+| [DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md) | Fiscal: pré-DAS de comércio e indústria (Anexos I e II) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-083](../planos/DL-083-receita-de-nfe-no-presumido.md) | Fiscal: receita de NF-e no Lucro Presumido e regras de receita da RC-172 | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-084](../planos/DL-084-rotina-do-presumido.md) | Fiscal: rotina do Lucro Presumido (RC-172) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-085](../planos/DL-085-escrituracao-de-nfe-em-volume.md) | Fiscal: escrituração de NF-e e NFC-e em volume (RC-173) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -302,8 +306,8 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    independente do auditor. Tabelas com fonte, controle do limite da LC 224
    com sobra e os casos I a III, três colunas (sem LC 224, com, parcela),
    retenções confirmadas, medida judicial, quotas e vencimentos; 11 rotas de
-   API e 16 telas. Abertos: HI-100 a HI-108, HI-114, HI-115 e **PE-83 com o
-   Fred**; BL-680, BL-682.
+   API e 16 telas. Abertos: HI-100 a HI-108, HI-114, HI-115; BL-680, BL-682.
+   A PE-83 foi respondida por delegação (RC-172); as mudanças estão na DL-084.
 
 9. **[DL-080](../planos/DL-080-recepcao-de-nfe.md) — recepção de NF-e e
    NFC-e: INTEGRADA** pelo PR #104 (squash `c01b451`), com os quatro checks
@@ -314,41 +318,109 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    PL 010f com recusas nomeadas; empresa só por emitente e destinatário;
    cancelamento só com retorno 135 ou 155; exceção da chave só nas séries
    890 a 899 (MOC 7.0, Tabela 2-4); telas e API de conferência. Abertos:
-   HI-109 a HI-113, HI-116 e **PE-84 com o Fred**; BL-681, BL-683, BL-684.
+   HI-109 a HI-113, HI-116; BL-681, BL-683, BL-684. A PE-84 foi respondida
+   por delegação (RC-172); as mudanças do leitor estão no BL-687.
 
 10. **[DL-081](../planos/DL-081-escrituracao-das-nfe-de-saida.md) —
-    escrituração das NF-e de saída e da devolução de venda: frente A
-    entregue (cópia isolada `dl081`, sobre a `main` com a DL-080; suíte do
-    desenvolvedor 8.383 aprovados, 1 reprovado de ambiente, 53 pulados; os
-    oito mutantes do critério 10 caem); frente B entregue (`27724e4`: cinco
-    telas — a escriturar, escriturar com confirmação em bloco, estornar,
-    reclassificação em massa com prévia, conferência do mês; suíte do
-    desenvolvedor 8.477 aprovados, 1 reprovado de ambiente, 53 pulados);
-    [rodada 1](../auditorias/2026-10-09-dl-081-rodada-1.md) REPROVADA (A1
-    leitura de itens com IPI/ISSQN, A2 Presumido dos trimestres seguintes, A3
-    itens sem gatilho); correção única `9767151` (A1 a A12; suíte do
-    desenvolvedor 8.576 aprovados, 1 reprovado de ambiente, 53 pulados; 35
-    mutantes mortos); [reconferência](../auditorias/2026-10-09-dl-081-reconferencia.md)
-    APROVADA COM RESSALVAS (8.576 aprovados, 1 reprovado de ambiente, 53
-    pulados). R1 fechado e N4b testado por ajuste do arquiteto; R8 nos
-    documentos; R2 a R7 no BL-686. Suíte da branch integrada (`578ce9e`,
-    arquiteto, invocação única, sem a variável dos XSD): 8.558 aprovados, 1
-    reprovado (ambiente), 53 pulados. PR aberto, aguardando a CI; merge
-    autorizado (RC-171).** O cálculo
-    bateu ao centavo com o do auditor. BL-685 registrado. Tabela oficial
-    de CFOP do Portal da NF-e (IT 2023.002 v2.10) como dado com fonte.
-    [Consulta ao contador-senior](../projeto/consultas/2026-10-09-contador-senior-escrituracao-nfe.md):
-    receita bruta por item sem ICMS-ST e IPI, devolução no mês da devolução,
-    IBS/CBS de 2026 fora da receita. HI-117 a HI-124; **PE-85 com o Fred**.
+    escrituração das NF-e de saída e da devolução de venda: INTEGRADA** pelo
+    PR #105 (squash `2911eb6`), com os quatro checks verdes em todas as
+    execuções do último commit (RC-171). [Rodada 1](../auditorias/2026-10-09-dl-081-rodada-1.md)
+    reprovada (leitura de itens, Presumido dos trimestres seguintes, itens
+    sem gatilho); [reconferência](../auditorias/2026-10-09-dl-081-reconferencia.md)
+    aprovada com ressalvas. Tabela oficial de CFOP como dado com fonte;
+    itens lidos pelo XSD; natureza por item; receita por item com
+    conferência W16; NF-e na receita do Simples e no RBT12; devolução no mês
+    da devolução; pré-DAS recusa e Presumido parcial com NF-e. Abertos:
+    HI-117 a HI-124; BL-685, BL-686 (resolver antes de subir a versão do
+    leitor). A PE-85 foi respondida por delegação (RC-172): os dois bloqueios
+    conservadores saem na DL-083.
+
+11. **[DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md) — pré-DAS
+    de comércio e indústria (Anexos I e II): planejada.**
+    [Consulta ao contador-senior](../projeto/consultas/2026-10-09-contador-senior-pre-das-comercio.md):
+    exemplos 1, 2, 3 e 6 do Manual do PGDAS-D batem ao centavo com as tabelas
+    do repositório; um RBT12 para todos os anexos; segregação sem
+    redistribuição; devolução por segmento. HI-125 a HI-132; PE-86
+    (benefício de ICMS do Tocantins), PE-87 (conciliação real). **Executa
+    depois da DL-083.**
+
+12. **Respostas da PE-83, da PE-84 e da PE-85 (RC-172, 09/10/2026):
+    registradas.** O Fred delegou as três ao `contador-senior` (Fable). A
+    [consulta](../projeto/consultas/2026-10-09-contador-senior-pe83-pe84-pe85.md)
+    leu na fonte oficial as Leis 9.430, 9.249, 9.779, 9.093, 14.759 e 10.833,
+    a LC 87, o DL 1.598, o MOC 7.0 e as NT 2026.008 e 2026.009. As hipóteses
+    afetadas foram atualizadas em [requisitos.md](../projeto/requisitos.md):
+    HI-102 a HI-107, HI-109, HI-111, HI-113 e HI-117 a HI-124. Também entraram
+    as novas HI-133 a HI-136. A fonte do limite por pessoa jurídica foi
+    corrigida: é a Lei 9.430 e a LC 224, e não a Lei 9.779. Os fatos que só a
+    carteira do Fred responde estão na **PE-88**, que não bloqueia nada. Três
+    destinos:
+    - [DL-083](../planos/DL-083-receita-de-nfe-no-presumido.md): receita de
+      NF-e no Presumido; os dois bloqueios conservadores saem pela fórmula do
+      MOC; combustível em duas naturezas; receita de 2027 bloqueada.
+      **Frentes A e B integradas na branch** (`6f86f7f`, `7c25044` com o
+      ajuste de integração da sugestão de combustível, `e1a0d67`).
+      [Rodada 1](../auditorias/2026-10-09-dl-083-rodada-1.md) **reprovada**:
+      - A1 (alta): a devolução de combustível recebida (CFOP 5.66x e
+        6.66x) escapa da recusa e deduz a 8%;
+      - A2: a reversão da migração 0012 fica impossível depois de um
+        estorno;
+      - A3: frete ou desconto em item que não é receita;
+      - A4: cinco mutantes sobreviventes;
+      - A5 a A10: baixos.
+
+      Cálculo do Presumido ao centavo em quatro cenários independentes.
+      [Consulta](../projeto/consultas/2026-10-09-contador-senior-frete-lubrificante-devolucao.md)
+      sobre A1, A3 e A6, que gerou HI-138 a HI-140. A tabela de NCM vem do
+      Portal Único Siscomex. **Correção única integrada** (`123e0cd`,
+      `9224d8a`, `3f36a6d`; 8.765/1/53 medido pelo desenvolvedor). A5 e A10
+      foram para o BL-688.
+      [Reconferência](../auditorias/2026-10-09-dl-083-reconferencia.md)
+      **reprovada** por R1: a natureza nova não passava no limite de 24
+      caracteres da tela e da API.
+      Ajustes do arquiteto, sem terceira rodada (§3.1):
+      - R1: limite vindo do modelo;
+      - R2: nota antiga lida pelo critério anterior;
+      - R3: ajuste fora do resíduo;
+      - R5: nome da chave da API;
+      - R7: comentário;
+      - testes de A04 e A18.
+
+      R4, R6, A9, S12, G16, S02 e R8 foram para o BL-688. Suíte completa
+      depois dos ajustes, medida pelo arquiteto numa única invocação:
+      **8.791/1/53** (a reprovação é a de ambiente). Próximo: o PR e o merge
+      com os quatro checks verdes (RC-171).
+    - [DL-084](../planos/DL-084-rotina-do-presumido.md): rotina do Presumido,
+      depois da DL-082.
+    - BL-687: mudanças do leitor de NF-e, que dependem do BL-686.
+
+13. **Respostas do Fred à PE-88 (RC-173, 09/10/2026):**
+    - há cliente com medida judicial;
+    - NFC-e em **alto volume**;
+    - há os três clientes de combustível;
+    - devoluções também como nota própria de entrada;
+    - a grande maioria paga em quotas;
+    - o escritório já antecipou DARF por feriado municipal;
+    - há muitos clientes do Presumido com NF-e em 2026.
+
+    Consequências:
+    - nova [DL-085](../planos/DL-085-escrituracao-de-nfe-em-volume.md), a
+      escrituração em lote, porque nota a nota não fecha o mês de um posto;
+    - a DL-084 ganha três quotas como padrão, feriados de Palmas e do
+      Tocantins com lei lida, padrão de combustível por tipo de cliente e o
+      encerramento da medida judicial (BL-680).
+
+    **Ordem de execução:** DL-083 → DL-085 → DL-082 → DL-084.
 
 **Linha de base vigente (09/10/2026, contêiner Linux, Python 3.13.16,
-PostgreSQL 16 local, sobre `f7973bf` — conteúdo da `main` em `c01b451` —,
-medida pelo arquiteto numa única invocação):** `pytest` completo **8.188
-aprovados, 1 reprovado, 53 pulados**; a reprovação é a conhecida de ambiente
-(`test_versao_minima_python.py`, exige Python 3.14). `ruff`, `check` e
-`makemigrations --check` limpos (539 arquivos). A suíte leva cerca de 11 min:
-o job "Lint e testes" tem limite de 20 min. Lição da DL-075: a suíte **em
-fatias** esconde interação entre migrações — só vale a invocação única.
+PostgreSQL 16 local, sobre `578ce9e` — conteúdo da `main` em `2911eb6` —,
+medida pelo arquiteto numa única invocação, sem a variável dos XSD):**
+`pytest` completo **8.558 aprovados, 1 reprovado, 53 pulados**; a reprovação
+é a conhecida de ambiente (`test_versao_minima_python.py`, exige Python
+3.14). `ruff`, `check` e `makemigrations --check` limpos (569 arquivos). A
+suíte leva cerca de 13 min: o job "Lint e testes" tem limite de 20 min. Lição
+da DL-075: a suíte **em fatias** esconde interação entre migrações — só vale
+a invocação única.
 
 **Também achado em 08/10/2026:** o diagnóstico da DFC fatia 2 levantou, no
 texto oficial do CPC 03 (R2), Rev. 24, que a norma **não define "classe"** de

@@ -18,6 +18,7 @@ recusados antes do banco; número fora da faixa do banco (bigint) recusado; data
 
 import re
 from datetime import date
+from decimal import Decimal
 
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers, status
@@ -34,6 +35,7 @@ from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.fiscal import escrituracao_nfe as servico
 from apps.fiscal.api import PodeConsultarFiscal, PodeEscriturarFiscal, _ano_e_mes_da_consulta
 from apps.fiscal.cfop import cfop as consultar_cfop
+from apps.fiscal.itens_nfe import receita_do_item
 from apps.fiscal.models import (
     CATALOGO_NATUREZA_NFE,
     EscrituracaoNFe,
@@ -49,7 +51,8 @@ from apps.tenancy.permissions import TemEscritorioAtivo
 # de faixa, e a API responderia 500. Recusa-se antes.
 MAIOR_ID = 2**63 - 1
 _ANO_MINIMO_DATA, _ANO_MAXIMO_DATA = 1970, 2999
-_TAMANHO_NATUREZA = 24
+# Reconferência da DL-083, R1: o limite vem do campo do modelo, nunca de um literal.
+_TAMANHO_NATUREZA = NaturezaItemNFe._meta.get_field("natureza").max_length
 _TAMANHO_MOTIVO = servico.MOTIVO_MAXIMO
 _MAXIMO_ITENS_POR_PEDIDO = 5000
 
@@ -257,7 +260,12 @@ def _nota_payload(nota: servico.NotaDoMes) -> dict:
     }
 
 
-def _item_payload(natureza: NaturezaItemNFe, sugestao: servico.Sugestao) -> dict:
+def _item_payload(
+    natureza: NaturezaItemNFe,
+    sugestao: servico.Sugestao,
+    avisos: tuple[str, ...],
+    receita_atribuida: Decimal | None,
+) -> dict:
     item: ItemNFe = natureza.item
     return {
         "item_id": item.pk,
@@ -272,7 +280,15 @@ def _item_payload(natureza: NaturezaItemNFe, sugestao: servico.Sugestao) -> dict
         "csosn": item.csosn,
         "ind_tot": item.ind_tot,
         "v_prod": _decimal(item.v_prod),
+        # `receita_bruta_item` é o VALOR BRUTO do item, não a receita (DL-083). A receita é
+        # `receita_do_item`: a regra única, com indTot e vICMSDeson. `avisos` diz o que a receita
+        # deixou de fora, em pt-BR.
         "receita_bruta_item": _decimal(item.receita_bruta_item),
+        "receita_do_item": _decimal(receita_do_item(item)),
+        # HI-138: a receita que a conta usa, com a parcela do resíduo de item que não é receita. É
+        # `None` quando a atribuição da nota recusa (a efetivação recusa com a mensagem nomeada).
+        "receita_atribuida": _decimal(receita_atribuida),
+        "avisos": list(avisos),
         "natureza": natureza.natureza or None,
         "sugestao": {"natureza": sugestao.natureza, "motivo": sugestao.motivo},
     }
@@ -361,15 +377,26 @@ class EscrituracaoNFeDetalheView(_EmpresaComIdValido, APIView):
         leitura = LeituraItensNFe.objects.filter(documento=documento).first()
         itens = []
         if leitura is not None and leitura.estado == LeituraItensNFe.ESTADO_LIDA:
-            for natureza in (
+            naturezas = list(
                 NaturezaItemNFe.objects.select_related("item")
                 .filter(escrituracao=escrituracao)
                 .order_by("item__n_item")
-            ):
+            )
+            pares = [(n.item, n.natureza) for n in naturezas]
+            avisos_por_item = servico.avisos_da_nota(pares)
+            receitas = servico.receitas_atribuidas(pares)
+            for natureza in naturezas:
                 sugestao = servico.sugerir_natureza_item(
                     documento, natureza.item, escrituracao.tipo
                 )
-                itens.append(_item_payload(natureza, sugestao))
+                itens.append(
+                    _item_payload(
+                        natureza,
+                        sugestao,
+                        avisos_por_item.get(natureza.item_id, ()),
+                        None if receitas is None else receitas.get(natureza.item_id),
+                    )
+                )
         payload = _escrituracao_payload(escrituracao)
         payload.update(
             {
@@ -387,6 +414,9 @@ class EscrituracaoNFeDetalheView(_EmpresaComIdValido, APIView):
                 "leitura_motivo": (leitura.motivo or None) if leitura else None,
                 "itens": itens,
                 "avisos": _avisos_payload(servico.avisos_ibscbs(documento, leitura)),
+                # A8: a tela desabilita "Efetivar" com este motivo (regra de data, hoje 2027).
+                # O servidor recusa de novo no POST.
+                "motivo_bloqueio_efetivacao": servico.motivo_bloqueio_efetivacao(documento),
                 "catalogo": {
                     codigo: {
                         "rotulo": NaturezaOperacaoNFe(codigo).label,
