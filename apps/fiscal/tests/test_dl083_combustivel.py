@@ -100,10 +100,28 @@ def test_venda_de_combustivel_de_producao_propria_nao_tem_sugestao(cfop):
     assert _sugestao(cfop).natureza is None
 
 
-def test_combustivel_com_st_substituido_cai_em_conflito_e_nao_sugere():
-    """CSOSN 500 (ST substituído) é um sinal de revenda com ST. Com o sinal do CFOP, são dois
-    candidatos diferentes, e a sugestão fica em branco: quem escolhe é o contador."""
-    sugestao = _sugestao("5656", csosn="500")
+@pytest.mark.parametrize(
+    ("cfop", "csosn", "cst", "natureza"),
+    [
+        ("5656", "500", None, NaturezaOperacaoNFe.COMBUSTIVEL),
+        ("5656", None, "60", NaturezaOperacaoNFe.COMBUSTIVEL),
+        ("5655", "500", None, NaturezaOperacaoNFe.COMBUSTIVEL_REVENDA),
+        ("5655", None, "60", NaturezaOperacaoNFe.COMBUSTIVEL_REVENDA),
+    ],
+)
+def test_combustivel_com_icms_ja_recolhido_segue_o_cfop(cfop, csosn, cst, natureza):
+    """Ajuste de integração do arquiteto: na venda de combustível, CSOSN 500 ou CST 60 é o caso
+    normal do posto e não conflita com o CFOP (antes, toda NFC-e de posto ficava sem sugestão)."""
+    assert _sugestao(cfop, csosn=csosn, cst=cst).natureza == natureza
+
+
+def test_combustivel_com_st_substituido_fora_do_cfop_de_combustivel_continua_substituido():
+    assert _sugestao("5405", csosn="500").natureza == NaturezaOperacaoNFe.REVENDA_ST_SUBSTITUIDO
+
+
+@pytest.mark.parametrize(("csosn", "cst"), [("201", None), (None, "10")])
+def test_combustivel_com_sinal_de_substituto_continua_em_conflito(csosn, cst):
+    sugestao = _sugestao("5656", csosn=csosn, cst=cst)
     assert sugestao.natureza is None
     assert "conflito" in sugestao.motivo
 

@@ -234,6 +234,7 @@ def _candidatos_do_item(documento, item) -> list[tuple[str, str]]:
         candidatos.append((NaturezaOperacaoNFe.CUPOM_NFCE, ORIGEM_CFOP))
     if sufixo in _CFOP_TRANSFERENCIA and documento.transferencia_entre_estabelecimentos:
         candidatos.append((NaturezaOperacaoNFe.TRANSFERENCIA, ORIGEM_CFOP))
+    natureza_combustivel = None
     if primeiro in ("5", "6"):
         if sufixo in _CFOP_REVENDA:
             candidatos.append((NaturezaOperacaoNFe.REVENDA, ORIGEM_CFOP))
@@ -244,7 +245,12 @@ def _candidatos_do_item(documento, item) -> list[tuple[str, str]]:
             candidatos.append((natureza_combustivel, ORIGEM_CFOP))
 
     csosn, cst = item.csosn, item.cst
-    if csosn in _CST_SUBSTITUIDO or cst in _CST_SUBSTITUIDO:
+    # Ajuste de integração do arquiteto (DL-083): na venda de combustível, o ICMS já recolhido
+    # antes (CSOSN 500, CST 60) é o caso normal do posto, não um segundo sinal. A natureza de
+    # combustível já carrega o ICMS fora do DAS (HI-132). Sem isto, toda NFC-e de posto ficaria
+    # sem sugestão, e a escrituração em volume (DL-085, RC-173) não teria o que confirmar. O sinal
+    # de SUBSTITUTO (ST retida na saída) continua contando e gera conflito.
+    if (csosn in _CST_SUBSTITUIDO or cst in _CST_SUBSTITUIDO) and natureza_combustivel is None:
         candidatos.append((NaturezaOperacaoNFe.REVENDA_ST_SUBSTITUIDO, ORIGEM_CST))
     if csosn in _CST_SUBSTITUTO or cst in _CST_SUBSTITUTO:
         candidatos.append((NaturezaOperacaoNFe.SUBSTITUTO_ST, ORIGEM_CST))
