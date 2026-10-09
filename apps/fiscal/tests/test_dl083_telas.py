@@ -449,11 +449,12 @@ def test_reclassificacao_em_massa_oferece_as_duas_naturezas_de_combustivel(
     assert opcoes["combustivel_revenda"] == ROTULO_COMBUSTIVEL_REVENDA
 
 
-def test_item_fora_do_total_com_frete_e_natureza_sem_receita_bloqueia_a_efetivacao(
+def test_frete_de_item_fora_do_total_em_nota_com_venda_e_atribuido_e_avisado(
     client, gestor, emitente, escritorio_a
 ):
-    """Item 2 (indTot 0, frete 10,00) em natureza que não é de receita: a efetivação recusa com o
-    motivo nomeado, e o botão fica desabilitado com esse motivo na tela."""
+    """HI-138 (substitui o bloqueio antigo): item 2 (indTot 0, frete 10,00) em remessa, numa nota
+    com vendas. O frete é atribuído à receita das vendas, e a tela AVISA. O botão continua
+    habilitado, porque a nota fecha com o vNF (conferência ao centavo)."""
     vinculo_ = _nota_de_avisos(escritorio_a, gestor, emitente, numero="955")
     _logar(client, gestor)
     _criar_rascunho(client, emitente, vinculo_)
@@ -463,8 +464,12 @@ def test_item_fora_do_total_com_frete_e_natureza_sem_receita_bloqueia_a_efetivac
 
     html = _texto(client.get(_url_escriturar(emitente, vinculo_)))
 
-    assert "item fora do total com valor cobrado: escolha uma natureza de receita" in html
-    assert "disabled" in _botao_efetivar(html)
+    assert (
+        "item 2 (Remessa, retorno, demonstração, conserto ou mostruário): R$ 10,00 de "
+        "frete/seguro/outros/desconto atribuído à receita da venda desta nota"
+    ) in html
+    assert "item fora do total com valor cobrado" not in html
+    assert "disabled" not in _botao_efetivar(html)
 
 
 def test_efetivar_nota_de_2027_mostra_a_recusa_nomeada_e_nao_grava(
@@ -661,7 +666,7 @@ def test_nfe_do_trimestre_em_rascunho_aparece_como_recusa_nomeada(
     assert "nfe_nao_escriturada" not in html
 
 
-def test_devolucao_de_combustivel_e_servico_conjugado_aparecem_como_recusas_nomeadas(
+def test_devolucao_de_combustivel_avisa_e_servico_conjugado_recusa_como_recusa_nomeada(
     client, gestor, presumida, escritorio_a
 ):
     _efetivar_nfe(
@@ -689,10 +694,9 @@ def test_devolucao_de_combustivel_e_servico_conjugado_aparecem_como_recusas_nome
 
     html = _texto(client.get(_url_apuracao(presumida, 1)))
 
-    assert _linha_com(html, "devolução de combustível: atividade a confirmar") == [
-        "devolução de combustível: atividade a confirmar",
-        "NF-e nº 61",
-    ]
+    # HI-140: a devolução de combustível não recusa mais; a memória avisa a natureza.
+    assert "devolução com destinação a consumo deduzida a 8%: confira a natureza" in html
+    assert "devolução de combustível: atividade a confirmar" not in html
     assert _linha_com(html, "serviço em NF-e conjugada: atividade de presunção a informar") == [
         "serviço em NF-e conjugada: atividade de presunção a informar",
         "NF-e nº 62",
@@ -791,3 +795,20 @@ def test_anonimo_vai_para_o_login_nas_tres_telas(client, presumida, escritorio_a
         resposta = client.get(url)
         assert resposta.status_code == 302, nome
         assert "login" in resposta["Location"], nome
+
+
+# A8 (HI-133): a tela desabilita "Efetivar" com o motivo de 2027, antes do POST.
+@pytest.mark.django_db
+def test_nota_de_2027_em_rascunho_mostra_motivo_e_botao_desabilitado_na_tela(
+    client, gestor, emitente, escritorio_a
+):
+    """A tela mostra "Efetivar" desabilitado com o motivo de 2027.
+    O servidor recusa no POST (409)."""
+    vinculo_ = _nota_de_avisos(escritorio_a, gestor, emitente, dh_emi=DH_2027, numero="2702")
+    _logar(client, gestor)
+    _criar_rascunho(client, emitente, vinculo_)
+
+    html = _texto(client.get(_url_escriturar(emitente, vinculo_)))
+
+    assert "disabled" in _botao_efetivar(html)
+    assert "regra de receita de 2027 pendente: NT 2026.008 e vNF" in html

@@ -131,7 +131,11 @@ def test_toda_natureza_do_catalogo_tem_destino_definido_no_presumido():
         NaturezaOperacaoNFe.COMBUSTIVEL: COMBUSTIVEIS,
         NaturezaOperacaoNFe.COMBUSTIVEL_REVENDA: COMERCIO,
     }
-    deducao = {NaturezaOperacaoNFe.DEVOLUCAO_VENDA: COMERCIO}
+    deducao = {
+        NaturezaOperacaoNFe.DEVOLUCAO_VENDA: COMERCIO,
+        # HI-140: a devolução de combustível para consumo deduz da atividade de combustível (1,6%).
+        NaturezaOperacaoNFe.DEVOLUCAO_COMBUSTIVEL_CONSUMO: COMBUSTIVEIS,
+    }
     recusa = {NaturezaOperacaoNFe.SERVICO_CONJUGADA}
     nao_receita = {
         NaturezaOperacaoNFe.REMESSA_RETORNO,
@@ -449,9 +453,14 @@ def test_devolucao_cancelada_nao_deduz_no_trimestre_dela(empresa, escritorio_a, 
 # ---------------------------------------------------------------------------------------------
 
 
-def test_devolucao_de_combustivel_recusa_com_o_motivo(empresa, escritorio_a, gestor):
-    """CFOP 1.662: "Devolução de venda de combustíveis ... destinados a consumidor ou usuário final"
-    (tabela oficial, indDevol 1). A atividade do combustível não está na nota de devolução."""
+def test_devolucao_de_combustivel_nao_recusa_mais_e_avisa_quando_consumo_ficou_como_revenda(
+    empresa, escritorio_a, gestor
+):
+    """HI-140 (substitui a recusa `devolucao_combustivel`, que não tinha caminho): CFOP 1.662 como
+    `devolucao_venda` (8%) não recusa, e a memória avisa para o contador conferir a natureza.
+
+    Sem receita no trimestre, a devolução fica como saldo, na atividade de comércio (8%).
+    """
     efetivar_nfe(
         escritorio_a,
         gestor,
@@ -465,10 +474,56 @@ def test_devolucao_de_combustivel_recusa_com_o_motivo(empresa, escritorio_a, ges
         fin="4",
     )
     apuracao = _apurar(empresa, 1)
-    assert apuracao.situacao == "parcial"
-    assert apuracao.irpj is None
-    recusas = {r.codigo: r.mensagem for r in apuracao.recusas}
-    assert recusas["devolucao_combustivel"] == "devolução de combustível: atividade a confirmar"
+    assert "devolucao_combustivel" not in {r.codigo for r in apuracao.recusas}
+    assert apuracao.irpj is not None
+    assert "devolução com destinação a consumo deduzida a 8%: confira a natureza (NF-e nº 61)" in (
+        apuracao.avisos
+    )
+    assert apuracao.saldo_por_atividade == ((COMERCIO, D("10000.00")),)
+
+
+def test_devolucao_de_combustivel_para_consumo_deduz_da_atividade_de_combustivel(
+    empresa, escritorio_a, gestor
+):
+    """HI-140: a devolução de 10.000,00 (CFOP 1.662), com a natureza de consumo, deduz do 1,6%, a
+    atividade da venda de combustível. A receita de comércio de 100.000,00 não é tocada."""
+    efetivar_nfe(
+        escritorio_a,
+        gestor,
+        empresa,
+        natureza=NaturezaOperacaoNFe.REVENDA,
+        numero=60,
+        valor="100000.00",
+        dh_emi="2026-02-05T10:00:00-03:00",
+    )
+    efetivar_nfe(
+        escritorio_a,
+        gestor,
+        empresa,
+        natureza=NaturezaOperacaoNFe.COMBUSTIVEL,
+        numero=62,
+        valor="50000.00",
+        dh_emi="2026-02-12T10:00:00-03:00",
+    )
+    efetivar_nfe(
+        escritorio_a,
+        gestor,
+        empresa,
+        natureza=NaturezaOperacaoNFe.DEVOLUCAO_COMBUSTIVEL_CONSUMO,
+        numero=61,
+        valor="10000.00",
+        dh_emi="2026-02-10T10:00:00-03:00",
+        cfop="1662",
+        tp_nf="0",
+        fin="4",
+    )
+    apuracao = _apurar(empresa, 1)
+    assert apuracao.irpj is not None
+    # A devolução de 1,6% deduz da receita de combustível (50.000,00), não da de comércio.
+    assert apuracao.devolucao_por_atividade == ((COMBUSTIVEIS, D("10000.00")),)
+    assert apuracao.saldo_por_atividade == ((COMBUSTIVEIS, D("0.00")),)
+    assert apuracao.devolucao_deduzida == D("10000.00")
+    assert not any("confira a natureza" in aviso for aviso in apuracao.avisos)
 
 
 def test_servico_conjugado_recusa_com_o_motivo(empresa, escritorio_a, gestor):

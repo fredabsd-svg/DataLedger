@@ -2647,6 +2647,12 @@ class NaturezaOperacaoNFe(models.TextChoices):
     EXPORTACAO_DIRETA = "exportacao_direta", "Exportação direta"
     COMERCIAL_EXPORTADORA = "comercial_exportadora", "Venda a comercial exportadora"
     DEVOLUCAO_VENDA = "devolucao_venda", "Devolução de venda recebida"
+    # Devolução de combustível destinado a consumo: deduz do 1,6% (HI-140). A venda original estava
+    # no 1,6%, então a devolução deduz da mesma atividade (Lei 9.249, art. 15, caput e § 2º, lida).
+    DEVOLUCAO_COMBUSTIVEL_CONSUMO = (
+        "devolucao_combustivel_consumo",
+        "Devolução de venda de combustível para consumo (deduz do 1,6%)",
+    )
     REMESSA_RETORNO = "remessa_retorno", "Remessa, retorno, demonstração, conserto ou mostruário"
     TRANSFERENCIA = "transferencia", "Transferência entre estabelecimentos"
     BONIFICACAO = "bonificacao", "Bonificação, doação, brinde ou amostra (incondicional)"
@@ -2668,7 +2674,8 @@ class NaturezaNFeInfo:
     `atividade_presumido` é o CÓDIGO da atividade de presunção (`presumido_tabelas`), e é a ÚNICA
     fonte desse mapeamento (DL-083, HI-134). `None` quando a natureza não entra no Presumido (não
     é receita nem dedução) ou não tem atividade a informar (serviço conjugado, recusado na
-    apuração). A devolução tem a atividade de comércio e indústria porque deduz dela.
+    apuração). Cada devolução deduz da atividade da venda que ela devolve (HI-140): a de venda
+    comum, de comércio e indústria; a de combustível para consumo, de revenda de combustíveis.
     """
 
     papel: str
@@ -2748,6 +2755,15 @@ CATALOGO_NATUREZA_NFE: dict[str, NaturezaNFeInfo] = {
         "Deduz no mês da devolução (Res. CGSN 140, art. 17)",
         _COMERCIO,
     ),
+    # Devolução de combustível para consumo (HI-140): deduz da atividade de revenda de combustível,
+    # 1,6%, a mesma da venda que ela devolve. O Simples não trata combustível (HI-132).
+    NaturezaOperacaoNFe.DEVOLUCAO_COMBUSTIVEL_CONSUMO: NaturezaNFeInfo(
+        "deducao",
+        "interno",
+        None,
+        "Deduz no mês da devolução (Res. CGSN 140, art. 17)",
+        _REVENDA_COMBUSTIVEIS,
+    ),
     NaturezaOperacaoNFe.REMESSA_RETORNO: NaturezaNFeInfo(
         _NAO_RECEITA, "interno", None, "fora da base", None
     ),
@@ -2794,13 +2810,17 @@ def mercado_da_natureza_nfe(natureza: str) -> str:
 def mercado_do_item_nfe(natureza: str, cfop: str) -> str:
     """Mercado de UM item de NF-e: o da natureza, salvo a devolução de exportação.
 
-    A devolução de venda (natureza `devolucao_venda`) deduz do mercado da venda que ela devolve. A
-    tabela oficial de CFOP marca como devolução de exportação os códigos 3.201, 3.202, 3.211, 3.212,
-    3.503 e 3.553 (todos com o primeiro dígito 3, que é entrada de fora do país). Essa devolução
-    deduz o EXTERNO (correção da rodada 1, A8). A natureza sozinha não diz isso, por isso o CFOP
-    entra.
+    A devolução de venda (natureza `devolucao_venda`, ou `devolucao_combustivel_consumo`, HI-140)
+    deduz do mercado da venda que ela devolve. A tabela oficial de CFOP marca como devolução de
+    exportação os códigos 3.201, 3.202, 3.211, 3.212, 3.503 e 3.553 (todos com o primeiro dígito 3,
+    que é entrada de fora do país). Essa devolução deduz o EXTERNO (correção da rodada 1, A8). A
+    natureza sozinha não diz isso, por isso o CFOP entra.
     """
-    if natureza == NaturezaOperacaoNFe.DEVOLUCAO_VENDA and cfop.startswith("3"):
+    devolucoes = (
+        NaturezaOperacaoNFe.DEVOLUCAO_VENDA,
+        NaturezaOperacaoNFe.DEVOLUCAO_COMBUSTIVEL_CONSUMO,
+    )
+    if natureza in devolucoes and cfop.startswith("3"):
         return MercadoReceita.EXTERNO
     return mercado_da_natureza_nfe(natureza)
 
@@ -3260,7 +3280,8 @@ class NaturezaItemNFe(models.Model):
     item = models.ForeignKey(ItemNFe, on_delete=models.CASCADE, related_name="naturezas")
     natureza = models.CharField(
         "natureza confirmada",
-        max_length=24,
+        # 29 caracteres: "devolucao_combustivel_consumo" (DL-083, HI-140).
+        max_length=29,
         choices=NaturezaOperacaoNFe.choices,
         blank=True,
         default="",

@@ -354,7 +354,22 @@ def _apuracao_payload(resultado: servico.Apuracao) -> dict:
         "nfe": [_linha_nfe_payload(linha) for linha in resultado.nfe],
         "devolucao_deduzida": _dec(resultado.devolucao_deduzida),
         "saldo_devolucao_transportado": _dec(resultado.saldo_devolucao_transportado),
+        # HI-140: devolução e saldo por atividade. Os totais acima são a soma destes.
+        "devolucao_por_atividade": _por_atividade_payload(resultado.devolucao_por_atividade),
+        "saldo_por_atividade": _por_atividade_payload(resultado.saldo_por_atividade),
     }
+
+
+def _por_atividade_payload(pares) -> list[dict]:
+    """Uma linha por atividade com valor, na ordem do catálogo: código, rótulo e valor."""
+    return [
+        {
+            "atividade": codigo,
+            "rotulo": tab.ATIVIDADES_POR_CODIGO[codigo].rotulo,
+            "valor": _dec(valor),
+        }
+        for codigo, valor in pares
+    ]
 
 
 def _retencao_payload(linha: servico.LinhaRetencao) -> dict:

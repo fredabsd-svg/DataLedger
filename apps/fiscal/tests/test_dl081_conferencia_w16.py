@@ -110,7 +110,9 @@ def test_diferenca_de_um_centavo_no_vnf_e_recusada(
 
 @pytest.mark.parametrize(
     "despesa",
-    [{"vfrete": "10.00"}, {"vseg": "1.00"}, {"voutro": "2.00"}],
+    # HI-138 (A3): o desconto de item indTot 0 volta a esta lista. Sem item de receita na nota,
+    # ele bloqueia pela mesma mensagem: a atribuição não tem onde compor o valor.
+    [{"vdesc": "5.00"}, {"vfrete": "10.00"}, {"vseg": "1.00"}, {"voutro": "2.00"}],
 )
 @pytest.mark.parametrize(
     "natureza",
@@ -119,8 +121,9 @@ def test_diferenca_de_um_centavo_no_vnf_e_recusada(
 def test_item_fora_do_total_com_despesa_e_natureza_sem_receita_recusa_com_a_mensagem(
     escritorio_a, gestor, emitente, despesa, natureza
 ):
-    """Item indTot 0 com frete, seguro ou outra despesa cobrada, e natureza que não é de receita:
-    o valor cobrado seria receita sem lugar. A efetivação recusa com a mensagem nomeada (DL-083)."""
+    """Item indTot 0 com desconto, frete, seguro ou outra despesa, e natureza que não é de receita,
+    numa nota SEM item de receita: o valor não tem onde compor a receita. A efetivação recusa com a
+    mensagem nomeada (DL-083; HI-138, bloqueio (a))."""
     dets = [
         xml.det(1, vprod="100.00"),
         xml.det(2, vprod="50.00", ind_tot="0", **despesa),

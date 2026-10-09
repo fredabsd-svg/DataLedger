@@ -48,11 +48,13 @@ Limites declarados:
 from __future__ import annotations
 
 import re
-from decimal import Decimal
+from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 from xml.etree import ElementTree
 
 from django.db import DataError, IntegrityError, transaction
 
+from apps.fiscal.formatacao_ptbr import valor_ptbr
 from apps.fiscal.leitor import ArquivoRecusado, _raiz_segura
 from apps.fiscal.leitor_nfe import NS_NFE
 from apps.fiscal.models import (
@@ -61,6 +63,8 @@ from apps.fiscal.models import (
     ItemNFe,
     LeituraItensNFe,
     NaturezaItemNFe,
+    NaturezaOperacaoNFe,
+    papel_da_natureza_nfe,
 )
 
 _NS = {"n": NS_NFE}
@@ -400,6 +404,215 @@ def receita_do_item(item) -> Decimal:
     if item.ind_deduz_deson == "1" and item.v_icms_deson is not None:
         total -= item.v_icms_deson
     return total
+
+
+# ---------------------------------------------------------------------------
+# Atribuição por nota (DL-083, HI-138; consulta de 09/10/2026, item 1). Única etapa que distribui o
+# valor de item que não é receita. Todo soma de receita de NF-e passa por ela.
+# ---------------------------------------------------------------------------
+
+# Textos fixos: a API e a tela os repetem, e os testes comparam pela constante.
+MENSAGEM_ITEM_FORA_DO_TOTAL_COM_VALOR = (
+    "item fora do total com valor cobrado: escolha uma natureza de receita"
+)
+MENSAGEM_RESIDUO_MAIOR_QUE_A_RECEITA = (
+    "desconto ou despesa de item fora do total maior que a receita da nota: a receita ficaria "
+    "negativa"
+)
+MENSAGEM_RESIDUO_SEM_BASE_DE_RATEIO = (
+    "valor de item fora do total sem base para ratear: os itens de receita da nota somam zero"
+)
+
+_CENTAVO = Decimal("0.01")
+
+
+class ResiduoNaoAtribuivel(Exception):
+    """O valor de item que não é receita não tem onde compor a receita da nota. A mensagem nomeia a
+    regra; quem chama a traduz (efetivação recusa, tela mostra)."""
+
+    def __init__(self, motivo: str):
+        super().__init__(motivo)
+        self.motivo = motivo
+
+
+@dataclass(frozen=True)
+class ParcelaDoResiduo:
+    """Parcela do resíduo que caiu num item de receita (natureza e nItem do receptor)."""
+
+    n_item: int
+    natureza: str
+    valor: Decimal
+
+
+@dataclass(frozen=True)
+class ResiduoDoItem:
+    """Valor de um item que não é receita (`receita_do_item` dele) e para onde o resíduo da nota
+    foi.
+
+    `rateio` são as parcelas dos itens de receita da nota. Vazio quando o resíduo da nota é zero.
+    """
+
+    n_item: int
+    natureza: str
+    valor: Decimal
+    rateio: tuple[ParcelaDoResiduo, ...]
+
+
+@dataclass(frozen=True)
+class AtribuicaoDaNota:
+    """Receita de cada item da nota depois da atribuição.
+
+    `valores`: `receita_do_item` do item de receita já com a sua parcela do resíduo; `Decimal` zero
+    no item que não é receita; o `receita_do_item` cru no item de dedução. Chave: `ItemNFe.pk`.
+    Itens sem natureza ainda não entram (a tela mostra "falta a natureza").
+    `residuo_total` é a soma dos itens que não são receita. `itens_fora_do_total` diz cada um.
+    """
+
+    valores: dict
+    residuo_total: Decimal
+    itens_fora_do_total: tuple[ResiduoDoItem, ...]
+
+
+def valor_cobrado_do_item(item) -> Decimal:
+    """O que um item que NÃO é receita cobrou da nota, e que a atribuição leva à venda (HI-138).
+
+    - `indTot` 0: `receita_do_item` inteiro (−vDesc − vICMSDeson, com indDeduzDeson 1, + frete,
+      seguro
+      e outras despesas). O vProd não foi cobrado, então não entra.
+    - `indTot` 1: só frete, seguro e outras despesas. O vProd menos o desconto (e o ICMS
+      desonerado) é
+      a MERCADORIA do item: pela natureza (remessa, bonificação, transferência), ela não é receita.
+      Atribuí-la à venda seria receita a maior pela mercadoria remetida. A consulta de 09/10/2026 e
+      o
+      HI-138 falam só em frete, seguro, outras despesas e desconto, e o critério 7 exige que a
+      remessa de valor (indTot 1, sem despesa) continue somando zero (DL-081, HI-124).
+    """
+    if item.ind_tot != "1":
+        return receita_do_item(item)
+    total = Decimal("0.00")
+    for parcela in (item.v_frete, item.v_seg, item.v_outro):
+        if parcela is not None:
+            total += parcela
+    return total
+
+
+def atribuir_receita_da_nota(pares) -> AtribuicaoDaNota:
+    """Atribui o valor dos itens que não são receita aos itens de receita da MESMA nota (HI-138).
+
+    `pares`: (ItemNFe, natureza) de UMA nota. A regra:
+
+    - resíduo = Σ `valor_cobrado_do_item` dos itens de papel "nao_receita" (positivo ou negativo).
+      A mercadoria de item indTot 1 fica fora (ver `valor_cobrado_do_item`). A natureza de dedução
+      (devolução) também fica FORA: devolução com frete não entra no resíduo, e continua deduzindo o
+      que deduz.
+    - resíduo zero: nada a ratear, e cada item de receita fica com o seu `receita_do_item`.
+    - resíduo diferente de zero, e nenhum item de receita: recusa (MENSAGEM_ITEM_FORA_DO_TOTAL...).
+    - resíduo negativo maior, em valor absoluto, que a receita dos itens de receita: recusa.
+    - resíduo positivo com receita dos itens de receita somando zero: não há base para ratear.
+      Recusa.
+    - caso contrário, rateio proporcional à `receita_do_item` de cada item de receita (só o positivo
+      pesa), arredondado a centavo com ROUND_HALF_UP. A diferença de arredondamento vai para o item
+      de
+      receita de MAIOR valor; empate, o de menor nItem. A soma da nota não muda.
+
+    A parcela herda a natureza e a atividade do item que a recebe, porque é ele que é classificado.
+    """
+    valores: dict = {}
+    receita_itens = []
+    nao_receita_itens = []
+    residuo_total = Decimal("0.00")
+    for item, natureza in pares:
+        if not natureza:
+            continue
+        papel = papel_da_natureza_nfe(natureza)
+        if papel == "receita":
+            receita_itens.append((item, natureza, receita_do_item(item)))
+        elif papel == "nao_receita":
+            cobrado = valor_cobrado_do_item(item)
+            nao_receita_itens.append((item, natureza, cobrado))
+            residuo_total += cobrado
+        else:
+            # Dedução: fica com o valor cru, e não entra no resíduo.
+            valores[item.pk] = receita_do_item(item)
+
+    for item, _natureza, _valor in nao_receita_itens:
+        valores[item.pk] = Decimal("0.00")
+
+    if residuo_total == 0:
+        for item, _natureza, valor in receita_itens:
+            valores[item.pk] = valor
+        return AtribuicaoDaNota(valores, Decimal("0.00"), ())
+
+    if not receita_itens:
+        raise ResiduoNaoAtribuivel(MENSAGEM_ITEM_FORA_DO_TOTAL_COM_VALOR)
+    pesos = [max(valor, Decimal("0.00")) for _item, _nat, valor in receita_itens]
+    base = sum(pesos, Decimal("0.00"))
+    if residuo_total < 0 and -residuo_total > base:
+        raise ResiduoNaoAtribuivel(MENSAGEM_RESIDUO_MAIOR_QUE_A_RECEITA)
+    if base == 0:
+        raise ResiduoNaoAtribuivel(MENSAGEM_RESIDUO_SEM_BASE_DE_RATEIO)
+
+    parcelas = [
+        (residuo_total * peso / base).quantize(_CENTAVO, rounding=ROUND_HALF_UP) for peso in pesos
+    ]
+    # A diferença de arredondamento vai para o item de maior valor. Empate: menor nItem. Assim a
+    # soma das parcelas é exatamente o resíduo, e o W16 continua ao centavo.
+    diferenca = residuo_total - sum(parcelas, Decimal("0.00"))
+    recebedor = min(
+        range(len(receita_itens)),
+        key=lambda i: (-pesos[i], receita_itens[i][0].n_item),
+    )
+    parcelas[recebedor] += diferenca
+
+    for (item, _natureza, valor), parcela in zip(receita_itens, parcelas, strict=True):
+        valores[item.pk] = valor + parcela
+
+    rateio = tuple(
+        ParcelaDoResiduo(item.n_item, natureza, parcela)
+        for (item, natureza, _valor), parcela in zip(receita_itens, parcelas, strict=True)
+    )
+    fora = tuple(
+        ResiduoDoItem(item.n_item, natureza, valor, rateio)
+        for item, natureza, valor in nao_receita_itens
+    )
+    return AtribuicaoDaNota(valores, residuo_total, fora)
+
+
+def avisos_da_atribuicao(atribuicao: AtribuicaoDaNota) -> dict[int, tuple[str, ...]]:
+    """Aviso por item que não é receita cujo valor foi atribuído à receita da venda desta nota.
+
+    Só quando o resíduo da nota é diferente de zero e o item tem valor diferente de zero: o aviso
+    diz
+    o que foi para onde. Com mais de uma natureza de receita, mostra o rateio por natureza.
+    Chave: `n_item` do item que não é receita.
+    """
+    if atribuicao.residuo_total == 0:
+        return {}
+    avisos: dict[int, tuple[str, ...]] = {}
+    for fora in atribuicao.itens_fora_do_total:
+        if fora.valor == 0:
+            continue
+        rotulo = NaturezaOperacaoNFe(fora.natureza).label
+        texto = (
+            f"item {fora.n_item} ({rotulo}): R$ {valor_ptbr(fora.valor)} de "
+            "frete/seguro/outros/desconto atribuído à receita da venda desta nota"
+        )
+        naturezas = {parcela.natureza for parcela in fora.rateio}
+        if len(naturezas) > 1:
+            por_natureza: dict[str, Decimal] = {}
+            for parcela in fora.rateio:
+                por_natureza[parcela.natureza] = (
+                    por_natureza.get(parcela.natureza, Decimal("0.00")) + parcela.valor
+                )
+            partes = "; ".join(
+                f"{rotulo} R$ {valor_ptbr(v)}"
+                for rotulo, v in sorted(
+                    (NaturezaOperacaoNFe(n).label, v) for n, v in por_natureza.items()
+                )
+            )
+            texto += f" (rateio: {partes})"
+        avisos[fora.n_item] = (texto,)
+    return avisos
 
 
 def _ler_itens_do_xml(xml: bytes) -> tuple[list[dict], dict]:

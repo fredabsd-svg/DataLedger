@@ -24,7 +24,7 @@ import pytest
 from django.db import IntegrityError, transaction
 
 from apps.fiscal import escrituracao_nfe as servico
-from apps.fiscal.cfop import e_devolucao_de_venda_de_combustivel
+from apps.fiscal.cfop import e_devolucao_de_combustivel, e_devolucao_de_combustivel_para_consumo
 from apps.fiscal.models import NaturezaItemNFe, NaturezaOperacaoNFe
 from apps.fiscal.tests import xml_nfe_dl081 as xml
 from apps.fiscal.tests.suporte_dl081 import receber, usuario_com_papel, vinculo
@@ -67,15 +67,18 @@ def test_lista_do_check_de_banco_e_igual_ao_enum_de_naturezas():
     assert set(MIGRACAO._NATUREZAS_NOVAS) == set(NaturezaOperacaoNFe.values)
     assert len(MIGRACAO._NATUREZAS_NOVAS) == len(set(MIGRACAO._NATUREZAS_NOVAS))
     assert set(MIGRACAO._NATUREZAS_ANTIGAS) == set(NaturezaOperacaoNFe.values) - {
-        "combustivel_revenda"
+        "combustivel_revenda",
+        "devolucao_combustivel_consumo",
     }
 
 
-def _sugestao(cfop, csosn="102", cst=None):
+def _sugestao(cfop, csosn="102", cst=None, ncm="27101259"):
+    """Sugestão de uma venda. O NCM padrão é de gasolina (combustível, HI-139): sem ele, a sugestão
+    de combustível não sai, e cada teste que quer o caso de combustível tem de dizê-lo."""
     documento = SimpleNamespace(
         fin_nfe="1", id_dest="1", transferencia_entre_estabelecimentos=False
     )
-    item = SimpleNamespace(cfop=cfop, csosn=csosn, cst=cst)
+    item = SimpleNamespace(cfop=cfop, csosn=csosn, cst=cst, ncm=ncm)
     return servico.sugerir_natureza_item(documento, item, "saida_propria")
 
 
@@ -129,23 +132,50 @@ def test_combustivel_com_sinal_de_substituto_continua_em_conflito(csosn, cst):
 @pytest.mark.parametrize(
     ("cfop", "esperado"),
     [
+        # Devolução de VENDA, entrada própria (1.66x e 2.66x).
         ("1660", True),
         ("1661", True),
         ("1662", True),
         ("2660", True),
         ("2662", True),
         ("1.662", True),
+        # Devolução de COMPRA, devolução recebida pela empresa (5.66x e 6.66x, HI-140, A1).
+        ("5660", True),
+        ("5661", True),
+        ("5662", True),
+        ("6660", True),
+        ("6661", True),
+        ("6662", True),
+        # Fora: CFOP genérico de devolução, compra de combustível, venda e CFOP desconhecido.
         ("1202", False),
         ("1651", False),
-        ("5660", False),
         ("5656", False),
         ("9999", False),
     ],
 )
-def test_devolucao_de_venda_de_combustivel_pela_tabela_oficial(cfop, esperado):
-    """Devolução de venda de combustível (indDevol 1, "Devolução de venda de combustíveis").
-    A devolução de COMPRA de combustível (5.660) e a compra (1.651) não são devolução de venda."""
-    assert e_devolucao_de_venda_de_combustivel(cfop) is esperado
+def test_devolucao_de_combustivel_pela_tabela_oficial(cfop, esperado):
+    """Devolução de combustível ou lubrificante, de venda (entrada própria) ou de compra (recebida),
+    pela descrição e pelo indDevol da tabela oficial."""
+    assert e_devolucao_de_combustivel(cfop) is esperado
+
+
+@pytest.mark.parametrize(
+    ("cfop", "esperado"),
+    [
+        ("1662", True),
+        ("2662", True),
+        ("5662", True),
+        ("6662", True),
+        ("1660", False),
+        ("5661", False),
+        ("6660", False),
+        ("1202", False),
+    ],
+)
+def test_devolucao_para_consumo_e_o_x662_da_tabela(cfop, esperado):
+    """Destinação a consumidor final (x.662, "destinados a consumidor ou usuário final" ou
+    "adquiridos por consumidor ou usuário final"). Só ela é a do 1,6% (HI-140)."""
+    assert e_devolucao_de_combustivel_para_consumo(cfop) is esperado
 
 
 @pytest.fixture
@@ -193,7 +223,7 @@ def test_reversao_da_migracao_recusa_com_item_combustivel_revenda(escrituracao_r
         natureza=NaturezaOperacaoNFe.COMBUSTIVEL_REVENDA
     )
     with pytest.raises(RuntimeError) as erro:
-        MIGRACAO._recusar_reversao_com_combustivel_revenda(django.apps.apps, None)
+        MIGRACAO._recusar_reversao_com_natureza_nova(django.apps.apps, None)
     assert "Reversão da migração 0012 recusada" in str(erro.value)
     assert "1 item(ns)" in str(erro.value)
     assert NaturezaItemNFe.objects.get(escrituracao=esc).natureza == "combustivel_revenda"
@@ -204,4 +234,4 @@ def test_reversao_da_migracao_passa_sem_item_combustivel_revenda(escrituracao_ra
     NaturezaItemNFe.objects.filter(escrituracao=esc).update(
         natureza=NaturezaOperacaoNFe.COMBUSTIVEL
     )
-    MIGRACAO._recusar_reversao_com_combustivel_revenda(django.apps.apps, None)
+    MIGRACAO._recusar_reversao_com_natureza_nova(django.apps.apps, None)

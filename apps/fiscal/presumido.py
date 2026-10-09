@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import calendar
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -52,7 +52,7 @@ from apps.fiscal import escrituracao_nfe as nfe_servico
 from apps.fiscal import presumido_calculo as calc
 from apps.fiscal import presumido_tabelas as tab
 from apps.fiscal import receita as receita_servico
-from apps.fiscal.cfop import e_devolucao_de_venda_de_combustivel
+from apps.fiscal.cfop import e_devolucao_de_combustivel_para_consumo
 from apps.fiscal.formatacao_ptbr import valor_ptbr
 from apps.fiscal.models import (
     CATALOGO_NATUREZA_NFE,
@@ -792,9 +792,11 @@ class LinhaNFeApurada:
 class DadosDoTrimestre:
     """O que o banco diz de UM trimestre, já com as recusas que ele gera.
 
-    Os campos de NF-e (DL-083): `nfe` são as linhas que entram; `saldo_entrada` é a devolução de
-    trimestres anteriores do ano que chegou sem coube na receita; `devolucao_deduzida` é o que este
-    trimestre absorveu da receita de comércio e indústria; `saldo_transportado` segue ao próximo.
+    Os campos de NF-e (DL-083): `nfe` são as linhas que entram. Devolução e saldo são POR ATIVIDADE
+    (HI-140): `saldo_entrada` é a devolução de trimestres anteriores do ano que não coube na receita
+    da atividade; `devolucao_deduzida` é o que este trimestre absorveu da receita de cada atividade;
+    `saldo_transportado` segue ao próximo. Cada um é um dict código de atividade -> Decimal.
+    `avisos_nfe` são os avisos de NF-e do trimestre (devolução de combustível a confirmar).
     """
 
     trimestre: int
@@ -807,9 +809,10 @@ class DadosDoTrimestre:
     integrais: Decimal
     recusas: tuple[Recusa, ...]
     nfe: tuple[LinhaNFeApurada, ...] = ()
-    saldo_entrada: Decimal = ZERO
-    devolucao_deduzida: Decimal = ZERO
-    saldo_transportado: Decimal = ZERO
+    saldo_entrada: dict = field(default_factory=dict)
+    devolucao_deduzida: dict = field(default_factory=dict)
+    saldo_transportado: dict = field(default_factory=dict)
+    avisos_nfe: tuple[str, ...] = ()
 
 
 def _ler_nota(
@@ -883,7 +886,7 @@ def _escrituracoes_que_contam(
 
 
 def _carregar_trimestre(
-    empresa: Empresa, ano: int, trimestre: int, padroes, saldo_entrada: Decimal = ZERO
+    empresa: Empresa, ano: int, trimestre: int, padroes, saldo_entrada: dict | None = None
 ) -> DadosDoTrimestre:
     """Um trimestre: NFS-e, receitas informadas e NF-e (DL-083), com o saldo de devolução que chega.
 
@@ -891,6 +894,7 @@ def _carregar_trimestre(
     receita. `_periodos_do_ano` passa o saldo de um trimestre ao seguinte, em ordem.
     """
     inicio, fim = inicio_e_fim_do_trimestre(ano, trimestre)
+    saldo_entrada = dict(saldo_entrada or {})
     em_atividade, meses = _meses_em_atividade(empresa, ano, trimestre)
     if not em_atividade:
         # Trimestre anterior à abertura: não há regime a conferir nem nota. A recusa
@@ -944,7 +948,7 @@ def _carregar_trimestre(
                 tuple(sem_vigencia),
             )
         )
-    linhas_nfe, recusas_nfe = _linhas_nfe_do_trimestre(empresa, ano, trimestre)
+    linhas_nfe, avisos_nfe, recusas_nfe = _linhas_nfe_do_trimestre(empresa, ano, trimestre)
     recusas.extend(recusas_nfe)
     deduzido, saldo = _devolucao_do_trimestre(notas, receitas, linhas_nfe, saldo_entrada)
     return DadosDoTrimestre(
@@ -961,6 +965,7 @@ def _carregar_trimestre(
         saldo_entrada=saldo_entrada,
         devolucao_deduzida=deduzido,
         saldo_transportado=saldo,
+        avisos_nfe=avisos_nfe,
     )
 
 
@@ -971,17 +976,18 @@ def _unicos(itens) -> tuple[str, ...]:
 
 def _linhas_nfe_do_trimestre(
     empresa: Empresa, ano: int, trimestre: int
-) -> tuple[tuple[LinhaNFeApurada, ...], list[Recusa]]:
-    """Itens de NF-e do trimestre (pela competência, mês de dhEmi) e as recusas que eles geram.
+) -> tuple[tuple[LinhaNFeApurada, ...], tuple[str, ...], tuple[Recusa, ...]]:
+    """Itens de NF-e do trimestre (pela competência, mês de dhEmi) e os avisos que eles geram.
 
-    A atividade vem da natureza, no catálogo (fonte única). Duas naturezas não entram na conta e
-    recusam, cada uma com o motivo nomeado: o serviço conjugado (a atividade não está na nota) e a
-    devolução de venda de combustível (a atividade do combustível, 1,6% ou 8%, não está na nota de
-    devolução). Excluídas, elas não entram nas somas: a apuração já sai parcial.
+    A atividade vem da natureza, no catálogo (fonte única). Uma natureza NÃO entra na conta e recusa
+    com o motivo nomeado: o serviço conjugado (a atividade não está na nota). A devolução de
+    combustível NÃO recusa mais (HI-140): a natureza `devolucao_combustivel_consumo` (1,6%) ou
+    `devolucao_venda` (8%) é a que o contador escolheu na escrituração, e a atividade vem dela. Se
+    a devolução com destinação a consumo ficou como `devolucao_venda`, a memória avisa.
     """
     linhas: list[LinhaNFeApurada] = []
     conjugadas: list[str] = []
-    combustivel: list[str] = []
+    consumo_como_revenda: list[str] = []
     for linha in receita_servico.linhas_nfe_do_periodo(
         empresa, (ano, 3 * trimestre - 2), (ano, 3 * trimestre)
     ):
@@ -989,9 +995,12 @@ def _linhas_nfe_do_trimestre(
         if linha.natureza == NaturezaOperacaoNFe.SERVICO_CONJUGADA:
             conjugadas.append(rotulo)
             continue
-        if linha.papel == "deducao" and e_devolucao_de_venda_de_combustivel(linha.cfop):
-            combustivel.append(rotulo)
-            continue
+        if (
+            linha.papel == "deducao"
+            and linha.natureza == NaturezaOperacaoNFe.DEVOLUCAO_VENDA
+            and e_devolucao_de_combustivel_para_consumo(linha.cfop)
+        ):
+            consumo_como_revenda.append(rotulo)
         linhas.append(
             LinhaNFeApurada(
                 origem="NF-e",
@@ -1005,6 +1014,13 @@ def _linhas_nfe_do_trimestre(
                 valor=linha.valor,
             )
         )
+    avisos: list[str] = []
+    if consumo_como_revenda:
+        avisos.append(
+            "devolução com destinação a consumo deduzida a 8%: confira a natureza ("
+            + ", ".join(_unicos(consumo_como_revenda))
+            + ")"
+        )
     recusas: list[Recusa] = []
     if conjugadas:
         recusas.append(
@@ -1014,54 +1030,73 @@ def _linhas_nfe_do_trimestre(
                 _unicos(conjugadas),
             )
         )
-    if combustivel:
-        recusas.append(
-            Recusa(
-                "devolucao_combustivel",
-                "devolução de combustível: atividade a confirmar",
-                _unicos(combustivel),
-            )
-        )
-    return tuple(linhas), recusas
+    return tuple(linhas), tuple(avisos), tuple(recusas)
 
 
-def _devolucao_do_trimestre(
-    notas, receitas, linhas_nfe, saldo_entrada: Decimal
-) -> tuple[Decimal, Decimal]:
-    """Quanto o trimestre absorve da devolução de NF-e, e o saldo que passa ao seguinte (DL-083).
+def _devolucao_do_trimestre(notas, receitas, linhas_nfe, saldo_entrada: dict) -> tuple[dict, dict]:
+    """Quanto cada atividade absorve da devolução de NF-e, e o saldo de cada uma que passa adiante.
 
-    A devolução deduz da atividade de comércio e indústria, no trimestre dela (Lei 9.430, art. 25,
-    I: deduzida das devoluções). A passagem do excedente ao trimestre seguinte, do mesmo ano, é
-    regra de
-    PRODUTO (HI-134, DL-083), e não texto normativo lido. A receita da atividade é a base das NFS-e,
-    as receitas informadas e a NF-e de receita, antes da dedução. Quem chama soma o saldo em ordem.
+    HI-140: a devolução deduz da MESMA atividade da venda que ela devolve, e só consome a receita
+    dessa atividade (Lei 9.249, art. 15, caput e § 2º; IN RFB 1.700, art. 33, lidas). Por isso o
+    cálculo é por atividade: a devolução de combustível para consumo (1,6%) não absorve a receita
+    de comércio, e a de comércio não absorve a de combustível. A receita da atividade é a base das
+    NFS-e, das receitas informadas e da NF-e de receita, antes da dedução, no trimestre da
+    devolução (Lei 9.430, art. 25, I). A passagem do excedente ao trimestre seguinte, do mesmo ano,
+    é regra de PRODUTO (HI-134, DL-083), e não texto normativo lido.
+
+    `saldo_entrada` e o retorno são dicts código de atividade -> Decimal. Quem chama soma o saldo em
+    ordem, trimestre a trimestre.
     """
-    comercio = tab.COMERCIO_INDUSTRIA_TRANSPORTE_CARGA
-    receita_da_atividade = ZERO
+    receita_por_atividade: dict[str, Decimal] = {}
     for nota in notas:
-        if nota.atividade == comercio:
-            receita_da_atividade += nota.base
+        receita_por_atividade[nota.atividade] = (
+            receita_por_atividade.get(nota.atividade, ZERO) + nota.base
+        )
     for receita in receitas:
-        if receita.atividade == comercio:
-            receita_da_atividade += receita.valor
-    devolucao = ZERO
+        receita_por_atividade[receita.atividade] = (
+            receita_por_atividade.get(receita.atividade, ZERO) + receita.valor
+        )
+    devolucao_por_atividade: dict[str, Decimal] = {}
     for linha in linhas_nfe:
-        if linha.atividade != comercio:
-            continue
         if linha.papel == "receita":
-            receita_da_atividade += linha.valor
+            receita_por_atividade[linha.atividade] = (
+                receita_por_atividade.get(linha.atividade, ZERO) + linha.valor
+            )
         elif linha.papel == "deducao":
-            devolucao += linha.valor
-    disponivel = saldo_entrada + devolucao
-    deduzido = min(disponivel, receita_da_atividade)
-    return deduzido, disponivel - deduzido
+            devolucao_por_atividade[linha.atividade] = (
+                devolucao_por_atividade.get(linha.atividade, ZERO) + linha.valor
+            )
+    deduzido: dict[str, Decimal] = {}
+    saldo: dict[str, Decimal] = {}
+    for atividade in _atividades_em_ordem(saldo_entrada, devolucao_por_atividade):
+        disponivel = saldo_entrada.get(atividade, ZERO) + devolucao_por_atividade.get(
+            atividade, ZERO
+        )
+        # A receita negativa de uma atividade (anômala) não vira dedução negativa: deduz zero.
+        absorvivel = max(receita_por_atividade.get(atividade, ZERO), ZERO)
+        deduzido[atividade] = min(disponivel, absorvivel)
+        saldo[atividade] = disponivel - deduzido[atividade]
+    return deduzido, saldo
+
+
+def _atividades_em_ordem(*dicionarios) -> tuple[str, ...]:
+    """Códigos de atividade presentes em algum dos dicts, na ordem do catálogo (determinística)."""
+    presentes = set()
+    for dicionario in dicionarios:
+        presentes.update(dicionario)
+    return tuple(codigo for codigo in tab.CODIGOS_DE_ATIVIDADE if codigo in presentes)
+
+
+def _por_atividade(valores: dict) -> tuple[tuple[str, Decimal], ...]:
+    """Os valores por atividade, na ordem do catálogo, para a API e a memória."""
+    return tuple((codigo, valores[codigo]) for codigo in _atividades_em_ordem(valores))
 
 
 def _receitas_por_atividade(dados: DadosDoTrimestre) -> tuple[tuple[str, Decimal], ...]:
     """R_t,i por atividade, na ordem do catálogo (a última recebe o resíduo do rateio).
 
-    A NF-e de receita entra pela atividade da natureza. A devolução absorvida (DL-083) abate a
-    atividade de comércio e indústria, onde ela foi lançada.
+    A NF-e de receita entra pela atividade da natureza. A devolução absorvida (DL-083, HI-140) abate
+    a receita da MESMA atividade, onde ela foi lançada.
     """
     somas: dict[str, Decimal] = {}
     for nota in dados.notas:
@@ -1071,9 +1106,9 @@ def _receitas_por_atividade(dados: DadosDoTrimestre) -> tuple[tuple[str, Decimal
     for linha in dados.nfe:
         if linha.papel == "receita":
             somas[linha.atividade] = somas.get(linha.atividade, ZERO) + linha.valor
-    if dados.devolucao_deduzida:
-        comercio = tab.COMERCIO_INDUSTRIA_TRANSPORTE_CARGA
-        somas[comercio] = somas.get(comercio, ZERO) - dados.devolucao_deduzida
+    for atividade, deduzido in dados.devolucao_deduzida.items():
+        if deduzido:
+            somas[atividade] = somas.get(atividade, ZERO) - deduzido
     return tuple((codigo, somas[codigo]) for codigo in tab.CODIGOS_DE_ATIVIDADE if codigo in somas)
 
 
@@ -1101,7 +1136,7 @@ def _periodos_do_ano(
     carregados: dict[int, DadosDoTrimestre] = {}
     periodos = []
     recusas: list[Recusa] = []
-    saldo = ZERO
+    saldo: dict = {}
     for trimestre in TRIMESTRES:
         if trimestre <= ate:
             dados = _carregar_trimestre(empresa, ano, trimestre, padroes, saldo)
@@ -1498,23 +1533,32 @@ class Apuracao:
     fechamento_csll: calc.Fechamento | None
     avisos: tuple[str, ...]
     # DL-083: as linhas de NF-e que compõem o trimestre (com a devolução) e o saldo de devolução.
+    # HI-140: devolução e saldo por atividade. Os totais são a soma; a API e a tela mostram os dois.
     nfe: tuple[LinhaNFeApurada, ...] = ()
     devolucao_deduzida: Decimal = ZERO
     saldo_devolucao_transportado: Decimal = ZERO
+    devolucao_por_atividade: tuple[tuple[str, Decimal], ...] = ()
+    saldo_por_atividade: tuple[tuple[str, Decimal], ...] = ()
 
 
 def _avisos_da_devolucao(dados: DadosDoTrimestre) -> tuple[str, ...]:
-    """Aviso do saldo de devolução de NF-e que sobra no fim do ano (DL-083).
+    """Aviso do saldo de devolução de NF-e que sobra no fim do ano, por atividade (DL-083, HI-140).
 
-    Sai na apuração do 4º trimestre, quando o ano está fechado. Antes disso o saldo ainda pode ser
-    absorvido pelos trimestres seguintes, e aparece como "saldo transportado" na memória.
+    Sai na apuração do 4º trimestre, quando o ano está fechado, e SÓ para a atividade que tem saldo:
+    saldo zero não gera aviso. Antes disso o saldo ainda pode ser absorvido pelos trimestres
+    seguintes, e aparece como "saldo transportado" na memória.
     """
-    if dados.trimestre != 4 or dados.saldo_transportado <= 0:
+    if dados.trimestre != 4:
         return ()
-    return (
-        "Saldo de devolução de NF-e que não coube na receita do ano: "
-        f"R$ {valor_ptbr(dados.saldo_transportado)}. A apuração não o deduz de outro ano.",
-    )
+    avisos = []
+    for atividade, saldo in dados.saldo_transportado.items():
+        if saldo > 0:
+            rotulo = tab.ATIVIDADES_POR_CODIGO[atividade].rotulo
+            avisos.append(
+                "Saldo de devolução de NF-e que não coube na receita do ano: "
+                f"R$ {valor_ptbr(saldo)} ({rotulo}). A apuração não o deduz de outro ano."
+            )
+    return tuple(avisos)
 
 
 def _avisos(empresa: Empresa, acrescimo: bool) -> tuple[str, ...]:
@@ -1585,27 +1629,47 @@ def _colunas(
     )
 
 
-def _nfe_nao_escriturada(empresa: Empresa, ano: int, meses) -> Recusa | None:
+def _nfe_nao_escriturada(empresa: Empresa, ano: int, meses) -> list[Recusa]:
     """NF-e elegível do período ainda a escriturar ou em rascunho (DL-083, HI-134).
 
     Substitui a recusa `receita_nfe_nao_integrada`, que saiu com a integração da NF-e. Uma consulta
     por mês (`notas_do_mes`), sem N+1 por nota. Nota cancelada não conta: não tem receita a
     escriturar.
+
+    A NF-e de 2027 (A8) não é "ainda não escriturada": ela NÃO PODE ser escriturada enquanto a regra
+    de receita de 2027 estiver pendente (HI-133). Por isso tem recusa própria, `nfe_2027_pendente`,
+    e não a mensagem que sugere uma ação possível.
     """
     pendentes: list[str] = []
+    pendentes_2027: list[str] = []
     for mes in meses:
         for nota in nfe_servico.notas_do_mes(empresa, ano, mes):
             if nota.tipo is None:
                 continue
             if nota.situacao in (nfe_servico.SITUACAO_A_ESCRITURAR, nfe_servico.SITUACAO_RASCUNHO):
-                pendentes.append(f"NF-e nº {nota.documento.numero}")
-    if not pendentes:
-        return None
-    return Recusa(
-        "nfe_nao_escriturada",
-        "NF-e do trimestre ainda não escriturada",
-        _unicos(pendentes),
-    )
+                rotulo = f"NF-e nº {nota.documento.numero}"
+                if nfe_servico.motivo_bloqueio_efetivacao(nota.documento) is not None:
+                    pendentes_2027.append(rotulo)
+                else:
+                    pendentes.append(rotulo)
+    recusas: list[Recusa] = []
+    if pendentes:
+        recusas.append(
+            Recusa(
+                "nfe_nao_escriturada",
+                "NF-e do trimestre ainda não escriturada",
+                _unicos(pendentes),
+            )
+        )
+    if pendentes_2027:
+        recusas.append(
+            Recusa(
+                "nfe_2027_pendente",
+                nfe_servico.MENSAGEM_NFE_2027_PENDENTE,
+                _unicos(pendentes_2027),
+            )
+        )
+    return recusas
 
 
 def apurar_trimestre(empresa: Empresa, ano, trimestre) -> Apuracao:
@@ -1666,9 +1730,7 @@ def apurar_trimestre(empresa: Empresa, ano, trimestre) -> Apuracao:
     # Aqui só a NF-e ainda não escriturada (ou em rascunho) deixa o trimestre parcial. O intervalo
     # começa em janeiro: o limite da LC 224 se propaga para a frente, e a NF-e do 1º trimestre
     # também pesa no 2º, no 3º e no 4º.
-    recusa_nfe = _nfe_nao_escriturada(empresa, ano, range(1, 3 * trimestre + 1))
-    if recusa_nfe is not None:
-        recusas.append(recusa_nfe)
+    recusas.extend(_nfe_nao_escriturada(empresa, ano, range(1, 3 * trimestre + 1)))
     declaracao, valida = _declaracao_valida(empresa, ano, trimestre)
     integrais_atuais = dados.integrais
     notas = dados.notas
@@ -1689,10 +1751,8 @@ def apurar_trimestre(empresa: Empresa, ano, trimestre) -> Apuracao:
             csll=None,
             fechamento_irpj=None,
             fechamento_csll=None,
-            avisos=_avisos(empresa, False) + _avisos_da_devolucao(dados),
-            nfe=dados.nfe,
-            devolucao_deduzida=dados.devolucao_deduzida,
-            saldo_devolucao_transportado=dados.saldo_transportado,
+            avisos=_avisos(empresa, False) + _avisos_da_devolucao(dados) + dados.avisos_nfe,
+            **_campos_de_nfe(dados),
         )
 
     retencao_irrf, retencao_csll = _retencoes_confirmadas(empresa, dados)
@@ -1738,11 +1798,20 @@ def apurar_trimestre(empresa: Empresa, ano, trimestre) -> Apuracao:
         # Antes dele, os trimestres seguintes entram zerados, e o caso sairia com número falso.
         fechamento_irpj=anual[tab.IRPJ].fechamento if trimestre == 4 else None,
         fechamento_csll=anual[tab.CSLL].fechamento if trimestre == 4 else None,
-        avisos=_avisos(empresa, acrescimo) + _avisos_da_devolucao(dados),
-        nfe=dados.nfe,
-        devolucao_deduzida=dados.devolucao_deduzida,
-        saldo_devolucao_transportado=dados.saldo_transportado,
+        avisos=_avisos(empresa, acrescimo) + _avisos_da_devolucao(dados) + dados.avisos_nfe,
+        **_campos_de_nfe(dados),
     )
+
+
+def _campos_de_nfe(dados: DadosDoTrimestre) -> dict:
+    """Os campos de NF-e da `Apuracao`, do trimestre (totais e por atividade, HI-140)."""
+    return {
+        "nfe": dados.nfe,
+        "devolucao_deduzida": sum(dados.devolucao_deduzida.values(), ZERO),
+        "saldo_devolucao_transportado": sum(dados.saldo_transportado.values(), ZERO),
+        "devolucao_por_atividade": _por_atividade(dados.devolucao_deduzida),
+        "saldo_por_atividade": _por_atividade(dados.saldo_transportado),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1809,9 +1878,7 @@ def controle_limite_ano(
     # DL-083 (HI-134): NF-e ainda não escriturada em qualquer mês do ano deixa o quadro parcial, com
     # a mesma recusa da apuração do trimestre, para o contador não ler limite e excedente como
     # completos. A receita já entra pelo mesmo caminho (`_periodos_do_ano`).
-    recusa_nfe = _nfe_nao_escriturada(empresa, ano, range(1, 13))
-    if recusa_nfe is not None:
-        recusas.append(recusa_nfe)
+    recusas.extend(_nfe_nao_escriturada(empresa, ano, range(1, 13)))
     medidas = list(MedidaJudicialLC224.objects.filter(empresa=empresa, ativa=True))
     suspensos = _suspensos_por_tributo(medidas, ano)
     anual = calc.apurar_ano(tributo, ano, periodos, suspensos[tributo])

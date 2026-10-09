@@ -6229,6 +6229,10 @@ def _pres_apuracao_na_tela(apuracao, ano, trimestre) -> dict:
         ],
         "devolucao_deduzida": _valor_ptbr(apuracao.devolucao_deduzida),
         "saldo_devolucao_transportado": _valor_ptbr(apuracao.saldo_devolucao_transportado),
+        # HI-140: uma linha por atividade, com a de comércio e indústria sempre (zero se não há).
+        "devolucao_por_atividade_tela": _linhas_de_devolucao_por_atividade(
+            apuracao.devolucao_por_atividade, apuracao.saldo_por_atividade
+        ),
         "mostra_devolucao": bool(
             apuracao.nfe or apuracao.devolucao_deduzida or apuracao.saldo_devolucao_transportado
         ),
@@ -6242,6 +6246,39 @@ def _pres_apuracao_na_tela(apuracao, ano, trimestre) -> dict:
             tab_presumido.FONTE_PERCENTUAIS,
         ],
     }
+
+
+# Nome de cada atividade na linha de devolução da memória. Comércio e indústria mantém o rótulo
+# que a tela já usava. As demais usam o rótulo do catálogo (HI-140).
+_NOME_DA_ATIVIDADE_NA_DEVOLUCAO = {
+    tab_presumido.COMERCIO_INDUSTRIA_TRANSPORTE_CARGA: "comércio e indústria",
+}
+
+
+def _linhas_de_devolucao_por_atividade(devolucao_por_atividade, saldo_por_atividade):
+    """Linhas da memória: (nome, deduzida, saldo) de cada atividade, na ordem do catálogo.
+
+    Comércio e indústria sempre aparece (com zero, se não há devolução), para a memória não mudar de
+    forma nos trimestres sem devolução de combustível.
+    """
+    deduzida = dict(devolucao_por_atividade)
+    saldo = dict(saldo_por_atividade)
+    codigos = [tab_presumido.COMERCIO_INDUSTRIA_TRANSPORTE_CARGA] + [
+        codigo
+        for codigo in tab_presumido.CODIGOS_DE_ATIVIDADE
+        if codigo != tab_presumido.COMERCIO_INDUSTRIA_TRANSPORTE_CARGA
+        and (codigo in deduzida or codigo in saldo)
+    ]
+    return [
+        {
+            "nome": _NOME_DA_ATIVIDADE_NA_DEVOLUCAO.get(
+                codigo, tab_presumido.ATIVIDADES_POR_CODIGO[codigo].rotulo
+            ),
+            "deduzida": _valor_ptbr(deduzida.get(codigo, Decimal("0.00"))),
+            "saldo": _valor_ptbr(saldo.get(codigo, Decimal("0.00"))),
+        }
+        for codigo in codigos
+    ]
 
 
 @login_required
@@ -7067,7 +7104,7 @@ def _opcoes_de_natureza(tipo):
     ]
 
 
-def _linha_do_item_nfe(item, natureza, documento, tipo):
+def _linha_do_item_nfe(item, natureza, documento, tipo, avisos=(), receita_atribuida=None):
     """Uma linha de item. CFOP (texto da tabela oficial), CST/CSOSN, NCM, valor, receita, natureza
     gravada e sugestão com o motivo que o serviço deu. Sem sugestão, a tela diz "escolha".
 
@@ -7092,8 +7129,12 @@ def _linha_do_item_nfe(item, natureza, documento, tipo):
         ),
         "cst_csosn": cst_csosn,
         "v_prod_ptbr": _valor_ptbr(item.v_prod),
-        "receita_ptbr": _valor_ptbr(receita_do_item(item)),
-        "avisos": list(servico_nfe.avisos_do_item(item)),
+        # A receita que a conta usa (HI-138). Sem atribuição (a nota recusa): o do próprio item.
+        "receita_ptbr": _valor_ptbr(
+            receita_do_item(item) if receita_atribuida is None else receita_atribuida
+        ),
+        # Avisos do item, da nota inteira (HI-138: o que foi atribuído à venda) e do próprio item.
+        "avisos": list(avisos),
         "natureza_gravada": natureza,
         "natureza_gravada_rotulo": NaturezaOperacaoNFe(natureza).label if natureza else "",
         "sugestao": sugestao.natureza or "",
@@ -7152,6 +7193,11 @@ def _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada):
         return False, "", None, False
     if cancelada:
         return False, "Nota cancelada não pode ser efetivada.", None, False
+    # A8: regra de data (receita de 2027) desabilita o botão com o motivo, antes de qualquer conta.
+    # O servidor recusa de novo no POST, com a mesma mensagem.
+    motivo_de_data = servico_nfe.motivo_bloqueio_efetivacao(documento)
+    if motivo_de_data is not None:
+        return False, motivo_de_data, None, False
     if leitura is None or leitura.estado != LeituraItensNFe.ESTADO_LIDA:
         motivo = "itens ainda não lidos" if leitura is None else leitura.motivo
         return False, f"Itens ilegíveis, nota bloqueada: {motivo}", None, False
@@ -7231,8 +7277,18 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
     if lida and tipo is not None:
         pares = _pares_da_escrituracao(documento, escrituracao)
         tipo_da_tela = escrituracao.tipo if escrituracao is not None else tipo
+        avisos_por_item = servico_nfe.avisos_da_nota(pares)
+        receitas = servico_nfe.receitas_atribuidas(pares)
         linhas = [
-            _linha_do_item_nfe(item, natureza, documento, tipo_da_tela) for item, natureza in pares
+            _linha_do_item_nfe(
+                item,
+                natureza,
+                documento,
+                tipo_da_tela,
+                avisos_por_item.get(item.pk, ()),
+                None if receitas is None else receitas.get(item.pk),
+            )
+            for item, natureza in pares
         ]
 
     pode_efetivar, motivo_efetivar, conferencia, divergiu = (

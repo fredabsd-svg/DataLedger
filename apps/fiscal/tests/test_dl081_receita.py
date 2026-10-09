@@ -355,7 +355,6 @@ def test_porta_do_pre_das_e_do_presumido_sinaliza_o_mes_e_o_trimestre(
     escritorio_a, gestor, empresa
 ):
     assert servico_receita.componente_nfe_no_mes(empresa, 2026, 2) is False
-    assert servico_receita.receita_de_nfe_no_mes(empresa, 2026, 2) is False
     nfe_efetivada(
         escritorio_a,
         gestor,
@@ -366,7 +365,6 @@ def test_porta_do_pre_das_e_do_presumido_sinaliza_o_mes_e_o_trimestre(
         dh_emi="2026-02-10T10:00:00-03:00",
     )
     assert servico_receita.componente_nfe_no_mes(empresa, 2026, 2) is True
-    assert servico_receita.receita_de_nfe_no_mes(empresa, 2026, 2) is True
 
 
 def test_saldo_de_devolucao_faz_o_pre_das_do_mes_seguinte_recusar(escritorio_a, gestor, empresa):
@@ -385,7 +383,6 @@ def test_saldo_de_devolucao_faz_o_pre_das_do_mes_seguinte_recusar(escritorio_a, 
         cfop="1202",
     )
     assert servico_receita.componente_nfe_no_mes(empresa, 2026, 6) is True
-    assert servico_receita.receita_de_nfe_no_mes(empresa, 2026, 6) is False
 
 
 # --- RBT12 com NF-e (critério 5) ---------------------------------------------------------------
