@@ -200,13 +200,13 @@ Cruzamento honesto com o que está implementado hoje:
 | Competência | **Não existe** — BL-15 |
 | Cadastro de participantes | Não existe |
 | Produtos, NCM | Não existe |
-| Classificação fiscal | Não existe |
-| Escrituração de documentos | Não existe |
-| Apuração | Não existe |
-| Importação de XML | Não existe |
+| Classificação fiscal | ~~Não existe~~ Corrigido em 09/10/2026 (DL-086): existe como catálogo fixo de naturezas no código (`NaturezaOperacao`, `NaturezaTomada`, `NaturezaOperacaoNFe`), não como cadastro versionado; o cadastro versionado é o objeto do plano DL-087 |
+| Escrituração de documentos | ~~Não existe~~ Corrigido em 09/10/2026 (DL-086): existe para NFS-e prestadas e tomadas, NF-e e NFC-e de saída e devolução (DL-072, DL-078, DL-081, DL-085); não há escrituração de entradas (compras) |
+| Apuração | ~~Não existe~~ Corrigido em 09/10/2026 (DL-086): existe para conferência do pré-DAS de serviços, do ISS, das retenções federais e do IRPJ/CSLL do Presumido (DL-075, DL-076, DL-078, DL-079); não há ICMS, PIS/Cofins, IPI nem IBS/CBS |
+| Importação de XML | ~~Não existe~~ Corrigido em 09/10/2026 (DL-086): existe para NFS-e nacional (DL-010) e para NF-e e NFC-e (DL-080) |
 | Livros e obrigações | Não existe |
 
-A fundação está sólida e a parte fiscal está **integralmente por fazer**.
+~~A fundação está sólida e a parte fiscal está **integralmente por fazer**.~~ Corrigido em 09/10/2026 (DL-086): a fundação está sólida, e a parte fiscal de recepção, escrituração e apuração de quatro impostos existe. O que falta está na tabela acima e na [revisão do fiscal](revisao-do-fiscal-2026-10-09.md).
 
 ## Consequência para o planejamento
 
@@ -307,8 +307,8 @@ substituídas).
 | Grupo | Conteúdo | Classe | Páginas | DataLedger |
 | --- | --- | --- | --- | --- |
 | Livros fiscais | Termos; registros de entradas, saídas, apuração de ICMS, IPI e ISS; inventário; anexos de talonário e autenticação | Livro (forma da legislação fiscal) | 1559-1593 | Não existe |
-| Demonstrativos de apuração | Memória por imposto; resumo; Simples Nacional; PIS/COFINS e o espelho da EFD Contribuições; regimes especiais (bebidas frias, imobiliário, financeiras); CPRB; diferidos; retenções a recolher e a compensar | Demonstração | 1593-1619 | Não existe |
-| Acompanhamento e conferência | Conferência de entradas, saídas, serviços, cupons e transporte; faturamento; receita bruta acumulada do Simples; resumo por acumulador e por CFOP e alíquota; notas não lançadas; ajustes; integração contábil; exceções (diferencial de alíquotas, ressarcimento de ST, créditos acumulados e presumidos) | Conferência | 1619-1675 | Não existe (a consulta de NFS-e recebidas é o embrião) |
+| Demonstrativos de apuração | Memória por imposto; resumo; Simples Nacional; PIS/COFINS e o espelho da EFD Contribuições; regimes especiais (bebidas frias, imobiliário, financeiras); CPRB; diferidos; retenções a recolher e a compensar | Demonstração | 1593-1619 | ~~Não existe~~ Corrigido em 09/10/2026 (DL-086): parcial — memórias de cálculo do pré-DAS, do ISS e do Presumido (DL-075, DL-076, DL-079); sem demonstrativo de ICMS, de PIS/COFINS nem o espelho da EFD-Contribuições |
+| Acompanhamento e conferência | Conferência de entradas, saídas, serviços, cupons e transporte; faturamento; receita bruta acumulada do Simples; resumo por acumulador e por CFOP e alíquota; notas não lançadas; ajustes; integração contábil; exceções (diferencial de alíquotas, ressarcimento de ST, créditos acumulados e presumidos) | Conferência | 1619-1675 | ~~Não existe (a consulta de NFS-e recebidas é o embrião)~~ Corrigido em 09/10/2026 (DL-086): parcial — seis relatórios de conferência existem: NFS-e recebidas × escrituradas (DL-072), NF-e de saída (DL-081), conformidade IBS/CBS (DL-073), ISS retido sofrido e ISS de outros municípios (DL-076) e controle do limite do Presumido (DL-079). Faltam os de entradas, cupons e transporte, a visão de notas não lançadas e o resumo por acumulador |
 | Obrigações acessórias | EFD ICMS/IPI, EFD Contribuições (por registro), EFD-Reinf, DCTF, DeSTDA, DEFIS, DMED, declarações estaduais, e várias de vigência duvidosa | Arquivo regulatório | 1675-1859 | Não existe |
 | Guias | DARF, GPS, DAS, DARE, GNRE, DARM | Guia | 1859-1921 | Não existe |
 | Cadastrais, estoque, contas a pagar e receber | Listagens, Bloco K, ICMS recuperável, ST | Conferência | 1921-1985 | Não existe |
@@ -320,16 +320,16 @@ substituídas).
 | Cadastro | Fornecedores, clientes, remetentes e destinatários | 202-219 | Não existe |
 | Cadastro | **Acumuladores** (a regra que liga o documento ao tratamento tributário) | 365-419 | Não existe |
 | Cadastro | Produtos e dados de impostos por NCM | 221-284 | Não existe |
-| Cadastro | Impostos com alíquota por vigência; convênios e protocolos de ST; crédito presumido | 419-447, 1007-1011 | Não existe |
+| Cadastro | Impostos com alíquota por vigência; convênios e protocolos de ST; crédito presumido | 419-447, 1007-1011 | ~~Não existe~~ Corrigido em 09/10/2026 (DL-086): parcial — tabelas do Simples e alíquotas do ISS com vigência (DL-075, DL-076); sem ICMS, ST nem crédito presumido |
 | Cadastro | Históricos para a integração contábil | 335-365 | Não existe |
-| Importação | Por formato de documento (NF-e, NFC-e, CF-e, NFS-e municipais, CT-e, BP-e, arquivos SPED, Sintegra) | 447-961 | Parcial: NFS-e nacional (leiaute posterior ao manual) |
-| Movimento | Notas de entrada, saída e serviço; reduções Z; bilhetes | 1049-1284 | Não existe (a recepção grava o documento, não o lançamento fiscal) |
-| Movimento | Impostos lançados e calculados, compensações, suspensão | 1284-1345 | Não existe |
-| Movimento | Estoque, combustíveis, empreendimentos imobiliários | 1405-1509 | Não existe |
-| Movimento | **Apuração** | 1509-1524 | Não existe |
-| Movimento | Parcelamento, Simples Nacional, pagamento | 1524-1550 | Não existe |
+| Importação | Por formato de documento (NF-e, NFC-e, CF-e, NFS-e municipais, CT-e, BP-e, arquivos SPED, Sintegra) | 447-961 | ~~Parcial: NFS-e nacional (leiaute posterior ao manual)~~ Corrigido em 09/10/2026 (DL-086): parcial — NFS-e nacional (DL-010), NF-e e NFC-e (DL-080); os demais formatos da linha continuam fora |
+| Movimento | Notas de entrada, saída e serviço; reduções Z; bilhetes | 1049-1284 | ~~Não existe (a recepção grava o documento, não o lançamento fiscal)~~ Corrigido em 09/10/2026 (DL-086): parcial — escrituração de saídas e de serviços (DL-072, DL-078, DL-081); entradas (compras) e reduções Z não |
+| Movimento | Impostos lançados e calculados, compensações, suspensão | 1284-1345 | ~~Não existe~~ Corrigido em 09/10/2026 (DL-086): parcial — cálculo do ISS e do Presumido (DL-076, DL-079); sem os demais impostos nem compensações |
+| Movimento | Estoque, combustíveis, empreendimentos imobiliários | 1405-1509 | ~~Não existe~~ Corrigido em 09/10/2026 (DL-086): parcial — combustível só como natureza de receita do Presumido (DL-083); estoque e empreendimentos não existem |
+| Movimento | **Apuração** | 1509-1524 | ~~Não existe~~ Corrigido em 09/10/2026 (DL-086): parcial — ver a linha de apuração da seção "O que já existe" |
+| Movimento | Parcelamento, Simples Nacional, pagamento | 1524-1550 | ~~Não existe~~ Corrigido em 09/10/2026 (DL-086): parcial — receita e pré-DAS do Simples (DL-074, DL-075); sem guia DAS, parcelamento nem pagamento |
 | Movimento | **Integração contábil**; integração com honorários | 1550-1559 | Não existe |
-| Operação | Conferência de lançamentos, alteração em massa, consulta de apuração, importador genérico, backup | 1987-2284 | Não existe |
+| Operação | Conferência de lançamentos, alteração em massa, consulta de apuração, importador genérico, backup | 1987-2284 | ~~Não existe~~ Corrigido em 09/10/2026 (DL-086): parcial — conferências por tipo de nota (DL-072, DL-081) e reclassificação em massa de NF-e (DL-081); o restante desta linha não existe |
 
 ### O fluxo da EFD Contribuições no Lucro Presumido
 

@@ -54,7 +54,7 @@ consumido por várias demonstrações.
 
 | Elo da cadeia | Estado (remedido 04/10/2026) |
 | --- | --- |
-| Documentos e transações operacionais | ⚠️ **Parcial** — Fiscal tem a recepção de NFS-e (DL-010 fatia 1); Folha, Estoque, Patrimônio e Financeiro **não existem** |
+| Documentos e transações operacionais | ⚠️ **Parcial** — ~~Fiscal tem a recepção de NFS-e (DL-010 fatia 1)~~ Corrigido em 09/10/2026 (DL-086): o Fiscal recebe NFS-e, NF-e e NFC-e (DL-010, DL-080) e escritura notas de serviço e de mercadoria (DL-072, DL-078, DL-081, DL-085), com apurações para conferência (DL-075, DL-076, DL-079); Folha, Estoque, Patrimônio e Financeiro **não existem** |
 | Lançamentos e plano de contas | ✅ **Existe**, com partida dobrada garantida e trilha |
 | Diário e Razão | ✅ **Existem** como relatório de conferência |
 | **Saldos e conciliações** | ✅ **Existe** — `apurar_saldos` (DL-032/DL-033), com totais por tipo, por classificação patrimonial e por grupo, e `residuo_por_tipo` como conferência |

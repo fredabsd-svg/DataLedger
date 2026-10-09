@@ -168,6 +168,48 @@ def test_readme_nao_repete_afirmacoes_ja_desmentidas(afirmacao, por_que_e_falsa)
     )
 
 
+# DL-086 (revisão do fiscal, de 09/10/2026, itens I1, I2, I5 e I6): descrições do módulo
+# fiscal que o código desmentiu. Vale para o README e para o estado, que são os dois lugares
+# que um agente lê primeiro. Cada frase foi conferida como ausente dos dois arquivos quando
+# foi escrita; a guarda existe para ela não voltar.
+AFIRMACOES_DO_FISCAL_DESMENTIDAS = [
+    (
+        "Recepção e consulta de NFS-e nacional",
+        "o fiscal recebe NFS-e, NF-e e NFC-e e escritura notas (DL-010, DL-072, DL-080)",
+    ),
+    (
+        "Fiscal, Folha, Honorários, Processos/Paralegal, IA e MCP ainda não existem",
+        "o fiscal existe: recebe, escritura e apura para conferência (DL-072 a DL-083)",
+    ),
+    (
+        "Não existe: escrituração fiscal e apuração",
+        "a escrituração e as apurações para conferência existem (DL-072 a DL-083)",
+    ),
+    (
+        "Planejado — DL-010",
+        "a DL-010 está integrada, fatia 1 (NFS-e nacional)",
+    ),
+]
+
+
+@pytest.mark.parametrize("arquivo", [README, ESTADO], ids=["readme", "estado"])
+@pytest.mark.parametrize(("afirmacao", "por_que_e_falsa"), AFIRMACOES_DO_FISCAL_DESMENTIDAS)
+def test_readme_e_estado_nao_repetem_afirmacoes_do_fiscal_ja_desmentidas(
+    arquivo, afirmacao, por_que_e_falsa
+):
+    """Afirmação do fiscal que o código desmentiu não volta ao README nem ao estado.
+
+    Substring exata, como na guarda do README acima: a redação desmentida é a que a
+    revisão citou. Quem precisa narrar o erro passado o faz em bloco de citação, com outra
+    redação.
+    """
+    ocorrencias = _texto(arquivo).count(afirmacao)
+    assert ocorrencias == 0, (
+        f"{arquivo.name} voltou a afirmar {afirmacao!r}, o que é falso: {por_que_e_falsa}. "
+        "Reescreva a frase com a capacidade atual e a DL que a entregou."
+    )
+
+
 # ---------------------------------------------------------------------------
 # BL-315 (achado B1 da rodada 3 da auditoria da DL-026)
 #

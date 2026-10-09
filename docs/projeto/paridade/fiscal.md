@@ -96,11 +96,11 @@ reconferir se a regra ainda está vigente para o período tratado ou se já
 foi substituída/coexiste com IBS/CBS pelo cronograma de transição da
 LC 214/2025.
 
-## Estado atual medido no código (2026-09-27)
+## ~~Estado atual medido no código (2026-09-27)~~ Capacidade existente no código (medida em 09/10/2026)
 
-`apps/fiscal/` existe e contém **só a recepção de NFS-e nacional**
-(DL-010, fatia 1; DE-074). Medido por leitura de `models.py`,
-`services.py`, `leitor.py`, `permissoes.py`, `views_web.py`:
+> ~~`apps/fiscal/` existe e contém **só a recepção de NFS-e nacional** (DL-010, fatia 1; DE-074). Medido por leitura de `models.py`, `services.py`, `leitor.py`, `permissoes.py`, `views_web.py`:~~ Corrigido em 09/10/2026 (DL-086): a leitura de 27/09 foi superada por DL-072 a DL-085 (I7 da [revisão do fiscal](../revisao-do-fiscal-2026-10-09.md)). Abaixo, a capacidade medida em 09/10/2026 e a DL que a entregou. Este documento descreve capacidade; o estado das etapas mora em [estado.md](../../agents/estado.md).
+
+A tabela a seguir é a leitura de 27/09, com as células superadas riscadas.
 
 | Capacidade | Situação real |
 | --- | --- |
@@ -108,19 +108,43 @@ LC 214/2025.
 | Deduplicação por `(escritório, identificador)`, evento órfão, isolamento | **Pronto e auditado** — DE-074, DE-076, DE-077 |
 | Situação (válida/cancelada) derivada de evento, nunca gravada | **Pronto** — `situacao_do_documento` |
 | Consulta e filtro de documentos recebidos, exibição do XML original | **Pronto** — `documentos_lista`, `documento_detalhe` |
-| Retenção do ISSQN (`tpRetISSQN`) | **Lida e exibida, não interpretada** (RC-110) |
-| Reconhecimento de NF-e no leitor | **Detecta o namespace e recusa explicitamente** — `"tipo ainda não suportado: NF-e"` (`leitor.py`); é fatia 2 da DL-010, não implementada |
-| Parâmetros fiscais da empresa, participantes fornecedor/cliente | **Não existe** |
+| Retenção do ISSQN (`tpRetISSQN`) | ~~**Lida e exibida, não interpretada** (RC-110)~~ Corrigido em 09/10/2026 (DL-086): o campo é usado no ISS retido das tomadas (DL-078) e no relatório de ISS retido sofrido (DL-076). |
+| Reconhecimento de NF-e no leitor | ~~**Detecta o namespace e recusa explicitamente** — `"tipo ainda não suportado: NF-e"` (`leitor.py`); é fatia 2 da DL-010, não implementada~~ Corrigido em 09/10/2026 (DL-086): a NF-e é recebida desde a DL-080, fatia 2 da DL-010. |
+| Parâmetros fiscais da empresa, participantes fornecedor/cliente | ~~**Não existe**~~ Corrigido em 09/10/2026 (DL-086): os parâmetros existem, um cadastro por regra (DL-074 a DL-079); participantes como cadastro não existem. |
 | Produtos, NCM, unidades, acumuladores | **Não existe** |
-| Qualquer lançamento fiscal (nota vira movimento) | **Não existe** — a recepção grava o documento, não o lançamento |
-| Apuração de qualquer imposto | **Não existe** |
+| Qualquer lançamento fiscal (nota vira movimento) | ~~**Não existe** — a recepção grava o documento, não o lançamento~~ Corrigido em 09/10/2026 (DL-086): a escrituração de notas existe (DL-072, DL-078, DL-081, DL-085). |
+| Apuração de qualquer imposto | ~~**Não existe**~~ Corrigido em 09/10/2026 (DL-086): há apurações para conferência do pré-DAS de serviços, do ISS, das retenções federais e do IRPJ/CSLL do Presumido. Não há ICMS, PIS/Cofins, IPI nem IBS/CBS. |
 | Integração contábil a partir do Fiscal | **Não existe** |
 | Livros, demonstrativos, guias, obrigações acessórias | **Não existe** |
 
-Conclusão medida, não presumida: a base de recepção está sólida — é a
-"onda 0" deste plano — e **tudo o que transforma um documento recebido em
-resultado fiscal está por fazer**, da fundação (parâmetros e acumuladores)
-até o último relatório.
+**Capacidade em 09/10/2026, com a DL que a entregou** (a lista completa, com evidência, está na [revisão do fiscal](../revisao-do-fiscal-2026-10-09.md), seção 1):
+
+| Capacidade | Situação | DL que entregou |
+| --- | --- | --- |
+| Recepção de NFS-e nacional (XML e ZIP), leiautes 1.00 e 1.01 | Existe | DL-010 (fatia 1) |
+| Recepção de NF-e (modelo 55) e NFC-e (modelo 65), leiaute 4.00, com eventos de cancelamento | Existe | DL-080 |
+| Consulta e filtro de documentos recebidos, XML original, eventos sem nota | Existe | DL-010, DL-080 |
+| Escrituração de NFS-e prestadas: rascunho, efetivada e estorno; três datas; conferência recebidas × escrituradas | Existe | DL-072 |
+| Escrituração de NFS-e tomadas e retenções federais (IRRF, CSRF, INSS); seis naturezas, sem a importação de serviço (T4) | Existe | DL-078 |
+| Escrituração de NF-e de saída e de devolução de venda: natureza por item, conferência e reclassificação em massa | Existe | DL-081, DL-083 |
+| Escrituração de NF-e e NFC-e em lote: prévia por grupo, confirmação em bloco, efetivação em partes | Existe | DL-085 |
+| Escrituração de NF-e de entrada (compras e créditos) | Não existe; a elegibilidade recusa de propósito | — |
+| Validador de conformidade IBS/CBS das NFS-e recebidas, em modo aviso | Existe | DL-073 |
+| Receita mensal, confirmação e RBT12 do Simples, por mercado; 2027 recusado | Existe | DL-074 |
+| Pré-DAS do Simples para prestador de serviço (Anexos III a V) | Existe | DL-075 |
+| Pré-DAS de comércio e indústria (Anexos I e II) | Não existe; o mês com NF-e é recusado (HI-122) | DL-082 |
+| ISS por município: alíquotas e regras com vigência cadastradas pelo escritório; regra pronta só para Palmas | Existe | DL-076 |
+| ISS retido sofrido e ISS devido a outros municípios (relatórios) | Existe | DL-076 |
+| IRPJ e CSLL trimestrais do Lucro Presumido, com a LC 224, controle do limite e retenções sofridas | Existe | DL-079 |
+| Receita de NF-e no Lucro Presumido | Existe | DL-083 |
+| Relatórios de conferência: NFS-e e NF-e recebidas × escrituradas, conformidade IBS/CBS, limite do Presumido | Existe | DL-072, DL-073, DL-079, DL-081 |
+| Apuração de PIS/Cofins, ICMS (próprio, ST, DIFAL), IPI e IBS/CBS | Não existe | — |
+| Acumuladores: classificação fiscal versionada por vigência (as naturezas são catálogos fixos no código) | Não existe como cadastro | — (plano em DL-087) |
+| Integração contábil a partir do Fiscal | Não existe; `LancamentoContabil` sem origem (BL-72) | — |
+| Livros fiscais, obrigações acessórias, guias | Não existe | — |
+| Exportação e impressão de relatório fiscal (o único download é o XML original) | Não existe | — |
+
+Conclusão, medida em 09/10/2026: ~~a base de recepção está sólida — é a "onda 0" deste plano — e **tudo o que transforma um documento recebido em resultado fiscal está por fazer**, da fundação (parâmetros e acumuladores) até o último relatório.~~ Corrigido em 09/10/2026 (DL-086): a recepção de NFS-e, NF-e e NFC-e, a escrituração de notas e quatro apurações para conferência existem. Não existem a apuração de ICMS, PIS/Cofins, IPI e IBS/CBS, os livros, as guias, as obrigações acessórias, a integração contábil nem o cadastro de acumuladores.
 
 ## Mapa de dependências e ordem (ondas)
 
@@ -257,7 +281,7 @@ Lei 9.718/1998, arts. 8º-9º, e Decreto 9.580/2018 (Lucro Presumido) — a
 confirmar dispositivo exato por regime. Regime de apuração PIS/COFINS
 (competência/caixa): Lei 9.718/1998 art. 2º c/c IN RFB vigente sobre
 regime de caixa — **a confirmar**.
-**Situação no DataLedger.** **Não existe.**
+**Situação no DataLedger.** ~~**Não existe.**~~ Corrigido em 09/10/2026 (DL-086): **parcial** — os parâmetros existem por regra, um cadastro para cada uma (regime do ISS, atividades do Simples, presunção do Presumido, folha do fator r; DL-074 a DL-079), sem cadastro único da empresa. IE, IM e CNAE não existem em `Empresa`.
 **Depende de.** Nada dentro do Fiscal; depende do cadastro de `Empresa`
 já existente em `apps/empresas`.
 **Dados.** Regime tributário; apuração PIS/COFINS (competência/caixa);
@@ -468,7 +492,7 @@ DE-010); ISS (LC 116/2003 + legislação municipal); PIS/COFINS (Leis
 10.637/2002, 10.833/2003, 9.718/1998); IRPJ/CSLL (Lei 9.430/1996 e
 Decreto 9.580/2018) — todas **a confirmar item a item antes de qualquer
 alíquota entrar em código**, nunca por memória.
-**Situação no DataLedger.** **Não existe.**
+**Situação no DataLedger.** ~~**Não existe.**~~ Corrigido em 09/10/2026 (DL-086): **parcial** — as tabelas do Simples são dado com vigência (DL-075) e as alíquotas do ISS por subitem e vigência são cadastradas pelo escritório (DL-076). Não há tabelas de ICMS, PIS/Cofins, IPI nem de IBS/CBS.
 **Depende de.** FIS-03.
 **Dados.** Código, nome, tipo (lançado/calculado — distinção que o manual
 usa: "lançado" vem direto do documento, "calculado" é produto de apuração
@@ -639,8 +663,8 @@ extemporâneo).
 **Fonte normativa.** LC 116/2003 (ISS, fato gerador e retenção) e
 legislação do município específico para alíquota — **a confirmar por
 município atendido**.
-**Situação no DataLedger.** **Não existe** — a recepção (FIS-01) grava o
-documento fiscal, não o lançamento/movimento.
+**Situação no DataLedger.** ~~**Não existe** — a recepção (FIS-01) grava o
+documento fiscal, não o lançamento/movimento.~~ Corrigido em 09/10/2026 (DL-086): **parcial** — a escrituração de NFS-e prestadas (DL-072) e tomadas (DL-078) é o lançamento fiscal da nota de serviço, em rascunho, efetivada e estornável. A prévia do lançamento contábil e a conferência antes do fechamento (FIS-15, FIS-18) não existem.
 **Depende de.** FIS-01, FIS-03, FIS-04, FIS-07.
 **Dados.** Referência ao `DocumentoFiscal` de origem (nunca duplicar
 dado, só referenciar); acumulador; data de escrituração; situação
@@ -687,9 +711,7 @@ manual. Ver o próprio achado RC-110.
 `tiposComplexos_v1.01.xsd` (tipo `TSTipoRetISSQN`) — já confirmada
 (RC-110); a **consequência contábil** da retenção depende de LC 116/2003
 art. 6º (responsabilidade por retenção) — **a confirmar por município**.
-**Situação no DataLedger.** **Não existe** — `tp_ret_issqn` é campo
-gravado e exibido, nunca interpretado (comentário explícito em
-`models.py`).
+**Situação no DataLedger.** ~~**Não existe** — `tp_ret_issqn` é campo gravado e exibido, nunca interpretado (comentário explícito em `models.py`).~~ Corrigido em 09/10/2026 (DL-086): **parcial** — o `tpRetISSQN` é interpretado no ISS retido das tomadas (DL-078) e no relatório de ISS retido sofrido (DL-076). A retenção no lançamento fiscal e na integração contábil não existe.
 **Depende de.** FIS-13.
 **Dados.** Reaproveita `DocumentoFiscal.tp_ret_issqn`.
 **Regras.** `tpRetISSQN = "1"` (não retido) soma ao "ISS a recolher" do
@@ -781,9 +803,7 @@ participante identificável, sem acumulador escolhido ainda).
 aproximadamente (seção Acompanhamentos, "Notas Não Lançadas" — Saídas e
 Serviços).
 **Fonte normativa.** Não aplicável — relatório de conferência interna.
-**Situação no DataLedger.** **Não existe.** O embrião é a consulta de
-FIS-02, que já mostra o que foi recebido — falta cruzar com o que foi
-lançado.
+**Situação no DataLedger.** ~~**Não existe.** O embrião é a consulta de FIS-02, que já mostra o que foi recebido — falta cruzar com o que foi lançado.~~ Corrigido em 09/10/2026 (DL-086): **parcial** — as listas de notas a escriturar existem para NFS-e (DL-072) e para NF-e e NFC-e (DL-081), com conferência por tipo. A visão única de notas não lançadas, com todos os tipos, não existe (B6 da revisão).
 **Depende de.** FIS-01, FIS-13.
 **Dados.** Diferença entre `DocumentoFiscal` recebidos e lançamentos
 fiscais criados a partir deles.
@@ -986,7 +1006,7 @@ memória de cálculo por nota).
 10.833/2003, 9.718/1998); ISS (LC 116/2003 + município); ICMS (legislação
 estadual) — cada apuração implementada precisa confirmar a fonte do
 imposto específico antes de codificar a fórmula.
-**Situação no DataLedger.** **Não existe.**
+**Situação no DataLedger.** ~~**Não existe.**~~ Corrigido em 09/10/2026 (DL-086): **parcial** — há apurações para conferência do pré-DAS de serviços (DL-075), do ISS (DL-076), das retenções federais (DL-078) e do IRPJ/CSLL do Presumido (DL-079). Não há apuração de ICMS, PIS/Cofins, IPI nem de IBS/CBS, e o resultado por imposto deste item não existe.
 **Depende de.** FIS-07, FIS-08, FIS-13, FIS-14.
 **Dados.** Resultado por imposto e período: base, débito, crédito,
 isentas, outras, saldo; vínculo de cada linha aos lançamentos que a
@@ -1120,7 +1140,7 @@ Acompanhamentos, "Simples Nacional - Receita Bruta Global Acumulada" (p.
 **Fonte normativa.** LC 123/2006, arts. 3º (definição de RBT12) e 18
 (tabelas dos Anexos I a V) — **a confirmar redação vigente e anexo
 aplicável à atividade de cada cliente antes de implementar a fórmula**.
-**Situação no DataLedger.** **Não existe.**
+**Situação no DataLedger.** ~~**Não existe.**~~ Corrigido em 09/10/2026 (DL-086): **existe** — receita mensal, confirmação e RBT12 por mercado, com limites como dado com vigência (DL-074). A apuração de 2027 é recusada, citando a Res. CGSN 190/2026.
 **Depende de.** FIS-03 (regime = Simples Nacional), FIS-23 (base é a
 receita apurada mês a mês).
 **Dados.** Receita bruta mensal, RBT12 (janela móvel de 12 meses), anexo
@@ -1443,8 +1463,7 @@ vigente é de 2026).
 esquemas XSD do Portal Nacional da NF-e, pacote vigente `PL_010f`
 (31/08/2026) — já confirmados em
 [DL-010](../../planos/DL-010-recepcao-de-documentos-fiscais.md#o-que-está-confirmado).
-**Situação no DataLedger.** **Não existe** — só recusa explícita e
-identificada (`leitor.py`).
+**Situação no DataLedger.** ~~**Não existe** — só recusa explícita e identificada (`leitor.py`).~~ Corrigido em 09/10/2026 (DL-086): **existe** para NF-e (modelo 55) e NFC-e (modelo 65), leiaute 4.00, com eventos de cancelamento (DL-080). Outros formatos (CT-e, NFCom, GTVe, MDF-e, BP-e, CF-e) continuam recusados.
 **Depende de.** A mesma infraestrutura de FIS-01 (deduplicação, isolamento,
 eventos), estendida para o novo tipo de documento.
 **Dados.** Chave de acesso (44 posições); emitente/destinatário (CNPJ ou
@@ -1509,7 +1528,7 @@ aproximadamente (menu Movimentos, "Notas de Saídas": mesma estrutura de
 Entradas, com campos de frete/seguro/despesas acessórias).
 **Fonte normativa.** Idem FIS-36 — a norma incide sobre os impostos
 calculados, não sobre o mecanismo de lançamento.
-**Situação no DataLedger.** **Não existe.**
+**Situação no DataLedger.** ~~**Não existe.**~~ Corrigido em 09/10/2026 (DL-086): **parcial** — a escrituração de NF-e de saída e de devolução de venda existe (DL-081), com natureza por item; a de NFS-e prestadas, em DL-072. Sem produtos e estoque (FIS-04, FIS-05, FIS-39).
 **Depende de.** FIS-35, FIS-04, FIS-05, FIS-07, FIS-39.
 **Dados.** Idêntico a FIS-36, no sentido inverso (saída de estoque).
 **Regras.** Idêntico a FIS-36.
@@ -1536,7 +1555,7 @@ devolvida pelo produto e CNPJ do fornecedor).
 devolução não é fato gerador novo, é estorno do fato gerador anterior
 (regra geral de PIS/COFINS/ICMS, cada um com sua fonte já citada em
 FIS-08).
-**Situação no DataLedger.** **Não existe.**
+**Situação no DataLedger.** ~~**Não existe.**~~ Corrigido em 09/10/2026 (DL-086): **parcial** — a devolução de venda é escriturada (DL-081), mas não é ligada à nota de origem (`NFref`); a devolução entra sempre no mercado interno (BL-685).
 **Depende de.** FIS-36, FIS-37.
 **Dados.** Referência obrigatória à nota original devolvida; valor e
 quantidade devolvidos (nunca maior que o valor/quantidade da nota
@@ -1661,7 +1680,7 @@ sub-fluxo idêntico de resumo/erros/advertências).
 contribuinte do CT-e); BP-e (bilhete de passagem eletrônico, Ajuste
 SINIEF específico) — **a confirmar leiaute vigente de cada um antes de
 implementar**.
-**Situação no DataLedger.** **Não existe.**
+**Situação no DataLedger.** ~~**Não existe.**~~ Corrigido em 09/10/2026 (DL-086): **parcial** — NFS-e nacional, NF-e e NFC-e são recebidas (DL-010, DL-080). CT-e, BP-e, CF-e, NFCom e as NFS-e municipais anteriores não são.
 **Depende de.** A mesma infraestrutura de FIS-01/FIS-35, estendida por
 tipo.
 **Dados.** Um leitor por tipo de documento (mesmo padrão de
@@ -2012,7 +2031,7 @@ o CFOP X".
 Alíquota, Acumulador, Situação; considerar por data de saída ou de
 emissão).
 **Fonte normativa.** Não aplicável.
-**Situação no DataLedger.** **Não existe.**
+**Situação no DataLedger.** ~~**Não existe.**~~ Corrigido em 09/10/2026 (DL-086): **parcial** — a conferência de saídas existe para NF-e (DL-081) e para NFS-e prestadas (DL-072). O relatório deste item, tal como descrito, não existe.
 **Depende de.** FIS-37.
 **Dados.** Idêntico a FIS-53, para saídas.
 **Regras.** Idêntico a FIS-53.
@@ -2031,7 +2050,7 @@ NFS-e lançadas (FIS-13), com total por cliente.
 (mesma seção, opção "Serviços": ordens por Cliente, Estado, Dia,
 Acumulador, Situação; considerar por data de serviço ou de emissão).
 **Fonte normativa.** Não aplicável.
-**Situação no DataLedger.** **Não existe.**
+**Situação no DataLedger.** ~~**Não existe.**~~ Corrigido em 09/10/2026 (DL-086): **parcial** — a conferência de NFS-e prestadas e tomadas existe (DL-072, DL-078). O relatório deste item, tal como descrito, não existe.
 **Depende de.** FIS-13.
 **Dados.** Idêntico a FIS-53, para serviço.
 **Regras.** Idêntico a FIS-53.

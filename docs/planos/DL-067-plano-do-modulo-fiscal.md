@@ -121,6 +121,12 @@ registrado até ele mudar.**
    de janeiro de 2027. ⚠️ **O texto oficial da NT não foi lido** — a fonte é
    secundária (escritório de advocacia e Senior). Proposta: emendar FIS-29 a
    FIS-34 em demanda própria, depois de ler a NT no portal do SPED.
+   **Decisão ainda com o Fred** (atualizado em 09/10/2026, DL-086): a pergunta
+   está em [PE-90](../projeto/requisitos.md) e a recomendação do
+   `contador-senior`, em [HI-145](../projeto/requisitos.md). A recomendação
+   vale até ele decidir: não construir a apuração de PIS/Cofins para out a
+   dez/2026 (fica na Domínio), e manter as marcas de CST e o saldo credor de
+   31/12/2026 por empresa.
 6. **Obrigações caducas.** O plano tira Redução Z, DCTF mensal e DeSTDA no TO;
    a paridade mantém FIS-40, FIS-67 e FIS-68 em escopo ou "a confirmar".
    Conferir em fonte oficial antes de emendar.
@@ -198,7 +204,7 @@ São onze decisões de projeto. Todas as seções seguintes derivam delas.
 5. **Cálculo determinístico; IA na autoria e na auditoria.** A IA sugere natureza e regra e aponta anomalias. Ela não calcula imposto, não concilia e não decide.
 6. **Apuração versionada sobre a competência que já existe.** **[conciliação]** A competência segue o repositório — aberta ou encerrada, com "entregue" como fato datado (RC-101, RC-102). O fiscal acrescenta a apuração **em revisão** e o fato datado **transmitida**, por obrigação e com recibo. Recálculo nunca é silencioso, e retificação fica rastreada.
 7. **Integração contábil nativa.** Fiscal e contábil dividem o banco. Cada documento, apuração, guia e pagamento gera um evento contábil idempotente, com histórico padronizado.
-8. **PIS/Cofins só até 12/2026.** As competências que restam seguem no Domínio; o DataLedger importa as EFD-Contribuições entregues, para guardar saldos e auditar, sem gerador novo. A base de itens, CST e naturezas é reaproveitada na CBS. **[conciliação]** Diverge da EFD-Contribuições prevista em FIS-29 a FIS-34 da paridade; ver [Divergências](#divergências-que-só-o-fred-decide), item 5.
+8. **PIS/Cofins só até 12/2026.** As competências que restam seguem no Domínio; o DataLedger importa as EFD-Contribuições entregues, para guardar saldos e auditar, sem gerador novo. A base de itens, CST e naturezas é reaproveitada na CBS. **[conciliação]** Diverge da EFD-Contribuições prevista em FIS-29 a FIS-34 da paridade; ver [Divergências](#divergências-que-só-o-fred-decide), item 5, e a pergunta pendente do Fred em [PE-90 e HI-145](../projeto/requisitos.md).
 9. **CNPJ alfanumérico em todo o módulo.** CNPJ e chaves são texto de 14 e 44 posições, com dígito verificador sobre o valor ASCII menos 48. **[conciliação]** O cadastro já aceita desde a [DL-011](DL-011-cnpj-alfanumerico.md); o fiscal herda o validador.
 10. **Escriturar, não emitir, no MVP.** O DataLedger captura, escritura, apura e confere. Emitir NF-e ou NFS-e fica para depois, por provedor ou biblioteca pronta.
 11. **O Domínio segue como sistema oficial** até cada obrigação passar no teste de execução em paralelo (seção Migração).
@@ -1020,10 +1026,10 @@ nível 1, e PR para a `main`.
 | Ordem | Etapa | O que entrega | Nível | Depende de |
 | --- | --- | --- | --- | --- |
 | 1 | [DL-072](DL-072-escrituracao-das-nfse-prestadas.md) | Escrituração das NFS-e prestadas: natureza, três datas, rascunho/efetivada/estorno, conferência recebidas × escrituradas | 1 | — |
-| 2 | a numerar | Faturamento mensal e RBT12 do Simples, com limite e sublimite como dado com vigência | 1 | 1 |
-| 3 | a numerar | Tabelas dos Anexos do Simples como dado com vigência e fonte; alíquota efetiva e pré-DAS com segregação (ISS retido, outro município) | 1 | 2 e leitura oficial dos Anexos da LC 123 |
-| 4 | a numerar | Validador de conformidade IBS/CBS das NFS-e recebidas, em modo aviso (HI-61) | 2 | pode correr em paralelo a 2 e 3 |
-| 5 | a numerar | ISS por município, começando por Palmas; relatório de ISS retido sofrido | 1 | 1 |
+| 2 | [DL-074](DL-074-receita-e-rbt12-do-simples.md) | Faturamento mensal e RBT12 do Simples, com limite e sublimite como dado com vigência | 1 | 1 |
+| 3 | [DL-075](DL-075-pre-das-do-simples.md) | Tabelas dos Anexos do Simples como dado com vigência e fonte; alíquota efetiva e pré-DAS com segregação (ISS retido, outro município) | 1 | 2 e leitura oficial dos Anexos da LC 123 |
+| 4 | [DL-073](DL-073-validador-ibscbs.md) | Validador de conformidade IBS/CBS das NFS-e recebidas, em modo aviso (HI-61) | 2 | pode correr em paralelo a 2 e 3 |
+| 5 | [DL-076](DL-076-iss-por-municipio-palmas.md) | ISS por município, começando por Palmas; relatório de ISS retido sofrido | 1 | 1 |
 | 6 | [DL-078](DL-078-servicos-tomados-e-retencoes.md) | Serviços tomados (entradas) e ISS retido pelo cliente tomador | 1 | 1 |
 | 7 | [DL-079](DL-079-lucro-presumido-irpj-csll.md) | Presumido: IRPJ/CSLL trimestral, depois de ler LC 224/2025 e IN RFB 2.306/2026 no texto oficial | 1 | 1 |
 | 8 | [DL-080](DL-080-recepcao-de-nfe.md) | NF-e (DL-010 fatia 2) e o restante do roteiro de ondas acima | 1 e 2 | 1 |

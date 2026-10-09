@@ -129,20 +129,11 @@ concilia uma apuração, o que o contador espera ver numa conferência.
 **Não use para obter regra tributária vigente.** Conteúdo de fornecedor
 envelhece e não é fonte oficial.
 
-### Limite técnico descoberto em 2026-09-13
+### Limite técnico: a nota de 2026-09-13 foi revista em 2026-10-09
 
-A base de soluções do fornecedor (`suporte.dominioatendimento.com`, páginas do
-tipo `solucao.html?codigo=N`) **não é legível por agente**. As páginas respondem
-200, mas o corpo do artigo é montado por JavaScript com sessão autenticada:
-`curl` recebe a casca, o `WebFetch` recebe 403, e mesmo um navegador sem sessão
-devolve **exatamente o mesmo HTML para códigos diferentes** — verificado com
-três códigos distintos, todos com o mesmo tamanho em bytes.
+~~A base de soluções do fornecedor (`suporte.dominioatendimento.com`, páginas do tipo `solucao.html?codigo=N`) **não é legível por agente**. As páginas respondem 200, mas o corpo do artigo é montado por JavaScript com sessão autenticada: `curl` recebe a casca, o `WebFetch` recebe 403, e mesmo um navegador sem sessão devolve **exatamente o mesmo HTML para códigos diferentes** — verificado com três códigos distintos, todos com o mesmo tamanho em bytes.~~ Corrigido em 09/10/2026 (DL-086): a afirmação de 13/09 ficou desatualizada. Na pesquisa dos acumuladores, de 09/10/2026, os artigos da base foram lidos por `curl` com User-Agent de navegador: o HTML trouxe o corpo completo, e os códigos conferidos (121, 201, 653, 776, 786, 814, 824, 894 e 922) têm conteúdos de tamanhos diferentes. O `WebFetch` segue com 403. Ver [pesquisa-acumuladores-2026-10-09.md](pesquisa-acumuladores-2026-10-09.md).
 
-Consequência prática: quando o Fred indicar uma solução dessa base, ou ele cola
-o conteúdo, ou o entendimento vem de outra fonte. **Uma delas funciona**: os
-artigos que aparecem nos resultados de busca pública trazem resumo utilizável, e
-os **manuais em PDF do diretório público** (seção 1) cobrem o mesmo assunto com
-mais profundidade.
+A regra de uso não muda: a base serve para entender a rotina do sistema de referência, nunca como fonte de regra tributária, e nada do conteúdo é copiado para o repositório. Quando a leitura falhar, o caminho segue o de antes: o Fred cola o conteúdo, ou o entendimento vem da busca pública e dos **manuais em PDF do diretório público** (seção 1), que cobrem o mesmo assunto com mais profundidade.
 
 ## 3. Fontes oficiais — obrigatórias para qualquer cálculo
 
