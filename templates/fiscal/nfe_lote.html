@@ -37,6 +37,9 @@ conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do
         Agrupa as NF-e e NFC-e do mês que ainda não estão efetivadas, por tipo, CFOP, CST ou CSOSN e natureza
         sugerida. Cada nota é efetivada pela mesma regra da escrituração individual: o lote não tem atalho.
     </p>
+    {% if not pode_escriturar %}
+        <p id="id_motivo_sem_escrita" class="texto-apoio">Seu papel só consulta: ler e confirmar o lote é de quem escritura.</p>
+    {% endif %}
 
     {% if progresso %}
         <section class="painel-etapa" aria-labelledby="id_lote_progresso">
@@ -85,6 +88,8 @@ conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do
                     <input type="hidden" name="assinatura" value="{{ progresso.assinatura }}">
                     <button type="submit" class="botao botao--primario">Continuar: próxima parte ({{ progresso.restantes }} nota(s) restam)</button>
                 </form>
+            {% elif not progresso.terminou %}
+                <button type="button" class="botao botao--primario" disabled aria-describedby="id_motivo_sem_escrita">Continuar: próxima parte ({{ progresso.restantes }} nota(s) restam)</button>
             {% endif %}
             <p><a href="{{ url_previa }}">Ver a prévia do mês</a></p>
         </section>
@@ -108,7 +113,7 @@ conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do
                         <button type="submit" class="botao botao--primario">Continuar o lote: próxima parte</button>
                     </form>
                 {% else %}
-                    <p class="texto-apoio">Seu papel consulta o lote, mas não o continua: por isso não há botão de continuar.</p>
+                    <button type="button" class="botao botao--primario" disabled aria-describedby="id_motivo_sem_escrita">Continuar o lote: próxima parte</button>
                 {% endif %}
             </section>
         {% endif %}
@@ -129,7 +134,7 @@ conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do
                         <button type="submit" class="botao botao--primario">Ler as próximas {{ proximas_leituras }}</button>
                     </form>
                 {% else %}
-                    <p class="texto-apoio">Seu papel consulta esta prévia, mas não lê as notas: por isso não há botão de leitura.</p>
+                    <button type="button" class="botao botao--primario" disabled aria-describedby="id_motivo_sem_escrita">Ler as próximas {{ proximas_leituras }}</button>
                 {% endif %}
             {% else %}
                 <p>Todas as notas do mês já foram lidas.</p>
@@ -142,10 +147,10 @@ conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do
                 <p class="texto-apoio">
                     {{ total_grupos }} grupo(s), com {{ total_notas_do_lote }} nota(s) e {{ total_itens_do_lote }} item(ns).
                     "Manter a sugestão" aceita a natureza sugerida. Uma natureza escolhida para o grupo vale para todas as
-                    combinações de CFOP e CST que ele tem.
+                    combinações de CFOP e CST que ele tem. Um grupo desmarcado fica de fora do lote: suas notas não são tocadas.
                 </p>
                 {% if not pode_escriturar %}
-                    <p class="texto-apoio">Seu papel consulta a prévia, mas não confirma o lote: por isso não há seletores nem botão de confirmar.</p>
+                    <p class="texto-apoio">Seu papel consulta a prévia, mas não confirma o lote: por isso não há seletores, e o botão de confirmar fica desabilitado.</p>
                 {% elif a_ler %}
                     <p class="texto-apoio">Leia as {{ a_ler }} nota(s) pendente(s) antes de confirmar: a confirmação só efetiva um mês que a prévia viu inteiro.</p>
                 {% elif lote_aberto %}
@@ -218,6 +223,11 @@ conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do
                             <button type="submit" class="botao botao--primario">Confirmar o lote: {{ total_notas_do_lote }} nota(s) em {{ total_grupos }} grupo(s)</button>
                         </div>
                 </form>
+                {% endif %}
+                {% if not pode_escriturar %}
+                    <div class="acoes-formulario">
+                        <button type="button" class="botao botao--primario" disabled aria-describedby="id_motivo_sem_escrita">Confirmar o lote: {{ total_notas_do_lote }} nota(s) em {{ total_grupos }} grupo(s)</button>
+                    </div>
                 {% endif %}
             </section>
         {% endif %}

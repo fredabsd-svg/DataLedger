@@ -87,7 +87,7 @@ CONTRATO_RECLASSIFICAR = ContratoDeRequisicao(
 # DL-085: a confirmação em bloco. A primeira chamada leva ano, mes, assinatura e escolhas; a
 # continuação leva só lote_id (e, se quiser, a assinatura do lote, para conferir).
 CONTRATO_CONFIRMAR_LOTE = ContratoDeRequisicao(
-    campos={"ano", "mes", "assinatura", "escolhas", "lote_id", "limite"},
+    campos={"ano", "mes", "assinatura", "escolhas", "grupos", "lote_id", "limite"},
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na confirmação do lote de escrituração de NF-e",
 )
@@ -627,6 +627,13 @@ class ConfirmarLoteEntradaSerializer(serializers.Serializer):
         validators=[_sem_caractere_invalido],
     )
     escolhas = TrocaDeGrupoEntradaSerializer(many=True, required=False, allow_null=True)
+    # DL-085 (confirmação por grupo): só as chaves listadas entram no lote. Ausente: todos.
+    grupos = serializers.ListField(
+        child=serializers.CharField(max_length=80, validators=[_sem_caractere_invalido]),
+        required=False,
+        allow_null=True,
+        max_length=_MAXIMO_ITENS_POR_PEDIDO,
+    )
     lote_id = serializers.IntegerField(
         required=False, allow_null=True, min_value=1, max_value=MAIOR_ID
     )
@@ -691,6 +698,7 @@ def _previa_payload(previa: lote_servico.PreviaDoLote) -> dict:
                     "numero": recusa.numero,
                     "serie": recusa.serie,
                     "dh_emissao": _iso(recusa.dh_emissao),
+                    "valor_nf": _decimal(recusa.valor_nf),
                     "codigo": recusa.codigo,
                     "motivo": recusa.motivo,
                 }
@@ -723,7 +731,12 @@ def _progresso_payload(progresso: lote_servico.ProgressoDoLote) -> dict:
         "efetivadas_nesta_chamada": progresso.efetivadas_nesta_chamada,
         "ja_efetivadas_nesta_chamada": progresso.ja_efetivadas_nesta_chamada,
         "falhas_nesta_chamada": [
-            {"vinculo_id": falha.vinculo_id, "motivo": falha.motivo}
+            {
+                "vinculo_id": falha.vinculo_id,
+                "numero": falha.numero,
+                "serie": falha.serie,
+                "motivo": falha.motivo,
+            }
             for falha in progresso.falhas_nesta_chamada
         ],
         "restantes": progresso.restantes,
@@ -778,6 +791,7 @@ class ConfirmarLoteNFeView(_EmpresaComIdValido, APIView):
                 request=request,
                 limite=dados.get("limite") or lote_servico.LIMITE_PADRAO_DA_PARTE,
                 lote_id=dados.get("lote_id"),
+                grupos=dados.get("grupos"),
             )
         except lote_servico.LoteNaoEncontrado as exc:
             raise NotFound("Lote de escrituração não encontrado nesta empresa.") from exc

@@ -7848,12 +7848,6 @@ _ROTULO_MOTIVO_FORA_DO_LOTE = {
     servico_lote.CODIGO_W16: "Não confere com o vNF",
     servico_lote.CODIGO_CONFERENCIA: "Não fecha a conferência",
 }
-# A caixa "incluir este grupo" existe na tela, mas o serviço ainda confirma a prévia inteira.
-# Por isso um grupo desmarcado é recusado aqui, sem gravar nada, em vez de ser ignorado em silêncio.
-_MENSAGEM_GRUPO_FORA_DO_LOTE = (
-    "A confirmação ainda não deixa grupo de fora: o lote efetiva todos os grupos da prévia. "
-    "Marque todos os grupos para confirmar. Nada foi efetivado."
-)
 
 
 def _inteiro_do_formulario_lote(bruto, rotulo):
@@ -7950,15 +7944,6 @@ def _preenchimento_do_post(post, grupos):
     }
 
 
-def _rotulos_das_notas(empresa, vinculo_ids):
-    """Número e série de cada vínculo, sempre DENTRO da empresa (IDOR): vínculo de outra empresa
-    não aparece."""
-    notas = VinculoNFeEmpresa.objects.select_related("documento").filter(
-        empresa=empresa, pk__in=list(vinculo_ids)
-    )
-    return {nota.pk: f"nº {nota.documento.numero}, série {nota.documento.serie}" for nota in notas}
-
-
 def _linha_do_grupo_no_lote(grupo, posicao, preenchido):
     chave = grupo.chave
     return {
@@ -7983,12 +7968,13 @@ def _linha_do_grupo_no_lote(grupo, posicao, preenchido):
     }
 
 
-def _linha_fora_do_lote(recusa, empresa, valores):
+def _linha_fora_do_lote(recusa, empresa):
     return {
         "numero": recusa.numero,
         "serie": recusa.serie,
         "emissao": recusa.dh_emissao,
-        "valor_nf_ptbr": _valor_ptbr(valores.get(recusa.documento_id)),
+        # O vNF vem do domínio, junto com a recusa: a tela não consulta a nota por fora.
+        "valor_nf_ptbr": _valor_ptbr(recusa.valor_nf),
         "rotulo_motivo": _ROTULO_MOTIVO_FORA_DO_LOTE.get(recusa.codigo, recusa.codigo),
         "motivo": recusa.motivo,
         "url": reverse("fiscal_web:nfe_escriturar", args=[empresa.pk, recusa.vinculo_id]),
@@ -8003,12 +7989,6 @@ def _tela_do_lote_nfe(request, empresa, ano, mes, *, status=200, preenchido=None
         raise _EntradaNfeRecusada(exc.mensagem) from exc
     pode = _pode_escriturar(request)
     pagina = Paginator(previa.fora, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
-    valores = dict(
-        DocumentoNFe.objects.filter(
-            escritorio=request.escritorio,
-            pk__in=[recusa.documento_id for recusa in pagina.object_list],
-        ).values_list("pk", "v_nf")
-    )
     aberto = previa.lote_em_andamento
     lote_aberto = servico_lote.resumo_do_lote(aberto) if aberto is not None else None
     a_ler = len(previa.a_ler)
@@ -8042,7 +8022,7 @@ def _tela_do_lote_nfe(request, empresa, ano, mes, *, status=200, preenchido=None
         "canceladas": previa.canceladas,
         "nao_elegiveis": previa.nao_elegiveis,
         "fora_total": len(previa.fora),
-        "fora_linhas": [_linha_fora_do_lote(r, empresa, valores) for r in pagina.object_list],
+        "fora_linhas": [_linha_fora_do_lote(r, empresa) for r in pagina.object_list],
         "pagina": pagina,
         "querystring_sem_pagina": urlencode({"ano": ano, "mes": mes}),
         "lote_aberto": lote_aberto,
@@ -8054,7 +8034,6 @@ def _tela_do_lote_nfe(request, empresa, ano, mes, *, status=200, preenchido=None
 
 def _tela_do_progresso_nfe(request, empresa, progresso, *, status=200):
     """O que a última parte fez: efetivadas, o que resta, falhas com motivo e o resumo do lote."""
-    numeros = _rotulos_das_notas(empresa, [f.vinculo_id for f in progresso.falhas_nesta_chamada])
     contexto = {
         "empresa": empresa,
         "ano": progresso.ano,
@@ -8079,7 +8058,7 @@ def _tela_do_progresso_nfe(request, empresa, progresso, *, status=200):
             "falhas_total": progresso.falhas_total,
             "falhas": [
                 {
-                    "rotulo": numeros.get(falha.vinculo_id, "nota"),
+                    "rotulo": f"nº {falha.numero}, série {falha.serie}",
                     "url": reverse(
                         "fiscal_web:nfe_escriturar", args=[empresa.pk, falha.vinculo_id]
                     ),
@@ -8176,18 +8155,12 @@ def _continuar_post(request, empresa, ano, mes, post):
 
 
 def _confirmar_post(request, empresa, ano, mes, post, grupos):
+    """Confirma SÓ os grupos marcados. Os desmarcados ficam intactos: o serviço não cria nada
+    para eles (DL-085, confirmação por grupo). Nenhum marcado: 400, nomeado, pelo serviço."""
     marcados = _grupos_marcados(post, grupos)
-    if set(grupos) - marcados:
-        messages.error(request, _MENSAGEM_GRUPO_FORA_DO_LOTE)
-        return _tela_do_lote_nfe(
-            request,
-            empresa,
-            ano,
-            mes,
-            status=400,
-            preenchido=_preenchimento_do_post(post, grupos),
-        )
-    escolhas = _escolhas_do_formulario(post, grupos)
+    grupos_marcados = [chave for chave in grupos if chave in marcados]
+    # Seletor de um grupo desmarcado não entra: a escolha seria de um grupo que não vai ao lote.
+    escolhas = _escolhas_do_formulario(post, grupos_marcados)
     assinatura = _texto_nfe(post.get("assinatura"), "Assinatura da prévia", 64) or None
     progresso, resposta = _progresso_ou_recusa(
         request,
@@ -8203,6 +8176,7 @@ def _confirmar_post(request, empresa, ano, mes, post, grupos):
             usuario=request.user,
             request=request,
             limite=servico_lote.LIMITE_PADRAO_DA_PARTE,
+            grupos=grupos_marcados,
         ),
         preenchido=_preenchimento_do_post(post, grupos),
     )

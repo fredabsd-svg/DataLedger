@@ -8,10 +8,8 @@ O que a tela faz é conferido pelo HTML e pelo banco. A regra (prévia, assinatu
 tem testes na frente A (`test_dl085_api.py`, `test_dl085_partes.py`, ...): aqui se confere só o que
 o contador vê e o que a tela manda ao serviço.
 
-Limite conhecido, registrado no relatório da frente B: `confirmar_lote` efetiva a prévia INTEIRA.
-Por isso a caixa "incluir este grupo" recusa um grupo desmarcado, sem gravar nada. Efetivar só os
-grupos marcados depende de função de domínio que não existe (ver
-`test_grupo_desmarcado_e_recusado_sem_efetivar_nada`).
+A confirmação é por grupo (DL-085, frente A, grupos): a caixa "incluir este grupo" manda só os
+grupos marcados ao serviço. O grupo desmarcado fica intacto (ver o teste de grupo desmarcado).
 """
 
 import re
@@ -279,24 +277,40 @@ def test_confirmar_com_todos_os_grupos_efetiva_as_notas_do_lote_e_so_elas(
     assert LoteEscrituracaoNFe.objects.filter(empresa=posto).count() == 1
 
 
-def test_grupo_desmarcado_e_recusado_sem_efetivar_nada(escritorio_a, gestor, posto, client):
-    """Critério 3, parte "grupo desmarcado fica intacto": BLOQUEADA pelo domínio.
+def _chave_do_grupo_com(html, combinacao):
+    """Chave do grupo cuja lista de combinações do formulário traz `combinacao` (5656|500|...)."""
+    for chave, valor in re.findall(r'name="assinatura_([^"]+)" value="([^"]+)"', html):
+        if valor == combinacao:
+            return chave
+    raise AssertionError(f"grupo com {combinacao} não está na prévia")
 
-    `confirmar_lote` efetiva a prévia inteira. Enquanto não houver função de domínio que confirme só
-    os grupos marcados, a tela recusa o POST com grupo desmarcado, com mensagem, e não grava nada.
-    """
+
+def test_grupo_desmarcado_fica_intacto_e_os_marcados_sao_efetivados(
+    escritorio_a, gestor, posto, client
+):
+    """Confirmação por grupo: o de combustível fica desmarcado, e suas 3 notas não ganham rascunho
+    nem escrituração. O de revenda (2 notas) é efetivado, e o lote só registra esse grupo."""
     _cenario(escritorio_a, gestor, posto)
     client.force_login(gestor)
     _ler_tudo(client, posto)
     html = _html(client.get(_url(posto)))
-    chave = re.findall(r'<input type="hidden" name="grupo" value="([^"]+)"', html)[0]
+    combustivel = _chave_do_grupo_com(html, CHAVE_COMBUSTIVEL)
 
-    resposta = _post(client, posto, _dados_de_confirmacao(html, excluir=[chave]))
+    resposta = _post(client, posto, _dados_de_confirmacao(html, excluir=[combustivel]))
 
-    assert resposta.status_code == 400
-    assert "Nada foi efetivado" in _html(resposta)
-    assert _efetivadas(posto) == 0
-    assert not LoteEscrituracaoNFe.objects.filter(empresa=posto).exists()
+    assert resposta.status_code == 200
+    assert "Lote concluído" in _html(resposta)
+    assert _efetivadas(posto) == 2
+    numeros_do_grupo_desmarcado = [1, 2, 3]
+    assert not EscrituracaoNFe.objects.filter(
+        empresa=posto, vinculo__documento__numero__in=[str(n) for n in numeros_do_grupo_desmarcado]
+    ).exists()
+    lote = LoteEscrituracaoNFe.objects.get(empresa=posto)
+    assert servico_lote.resumo_do_lote(lote)["grupos"] == [
+        chave
+        for chave in re.findall(r'<input type="hidden" name="grupo" value="([^"]+)"', html)
+        if chave != combustivel
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -469,13 +483,35 @@ def test_progresso_mostra_a_falha_com_o_motivo_e_a_nota(escritorio_a, gestor, po
 # ---------------------------------------------------------------------------
 
 
-def test_paralegal_ve_a_previa_sem_botoes_e_o_post_e_recusado(
+MOTIVO_SEM_ESCRITA = "Seu papel só consulta: ler e confirmar o lote é de quem escritura."
+
+
+def _botao_desabilitado(html, texto):
+    """(id do motivo, texto do motivo) do botão desabilitado cujo rótulo começa com `texto`.
+
+    A direção de arte (§2.B) pede o botão visível e desabilitado, com o motivo LIGADO a ele."""
+    padrao = (
+        r'<button type="button" class="[^"]*" disabled aria-describedby="([^"]+)">\s*'
+        + re.escape(texto)
+    )
+    achado = re.search(padrao, html)
+    assert achado, f"botão desabilitado '{texto}' não está na tela"
+    id_motivo = achado.group(1)
+    motivo = re.search(r'<p id="' + re.escape(id_motivo) + r'" class="[^"]*">([^<]*)</p>', html)
+    assert motivo, f"o motivo '{id_motivo}' do botão não existe na tela"
+    return id_motivo, motivo.group(1)
+
+
+def test_paralegal_ve_botoes_desabilitados_com_o_motivo_e_o_post_e_recusado(
     escritorio_a, gestor, paralegal, posto, client
 ):
+    """PARALEGAL consulta: "Ler as próximas" e "Confirmar" aparecem DESABILITADOS, com o
+    motivo ligado por aria-describedby. Nenhum formulário de escrita; o POST segue em 403."""
     _cenario(escritorio_a, gestor, posto)
     client.force_login(gestor)
     _ler_tudo(client, posto)
-    gestor_html = _html(client.get(_url(posto)))
+    gestor_html = _html(client.get(_url(posto)))  # a prévia com o mês lido, para montar o POST
+    nfce(escritorio_a, gestor, numero=6, valor="10.00")  # uma nota nova, ainda não lida
     client.force_login(paralegal)
 
     resposta = client.get(_url(posto))
@@ -486,13 +522,34 @@ def test_paralegal_ve_a_previa_sem_botoes_e_o_post_e_recusado(
     assert "Fora do lote: 1 nota(s)" in html
     assert 'name="acao" value="confirmar"' not in html
     assert 'name="acao" value="ler"' not in html
-    assert "não há seletores nem botão de confirmar" in html
     assert 'name="assinatura"' not in html
+    assert html.count('id="id_motivo_sem_escrita"') == 1
+    for texto in ("Ler as próximas 1", "Confirmar o lote: 5 nota(s) em 2 grupo(s)"):
+        id_motivo, motivo = _botao_desabilitado(html, texto)
+        assert id_motivo == "id_motivo_sem_escrita"
+        assert motivo == MOTIVO_SEM_ESCRITA
 
     recusado = _post(client, posto, _dados_de_confirmacao(gestor_html))
     assert recusado.status_code == 403
     assert _efetivadas(posto) == 0
     assert not LoteEscrituracaoNFe.objects.filter(empresa=posto).exists()
+
+
+def test_paralegal_ve_continuar_desabilitado_com_o_motivo_no_lote_em_andamento(
+    escritorio_a, gestor, paralegal, posto, client
+):
+    _cenario(escritorio_a, gestor, posto)
+    client.force_login(gestor)
+    _ler_tudo(client, posto)
+    previa = servico_lote.previa_do_lote(posto, ANO, MES)
+    servico_lote.confirmar_lote(posto, ANO, MES, previa.assinatura, {}, gestor, limite=1)
+    client.force_login(paralegal)
+
+    html = _html(client.get(_url(posto)))
+
+    id_motivo, motivo = _botao_desabilitado(html, "Continuar o lote: próxima parte")
+    assert (id_motivo, motivo) == ("id_motivo_sem_escrita", MOTIVO_SEM_ESCRITA)
+    assert 'name="acao" value="continuar"' not in html
 
 
 def test_paralegal_nao_le_as_notas_pelo_post(escritorio_a, gestor, paralegal, posto, client):

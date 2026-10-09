@@ -81,7 +81,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -109,6 +109,7 @@ from apps.fiscal.models import (
     LeituraItensNFe,
     LoteEscrituracaoNFe,
     LoteEscrituracaoNFeNota,
+    VinculoNFeEmpresa,
 )
 
 # Tamanho de cada parte, em notas por chamada (DL-085, item 3). Medido com 10.000 NFC-e de 1 a 5
@@ -268,6 +269,8 @@ class ForaDoLote:
     dh_emissao: datetime
     codigo: str
     motivo: str
+    # vNF da nota, como está no XML (None só se a nota não o tem: a recusa é "sem vNF").
+    valor_nf: Decimal | None = None
 
 
 @dataclass
@@ -302,6 +305,9 @@ class _Candidata:
 class FalhaDaNota:
     vinculo_id: int
     motivo: str
+    # Número e série da nota, para a tela mostrar a nota e não só o id do vínculo.
+    numero: str = ""
+    serie: str = ""
 
 
 @dataclass(frozen=True)
@@ -428,6 +434,7 @@ def _fora(nota: servico.NotaDoMes, codigo: str, motivo: str) -> ForaDoLote:
         dh_emissao=documento.dh_emissao,
         codigo=codigo,
         motivo=motivo,
+        valor_nf=documento.v_nf,
     )
 
 
@@ -834,16 +841,63 @@ def _detalhes_dos_grupos(previa: PreviaDoLote, escolhas: dict) -> list[dict]:
     return detalhes
 
 
+def _recorte_da_previa(previa: PreviaDoLote, grupos: list[str] | None) -> PreviaDoLote:
+    """A prévia só com os grupos pedidos (DL-085, confirmação por grupo). `None` é a prévia inteira.
+
+    A assinatura continua sendo a da prévia inteira: o recorte só decide quais notas entram no lote.
+    Lista vazia e grupo que a prévia não tem são 400, nomeados, antes de qualquer gravação.
+    """
+    if grupos is None:
+        return previa
+    if not grupos:
+        raise servico.EntradaInvalidaNFe(
+            "Marque ao menos um grupo para confirmar. Nada foi efetivado."
+        )
+    existentes = {grupo.chave for grupo in previa.grupos}
+    if set(grupos) - existentes:
+        raise servico.EntradaInvalidaNFe(
+            "Um dos grupos marcados não existe mais na prévia: atualize a prévia e confirme de "
+            "novo. "
+            "Nada foi efetivado."
+        )
+    pedidos = set(grupos)
+    return replace(previa, grupos=tuple(g for g in previa.grupos if g.chave in pedidos))
+
+
+def _grupos_do_lote(lote: LoteEscrituracaoNFe) -> set[str]:
+    """Chaves dos grupos que o lote confirmou. Vêm das linhas de nota (cada uma tem o seu grupo)."""
+    return set(
+        LoteEscrituracaoNFeNota.objects.filter(lote=lote)
+        .values_list("chave_grupo", flat=True)
+        .distinct()
+    )
+
+
 def _criar_lote(
-    empresa, ano: int, mes: int, assinatura: str, escolhas: dict, usuario, request
+    empresa,
+    ano: int,
+    mes: int,
+    assinatura: str,
+    escolhas: dict,
+    usuario,
+    request,
+    grupos: list[str] | None = None,
 ) -> LoteEscrituracaoNFe:
     """Grava o lote: o conjunto de notas, as naturezas fixadas e a trilha. Dentro da trava da
     empresa, com a prévia recalculada agora."""
-    previa = _calcular(empresa, ano, mes, None)
-    if previa.assinatura != assinatura:
+    previa_inteira = _calcular(empresa, ano, mes, None)
+    if previa_inteira.assinatura != assinatura:
         raise PreviaDesatualizada(MENSAGEM_PREVIA_DESATUALIZADA)
-    if not previa.grupos:
+    if not previa_inteira.grupos:
         raise servico.EntradaInvalidaNFe(MENSAGEM_SEM_PENDENTES)
+    previa = _recorte_da_previa(previa_inteira, grupos)
+    # Escolha de natureza de um grupo que NÃO entra no lote é recusada, não ignorada em silêncio.
+    fora_do_recorte = set(escolhas) - {grupo.chave for grupo in previa.grupos}
+    if fora_do_recorte & {grupo.chave for grupo in previa_inteira.grupos}:
+        raise servico.EntradaInvalidaNFe(
+            "Há escolha de natureza para um grupo que não está marcado. Marque o grupo ou tire a "
+            "escolha. Nada foi efetivado."
+        )
     escolhas_validas = _escolhas_validas(previa, escolhas)
     fixados = _fixar_naturezas(previa, escolhas_validas)
 
@@ -891,6 +945,8 @@ def _criar_lote(
             "quantidade_notas": lote.quantidade_notas,
             "quantidade_itens": lote.quantidade_itens,
             "escolhas": escolhas_validas,
+            # Quais grupos foram confirmados. Os não marcados não têm nota no lote: ficam intactos.
+            "grupos_confirmados": [grupo.chave for grupo in previa.grupos],
             "grupos": _detalhes_dos_grupos(previa, escolhas_validas),
         },
     )
@@ -999,6 +1055,13 @@ def _processar_parte(lote, usuario, request, limite: int) -> _Parte:
     parte = _Parte()
     if not pendentes:
         return parte
+    # Número e série só das notas desta parte, numa consulta: a falha mostra a nota, não o id.
+    documentos = {
+        vinculo.pk: vinculo.documento
+        for vinculo in VinculoNFeEmpresa.objects.select_related("documento").filter(
+            pk__in=[vinculo_id for _pk, vinculo_id in pendentes]
+        )
+    }
     # Estornada DEPOIS da confirmação: o lote não a reefetiva (ver MENSAGEM_ESTORNADA_DEPOIS).
     estornadas = set(
         EscrituracaoNFe.objects.filter(
@@ -1014,15 +1077,20 @@ def _processar_parte(lote, usuario, request, limite: int) -> _Parte:
         elif estado == EstadoNotaDoLoteNFe.JA_EFETIVADA:
             parte.ja_efetivadas.append(vinculo_id)
         elif estado == EstadoNotaDoLoteNFe.FALHOU:
-            parte.falhas.append(FalhaDaNota(vinculo_id, motivo))
+            nota = documentos[vinculo_id]
+            parte.falhas.append(
+                FalhaDaNota(vinculo_id, motivo, numero=nota.numero, serie=nota.serie)
+            )
     return parte
 
 
 def resumo_do_lote(lote: LoteEscrituracaoNFe) -> dict:
-    """Situação do lote para a tela e a API: restantes, efetivadas, puladas e falhas."""
+    """Situação do lote para a tela e a API: restantes, efetivadas, puladas, falhas e os grupos
+    que o lote confirmou (das linhas de nota: o grupo não marcado não tem linha)."""
     contagem = _contagem(lote)
     return {
         "lote_id": lote.pk,
+        "grupos": sorted(_grupos_do_lote(lote)),
         "assinatura": lote.assinatura,
         "estado": lote.estado,
         "restantes": contagem.get(EstadoNotaDoLoteNFe.PENDENTE, 0),
@@ -1119,15 +1187,20 @@ def confirmar_lote(
     request=None,
     limite: int = LIMITE_PADRAO_DA_PARTE,
     lote_id: int | None = None,
+    grupos: list[str] | None = None,
 ) -> ProgressoDoLote:
     """Confirma a prévia (1ª chamada) ou continua o lote (com `lote_id`). Uma parte por chamada.
 
     - Primeira chamada: `ano`, `mes`, `assinatura` e `escolhas` (opcional, `{grupo: {id: nat}}`).
       Assinatura diferente da prévia de agora: `PreviaDesatualizada` (409), nada gravado.
-    - Continuação: `lote_id` (e a assinatura, se enviada, tem de ser a do lote). Escolhas não valem
-      na continuação: vêm com erro de entrada (400), e não são ignoradas em silêncio.
+    - `grupos` (opcional, só na primeira chamada): as chaves dos grupos que entram no lote. `None` é
+      a prévia inteira. Os grupos não listados não têm nota gravada: nem rascunho é criado. A
+      assinatura continua sendo a da prévia inteira. Lista vazia, ou grupo que a prévia não tem:
+      400 nomeado, sem gravar nada.
+    - Continuação: `lote_id` (e a assinatura, se enviada, tem de ser a do lote). Escolhas e grupos
+      não valem na continuação: vêm com erro de entrada (400), e não são ignorados em silêncio.
     - Repetir a primeira chamada com a mesma assinatura, com o lote ainda em andamento, CONTINUA o
-      lote, sem duplicar nada.
+      lote, sem duplicar nada. Com outros grupos ou outras escolhas, é outro ato: 409.
     """
     limite = _validar_limite(limite)
     if lote_id is not None:
@@ -1136,6 +1209,10 @@ def confirmar_lote(
             raise servico.EntradaInvalidaNFe(
                 "As escolhas valem na confirmação do lote, não na continuação."
             )
+        if grupos is not None:
+            raise servico.EntradaInvalidaNFe(
+                "Os grupos valem na confirmação do lote, não na continuação."
+            )
         if assinatura and assinatura != lote.assinatura:
             raise PreviaDesatualizada(MENSAGEM_ASSINATURA_DO_LOTE)
         return _continuar(lote, usuario, request, limite)
@@ -1143,19 +1220,27 @@ def confirmar_lote(
     _validar_competencia(ano, mes)
     if not assinatura:
         raise servico.EntradaInvalidaNFe("Informe a assinatura da prévia confirmada.")
+    if grupos is not None and not grupos:
+        raise servico.EntradaInvalidaNFe(
+            "Marque ao menos um grupo para confirmar. Nada foi efetivado."
+        )
     competencia = date(ano, mes, 1)
     with transaction.atomic():
         travada = receita_servico.travar_empresa(empresa)
         aberto = _lote_em_andamento(travada, competencia)
         if aberto is not None:
-            # Repetição do mesmo ato (ex.: a resposta se perdeu): continua o lote. Assinatura
-            # diferente, ou escolha diferente da gravada, é outro ato, e recusa (409).
+            # Repetição do mesmo ato (ex.: a resposta se perdeu): continua o lote. Assinatura,
+            # escolha ou grupos diferentes do gravado são outro ato, e recusam (409).
             escolhas_do_pedido = _normalizar_escolhas(escolhas)
-            if assinatura != aberto.assinatura or (
-                escolhas_do_pedido and escolhas_do_pedido != aberto.escolhas
+            if (
+                assinatura != aberto.assinatura
+                or (escolhas_do_pedido and escolhas_do_pedido != aberto.escolhas)
+                or (grupos is not None and set(grupos) != _grupos_do_lote(aberto))
             ):
                 raise LoteEmAndamento(MENSAGEM_LOTE_EM_ANDAMENTO)
             lote = aberto
         else:
-            lote = _criar_lote(travada, ano, mes, assinatura, escolhas or {}, usuario, request)
+            lote = _criar_lote(
+                travada, ano, mes, assinatura, escolhas or {}, usuario, request, grupos
+            )
     return _continuar(lote, usuario, request, limite)
