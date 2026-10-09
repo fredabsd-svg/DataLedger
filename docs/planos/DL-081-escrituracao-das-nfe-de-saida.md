@@ -19,8 +19,17 @@ cálculos **avisam** que há receita de NF-e e não a ignoram em silêncio.
 de 09/10/2026. Foram lidos no Planalto a LC 123, a Lei 9.430, o DL 1.598, as
 Leis 9.249, 9.718 e 10.147 e a LC 214. A Res. CGSN 140 foi lida em cópia
 íntegra, e o XSD do PL 010f e o MOC 7.0 foram lidos na fonte oficial. A
-tabela de CFOP do CONFAZ não estava acessível; a busca da tabela oficial está
-em andamento. Hipóteses HI-117 a HI-124 e pendência PE-85.
+**tabela de CFOP** vem do Portal Nacional da NF-e: é a tabela de apoio do
+Informe Técnico 2023.002 v2.10, publicada em 04/09/2026, com 619 códigos e os
+indicadores `indNFe` e `indDevol`. Baixei a planilha em 09/10/2026 de
+`https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=74KmX8poGpM=`;
+o sha256 é
+`577e05eec452294945d0e9df1f9bb9b21a4af115938e75ec74cf6a541ae4dacf`. O
+próprio informe ressalva que o Convênio s/nº de 1970 prevalece em caso de
+divergência. A tabela entra como dado com fonte. Cada faixa de CFOP mistura
+usos diferentes (venda, devolução, anulação), por isso a devolução é
+identificada pelo indicador `indDevol` da tabela, nunca pela faixa. Hipóteses
+HI-117 a HI-124 e pendência PE-85.
 
 ## Escopo (primeiro corte)
 
