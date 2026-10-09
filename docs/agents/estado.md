@@ -315,7 +315,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    [reconferência](../auditorias/2026-10-09-dl-080-reconferencia.md)
    APROVADA COM RESSALVAS (8.178 aprovados sem a variável do XSD, 1
    reprovado de ambiente, 53 pulados). R1 a R3 fechados por ajuste do
-   arquiteto; R4 a R7 no BL-684. Em integração na branch e PR.** O núcleo se sustentou: nenhuma empresa
+   arquiteto; R4 a R7 no BL-684. Suíte da branch integrada (`f7973bf`,
+   arquiteto, invocação única): 8.188 aprovados, 1 reprovado (ambiente), 53
+   pulados. PR aberto, aguardando a CI; merge autorizado (RC-171).** O núcleo se sustentou: nenhuma empresa
    ligada por chave ou terceiros, nenhuma cancelada como válida, nenhum
    vazamento entre escritórios; suíte 8.083 aprovados, 1 reprovado
    (ambiente), 53 pulados.
