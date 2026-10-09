@@ -370,8 +370,10 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
       - A5 a A10: baixos.
 
       Cálculo do Presumido ao centavo em quatro cenários independentes.
-      Antes da correção única, A1, A3 e A6 (lubrificante no 1,6%) foram ao
-      `contador-senior`.
+      [Consulta](../projeto/consultas/2026-10-09-contador-senior-frete-lubrificante-devolucao.md)
+      sobre A1, A3 e A6, que gerou HI-138 a HI-140. A tabela de NCM vem do
+      Portal Único Siscomex. **Correção única em andamento** (Haiku, cópia
+      `dl083c` sobre `c66125a`). A5 e A10 foram para o BL-688.
     - [DL-084](../planos/DL-084-rotina-do-presumido.md): rotina do Presumido,
       depois da DL-082.
     - BL-687: mudanças do leitor de NF-e, que dependem do BL-686.

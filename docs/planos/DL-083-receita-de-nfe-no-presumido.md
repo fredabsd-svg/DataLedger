@@ -166,6 +166,47 @@ Hipóteses: HI-118, HI-119, HI-122 e HI-133 a HI-134 (RC-172).
   8.638/1/53 e frente B com 8.666/1/53, numa única invocação. A reprovação é
   a de ambiente.
 
+## Decisões para a correção (rodada 1)
+
+Com base na [consulta do frete, do lubrificante e da devolução de combustível](../projeto/consultas/2026-10-09-contador-senior-frete-lubrificante-devolucao.md)
+(HI-138 a HI-140):
+
+- **A1 — devolução de combustível.**
+  - Nova natureza `devolucao_combustivel_consumo`, que deduz do 1,6%.
+  - Reconhecimento dos CFOP 1.660 a 1.662, 2.660 a 2.662, 5.660 a 5.662 e
+    6.660 a 6.662, e do NCM.
+  - Sugestão com confirmação: x.662 → consumo; x.660 e x.661 → devolução
+    de venda.
+  - O saldo de devolução passa a ser **por atividade**.
+  - A recusa sem caminho de confirmação sai. No lugar, a memória avisa
+    quando uma devolução x.662 foi deduzida a 8%.
+- **A6 — lubrificante.** A sugestão de combustível exige CFOP **e** NCM.
+  - A tabela de NCM vem da nomenclatura vigente do Portal Único Siscomex,
+    vigente em 09/10/2026 (Resolução Gecex 926/2026, sha256
+    `4ca9f857…de59b`).
+  - Álcool etílico (2207.10 e 2207.20.1) e diesel com biodiesel (2710.20)
+    contam como combustível só com CFOP de combustível. A descrição da NCM
+    não diz "carburante", mas, com CFOP de "combustíveis ou lubrificantes"
+    e NCM que não é lubrificante, a única leitura é combustível (decisão do
+    arquiteto).
+  - Lubrificante sugere revenda (8%), com aviso.
+- **A3 — item que não é receita.**
+  - O valor líquido dos itens que não são receita é rateado
+    proporcionalmente sobre os itens de receita da mesma nota.
+  - O resíduo de arredondamento vai para o item de maior valor.
+  - A efetivação bloqueia só a nota sem item de receita e o resíduo negativo
+    maior que a receita.
+- **A2 — reversão da migração 0012.**
+  - A migração é alterada no próprio arquivo, porque ainda não foi para a
+    `main`.
+  - A reversão recusa só quando há item em rascunho ou efetivado com as
+    naturezas novas. Com itens só estornados, o CHECK antigo volta como
+    `NOT VALID`.
+- **A4:** testes para os mutantes sobreviventes.
+- **A7:** a função sem uso sai.
+- **A8:** recusa própria para nota de 2027 e botão desabilitado na tela.
+- **A5 e A10:** vão para o BL-688.
+
 ## Critérios de aceite
 
 1. Receita do item nos quatro casos (`indTot` 1 ou 0 × `indDeduzDeson` 1 ou
