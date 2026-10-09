@@ -429,6 +429,16 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
     frente A está em andamento em paralelo (Haiku, cópia `dl082` sobre
     `a59d853`).
 
+16. **Ordem do Fred de 09/10/2026 (RC-175):** revisar o fiscal por completo,
+    codar o que falta e pesquisar os acumuladores do sistema de referência
+    (cálculo de impostos, regras contábeis, importação de notas).
+    **Em andamento**, com duas pesquisas em paralelo:
+    - mapa de lacunas medido no código;
+    - acumuladores, no manual e na internet, com palavras nossas.
+
+    Depois: consulta ao `contador-senior` sobre o desenho e os planos
+    DL-086 em diante.
+
 **Linha de base vigente (09/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `973dc02` — conteúdo da `main` em `3f3206c` —,
 medida pelo arquiteto numa única invocação, sem a variável dos XSD):**
