@@ -123,6 +123,23 @@ por engano num cálculo de NFS-e.
 - campos novos da NT 2026.008, que o PL 010f ainda não tem;
 - NFCom, CT-e e GTVe (fatia 3).
 
+## Decisões tomadas na implementação (frente A)
+
+- **Evento com o mesmo `@Id` e conteúdo diferente** (por exemplo, retorno
+  rejeitado primeiro e cancelamento aceito depois): é gravado como outro
+  registro e sinalizado no lote. A unicidade é escritório, identificador e
+  SHA-256 do arquivo. Assim a nota fica cancelada nas duas ordens de chegada.
+- **O `@Id` do evento tem 54 posições** (`ID` + 52), não 52 como a pesquisa
+  escreveu (`leiauteEvento_v1.00.xsd`, linha 136).
+- **Conferências além do plano:** a nota de ambiente de homologação
+  (`tpAmb` 2) é recusada; UF, modelo, série e número são conferidos contra a
+  chave; o `@Id` do evento é conferido contra tipo, chave e sequência.
+- **Cancelamento de evento (110001)** que anule um cancelamento aceito não
+  devolve a nota à situação válida no primeiro corte: limite declarado,
+  BL-681.
+- O relatório do lote (tela já existente) passou a mostrar NF-e, NFC-e e
+  eventos de NF-e já nesta frente.
+
 ## Critérios de aceite
 
 1. Os aceitos e cada recusa do item 1 têm teste com XML sintético montado
