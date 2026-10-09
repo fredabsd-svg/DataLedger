@@ -16,6 +16,10 @@
 #   3. `presumido_confirmacao_guarda`: nasce ativa, só para escrituração EFETIVADA; depois só vai de
 #      ativa a substituída; não se apaga.
 #   4. `presumido_medida_guarda`: a medida não muda, exceto a revogação (ativa→inativa, com motivo).
+#   5. `presumido_atividade_guarda`: a atividade de presunção só pode ser ENCERRADA (preencher `fim`
+#      quando ele é nulo, sem mudar mais nada); não se apaga. Percentual e vigência já apurados não
+#      mudam por SQL (auditoria DL-079, A7).
+#   6. `presumido_criterio_guarda`: o critério do ano é fixado uma vez; não muda nem se apaga (A7).
 #
 # Só PostgreSQL: em SQLite vale a guarda do Python. Limite declarado: TRUNCATE não aciona gatilho de
 # linha (mesmo limite da DL-052, DL-072 e DL-078). Quem tem privilégio de dono da tabela fica
@@ -150,11 +154,59 @@ BEFORE UPDATE OR DELETE ON fiscal_medidajudiciallc224
 FOR EACH ROW EXECUTE FUNCTION fiscal_presumido_medida_guarda();
 """
 
+# Atividade: a única mudança permitida é preencher `fim` quando ele é nulo (o encerramento que o
+# serviço faz). `to_jsonb(...) - 'fim'` compara todas as outras colunas, então um UPDATE que mexe em
+# percentual, código, vigência ou padrão é recusado, mesmo que vá junto com o `fim`.
+_SQL_FUNCAO_ATIVIDADE = """
+CREATE OR REPLACE FUNCTION fiscal_presumido_atividade_guarda()
+RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'atividade de presunção não pode ser excluída; encerre a vigência'
+            USING ERRCODE = '23514', CONSTRAINT = 'presumido_atividade_imutavel';
+    END IF;
+    IF OLD.fim IS NULL AND NEW.fim IS NOT NULL
+       AND (to_jsonb(NEW) - 'fim') IS NOT DISTINCT FROM (to_jsonb(OLD) - 'fim') THEN
+        RETURN NEW;
+    END IF;
+    RAISE EXCEPTION 'atividade de presunção só aceita o encerramento da vigência (fim)'
+        USING ERRCODE = '23514', CONSTRAINT = 'presumido_atividade_imutavel';
+END;
+$$ LANGUAGE plpgsql;
+"""
+
+_SQL_GATILHO_ATIVIDADE = """
+CREATE TRIGGER trg_presumido_atividade_guarda
+BEFORE UPDATE OR DELETE ON fiscal_atividadepresuncaoempresa
+FOR EACH ROW EXECUTE FUNCTION fiscal_presumido_atividade_guarda();
+"""
+
+# Critério: definido uma vez por ano. A apuração de um ano já lido não muda de critério por SQL.
+_SQL_FUNCAO_CRITERIO = """
+CREATE OR REPLACE FUNCTION fiscal_presumido_criterio_guarda()
+RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'critério de receita do presumido é fixado uma vez; não muda nem se apaga'
+        USING ERRCODE = '23514', CONSTRAINT = 'presumido_criterio_imutavel';
+END;
+$$ LANGUAGE plpgsql;
+"""
+
+_SQL_GATILHO_CRITERIO = """
+CREATE TRIGGER trg_presumido_criterio_guarda
+BEFORE UPDATE OR DELETE ON fiscal_criterioreceitapresumido
+FOR EACH ROW EXECUTE FUNCTION fiscal_presumido_criterio_guarda();
+"""
+
 _SQL_DESFAZER = """
+DROP TRIGGER IF EXISTS trg_presumido_criterio_guarda ON fiscal_criterioreceitapresumido;
+DROP TRIGGER IF EXISTS trg_presumido_atividade_guarda ON fiscal_atividadepresuncaoempresa;
 DROP TRIGGER IF EXISTS trg_presumido_medida_guarda ON fiscal_medidajudiciallc224;
 DROP TRIGGER IF EXISTS trg_presumido_confirmacao_guarda ON fiscal_confirmacaoretencaopresumido;
 DROP TRIGGER IF EXISTS trg_presumido_declaracao_guarda ON fiscal_declaracaoreceitasintegrais;
 DROP TRIGGER IF EXISTS trg_presumido_receita_guarda ON fiscal_receitatrimestralpresumido;
+DROP FUNCTION IF EXISTS fiscal_presumido_criterio_guarda();
+DROP FUNCTION IF EXISTS fiscal_presumido_atividade_guarda();
 DROP FUNCTION IF EXISTS fiscal_presumido_medida_guarda();
 DROP FUNCTION IF EXISTS fiscal_presumido_confirmacao_guarda();
 DROP FUNCTION IF EXISTS fiscal_presumido_declaracao_guarda();
@@ -174,6 +226,10 @@ def _criar_gatilhos(apps, schema_editor):
         _SQL_GATILHO_CONFIRMACAO,
         _SQL_FUNCAO_MEDIDA,
         _SQL_GATILHO_MEDIDA,
+        _SQL_FUNCAO_ATIVIDADE,
+        _SQL_GATILHO_ATIVIDADE,
+        _SQL_FUNCAO_CRITERIO,
+        _SQL_GATILHO_CRITERIO,
     ):
         schema_editor.execute(sql, params=None)
 
@@ -185,7 +241,6 @@ def _desfazer_gatilhos(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("empresas", "0007_bl54_cnpj_check_constraint_formato"),
         ("fiscal", "0008_dl078_escrituracao_tomada"),
@@ -221,7 +276,12 @@ class Migration(migrations.Migration):
                                 "administracao_locacao_cessao_bens",
                                 "Administração, locação e cessão de bens",
                             ),
-                            ("servicos_hospitalares", "Serviços hospitalares"),
+                            (
+                                "servicos_hospitalares",
+                                "Serviços hospitalares e de auxílio diagnóstico e terapia, "
+                                "patologia clínica, imagenologia, anatomia patológica e "
+                                "citopatologia, medicina nuclear e análises e patologias clínicas",
+                            ),
                         ],
                         max_length=40,
                         verbose_name="atividade de presunção",
@@ -230,15 +290,11 @@ class Migration(migrations.Migration):
                 ("inicio", models.DateField(verbose_name="início da vigência")),
                 (
                     "fim",
-                    models.DateField(
-                        blank=True, null=True, verbose_name="fim da vigência"
-                    ),
+                    models.DateField(blank=True, null=True, verbose_name="fim da vigência"),
                 ),
                 (
                     "padrao",
-                    models.BooleanField(
-                        default=False, verbose_name="atividade padrão das NFS-e"
-                    ),
+                    models.BooleanField(default=False, verbose_name="atividade padrão das NFS-e"),
                 ),
                 (
                     "requisitos_hospitalares_confirmados",
@@ -328,9 +384,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "confirmada_em",
-                    models.DateTimeField(
-                        auto_now_add=True, verbose_name="confirmada em"
-                    ),
+                    models.DateTimeField(auto_now_add=True, verbose_name="confirmada em"),
                 ),
                 (
                     "confirmada_por",
@@ -448,9 +502,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "declarada_em",
-                    models.DateTimeField(
-                        auto_now_add=True, verbose_name="declarada em"
-                    ),
+                    models.DateTimeField(auto_now_add=True, verbose_name="declarada em"),
                 ),
                 (
                     "declarada_por",
@@ -507,9 +559,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "trimestre_inicial",
-                    models.PositiveSmallIntegerField(
-                        verbose_name="trimestre inicial (1 a 4)"
-                    ),
+                    models.PositiveSmallIntegerField(verbose_name="trimestre inicial (1 a 4)"),
                 ),
                 (
                     "ano_final",
@@ -534,22 +584,16 @@ class Migration(migrations.Migration):
                 ("data_decisao", models.DateField(verbose_name="data da decisão")),
                 (
                     "deposito_judicial",
-                    models.BooleanField(
-                        default=False, verbose_name="depósito judicial"
-                    ),
+                    models.BooleanField(default=False, verbose_name="depósito judicial"),
                 ),
                 (
                     "suporte",
-                    models.CharField(
-                        max_length=300, verbose_name="documento de suporte"
-                    ),
+                    models.CharField(max_length=300, verbose_name="documento de suporte"),
                 ),
                 ("ativa", models.BooleanField(default=True, verbose_name="ativa")),
                 (
                     "revogada_em",
-                    models.DateTimeField(
-                        blank=True, null=True, verbose_name="revogada em"
-                    ),
+                    models.DateTimeField(blank=True, null=True, verbose_name="revogada em"),
                 ),
                 (
                     "motivo_revogacao",
@@ -626,15 +670,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "valor",
-                    models.DecimalField(
-                        decimal_places=2, max_digits=15, verbose_name="valor"
-                    ),
+                    models.DecimalField(decimal_places=2, max_digits=15, verbose_name="valor"),
                 ),
                 (
                     "suporte",
-                    models.CharField(
-                        max_length=300, verbose_name="documento de suporte"
-                    ),
+                    models.CharField(max_length=300, verbose_name="documento de suporte"),
                 ),
                 (
                     "estado",
@@ -656,9 +696,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "estornada_em",
-                    models.DateTimeField(
-                        blank=True, null=True, verbose_name="estornada em"
-                    ),
+                    models.DateTimeField(blank=True, null=True, verbose_name="estornada em"),
                 ),
                 (
                     "criada_em",
@@ -846,9 +884,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="medidajudiciallc224",
             constraint=models.CheckConstraint(
-                condition=models.Q(
-                    ("trimestre_inicial__gte", 1), ("trimestre_inicial__lte", 4)
-                ),
+                condition=models.Q(("trimestre_inicial__gte", 1), ("trimestre_inicial__lte", 4)),
                 name="presumido_medida_trimestre_inicial_valido",
             ),
         ),
@@ -867,12 +903,8 @@ class Migration(migrations.Migration):
             model_name="medidajudiciallc224",
             constraint=models.CheckConstraint(
                 condition=models.Q(
-                    models.Q(
-                        ("ano_final__isnull", True), ("trimestre_final__isnull", True)
-                    ),
-                    models.Q(
-                        ("ano_final__isnull", False), ("trimestre_final__isnull", False)
-                    ),
+                    models.Q(("ano_final__isnull", True), ("trimestre_final__isnull", True)),
+                    models.Q(("ano_final__isnull", False), ("trimestre_final__isnull", False)),
                     _connector="OR",
                 ),
                 name="presumido_medida_fim_completo_ou_indeterminado",

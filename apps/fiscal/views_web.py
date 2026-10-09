@@ -4967,6 +4967,8 @@ def presumido_atividades(request):
         pode_escriturar=pode,
         titulo="Atividades de presunção",
         catalogo=_pres_catalogo_na_tela(),
+        # A10: a ESC (38,4%) fica fora do catálogo; é nomeada aqui para não ser lida como serviços.
+        fora_do_corte=tab_presumido.ESC_FORA_DO_PRIMEIRO_CORTE,
     )
     if erro:
         messages.error(request, erro)
@@ -5607,12 +5609,51 @@ def _pres_tela_confirmar_retencao(
 
 
 def _pres_linha_da_nota_no_trimestre(empresa, escrituracao_id, ano, trimestre):
-    """A linha de retenção da nota, dentro do trimestre pedido. Nota de outro trimestre ou de outra
-    empresa não aparece nesta lista e responde 404."""
+    """A linha de retenção da nota, dentro do trimestre pedido, ou None se a nota não está ali.
+
+    Nota que não entra na apuração não tem linha: no POST quem recusa é o serviço, com a mesma
+    mensagem da API (A12). No GET, sem linha não há o que confirmar, e a resposta é 404.
+    """
     for linha in servico_presumido.retencoes_do_trimestre(empresa, ano, trimestre):
         if linha.escrituracao_id == escrituracao_id:
             return linha
-    raise Http404("Nota não encontrada nesta empresa e neste trimestre.")
+    return None
+
+
+def _pres_tela_retencoes_com_erro(request, empresa, ano, trimestre, erro, status):
+    """Lista de retenções com a recusa da confirmação, para nota que não tem linha no trimestre."""
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=True,
+        titulo="Retenções do trimestre",
+        ano_filtro=ano,
+        trimestre_filtro=trimestre,
+        trimestre_rotulo=_pres_trimestre(ano, trimestre),
+        erro=erro,
+        retencoes=[],
+        url_consulta=_pres_url_consulta(
+            "fiscal_web:presumido_retencoes", empresa, ano=ano, trimestre=trimestre
+        ),
+    )
+    return render(request, "fiscal/presumido_retencoes.html", contexto, status=status)
+
+
+def _pres_erro_da_retencao(request, empresa, ano, trimestre, linha, valores, motivo, erro, status):
+    """Recusa da confirmação: volta ao formulário da nota, ou à lista se a nota não tem linha."""
+    if linha is None:
+        return _pres_tela_retencoes_com_erro(request, empresa, ano, trimestre, erro, status)
+    return _pres_tela_confirmar_retencao(
+        request,
+        empresa,
+        ano,
+        trimestre,
+        linha,
+        valores=valores,
+        motivo=motivo,
+        erro=erro,
+        status=status,
+    )
 
 
 @login_required
@@ -5647,8 +5688,13 @@ def presumido_retencao_confirmar(request, empresa_id, escrituracao_id):
             erro=erro_periodo or "Informe o ano e o trimestre.",
         )
         return render(request, "fiscal/presumido_retencoes.html", contexto, status=400)
+    # A nota tem de ser DA empresa (404 para as outras, como nas demais rotas de ato). Se ela está
+    # na lista do trimestre é outra questão: quem decide a recusa é o serviço (A12).
+    get_object_or_404(EscrituracaoFiscal, pk=escrituracao_id, empresa=empresa)
     linha = _pres_linha_da_nota_no_trimestre(empresa, escrituracao_id, ano, trimestre)
     if request.method == "GET":
+        if linha is None:
+            raise Http404("Nota não encontrada nesta empresa e neste trimestre.")
         valores = {
             "irrf": "" if linha.irrf_proposto is None else _valor_ptbr(linha.irrf_proposto),
             "csll": "" if linha.csll_proposta is None else _valor_ptbr(linha.csll_proposta),
@@ -5669,29 +5715,13 @@ def presumido_retencao_confirmar(request, empresa_id, escrituracao_id):
             empresa, escrituracao_id, irrf, csll, motivo, request.user, request
         )
     except DadoNaoContratado as exc:
-        return _pres_tela_confirmar_retencao(
-            request,
-            empresa,
-            ano,
-            trimestre,
-            linha,
-            valores=valores,
-            motivo=motivo,
-            erro=exc.mensagem,
-            status=400,
+        return _pres_erro_da_retencao(
+            request, empresa, ano, trimestre, linha, valores, motivo, exc.mensagem, 400
         )
     except servico_presumido.PresumidoErro as exc:
         status = 400 if isinstance(exc, servico_presumido.EntradaInvalidaPresumido) else 409
-        return _pres_tela_confirmar_retencao(
-            request,
-            empresa,
-            ano,
-            trimestre,
-            linha,
-            valores=valores,
-            motivo=motivo,
-            erro=exc.mensagem,
-            status=status,
+        return _pres_erro_da_retencao(
+            request, empresa, ano, trimestre, linha, valores, motivo, exc.mensagem, status
         )
     messages.success(request, "Retenção confirmada.")
     return redirect(
@@ -5990,6 +6020,8 @@ def _pres_quotas_na_tela(quotas) -> dict:
     return {
         "devido": _valor_ptbr(quotas.devido),
         "unica": [parcela(p) for p in quotas.quota_unica],
+        "duas": [parcela(p) for p in quotas.duas_quotas] if quotas.duas_quotas else None,
+        "motivo_sem_duas": quotas.motivo_sem_duas_quotas or "",
         "tres": [parcela(p) for p in quotas.tres_quotas] if quotas.tres_quotas else None,
         "motivo_sem_tres": quotas.motivo_sem_tres_quotas or "",
     }

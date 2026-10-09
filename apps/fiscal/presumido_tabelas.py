@@ -103,7 +103,10 @@ CATALOGO_ATIVIDADES = (
     ),
     AtividadePresuncao(
         SERVICOS_HOSPITALARES,
-        "Serviços hospitalares",
+        # Texto do inciso: Lei 9.249, art. 15, § 1º, III, "a" (Planalto, lido em 09/10/2026).
+        "Serviços hospitalares e de auxílio diagnóstico e terapia, patologia clínica, "
+        "imagenologia, anatomia patológica e citopatologia, medicina nuclear e análises e "
+        "patologias clínicas",
         Decimal("0.08"),
         Decimal("0.12"),
         "Só com os dois requisitos legais confirmados pelo contador (HI-101).",
@@ -112,6 +115,16 @@ CATALOGO_ATIVIDADES = (
 
 ATIVIDADES_POR_CODIGO = {atividade.codigo: atividade for atividade in CATALOGO_ATIVIDADES}
 CODIGOS_DE_ATIVIDADE = tuple(atividade.codigo for atividade in CATALOGO_ATIVIDADES)
+
+# Atividade da Lei 9.249 que fica FORA do primeiro corte: a Empresa Simples de Crédito tem 38,4%
+# (art. 15, § 1º, IV, incluído pela LC 167/2019; operação de crédito realizada por ESC). Não entra
+# catálogo; é nomeada na tela e na recusa de atividade fora do catálogo, para que ninguém a
+# classifique como serviços em geral (32%) por engano (auditoria DL-079, A10). Sem o `.` final, que
+# cada uso acrescenta.
+ESC_FORA_DO_PRIMEIRO_CORTE = (
+    "Empresa Simples de Crédito (38,4%, Lei 9.249, art. 15, § 1º, IV) — fora do primeiro corte; "
+    "não classifique como serviços em geral"
+)
 
 # ---------------------------------------------------------------------------
 # Alíquotas do IRPJ e da CSLL

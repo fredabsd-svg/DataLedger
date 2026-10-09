@@ -30,6 +30,14 @@ from apps.tenancy.models import Papel, VinculoUsuarioEscritorio
 
 pytestmark = pytest.mark.django_db
 
+
+@pytest.fixture(autouse=True)
+def relogio_fim_de_2026(monkeypatch):
+    """O controle do limite só mostra o fechamento com o 4º trimestre iniciado (A1). Fixa a data
+    para que o teste não dependa do dia em que roda."""
+    monkeypatch.setattr(servico, "_hoje", lambda: date(2026, 12, 31))
+
+
 COMERCIO = tab.COMERCIO_INDUSTRIA_TRANSPORTE_CARGA
 SERVICOS = tab.SERVICOS_GERAIS
 SENHA = "senha-forte-123"

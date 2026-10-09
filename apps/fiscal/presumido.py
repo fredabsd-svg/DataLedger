@@ -42,7 +42,8 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
+from django.db.models.functions import Substr
 from django.utils import timezone
 
 from apps.auditoria.services import registrar
@@ -57,10 +58,11 @@ from apps.fiscal.models import (
     DeclaracaoReceitasIntegrais,
     EscrituracaoFiscal,
     EstadoEscrituracao,
+    EventoFiscal,
     MedidaJudicialLC224,
     ReceitaTrimestralPresumido,
 )
-from apps.fiscal.services import situacao_do_documento
+from apps.fiscal.services import CODIGOS_QUE_CANCELAM, situacao_do_documento
 from apps.fiscal.tomadas import TP_RET_PIS_COFINS_COM_RETENCAO
 from apps.fiscal.tomadas_campos import campos_tomada_do_documento
 
@@ -82,6 +84,14 @@ TEXTO_CURTO_MAXIMO = 300
 # Valor com dígitos ASCII, sinal opcional e até duas casas. Mesmo cuidado de DL-075 (R5): o texto
 # é validado ANTES do Decimal, que aceitaria "1_000" e dígitos Unicode.
 FORMATO_VALOR = re.compile(r"-?[0-9]+(?:\.[0-9]{1,2})?")
+# Teto do campo monetário (`DecimalField(max_digits=15, decimal_places=2)`): 13 dígitos inteiros.
+# Acima disso o banco devolve erro de estouro (500): a recusa é aqui, na porta do serviço (A2).
+MAIOR_VALOR_MONETARIO = Decimal("9999999999999.99")
+# Faixa de datas aceita: fora dela é erro de digitação e não vai para o banco (A14).
+DATA_MINIMA = date(1900, 1, 1)
+DATA_MAXIMA = date(2100, 12, 31)
+# Maior identificador do banco (BigAutoField): acima disso, o banco recusa a consulta (500).
+MAIOR_IDENTIFICADOR = 2**63 - 1
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +158,11 @@ def validar_ano_e_trimestre(ano, trimestre) -> None:
 
 
 def _valor_decimal(valor, nome: str) -> Decimal:
-    """Valor monetário vindo de texto ou de Decimal. Float é recusado (HI-100, nunca binário)."""
+    """Valor monetário vindo de texto ou de Decimal. Float é recusado (HI-100, nunca binário).
+
+    Estouro do campo e casas além do centavo são recusados AQUI, antes de qualquer gravação: a API
+    e a tela herdam a mesma recusa (auditoria DL-079, A2).
+    """
     if isinstance(valor, bool) or valor is None:
         raise EntradaInvalidaPresumido(f"Informe {nome}.")
     if isinstance(valor, float):
@@ -165,13 +179,21 @@ def _valor_decimal(valor, nome: str) -> Decimal:
             raise EntradaInvalidaPresumido(f"{nome}: valor inválido.") from exc
     if not decimal.is_finite():
         raise EntradaInvalidaPresumido(f"{nome}: valor inválido.")
+    # Antes do quantize: um inteiro de 40 dígitos estoura a precisão do Decimal (InvalidOperation).
+    if decimal.copy_abs() > MAIOR_VALOR_MONETARIO:
+        raise EntradaInvalidaPresumido(f"{nome}: acima do limite de R$ 9.999.999.999.999,99.")
     if decimal != decimal.quantize(calc.CENTAVO):
         raise EntradaInvalidaPresumido(f"{nome}: use no máximo duas casas decimais.")
     return decimal
 
 
 def _texto(valor, nome: str, maximo: int, obrigatorio: bool = True) -> str:
-    texto = "" if valor is None else str(valor).strip()
+    # O byte NUL não é texto para o PostgreSQL ("text fields cannot contain NUL"). Recusado aqui,
+    # com mensagem nomeada, em vez de chegar ao banco como erro de servidor (auditoria DL-079, A2).
+    bruto = "" if valor is None else str(valor)
+    if "\x00" in bruto:
+        raise EntradaInvalidaPresumido(f"{nome}: caractere nulo não é aceito.")
+    texto = bruto.strip()
     if obrigatorio and not texto:
         raise EntradaInvalidaPresumido(f"Informe {nome}.")
     if len(texto) > maximo:
@@ -180,12 +202,35 @@ def _texto(valor, nome: str, maximo: int, obrigatorio: bool = True) -> str:
 
 
 def _data(valor, nome: str) -> date:
+    """Data de vigência, de decisão etc. A faixa de 1900 a 2100 separa erro de digitação."""
     if isinstance(valor, date):
-        return valor
-    try:
-        return date.fromisoformat(str(valor))
-    except (TypeError, ValueError) as exc:
-        raise EntradaInvalidaPresumido(f"{nome}: use a data no formato AAAA-MM-DD.") from exc
+        data = valor
+    else:
+        try:
+            data = date.fromisoformat(str(valor))
+        except (TypeError, ValueError) as exc:
+            raise EntradaInvalidaPresumido(f"{nome}: use a data no formato AAAA-MM-DD.") from exc
+    if not DATA_MINIMA <= data <= DATA_MAXIMA:
+        raise EntradaInvalidaPresumido(f"{nome}: a data deve estar entre 1900 e 2100.")
+    return data
+
+
+def inteiro_de_entrada(valor, nome: str) -> int:
+    """Inteiro de API ou de tela: inteiro verdadeiro, ou texto só de dígitos (o formulário envia
+    texto). Float, booleano, lista, dicionário, "1.5" e "abc" são recusados com mensagem nomeada, e
+    nunca chegam ao banco (auditoria DL-079, A2 e A14). Vale para ano, trimestre e identificadores.
+    """
+    if isinstance(valor, bool):
+        raise EntradaInvalidaPresumido(f"{nome}: use um número inteiro.")
+    if isinstance(valor, int):
+        numero = valor
+    elif isinstance(valor, str) and re.fullmatch(r"[0-9]{1,19}", valor.strip()):
+        numero = int(valor.strip())
+    else:
+        raise EntradaInvalidaPresumido(f"{nome}: use um número inteiro.")
+    if not 0 <= numero <= MAIOR_IDENTIFICADOR:
+        raise EntradaInvalidaPresumido(f"{nome}: número inteiro fora da faixa.")
+    return numero
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +333,11 @@ def _padroes_sobrepostos(empresa, inicio: date, fim: date | None, excluir_pk=Non
 def _validar_atividade(dados: dict) -> dict:
     codigo = _texto(dados.get("atividade"), "a atividade de presunção", 40)
     if codigo not in tab.ATIVIDADES_POR_CODIGO:
-        raise EntradaInvalidaPresumido(f"Atividade de presunção fora do catálogo: {codigo!r}.")
+        # Nomeia a ESC: é a atividade de 38,4% mais provável de ser digitada como "serviços" (A10).
+        raise EntradaInvalidaPresumido(
+            f"Atividade de presunção fora do catálogo: {codigo!r}. "
+            f"{tab.ESC_FORA_DO_PRIMEIRO_CORTE}."
+        )
     inicio = _data(dados.get("inicio"), "o início da vigência")
     fim_bruto = dados.get("fim")
     fim = None if fim_bruto in (None, "") else _data(fim_bruto, "o fim da vigência")
@@ -358,6 +407,7 @@ def criar_atividade(
 @transaction.atomic
 def encerrar_atividade(empresa: Empresa, atividade_id: int, fim, usuario, request=None):
     """Encerra a vigência de uma atividade. Só o fim muda; a linha continua na trilha."""
+    atividade_id = inteiro_de_entrada(atividade_id, "a atividade de presunção")
     travada = receita_servico.travar_empresa(empresa)
     atividade = (
         AtividadePresuncaoEmpresa.objects.select_for_update(of=("self",))
@@ -455,7 +505,7 @@ def criar_receita(empresa: Empresa, ano: int, trimestre: int, dados: dict, usuar
         if atividade_id is None:
             raise EntradaInvalidaPresumido("Receita de presunção exige a atividade de presunção.")
         atividade = AtividadePresuncaoEmpresa.objects.filter(
-            pk=atividade_id, empresa=empresa
+            pk=inteiro_de_entrada(atividade_id, "a atividade de presunção"), empresa=empresa
         ).first()
         if atividade is None:
             raise EntradaInvalidaPresumido("Atividade de presunção não encontrada nesta empresa.")
@@ -467,6 +517,30 @@ def criar_receita(empresa: Empresa, ano: int, trimestre: int, dados: dict, usuar
         raise EntradaInvalidaPresumido("Receita integral não leva atividade de presunção.")
 
     travada = receita_servico.travar_empresa(empresa)
+    # A3 (auditoria DL-079, rodada 1): o reenvio da mesma receita duplicava a base do imposto. Mesma
+    # guarda de `receita.lancar_receita_informada` (DL-074, A3), dentro da trava da empresa, para
+    # que dois envios iguais simultâneos não passem os dois. Receita estornada não conta. A
+    # descrição não entra na identidade: um lançamento igual com outra descrição ainda é a mesma.
+    existente = (
+        ReceitaTrimestralPresumido.objects.filter(
+            empresa=travada,
+            ano=ano,
+            trimestre=trimestre,
+            tipo=tipo,
+            atividade=atividade,
+            valor=valor,
+            suporte=suporte,
+            estado=ESTADO_ATIVA,
+        )
+        .order_by("id")
+        .first()
+    )
+    if existente is not None:
+        raise PresumidoConflito(
+            f"Já existe receita igual neste trimestre (receita nº {existente.pk}, ativa): mesmo "
+            "tipo, atividade, valor e documento de suporte. Se for outra receita, informe outro "
+            "documento de suporte, ou estorne a anterior."
+        )
     receita = ReceitaTrimestralPresumido(
         empresa=travada,
         ano=ano,
@@ -495,6 +569,7 @@ def criar_receita(empresa: Empresa, ano: int, trimestre: int, dados: dict, usuar
 def estornar_receita(empresa: Empresa, receita_id: int, motivo, usuario, request=None):
     """Estorno: a única mudança depois de criada (gatilho do banco). Com motivo obrigatório."""
     motivo_limpo = _texto(motivo, "o motivo do estorno", MOTIVO_MAXIMO)
+    receita_id = inteiro_de_entrada(receita_id, "a receita")
     travada = receita_servico.travar_empresa(empresa)
     receita = (
         ReceitaTrimestralPresumido.objects.select_for_update(of=("self",))
@@ -737,14 +812,24 @@ def _escrituracoes_que_contam(
 ) -> list[EscrituracaoFiscal]:
     """NFS-e prestadas EFETIVADAS e não canceladas, com dCompet no trimestre.
 
-    O filtro de documento é o de `receita._escrituracoes_efetivadas_do_mes` (fonte única).
+    O filtro de documento é o de `receita._escrituracoes_efetivadas_do_mes` (fonte única). O
+    cancelamento sai da MESMA anotação `Exists` de `services.documentos_do_escritorio`, dentro da
+    consulta: uma consulta por mês, e não uma por nota (auditoria DL-079, A5).
     """
+    cancelamento = EventoFiscal.objects.filter(
+        escritorio_id=OuterRef("vinculo__documento__escritorio_id"),
+        chave_nfse=Substr(OuterRef("vinculo__documento__identificador"), 4),
+        codigo__in=CODIGOS_QUE_CANCELAM,
+    )
     contam = []
     for mes in _meses_do_trimestre(trimestre):
-        for escrituracao in receita_servico._escrituracoes_efetivadas_do_mes(
-            empresa, ano, mes
-        ).select_related("vinculo__documento"):
-            if situacao_do_documento(escrituracao.vinculo.documento) == "cancelada":
+        escrituracoes = (
+            receita_servico._escrituracoes_efetivadas_do_mes(empresa, ano, mes)
+            .select_related("vinculo__documento")
+            .annotate(cancelada=Exists(cancelamento))
+        )
+        for escrituracao in escrituracoes:
+            if escrituracao.cancelada:
                 continue
             contam.append(escrituracao)
     return contam
@@ -891,6 +976,25 @@ def _retencoes_confirmadas(empresa: Empresa, dados: DadosDoTrimestre) -> tuple[D
     return irrf, csll
 
 
+def _motivo_fora_da_base(empresa: Empresa, escrituracao: EscrituracaoFiscal) -> str | None:
+    """Por que a nota NÃO entra na apuração do trimestre dela, ou None se entra (A12).
+
+    A confirmação só cabe a nota que a apuração lê. Uma nota sem atividade, com XML inválido ou fora
+    da base não tem retenção a deduzir. Confirmá-la deixaria uma dedução órfã para o dia em que ela
+    passasse a entrar, sem nova revisão. Usa as MESMAS funções da apuração, para não divergir.
+    """
+    competencia = escrituracao.data_competencia
+    if competencia is None:
+        return "a nota não tem data de competência (dCompet)."
+    trimestre = (competencia.month - 1) // 3 + 1
+    base = _escrituracoes_que_contam(empresa, competencia.year, trimestre)
+    if escrituracao.pk not in {contada.pk for contada in base}:
+        return "a nota não está na base do trimestre dela."
+    padroes = list(AtividadePresuncaoEmpresa.objects.filter(empresa=empresa, padrao=True))
+    _nota, recusa = _ler_nota(escrituracao, padroes)
+    return None if recusa is None else recusa.mensagem
+
+
 @transaction.atomic
 def confirmar_retencao(
     empresa: Empresa,
@@ -901,7 +1005,12 @@ def confirmar_retencao(
     usuario,
     request=None,
 ) -> ConfirmacaoRetencaoPresumido:
-    """Confirma a retenção de UMA nota prestada da empresa (trilha; substitui a ativa anterior)."""
+    """Confirma a retenção de UMA nota prestada da empresa (trilha; substitui a ativa anterior).
+
+    Só confirma nota que ENTRA na apuração do trimestre dela (A12): sem atividade, com XML inválido
+    ou fora da base, recusa com 400 nomeado, igual na API e na tela.
+    """
+    escrituracao_id = inteiro_de_entrada(escrituracao_id, "a escrituração")
     irrf = (
         None
         if irrf_confirmado in (None, "")
@@ -929,6 +1038,11 @@ def confirmar_retencao(
     if situacao_do_documento(escrituracao.vinculo.documento) == "cancelada":
         raise PresumidoConflito(
             "Nota cancelada não entra na apuração: não há retenção a confirmar."
+        )
+    fora_da_base = _motivo_fora_da_base(travada, escrituracao)
+    if fora_da_base is not None:
+        raise EntradaInvalidaPresumido(
+            f"Esta nota não entra na apuração, então não há retenção a confirmar: {fora_da_base}"
         )
 
     campos = campos_tomada_do_documento(escrituracao.vinculo.documento)
@@ -1095,6 +1209,7 @@ def revogar_medida(
     empresa: Empresa, medida_id: int, motivo, usuario, request=None
 ) -> MedidaJudicialLC224:
     motivo_limpo = _texto(motivo, "o motivo da revogação", MOTIVO_MAXIMO)
+    medida_id = inteiro_de_entrada(medida_id, "a medida judicial")
     travada = receita_servico.travar_empresa(empresa)
     medida = (
         MedidaJudicialLC224.objects.select_for_update(of=("self",))
@@ -1396,8 +1511,10 @@ def apurar_trimestre(empresa: Empresa, ano, trimestre) -> Apuracao:
         receitas=receitas,
         irpj=colunas[tab.IRPJ],
         csll=colunas[tab.CSLL],
-        fechamento_irpj=anual[tab.IRPJ].fechamento,
-        fechamento_csll=anual[tab.CSLL].fechamento,
+        # A1 (auditoria DL-079, rodada 1): o fechamento do ano só existe no 4º trimestre.
+        # Antes dele, os trimestres seguintes entram zerados, e o caso sairia com número falso.
+        fechamento_irpj=anual[tab.IRPJ].fechamento if trimestre == 4 else None,
+        fechamento_csll=anual[tab.CSLL].fechamento if trimestre == 4 else None,
         avisos=_avisos(empresa, acrescimo),
     )
 
@@ -1430,9 +1547,32 @@ class ControleLimite:
     deducao_quarto_trimestre: Decimal
 
 
-def controle_limite_ano(empresa: Empresa, ano, tributo: str) -> ControleLimite:
+def _hoje() -> date:
+    """Data de hoje (Brasília). Função própria para que os testes controlem o relógio."""
+    return timezone.localdate()
+
+
+def _quarto_trimestre_existe(ano: int, hoje: date) -> bool:
+    """O 4º trimestre do ano já começou? (A1, auditoria DL-079).
+
+    No ano em curso antes do 4º trimestre, o fechamento leria trimestres futuros como zero: caso e
+    dedução sairiam com número falso. Por isso o controle só mostra o fechamento depois disso. Em
+    out a dez, o fechamento já sai com o que foi lançado até `hoje`. Se o contador preferir esperar
+    o fim do 4º trimestre, a regra muda aqui e em nenhum outro lugar (dúvida para o Fred).
+    """
+    inicio_do_quarto, _fim = inicio_e_fim_do_trimestre(ano, 4)
+    return hoje >= inicio_do_quarto
+
+
+def controle_limite_ano(
+    empresa: Empresa, ano, tributo: str, hoje: date | None = None
+) -> ControleLimite:
     """Limite do ano por trimestre (R_t, L_t, E_t, sobra), o fechamento com o caso (item 4) e a
-    dedução do 4º trimestre, com a mesma cobertura por medida judicial da apuração (item 0)."""
+    dedução do 4º trimestre, com a mesma cobertura por medida judicial da apuração (item 0).
+
+    `hoje` só existe para o teste; sem ele vale a data de hoje. Sem 4º trimestre iniciado, não há
+    fechamento, nem dedução, nem diferença de recálculo: o que sobra é a conta trimestral.
+    """
     if not isinstance(ano, int) or isinstance(ano, bool):
         raise EntradaInvalidaPresumido("Informe o ano como número inteiro.")
     if tributo not in tab.TRIBUTOS:
@@ -1442,6 +1582,7 @@ def controle_limite_ano(empresa: Empresa, ano, tributo: str) -> ControleLimite:
     medidas = list(MedidaJudicialLC224.objects.filter(empresa=empresa, ativa=True))
     suspensos = _suspensos_por_tributo(medidas, ano)
     anual = calc.apurar_ano(tributo, ano, periodos, suspensos[tributo])
+    existe_quarto = _quarto_trimestre_existe(ano, hoje if hoje is not None else _hoje())
     linhas = tuple(
         LinhaControle(
             trimestre=linha.trimestre,
@@ -1450,7 +1591,7 @@ def controle_limite_ano(empresa: Empresa, ano, tributo: str) -> ControleLimite:
             limite=linha.limite,
             excedente=linha.excedente,
             sobra=linha.sobra,
-            diferenca_recalculo=linha.diferenca_recalculo,
+            diferenca_recalculo=linha.diferenca_recalculo if existe_quarto else None,
             suspensa_por_medida=linha.suspensa_por_medida,
         )
         for linha in anual.linhas
@@ -1460,7 +1601,7 @@ def controle_limite_ano(empresa: Empresa, ano, tributo: str) -> ControleLimite:
         tributo=tributo,
         primeiro_trimestre=anual.primeiro_trimestre,
         linhas=linhas,
-        fechamento=anual.fechamento,
+        fechamento=anual.fechamento if existe_quarto else None,
         recusas=tuple(recusas),
-        deducao_quarto_trimestre=anual.deducao_quarto_trimestre,
+        deducao_quarto_trimestre=anual.deducao_quarto_trimestre if existe_quarto else ZERO,
     )

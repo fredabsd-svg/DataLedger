@@ -494,11 +494,17 @@ def ultimo_dia_util(ano: int, mes: int) -> tuple[date, bool]:
 # ---------------------------------------------------------------------------
 # Quotas (Lei 9.430, art. 5º; HI-105)
 # ---------------------------------------------------------------------------
-
+# Lei 9.430, art. 5º, § 1º: o imposto pode ser pago em até três quotas mensais, iguais e sucessivas,
+# vencíveis no último dia útil dos três meses seguintes ao trimestre. Art. 5º, § 2º: nenhuma quota
+# pode ser inferior a R$ 1.000,00, e imposto inferior a R$ 2.000,00 é pago em quota única. Daí
+# dois planos: 2 quotas a partir de R$ 2.000,00 e 3 quotas a partir de R$ 3.000,00 (cada uma de
+# R$ 1.000,00). Texto lido no Planalto em 09/10/2026. Sem juros na 1ª quota, 1% na 2ª e Selic
+# acumulada mais 1% na 3ª (§ 3º); a taxa não é embutida no valor.
 QUOTA_MINIMA = Decimal("1000.00")
-IMPOSTO_MINIMO_PARA_TRES_QUOTAS = Decimal("2000.00")
+IMPOSTO_MINIMO_PARCELAVEL = Decimal("2000.00")
 JUROS_QUOTA_1 = "sem juros"
 JUROS_QUOTA_2 = "1%"
+SEM_IMPOSTO_A_RECOLHER = "Sem imposto a recolher neste trimestre."
 
 
 def _mes_seguinte(ano: int, mes: int, deslocamento: int) -> tuple[int, int]:
@@ -517,55 +523,32 @@ class Parcela:
 
 @dataclass(frozen=True)
 class OpcoesDeQuota:
-    """Quota única, e o plano de 3 quotas quando a regra o permite.
+    """Quota única, e os planos de 2 e de 3 quotas quando a regra os permite.
 
-    `motivo_sem_tres_quotas` é a recusa nomeada do plano. Quando o plano existe, `tres_quotas`
-    traz as três parcelas e `motivo_sem_tres_quotas` fica None.
+    Cada plano tem a sua recusa nomeada (`motivo_sem_...`). Quando o plano existe, a lista de
+    parcelas vem preenchida e o motivo fica None.
     """
 
     devido: Decimal
     quota_unica: tuple[Parcela, ...]
+    duas_quotas: tuple[Parcela, ...] | None
+    motivo_sem_duas_quotas: str | None
     tres_quotas: tuple[Parcela, ...] | None
     motivo_sem_tres_quotas: str | None
 
 
-def opcoes_de_quota(devido: Decimal, ano: int, trimestre: int) -> OpcoesDeQuota:
-    """Opções de pagamento de um imposto de um trimestre (Lei 9.430, art. 5º).
+def _valores_das_quotas(devido: Decimal, quantidade: int) -> tuple[Decimal, ...]:
+    """Quotas iguais em centavos (metade para cima na primeira); a última leva o resíduo."""
+    primeira = centavos(devido / quantidade)
+    return (primeira,) * (quantidade - 1) + (devido - primeira * (quantidade - 1),)
 
-    A 1ª quota vence no último dia útil do 1º mês seguinte ao trimestre, sem juros. A 2ª tem 1%.
-    A 3ª tem a Selic acumulada a partir do 2º mês seguinte, mais 1% no mês do pagamento; a taxa
-    não é embutida. O plano de 3 quotas exige imposto de R$ 2.000,00 e quotas de R$ 1.000,00.
-    """
+
+def _parcelas(ano: int, trimestre: int, valores: tuple[Decimal, ...]) -> tuple[Parcela, ...]:
+    """Parcelas com vencimento no último dia útil de cada mês após o trimestre, juros em texto."""
     mes_fim = trimestre * 3
-    unica_dia, unica_aviso = ultimo_dia_util(*_mes_seguinte(ano, mes_fim, 1))
-    if devido <= 0:
-        return OpcoesDeQuota(devido, (), None, "Sem imposto a recolher neste trimestre.")
-    unica = (Parcela(1, devido, unica_dia, unica_aviso, JUROS_QUOTA_1),)
-
-    if devido < IMPOSTO_MINIMO_PARA_TRES_QUOTAS:
-        return OpcoesDeQuota(
-            devido,
-            unica,
-            None,
-            "Imposto abaixo de R$ 2.000,00: só quota única.",
-        )
-    primeira = centavos(devido / 3)
-    segunda = primeira
-    terceira = devido - primeira - segunda
-    if min(primeira, segunda, terceira) < QUOTA_MINIMA:
-        return OpcoesDeQuota(
-            devido,
-            unica,
-            None,
-            "Alguma quota ficaria abaixo de R$ 1.000,00: só quota única.",
-        )
     parcelas = []
-    for numero, valor, deslocamento in (
-        (1, primeira, 1),
-        (2, segunda, 2),
-        (3, terceira, 3),
-    ):
-        vencimento, aviso = ultimo_dia_util(*_mes_seguinte(ano, mes_fim, deslocamento))
+    for numero, valor in enumerate(valores, start=1):
+        vencimento, aviso = ultimo_dia_util(*_mes_seguinte(ano, mes_fim, numero))
         if numero == 1:
             juros = JUROS_QUOTA_1
         elif numero == 2:
@@ -574,7 +557,41 @@ def opcoes_de_quota(devido: Decimal, ano: int, trimestre: int) -> OpcoesDeQuota:
             _, mes_selic = _mes_seguinte(ano, mes_fim, 2)
             juros = f"Selic acumulada de {tab.MESES[mes_selic - 1]} + 1% — taxa não embutida"
         parcelas.append(Parcela(numero, valor, vencimento, aviso, juros))
-    return OpcoesDeQuota(devido, unica, tuple(parcelas), None)
+    return tuple(parcelas)
+
+
+def opcoes_de_quota(devido: Decimal, ano: int, trimestre: int) -> OpcoesDeQuota:
+    """Opções de pagamento de um imposto de um trimestre (Lei 9.430, art. 5º, §§ 1º a 3º).
+
+    Imposto abaixo de R$ 2.000,00: só quota única. Acima disso, cada plano (2 ou 3 quotas) existe
+    se a menor quota ficar em pelo menos R$ 1.000,00. O plano de 3 quotas, portanto, só existe a
+    partir de R$ 3.000,00. A quota única sempre existe quando há imposto.
+    """
+    if devido <= 0:
+        return OpcoesDeQuota(devido, (), None, SEM_IMPOSTO_A_RECOLHER, None, SEM_IMPOSTO_A_RECOLHER)
+    unica = _parcelas(ano, trimestre, (devido,))
+    if devido < IMPOSTO_MINIMO_PARCELAVEL:
+        motivo = "Imposto abaixo de R$ 2.000,00: só quota única."
+        return OpcoesDeQuota(devido, unica, None, motivo, None, motivo)
+
+    motivo_quota_pequena = "Alguma quota ficaria abaixo de R$ 1.000,00"
+    duas = _valores_das_quotas(devido, 2)
+    tres = _valores_das_quotas(devido, 3)
+    duas_ok = min(duas) >= QUOTA_MINIMA
+    tres_ok = min(tres) >= QUOTA_MINIMA
+    return OpcoesDeQuota(
+        devido,
+        unica,
+        _parcelas(ano, trimestre, duas) if duas_ok else None,
+        None if duas_ok else f"{motivo_quota_pequena}: só quota única.",
+        _parcelas(ano, trimestre, tres) if tres_ok else None,
+        (
+            None
+            if tres_ok
+            else f"{motivo_quota_pequena}: o plano de 3 quotas exige imposto de pelo menos "
+            "R$ 3.000,00."
+        ),
+    )
 
 
 def cobre_o_trimestre(

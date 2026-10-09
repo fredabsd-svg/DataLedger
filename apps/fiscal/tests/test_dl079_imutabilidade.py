@@ -29,9 +29,11 @@ def base(empresa_a, usuario_gestor_a, escritorio_a):
         empresa=empresa_a, regime=RegimeTributario.LUCRO_PRESUMIDO, vigencia_inicio=date(2026, 1, 1)
     )
     servico.definir_criterio(empresa_a, 2026, "competencia", usuario_gestor_a)
+    # Atividade PADRÃO: a nota da retenção só entra na apuração (e pode ser confirmada, A12) com
+    # atividade de presunção vigente na competência.
     atividade = servico.criar_atividade(
         empresa_a,
-        {"atividade": tab.SERVICOS_GERAIS, "inicio": date(2026, 1, 1), "padrao": False},
+        {"atividade": tab.SERVICOS_GERAIS, "inicio": date(2026, 1, 1), "padrao": True},
         usuario_gestor_a,
     )
     receita = servico.criar_receita(

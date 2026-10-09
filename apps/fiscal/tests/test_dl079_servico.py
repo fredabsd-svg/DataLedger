@@ -28,6 +28,14 @@ from apps.fiscal.tests.suporte_tomada_dl078 import cancelar
 
 pytestmark = pytest.mark.django_db
 
+
+@pytest.fixture(autouse=True)
+def relogio_fim_de_2026(monkeypatch):
+    """O controle do limite só mostra o fechamento com o 4º trimestre iniciado (A1). Fixa a data
+    para que o teste não dependa do dia em que roda."""
+    monkeypatch.setattr(servico, "_hoje", lambda: date(2026, 12, 31))
+
+
 COMERCIO = tab.COMERCIO_INDUSTRIA_TRANSPORTE_CARGA
 SERVICOS = tab.SERVICOS_GERAIS
 
@@ -250,24 +258,22 @@ def test_recusa_criterio_nao_informado(empresa_a, usuario_gestor_a):
 
 def test_recusa_criterio_caixa_com_citacao_da_in_1700(presumido, escritorio_a, usuario_gestor_a):
     presumido_empresa = presumido["empresa"]
-    from apps.fiscal.models import CriterioReceitaPresumido
 
-    CriterioReceitaPresumido.objects.filter(empresa=presumido_empresa, ano=2026).delete()
-    servico.definir_criterio(presumido_empresa, 2026, "caixa", usuario_gestor_a)
-    apuracao = _apurar(presumido, 1)
+    # O critério é fixado uma vez por ano (gatilho da migração 0009, A7). Em vez de apagar o de
+    # 2026, o caixa é definido para 2027, ano sem critério.
+    servico.definir_criterio(presumido_empresa, 2027, "caixa", usuario_gestor_a)
+    apuracao = servico.apurar_trimestre(presumido_empresa, 2027, 1)
     recusa = next(r for r in apuracao.recusas if r.codigo == "criterio_caixa")
     assert "1.700" in recusa.mensagem and "art. 223" in recusa.mensagem
 
 
 def test_recusa_nota_sem_atividade_lista_as_notas(presumido, escritorio_a, usuario_gestor_a):
-    # Atividade padrão começa em 01/03: a nota de janeiro não tem atividade vigente (recusa
-    # nomeada).
+    # A padrão é encerrada em 28/02 (a única mudança que o banco permite): a nota de
+    # março não tem atividade vigente na competência (recusa nomeada).
     empresa = presumido["empresa"]
-    AtividadePresuncaoEmpresa.objects.filter(pk=presumido["padrao"].pk).update(
-        inicio=date(2026, 3, 1)
-    )
+    servico.encerrar_atividade(empresa, presumido["padrao"].pk, date(2026, 2, 28), usuario_gestor_a)
     nota_efetivada(
-        escritorio_a, empresa, usuario_gestor_a, sufixo=301, v_serv="1000.00", d_compet="2026-01-20"
+        escritorio_a, empresa, usuario_gestor_a, sufixo=301, v_serv="1000.00", d_compet="2026-03-20"
     )
     apuracao = _apurar(presumido, 1)
     recusa = next(r for r in apuracao.recusas if r.codigo == "nota_sem_atividade")

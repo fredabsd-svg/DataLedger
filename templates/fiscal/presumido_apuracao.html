@@ -282,6 +282,17 @@ serviço apurou, com as três colunas (sem LC 224, com LC 224 e a parcela) em ca
                                 <td>{{ parcela.juros }}</td>
                             </tr>
                         {% endfor %}
+                        {% if tributo.quotas.duas %}
+                            {% for parcela in tributo.quotas.duas %}
+                                <tr>
+                                    <td>Duas quotas</td>
+                                    <td>{{ parcela.numero }}ª</td>
+                                    <td class="valor-monetario">{{ parcela.valor }}</td>
+                                    <td class="valor-monetario">{{ parcela.vencimento }}{% if parcela.aviso %} — {{ parcela.aviso }}{% endif %}</td>
+                                    <td>{{ parcela.juros }}</td>
+                                </tr>
+                            {% endfor %}
+                        {% endif %}
                         {% if tributo.quotas.tres %}
                             {% for parcela in tributo.quotas.tres %}
                                 <tr>
@@ -295,6 +306,9 @@ serviço apurou, com as três colunas (sem LC 224, com LC 224 e a parcela) em ca
                         {% endif %}
                     </tbody>
                 </table>
+                {% if not tributo.quotas.duas %}
+                    <p class="texto-apoio">Plano de duas quotas indisponível: {{ tributo.quotas.motivo_sem_duas }}</p>
+                {% endif %}
                 {% if not tributo.quotas.tres %}
                     <p class="texto-apoio">Plano de três quotas indisponível: {{ tributo.quotas.motivo_sem_tres }}</p>
                 {% endif %}

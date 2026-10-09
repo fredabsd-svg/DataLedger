@@ -109,12 +109,14 @@ def _corpo(request) -> dict:
 
 
 def _inteiro(valor, nome: str) -> int:
-    if isinstance(valor, bool):
-        raise DRFValidationError(f"'{nome}' deve ser um número inteiro.")
+    """Inteiro do contrato, com a regra do serviço (`inteiro_de_entrada`).
+
+    `int(2026.0)` e `int(1.5)` não passam mais como inteiro (auditoria DL-079, A14).
+    """
     try:
-        return int(valor)
-    except (TypeError, ValueError) as exc:
-        raise DRFValidationError(f"'{nome}' deve ser um número inteiro.") from exc
+        return servico.inteiro_de_entrada(valor, f"'{nome}'")
+    except servico.EntradaInvalidaPresumido as exc:
+        raise DRFValidationError(exc.mensagem) from exc
 
 
 def _ano_e_trimestre(request) -> tuple[int, int]:
@@ -209,6 +211,12 @@ def _quotas_payload(opcoes: calc.OpcoesDeQuota) -> dict:
     return {
         "devido": _dec(opcoes.devido),
         "quota_unica": [_parcela_payload(p) for p in opcoes.quota_unica],
+        "duas_quotas": (
+            [_parcela_payload(p) for p in opcoes.duas_quotas]
+            if opcoes.duas_quotas is not None
+            else None
+        ),
+        "motivo_sem_duas_quotas": opcoes.motivo_sem_duas_quotas,
         "tres_quotas": (
             [_parcela_payload(p) for p in opcoes.tres_quotas]
             if opcoes.tres_quotas is not None
@@ -259,7 +267,21 @@ def _tributo_payload(colunas: servico.ColunasTributo) -> dict:
     }
 
 
-def _fechamento_payload(fechamento: calc.Fechamento | None):
+def _composicao_do_fechamento(linhas) -> list[dict]:
+    """O que cada trimestre com acréscimo contribui para a dedução do 4º (A6). Trimestre com medida
+    aparece com `suspensa_por_medida` true: a parcela dele fica fora da dedução (DL-079, item 0)."""
+    return [
+        {
+            "trimestre": linha.trimestre,
+            "diferenca_recalculo": _dec(linha.diferenca_recalculo),
+            "suspensa_por_medida": linha.suspensa_por_medida,
+        }
+        for linha in linhas
+        if linha.em_acrescimo
+    ]
+
+
+def _fechamento_payload(fechamento: calc.Fechamento | None, linhas=()):
     if fechamento is None:
         return None
     return {
@@ -270,6 +292,7 @@ def _fechamento_payload(fechamento: calc.Fechamento | None):
         "excedente_anual": _dec(fechamento.excedente_anual),
         "s": _dec(fechamento.s),
         "caso": fechamento.caso,
+        "trimestres": _composicao_do_fechamento(linhas),
     }
 
 
@@ -306,8 +329,12 @@ def _apuracao_payload(resultado: servico.Apuracao) -> dict:
         ],
         "irpj": _tributo_payload(resultado.irpj) if resultado.irpj else None,
         "csll": _tributo_payload(resultado.csll) if resultado.csll else None,
-        "fechamento_irpj": _fechamento_payload(resultado.fechamento_irpj),
-        "fechamento_csll": _fechamento_payload(resultado.fechamento_csll),
+        "fechamento_irpj": _fechamento_payload(
+            resultado.fechamento_irpj, resultado.irpj.linhas_do_ano if resultado.irpj else ()
+        ),
+        "fechamento_csll": _fechamento_payload(
+            resultado.fechamento_csll, resultado.csll.linhas_do_ano if resultado.csll else ()
+        ),
         "avisos": list(resultado.avisos),
     }
 
@@ -573,10 +600,13 @@ class LimitePresumidoView(_Base):
                         "limite": _dec(linha.limite),
                         "excedente": _dec(linha.excedente),
                         "sobra": _dec(linha.sobra),
+                        # A6: o que a tela mostra como "diferença" e "parcela suspensa".
+                        "diferenca_recalculo": _dec(linha.diferenca_recalculo),
+                        "suspensa_por_medida": linha.suspensa_por_medida,
                     }
                     for linha in controle.linhas
                 ],
-                "fechamento": _fechamento_payload(controle.fechamento),
+                "fechamento": _fechamento_payload(controle.fechamento, controle.linhas),
                 "recusas": [
                     {"codigo": r.codigo, "mensagem": r.mensagem, "itens": list(r.itens)}
                     for r in controle.recusas
