@@ -148,7 +148,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-080](../planos/DL-080-recepcao-de-nfe.md) | Fiscal: recepção de NF-e (modelo 55) e NFC-e (modelo 65), fatia 2 da DL-010 | Integrada (PR #104, squash `c01b451`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 | [DL-081](../planos/DL-081-escrituracao-das-nfe-de-saida.md) | Fiscal: escrituração das NF-e de saída e da devolução de venda | Integrada (PR #105, squash `2911eb6`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 | [DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md) | Fiscal: pré-DAS de comércio e indústria (Anexos I e II) | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-083](../planos/DL-083-receita-de-nfe-no-presumido.md) | Fiscal: receita de NF-e no Lucro Presumido e regras de receita da RC-172 | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-083](../planos/DL-083-receita-de-nfe-no-presumido.md) | Fiscal: receita de NF-e no Lucro Presumido e regras de receita da RC-172 | Integrada (PR #106, squash `3f3206c`) — rodada 1 e reconferência reprovadas; ajustes do arquiteto (§3.1) |
 | [DL-084](../planos/DL-084-rotina-do-presumido.md) | Fiscal: rotina do Lucro Presumido (RC-172) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-085](../planos/DL-085-escrituracao-de-nfe-em-volume.md) | Fiscal: escrituração de NF-e e NFC-e em volume (RC-173) | Situação em **[Próximo passo](#próximo-passo)** |
 
@@ -388,8 +388,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 
       R4, R6, A9, S12, G16, S02 e R8 foram para o BL-688. Suíte completa
       depois dos ajustes, medida pelo arquiteto numa única invocação:
-      **8.791/1/53** (a reprovação é a de ambiente). Próximo: o PR e o merge
-      com os quatro checks verdes (RC-171).
+      **8.791/1/53** (a reprovação é a de ambiente). **INTEGRADA** pelo PR
+      #106 (squash `3f3206c`), com os quatro checks verdes em todas as
+      execuções do último commit (RC-171).
     - [DL-084](../planos/DL-084-rotina-do-presumido.md): rotina do Presumido,
       depois da DL-082.
     - BL-687: mudanças do leitor de NF-e, que dependem do BL-686.
@@ -413,11 +414,11 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
     **Ordem de execução:** DL-083 → DL-085 → DL-082 → DL-084.
 
 **Linha de base vigente (09/10/2026, contêiner Linux, Python 3.13.16,
-PostgreSQL 16 local, sobre `578ce9e` — conteúdo da `main` em `2911eb6` —,
+PostgreSQL 16 local, sobre `973dc02` — conteúdo da `main` em `3f3206c` —,
 medida pelo arquiteto numa única invocação, sem a variável dos XSD):**
-`pytest` completo **8.558 aprovados, 1 reprovado, 53 pulados**; a reprovação
+`pytest` completo **8.791 aprovados, 1 reprovado, 53 pulados**; a reprovação
 é a conhecida de ambiente (`test_versao_minima_python.py`, exige Python
-3.14). `ruff`, `check` e `makemigrations --check` limpos (569 arquivos). A
+3.14). `ruff`, `check` e `makemigrations --check` limpos (583 arquivos). A
 suíte leva cerca de 13 min: o job "Lint e testes" tem limite de 20 min. Lição
 da DL-075: a suíte **em fatias** esconde interação entre migrações — só vale
 a invocação única.
