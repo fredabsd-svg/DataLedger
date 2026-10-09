@@ -146,6 +146,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-078](../planos/DL-078-servicos-tomados-e-retencoes.md) | Fiscal: serviços tomados, ISS retido pelo tomador e retenções federais | Integrada (PR #102, squash `49eacba`) — rodada 1 e reconferência aprovadas com ressalvas |
 | [DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) | Fiscal: Lucro Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224 | Integrada (PR #103, squash `6eb922e`) — rodada 1 e reconferência aprovadas com ressalvas |
 | [DL-080](../planos/DL-080-recepcao-de-nfe.md) | Fiscal: recepção de NF-e (modelo 55) e NFC-e (modelo 65), fatia 2 da DL-010 | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-081](../planos/DL-081-escrituracao-das-nfe-de-saida.md) | Fiscal: escrituração das NF-e de saída e da devolução de venda | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -318,6 +319,13 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    [Pesquisa do leiaute](../projeto/consultas/2026-10-09-leiaute-nfe.md)
    (PL 010f, leiaute 4.00). HI-109 a HI-113, HI-116; **PE-84 com o Fred**;
    BL-681, BL-683.
+
+10. **[DL-081](../planos/DL-081-escrituracao-das-nfe-de-saida.md) —
+    escrituração das NF-e de saída e da devolução de venda: planejada;
+    começa quando a DL-080 entrar na branch.**
+    [Consulta ao contador-senior](../projeto/consultas/2026-10-09-contador-senior-escrituracao-nfe.md):
+    receita bruta por item sem ICMS-ST e IPI, devolução no mês da devolução,
+    IBS/CBS de 2026 fora da receita. HI-117 a HI-124; **PE-85 com o Fred**.
 
 **Linha de base vigente (09/10/2026, contêiner Linux, Python 3.13.16,
 PostgreSQL 16 local, sobre `72f684c` — conteúdo da `main` em `6eb922e` —,

@@ -260,6 +260,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-078** — Fiscal: serviços tomados — escrituração das NFS-e em que o cliente é tomador, ISS retido a recolher pelo cliente e retenções federais destacadas na nota, só para conferência. Situação em [estado.md](docs/agents/estado.md).
 - **DL-079** — Fiscal: Lucro Presumido — apuração trimestral do IRPJ e da CSLL com o acréscimo da LC 224, controle do limite do ano, retenções confirmadas pelo contador e quotas, só para conferência. Situação em [estado.md](docs/agents/estado.md).
 - **DL-080** — Fiscal: recepção de NF-e (modelo 55) e NFC-e (modelo 65) — fatia 2 da DL-010: leitura pelo leiaute 4.00 com protocolo, deduplicação pela chave, vínculo com as empresas do escritório e eventos de cancelamento, só para conferência. Situação em [estado.md](docs/agents/estado.md).
+- **DL-081** — Fiscal: escrituração das NF-e de saída e da devolução de venda — natureza por item, receita bruta por item no Simples e no RBT12, proteção do pré-DAS e do Presumido, conferência e reclassificação em massa. Situação em [estado.md](docs/agents/estado.md).
 
 Ainda não existem:
 
