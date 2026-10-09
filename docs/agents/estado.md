@@ -295,8 +295,12 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 8. **[DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) — Lucro
    Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224:
    implementada fora da branch (cópia isolada `dl079`, rebaseada sobre a
-   `main` com a DL-078: frente A `29d179d`, frente B `22b52ae`), em
-   auditoria — rodada 1.** Frente A: tabelas com fonte, seis cadastros,
+   `main` com a DL-078: frente A `29d179d`, frente B `22b52ae`);
+   [rodada 1](../auditorias/2026-10-09-dl-079-rodada-1.md) APROVADA COM
+   RESSALVAS (cálculo igual ao centavo à implementação independente do
+   auditor; A1 a A5 médios, A6 a A15 baixos; suíte 7.786 aprovados, 1
+   reprovado de ambiente, 53 pulados), em correção única.** HI-114, HI-115 e
+   BL-680 registrados. Frente A: tabelas com fonte, seis cadastros,
    migração `fiscal 0009` com gatilhos, apuração do trimestre com as três
    colunas (sem LC 224, com LC 224, parcela), controle do limite com sobra e
    os casos I a III do 4º trimestre, retenções confirmadas, quotas e

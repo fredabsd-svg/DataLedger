@@ -133,6 +133,37 @@ a centavos (`ROUND_HALF_UP`) (HI-100).
 - **Recusa zera o cálculo:** com recusa nomeada, os tributos saem sem número
   parcial.
 
+## Decisões tomadas na correção (rodada 1)
+
+[Rodada 1](../auditorias/2026-10-09-dl-079-rodada-1.md): aprovada com
+ressalvas; o cálculo bate ao centavo com a implementação independente do
+auditor. Correção única:
+
+- **Fechamento do ano** (A1) só aparece no 4º trimestre; antes dele, nenhum
+  caso I, II ou III é mostrado.
+- **Entrada estranha** (A2, A14): valor acima do teto do campo, byte nulo em
+  texto, identificador que não é inteiro e datas fora de faixa viram 400.
+- **Receita repetida** (A3): a mesma receita ativa, lançada de novo, é
+  recusada com o nome da existente, como na receita do Simples.
+- **Testes** (A4) para os mutantes sobreviventes, sobretudo o filtro de
+  empresa no estorno da receita e na revogação da medida.
+- **Uma consulta por nota** (A5) eliminada.
+- **API** (A6) passa a expor a composição da dedução do 4º trimestre e os
+  trimestres suspensos por medida.
+- **Atividade e critério** (A7) ganham gatilho de imutabilidade.
+- **Duas quotas** (A8): a Lei 9.430, art. 5º, § 1º, diz "até três quotas";
+  o plano em duas passa a ser oferecido quando cada quota fica em R$ 1.000
+  ou mais.
+- **Confirmação de retenção** (A12) só para nota que entra na apuração, nas
+  duas portas.
+- **Rótulo** do serviço hospitalar completo, e a **Empresa Simples de
+  Crédito** (38,4%) recusada com nome, fora do primeiro corte (A10).
+
+Ficam como pendência ou backlog: o recuo do vencimento na Sexta-feira Santa e
+no Carnaval (A9, PE-83); a medida encerrada num trimestre (A11, BL-680); as
+leituras de trimestre de abertura e de igualdade nos casos (A13, HI-114 e
+HI-115); a separação das telas em módulo próprio (A15, BL-680).
+
 ## Critérios de aceite
 
 1. O exemplo oficial do P&R (receita de R$ 1.500.000 de comércio no
