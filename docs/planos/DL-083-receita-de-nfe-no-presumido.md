@@ -119,6 +119,53 @@ Hipóteses: HI-118, HI-119, HI-122 e HI-133 a HI-134 (RC-172).
 - regime de caixa;
 - pré-DAS de comércio (DL-082).
 
+## Decisões tomadas na implementação (frentes A e B)
+
+- **Regra única:** `itens_nfe.receita_do_item(item)`. A fonte única das
+  linhas de NF-e para o Simples, o RBT12 e o Presumido é
+  `receita.linhas_nfe_do_periodo`. `receita_de_nfe_no_mes` ficou sem uso em
+  produção e não foi removida.
+- **Valor bruto mantido:** `bruto` por natureza e `valor_bruto_por_cfop`
+  continuam sendo o bruto dos itens `indTot` 1. A tela da conferência diz
+  "Valor bruto (itens indTot 1)".
+- **Atividade de presunção:** `atividade_presumido`, no catálogo de
+  naturezas, passou de texto livre a **código da atividade**, e é a fonte
+  única do mapeamento.
+- **Sugestão de combustível pela descrição oficial do CFOP** (tabela do
+  Informe 2023.002 v2.10):
+  - 5.656, 6.656, 5.667 e 6.667 → `combustivel`;
+  - 5.655 e 6.655 → `combustivel_revenda`;
+  - 5.651 a 5.653 e 6.651 a 6.653 (produção do estabelecimento) ficam sem
+    sugestão.
+- **Devolução de combustível:** CFOP 1.660 a 1.662 e 2.660 a 2.662, pela
+  descrição oficial.
+- **Ajuste de integração do arquiteto:** na venda de combustível, CSOSN 500
+  ou CST 60 não conflita com o CFOP. Antes, toda NFC-e de posto ficava sem
+  sugestão, e a escrituração em volume (DL-085) não teria o que confirmar. O
+  sinal de substituto continua gerando conflito.
+- **Base da dedução da devolução:** é a receita de comércio e indústria do
+  trimestre, incluindo NFS-e e receitas informadas, e não só a NF-e ("receita
+  da atividade no trimestre").
+- **Saldo de devolução:** o aviso do saldo restante sai na apuração do 4º
+  trimestre; antes dele, o valor aparece como saldo transportado.
+- **Janela da recusa `nfe_nao_escriturada`:** na apuração, de janeiro ao fim
+  do trimestre (a mesma janela da recusa antiga, por causa do limite da
+  LC 224); no controle do ano, os doze meses.
+- **Retenção destacada (`retTrib`):** nenhum código lê esse grupo, então o
+  aviso não existe. Fica para quando o leitor ler `retTrib`.
+- **Mutante "deduzir no trimestre da venda":** não é expressável sem o
+  vínculo da devolução com a venda de origem (BL-685). Foi usado o mutante
+  vizinho "não deduzir no trimestre da devolução".
+- **Tela:** o botão "Efetivar" continua habilitado para nota de 2027. O
+  servidor recusa com 409 e a mensagem nomeada.
+- **Testes da DL-081 reescritos para a regra nova:** cinco da conferência
+  W16, um da API, a parte do Presumido em `test_dl081_protecao.py`,
+  `test_dl081_reconferencia.py` e um de tela. Nenhuma expectativa da DL-074,
+  da DL-075 ou da DL-079 mudou.
+- **Medido pelos desenvolvedores**, Python 3.13 local: frente A com
+  8.638/1/53 e frente B com 8.666/1/53, numa única invocação. A reprovação é
+  a de ambiente.
+
 ## Critérios de aceite
 
 1. Receita do item nos quatro casos (`indTot` 1 ou 0 × `indDeduzDeson` 1 ou

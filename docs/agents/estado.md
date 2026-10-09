@@ -357,9 +357,10 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
     destinos:
     - [DL-083](../planos/DL-083-receita-de-nfe-no-presumido.md): receita de
       NF-e no Presumido; os dois bloqueios conservadores saem pela fórmula do
-      MOC; combustível em duas naturezas; receita de 2027 bloqueada. **Em
-      execução** (frente A com o Haiku, cópia isolada `dl083` sobre
-      `ab40997`).
+      MOC; combustível em duas naturezas; receita de 2027 bloqueada.
+      **Frentes A e B integradas na branch** (`6f86f7f`, `7c25044` com o
+      ajuste de integração da sugestão de combustível, `e1a0d67`). Próximo:
+      a auditoria da rodada 1 (Sonnet).
     - [DL-084](../planos/DL-084-rotina-do-presumido.md): rotina do Presumido,
       depois da DL-082.
     - BL-687: mudanças do leitor de NF-e, que dependem do BL-686.
