@@ -112,6 +112,26 @@ HI-117 a HI-124 e pendência PE-85.
 - regras de 2027 (IBS e CBS no `vProd`, Res. CGSN 190/2026);
 - integração contábil.
 
+## Decisões tomadas na implementação (frente A)
+
+- **Campos opcionais com zero** (`vDesc`, `vFrete`, `vSeg` e `vOutro` iguais
+  a `0.00`): a nota é tratada como ilegível. O padrão `TDec_1302Opc` do XSD
+  não aceita zero em campo opcional, porque o emissor deve omitir o campo, e
+  o autorizador valida o esquema.
+- **ICMS desonerado que reduz o total** (`vICMSDeson` com `indDeduz` 1): a
+  conferência com o `vNF` falha e a efetivação é bloqueada. É uma falha
+  fechada: a regra de receita nesse caso fica para o Fred (PE-85) e para o
+  BL-685.
+- **`vNF` ausente** bloqueia, em vez de valer zero, porque o campo é
+  obrigatório no XSD.
+- **Devolução:** não é ligada à nota de origem (o `NFref` não é lido),
+  deduz no mês em que ocorre e entra sempre no mercado interno. A devolução
+  de exportação fica no BL-685.
+- **Proteção ampliada:** o pré-DAS recusa e o Presumido fica parcial também
+  no mês ou trimestre que recebe só devolução ou saldo de devolução.
+- **Serviço em NF-e conjugada** (natureza 14) entra no RBT12, que soma toda a
+  receita bruta, e continua recusado no pré-DAS e no Presumido.
+
 ## Critérios de aceite
 
 1. Os itens e os campos lidos batem com o XSD do PL 010f, com o caminho
