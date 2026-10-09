@@ -70,7 +70,9 @@ guarda a NFS-e; nada diz que ela foi conferida e escriturada.
 serviços tomados — etapa própria); NF-e (DL-010 fatia 2); fechamento de
 período fiscal (etapa própria; até lá a escrituração **não** é travada por
 período, e isso é limite declarado); alíquota, imposto, guia; integração
-contábil (HI-01, BL-72).
+contábil (HI-01, BL-72). *Nota de 09/10/2026 (DL-086): alíquota e apuração
+vieram depois, na DL-074 a DL-076 e na DL-079; a guia e a integração contábil
+continuam fora.*
 
 ## Regras de engenharia
 

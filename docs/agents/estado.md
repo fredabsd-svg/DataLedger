@@ -131,7 +131,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) | Fecha a leva da DL-061: coluna da DMPL nas duas portas, teste do snapshot e dica condicionada (BL-606, BL-607, BL-625) | **Integrada (PR #84, squash `c32cfe6`)** — o conteúdo **não tinha chegado à `main`** (o PR #82 foi mesclado na branch intermediária `fix/dl-062-…`); recuperado com a `base` reapontada para o destino real |
 | [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md) | Reclassificar conta com movimento em competência encerrada ou entregue não pode reescrever DLPA nem DMPL já apuradas (BL-550) | **Integrada (PR #85, squash `012a759`)** — ciclo de auditoria encerrado no veredito **REPROVADO** da reconferência; N1, N2 e N3 corrigidos depois, sem terceira rodada |
 | [DL-066](../planos/DL-066-dfc.md) | DFC — Demonstração dos Fluxos de Caixa, direto e indireto (CTB-15 da DL-048) | Situação em **[Próximo passo](#próximo-passo)** — **fatia 1 integrada pelo PR #89** (núcleo da apuração; auditoria e reconferência aprovadas com ressalvas, N1 e N2 corrigidos) e **fechada pelo PR #90** (porta de classificação, telas, API e método indireto); a fatia 2, método direto, está na fila |
-| [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md) | Plano do módulo fiscal de out/2026 a 2028, com a reforma tributária, conciliado com a paridade fiscal | Planejada |
+| [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md) | Plano do módulo fiscal de out/2026 a 2028, com a reforma tributária, conciliado com a paridade fiscal | Plano integrado; o roteiro está em execução desde 08/10/2026 (RC-164), DL-072 em diante |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 tratada na DL-068 |
 | [DL-068](../planos/DL-068-prontidao-para-implantacao.md) | Prontidão para implantação: Django 6.1.2, limite no login do admin, `.dockerignore`, `DJANGO_AMBIENTE` (BL-82) e proxies `/0` (BL-577) | **Integrada (PR #91, squash `7c23894`, merge feito pelo Fred em 07/10/2026)** — auditoria e reconferência aprovadas com ressalvas; R1 com o Fred (BL-642) |
 | [DL-069](../planos/DL-069-travas-no-banco.md) | Travas no banco: livro-caixa imutável, período encerrado recusa INSERT, trilha imutável | Situação em **[Próximo passo](#próximo-passo)** — fatias 1 e 2 integradas (PR #92 e #93); fatia 3 bloqueada na PE-77 |
@@ -338,7 +338,8 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
     conservadores saem na DL-083.
 
 11. **[DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md) — pré-DAS
-    de comércio e indústria (Anexos I e II): planejada.**
+    de comércio e indústria (Anexos I e II): frente A em desenvolvimento**
+    (ver o item 15).
     [Consulta ao contador-senior](../projeto/consultas/2026-10-09-contador-senior-pre-das-comercio.md):
     exemplos 1, 2, 3 e 6 do Manual do PGDAS-D batem ao centavo com as tabelas
     do repositório; um RBT12 para todos os anexos; segregação sem
@@ -425,7 +426,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
       parciais e dos botões desabilitados para o PARALEGAL.
     - [Rodada 1](../auditorias/2026-10-09-dl-085-rodada-1.md): **aprovada
       com ressalvas**. Não houve achado alto; A1 a A3 são médios.
-    - **Correção única em andamento** (Haiku, cópia `dl085d`).
+    - **Correção única integrada** (`7f723d1`), mais o ajuste do arquiteto
+      no resíduo do A5 (`5ca0d5f`): a criação individual do rascunho trava a
+      empresa antes do vínculo. Próximo: a reconferência.
 
 15. **[DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md):** a
     frente A está em andamento em paralelo (Haiku, cópia `dl082` sobre
@@ -447,7 +450,10 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 
     Planos:
     - [DL-086](../planos/DL-086-documentacao-e-painel-do-fiscal.md):
-      documentação e painel;
+      documentação e painel, **integrada na branch** (`1f06604`, mais os
+      textos da página inicial e do cartão do módulo, ajustados pelo
+      arquiteto). Os indicadores de NF-e no painel ficam no BL-681, item 2,
+      porque precisam de uma função de leitura no fiscal;
     - [DL-087](../planos/DL-087-classificacao-fiscal-versionada.md):
       classificação fiscal versionada, corte 1, depois da DL-085 e da
       DL-082;

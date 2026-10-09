@@ -1260,7 +1260,7 @@ def montar_home(request, escopo, *, estado="", pagina=1, tamanho=8):
         **MODULOS[escopo.modulo],
         "descricao": {
             "contabilidade": "Conferência e fechamento por competência",
-            "fiscal": "Recepção e conferência de NFS-e nacional",
+            "fiscal": "Recepção, escrituração e apuração para conferência",
             "livro-caixa": "Conferência do livro-caixa de pessoa física",
         }.get(escopo.modulo, "Módulo ainda não disponível"),
     }

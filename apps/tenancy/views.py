@@ -689,7 +689,7 @@ def _modulos_do_painel(*, papel, empresas_da_carteira, request=None):
                 "chave": "fiscal",
                 "icone": "fiscal",
                 "titulo": "Fiscal",
-                "descricao": "Recepção e consulta de NFS-e nacional.",
+                "descricao": "Recepção de NFS-e e NF-e, escrituração e apuração para conferência.",
                 "url": url_fiscal,
                 "planejado": False,
             }
