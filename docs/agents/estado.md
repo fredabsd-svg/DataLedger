@@ -299,7 +299,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    [rodada 1](../auditorias/2026-10-09-dl-079-rodada-1.md) APROVADA COM
    RESSALVAS (cálculo igual ao centavo à implementação independente do
    auditor; A1 a A5 médios, A6 a A15 baixos; suíte 7.786 aprovados, 1
-   reprovado de ambiente, 53 pulados), em correção única.** HI-114, HI-115 e
+   reprovado de ambiente, 53 pulados); correção única `c8ab98a` (A1 a A8,
+   A10, A12, A14; 63 testes novos; suíte do desenvolvedor 7.849 aprovados, 1
+   reprovado de ambiente, 53 pulados), em reconferência.** HI-114, HI-115 e
    BL-680 registrados. Frente A: tabelas com fonte, seis cadastros,
    migração `fiscal 0009` com gatilhos, apuração do trimestre com as três
    colunas (sem LC 224, com LC 224, parcela), controle do limite com sobra e
@@ -313,7 +315,8 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
    HI-100 a HI-108; **PE-83 com o Fred** (rotina do Presumido; não bloqueia).
 
 9. **[DL-080](../planos/DL-080-recepcao-de-nfe.md) — recepção de NF-e e
-   NFC-e: planejada.** [Pesquisa do leiaute](../projeto/consultas/2026-10-09-leiaute-nfe.md)
+   NFC-e: frente A em conclusão** (cópia isolada `dl080` sobre a DL-079;
+   leitor, tabelas próprias, eventos, API; BL-681). [Pesquisa do leiaute](../projeto/consultas/2026-10-09-leiaute-nfe.md)
    no Portal Nacional da NF-e (pacote PL 010f, leiaute 4.00, eventos e NTs
    até 01/10/2026). Tabelas próprias para a NF-e, para nada contaminar os
    cálculos de NFS-e. HI-109 a HI-113; **PE-84 com o Fred** (NFC-e,
