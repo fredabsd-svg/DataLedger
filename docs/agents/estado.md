@@ -428,7 +428,10 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
       Tocantins com lei lida, padrão de combustível por tipo de cliente e o
       encerramento da medida judicial (BL-680).
 
-    **Ordem de execução:** DL-083 → DL-085 → DL-082 → DL-084.
+    **Ordem de execução:** DL-083 → DL-085 → DL-082 → DL-084. A
+    [DL-084](../planos/DL-084-rotina-do-presumido.md) está **em
+    desenvolvimento** (frente A, Haiku, cópia `dl084`), em paralelo às
+    correções da DL-082 e da DL-089.
 
 14. **[DL-085](../planos/DL-085-escrituracao-de-nfe-em-volume.md) —
     escrituração de NF-e e NFC-e em volume.**
@@ -492,7 +495,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
       - O estorno de lançamento automático exige ADMINISTRADOR ou GESTOR
         (HI-150).
       - Medido pelo desenvolvedor: 9.138/1/55.
-      - Rodada 1 da auditoria em andamento.
+      - [Rodada 1](../auditorias/2026-10-09-dl-089-rodada-1.md) **aprovada
+        com ressalvas**; correção única em andamento. O Razão fica sem
+        filtro de origem (DE-101).
     - em seguida: as NF-e de entrada, o ICMS-TO, a integração contábil e os
       livros.
 

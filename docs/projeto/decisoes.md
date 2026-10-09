@@ -5280,3 +5280,23 @@ que o sinal fosse uma variável explícita, não uma inferência.
   proteger nada além do que a imagem já protege.
 
 **Reversão:** local ao `settings.py`, ao `Dockerfile` e ao `.env.example`.
+
+## DE-101 — O Razão não filtra por origem do lançamento; o Diário filtra
+
+**Data:** 09/10/2026. **Etapa:** [DL-089](../planos/DL-089-origem-do-lancamento-contabil.md),
+A5 da [auditoria](../auditorias/2026-10-09-dl-089-rodada-1.md).
+
+**Decisão:** a origem do lançamento (digitado, importado, escrita fiscal)
+filtra o **Diário**, mas **não** o Razão.
+
+**Motivo:** o Razão abre com o saldo anterior da conta, que soma todas as
+origens. Um Razão filtrado mostraria um saldo final que não bate com o
+Balancete, e o contador concluiria que há erro onde não há. O Diário é uma
+lista de lançamentos sem saldo acumulado: filtrar só muda o que é listado, e
+o total diz que é o total filtrado.
+
+**Alternativas descartadas:** filtrar o Razão recalculando o saldo anterior
+só com a origem escolhida. Esse saldo não existe em nenhum documento contábil
+e confundiria a conferência.
+
+**Reversão:** acrescentar o filtro no Razão é aditivo, se o Fred pedir.
