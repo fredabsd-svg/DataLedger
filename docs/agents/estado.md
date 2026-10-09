@@ -339,14 +339,24 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
     conservadores saem na DL-083.
 
 11. **[DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md) — pré-DAS
-    de comércio e indústria (Anexos I e II): frente A em desenvolvimento**
-    (ver o item 15).
+    de comércio e indústria (Anexos I e II): frente A integrada na branch;
+    frente B (telas) e auditoria a seguir.**
     [Consulta ao contador-senior](../projeto/consultas/2026-10-09-contador-senior-pre-das-comercio.md):
     exemplos 1, 2, 3 e 6 do Manual do PGDAS-D batem ao centavo com as tabelas
     do repositório; um RBT12 para todos os anexos; segregação sem
     redistribuição; devolução por segmento. HI-125 a HI-132; PE-86
-    (benefício de ICMS do Tocantins), PE-87 (conciliação real). **Executa
-    depois da DL-083.**
+    (benefício de ICMS do Tocantins), PE-87 (conciliação real).
+    - Frente A integrada na branch (o commit do cálculo e o da segunda
+      rodada). Na segunda rodada:
+      - o anexo da mercadoria vem da descrição oficial do CFOP quando a
+        natureza não decide; se o CFOP também não decidir, o pré-DAS recusa
+        com o motivo;
+      - os testes de migração voltam todas as apps à última versão;
+      - a reversão da 0014 recusa quando há marca ou segmento em escrituração
+        não estornada.
+    - Suíte completa numa única invocação, medida pelo desenvolvedor: 9.009
+      passaram, 54 pulados e 1 falha de ambiente (`test_versao_minima_python`,
+      Python 3.13 local).
 
 12. **Respostas da PE-83, da PE-84 e da PE-85 (RC-172, 09/10/2026):
     registradas.** O Fred delegou as três ao `contador-senior` (Fable). A

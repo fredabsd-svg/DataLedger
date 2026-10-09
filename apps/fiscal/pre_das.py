@@ -97,6 +97,7 @@ from apps.fiscal import simples_tabelas as tabelas
 from apps.fiscal.models import (
     ANEXO_I,
     ANEXO_II,
+    NATUREZAS_DE_MERCADORIA,
     SEGMENTO_EXPORTACAO,
     SEGMENTO_MONOFASICO,
     SEGMENTO_NORMAL,
@@ -221,8 +222,9 @@ MOTIVO_FORA_DO_CORTE = {
 # DL-082: mercadoria (NF-e) no Simples. Anexo pela natureza do item (HI-125); segmento pela união
 # das condições de ST, monofásico e exportação (HI-127); sem redistribuição. Ver `models`.
 DISP_MERCADORIA = (
-    "LC 123/2006, art. 18, § 4º, I e II (anexo da mercadoria pela natureza do item: revenda → "
-    "Anexo I; produção própria → Anexo II); consulta de 09/10/2026, item 1 (HI-125)"
+    "LC 123/2006, art. 18, § 4º, I e II (anexo da mercadoria: pela natureza, revenda → Anexo I e "
+    "produção própria → Anexo II; nas demais, pela descrição oficial do CFOP); consulta de "
+    "09/10/2026, item 1 (HI-125)"
 )
 DISP_RBT12_UNICO = (
     "LC 123/2006, art. 18, § 1º; Res. CGSN 140/2018, art. 22, § 1º; Manual do PGDAS-D, exemplo 2 "
@@ -1108,6 +1110,28 @@ def _recusas_de_nfe(nfe_do_mes, mercadoria, ano: int, mes: int) -> tuple[list[Bl
         avisos.append(
             f"CSOSN 900 em {', '.join(com_aviso)} ({rotulo}): o pré-DAS calcula pela natureza; "
             "confira o item no PGDAS-D (HI-131)."
+        )
+
+    # Anexo que a natureza e o CFOP não decidem (decisão do arquiteto, DL-082): recusa nomeada, com
+    # a natureza e o CFOP. Nunca se presume produção nem revenda.
+    a_confirmar = sorted(
+        {
+            (linha.natureza, linha.cfop)
+            for linha in nfe_do_mes
+            if linha.papel == "receita"
+            and linha.natureza in NATUREZAS_DE_MERCADORIA
+            and linha.anexo is None
+        }
+    )
+    for natureza, cfop in a_confirmar:
+        bloqueios.append(
+            Bloqueio(
+                "anexo_da_mercadoria_a_confirmar",
+                f"anexo da mercadoria a confirmar (natureza {natureza}, CFOP {cfop}) em {rotulo}: "
+                "a descrição oficial do CFOP não diz se a venda é de produção (Anexo II) ou de "
+                "revenda (Anexo I). Confirme a natureza ou o CFOP (HI-125).",
+                "HI-125; tabela oficial de CFOP (Informe 2023.002 v2.10)",
+            )
         )
 
     sem_segmento = sorted(

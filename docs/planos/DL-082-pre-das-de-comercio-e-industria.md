@@ -26,6 +26,43 @@ de 09/10/2026.
 
 Hipóteses HI-125 a HI-132. Pendências PE-86 e PE-87.
 
+## Frente A: rodada de ajuste (decisões do arquiteto)
+
+Aplicadas sobre o commit `2ec6e89`:
+
+1. **Cascata de migrações.** Os testes que revertem `empresas` ou `fiscal`
+   restauram o head de todas as apps (`leaf_nodes()`, em `finally`), sem mudar
+   asserção: `apps/empresas/tests/test_dl038_migracao.py`,
+   `test_dl039_bl529_gatilho_estabelecimento_cpf.py`, `test_dl041_migracao.py`,
+   `test_dl076_b8_modo_escrituracao_constraint.py`,
+   `apps/fiscal/tests/test_dl083_migracao.py` e `test_dl085_migracao.py`.
+2. **Anexo pelo CFOP.** Para `revenda_st_substituido`, `substituto_st`,
+   `monofasico`, `exportacao_direta` e `comercial_exportadora`, o anexo vem da
+   descrição oficial do CFOP (`apps/fiscal/dados/cfop_it2023002_v210.csv`).
+   Produção (5.101, 5.401, 5.501, 7.101) vai para o Anexo II; mercadoria
+   adquirida de terceiros (5.102, 5.403, 5.405, 5.502, 7.102) vai para o
+   Anexo I. CFOP que não decide gera a recusa `anexo_da_mercadoria_a_confirmar`
+   com natureza e CFOP. Código em `apps/fiscal/models.py` (`anexo_pelo_cfop`,
+   `anexo_da_mercadoria`) e `apps/fiscal/pre_das.py`. Testes em
+   `apps/fiscal/tests/test_dl082_anexo_cfop.py`, incluindo o caso F ponta a
+   ponta, com valores conferidos à mão contra a tabela do Anexo II.
+3. **Reversão da 0014.** A reversão recusa, sem alterar nada, se houver item
+   com marca de monofásico ou segmento de devolução em escrituração em
+   rascunho ou efetivada. Com só estornadas, a reversão segue, e o valor de
+   cada item fica nos eventos `monofasico_definido` e
+   `segmento_devolucao_definido` (`antes` e `depois`). Testes em
+   `apps/fiscal/tests/test_dl082_migracao_reversao.py`, pelo `migrate` real.
+4. **Mutante.** Anexo pelo CFOP ignorado (sempre Anexo I): 12 testes falham nos
+   arquivos `test_dl082_anexo_cfop`, `calculo` e `recusas`. O arquivo foi
+   restaurado e comparado byte a byte com o original.
+
+Verificações desta rodada: `ruff check .` e `ruff format --check .` passaram;
+`manage.py check` sem problemas; `makemigrations --check` sem mudanças; ida,
+volta e ida da 0014 no banco de desenvolvimento; `pytest apps/fiscal` com 3092
+passando e 1 pulado; suíte completa numa invocação com 9.009 passando, 54
+pulados e 1 falha de ambiente (`test_versao_minima_python`, Python 3.13 local
+contra a integração em 3.14).
+
 ## O que muda
 
 Hoje o pré-DAS da [DL-075](DL-075-pre-das-do-simples.md) só cobre serviços e

@@ -220,8 +220,9 @@ def test_comercial_exportadora_calcula_pela_propria_natureza(
         usuario_gestor_a,
         empresa,
         numero=461,
-        itens=[{"cfop": "7101", "vprod": "50000.00"}],
-        id_dest="3",
+        # 5.502: remessa de mercadoria adquirida de terceiros com fim específico de exportação
+        # (descrição oficial). Anexo I. O mercado externo vem da natureza.
+        itens=[{"cfop": "5502", "vprod": "50000.00"}],
     )
     escriturar(empresa, usuario_gestor_a, documento, {1: NF.COMERCIAL_EXPORTADORA})
     confirmar_pa(empresa, usuario_gestor_a)

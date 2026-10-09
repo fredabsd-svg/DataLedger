@@ -246,7 +246,9 @@ def test_exemplo_6_exportacao_dois_mercados_centavo_a_centavo(
         usuario_gestor_a,
         empresa,
         numero=107,
-        itens=[{"cfop": "7101", "vprod": "50000.00"}],
+        # 7.102: exportação de mercadoria adquirida de terceiros (revenda). Anexo I pela descrição
+        # oficial do CFOP (DL-082). Com 7.101 seria venda de produção (Anexo II).
+        itens=[{"cfop": "7102", "vprod": "50000.00"}],
         id_dest="3",
     )
     escriturar(
@@ -494,9 +496,8 @@ def test_caso_f_anexo_ii_com_st_e_exportacao_calculo_puro():
     """Caso F: Anexo II. RBT12 interno 900.000 (4ª faixa, efetiva 8,70%): normal 40.000 e ST
     substituído 10.000. RBT12 externo 150.000 (1ª faixa, 4,50%): exportação 20.000.
 
-    LIMITE DECLARADO: o catálogo ainda não tem natureza de PRODUÇÃO com ST nem de produção exportada
-    (ver `models`, "LIMITE DECLARADO"). Por isso o F é conferido no cálculo puro, com a receita já
-    segregada. O mapeamento de item para segmento de produção fica pendente para o arquiteto.
+    Cálculo puro, com a receita já segregada. O mesmo caso roda ponta a ponta em
+    `test_dl082_anexo_cfop.py::test_caso_f_ponta_a_ponta...` (anexo pelo CFOP).
 
     Esperado (à mão): normal IRPJ 191,40; CSLL 121,80; Cofins 400,55; PIS 86,65; CPP 1.305,00;
     IPI 261,00; ICMS 1.113,60; subtotal 3.480,00. ST IRPJ 47,85; CSLL 30,45; Cofins 100,14; PIS

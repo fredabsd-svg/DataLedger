@@ -9,8 +9,17 @@
 # INSERT, UPDATE e DELETE em QUALQUER coluna de `fiscal_naturezaitemnfe` quando a escrituração-pai
 # não é rascunho. A marca e o segmento ficam imutáveis depois da efetivação pelo mesmo gatilho.
 #
-# Reversão: `migrate fiscal 0013` remove o CHECK e as duas colunas. Nenhum dado de outra tabela
-# muda.
+# Reversão (`migrate fiscal 0013`), em ordem:
+# a) RECUSA, sem alterar nada, se houver item com marca de monofásico ou segmento de devolução
+#    confirmado em escrituração em RASCUNHO ou EFETIVADA. Esses dados são do contador, e a efetivada
+#    só muda depois de estornada: estorne (ou desfaça a marca no rascunho) e só então reverta.
+# b) Com só escriturações ESTORNADAS, a reversão segue: remove o CHECK e as duas colunas.
+#    A recusa segue a política da 0012 da DL-083 (estornada é imutável e não entra na contagem),
+#    com uma diferença: a 0012 só alarga a coluna, e esta remove as duas colunas. O valor de cada
+#    estornada fica na trilha de auditoria: `escrituracao_nfe.monofasico_definido` e
+#    `escrituracao_nfe.segmento_devolucao_definido` gravam `antes` e `depois` por item, a cada
+#    definição. Nenhum CHECK antigo precisa voltar NOT VALID: esta migração não substituiu CHECK
+#    nenhum; o próprio CHECK novo sai junto com a coluna.
 
 from django.db import migrations, models
 
@@ -52,6 +61,26 @@ def _so_postgresql(schema_editor) -> bool:
 def _descarregar_checagens(apps, schema_editor):
     if _so_postgresql(schema_editor):
         schema_editor.execute(_SQL_DESCARREGAR_CHECAGENS)
+
+
+def _conferir_reversao(apps, schema_editor):
+    """Primeiro passo da reversão (DL-082): descarrega as checagens e recusa se há dado do contador
+    em escrituração que não está estornada. A recusa vem antes de qualquer alteração de esquema."""
+    _descarregar_checagens(apps, schema_editor)
+    NaturezaItemNFe = apps.get_model("fiscal", "NaturezaItemNFe")
+    nao_estornadas = NaturezaItemNFe.objects.filter(
+        escrituracao__estado__in=["rascunho", "efetivada"]
+    )
+    marcados = nao_estornadas.filter(monofasico=True).count()
+    segmentados = nao_estornadas.exclude(segmento_devolucao="").count()
+    if marcados or segmentados:
+        raise RuntimeError(
+            "Reversão da migração 0014 recusada (DL-082): "
+            f"{marcados} item(ns) com marca de monofásico e {segmentados} com segmento de "
+            "devolução confirmado, em escrituração em rascunho ou efetivada. Estorne a "
+            "escrituração (ou desfaça a marca e o segmento no rascunho) antes de reverter. "
+            "Nenhum dado foi apagado."
+        )
 
 
 def _aplicar_check(apps, schema_editor):
@@ -120,6 +149,7 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.RunPython(_aplicar_check, _desfazer_check),
-        # Na reversão, este é o PRIMEIRO passo (operações revertem na ordem inversa).
-        migrations.RunPython(migrations.RunPython.noop, _descarregar_checagens),
+        # Na reversão, este é o PRIMEIRO passo (operações revertem na ordem inversa): recusa antes
+        # de qualquer alteração, se houver dado do contador em escrituração não estornada.
+        migrations.RunPython(migrations.RunPython.noop, _conferir_reversao),
     ]

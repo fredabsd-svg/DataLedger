@@ -47,13 +47,16 @@ def test_migracao_0013_vai_volta_e_vai_sem_tocar_nas_escrituracoes(escritorio_a)
     efetivada = _escrituracao_individual(escritorio_a, usuario, empresa)
     assert all(_tabela_existe(t) for t in TABELAS)
 
-    call_command("migrate", "fiscal", ULTIMA_ANTES, verbosity=0)
-    assert not any(_tabela_existe(t) for t in TABELAS)
-    efetivada.refresh_from_db()
-    assert efetivada.estado == "efetivada"
-    assert EscrituracaoNFe.objects.filter(pk=efetivada.pk).exists()
-
-    call_command("migrate", "fiscal", verbosity=0)
+    try:
+        call_command("migrate", "fiscal", ULTIMA_ANTES, verbosity=0)
+        assert not any(_tabela_existe(t) for t in TABELAS)
+        efetivada.refresh_from_db()
+        assert efetivada.estado == "efetivada"
+        assert EscrituracaoNFe.objects.filter(pk=efetivada.pk).exists()
+    finally:
+        # Ida até o head de TODAS as apps, também se uma asserção acima falhar (DL-082): a volta
+        # só da fiscal deixava o banco parado em 0012 para os testes seguintes.
+        call_command("migrate", verbosity=0)
     assert all(_tabela_existe(t) for t in TABELAS)
     assert not LoteEscrituracaoNFe.objects.exists()
     previa = previa_lida(empresa, 2026, 3)

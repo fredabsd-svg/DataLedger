@@ -35,6 +35,7 @@ from django.db.models import F, Q
 
 from apps.empresas.models import Empresa
 from apps.fiscal import presumido_tabelas as _tabelas_presumido
+from apps.fiscal.cfop import cfop as consultar_cfop_oficial
 from apps.tenancy.models import Escritorio
 
 
@@ -2841,11 +2842,14 @@ def papel_da_natureza_nfe(natureza: str) -> str:
 # monofásico tira PIS e Cofins; exportação tira Cofins, PIS, IPI, ICMS e ISS. Combinações tiram a
 # união dos conjuntos (o pré-DAS faz a união; aqui só se diz o segmento).
 #
-# LIMITE DECLARADO (DL-082): o catálogo tem UMA natureza por item e não separa "revenda" de
-# "produção"
-# nas naturezas de ST substituído, substituto e exportação. Essas caem no Anexo I (regra da consulta
-# de 09/10/2026, item 1). Indústria com ST, substituição ou exportação de produção própria fica sem
-# natureza própria; é pendência para o arquiteto (ver docs/planos/DL-082).
+# Anexo da mercadoria (DL-082, decisão do arquiteto): o catálogo tem UMA natureza por item, e
+# algumas naturezas não dizem se a venda é de PRODUÇÃO (Anexo II) ou de REVENDA (Anexo I). Por isso:
+# - `revenda` → Anexo I e `producao_propria` → Anexo II, pela própria natureza (HI-125);
+# - `revenda_st_substituido`, `substituto_st`, `monofasico`, `exportacao_direta` e
+#   `comercial_exportadora` → o anexo vem da DESCRIÇÃO OFICIAL do CFOP do item (tabela de
+#   `apps.fiscal.cfop`, Informe 2023.002 v2.10). Veja `anexo_pelo_cfop`.
+# Se a descrição não decidir, o anexo fica `None` e o pré-DAS recusa o mês ("anexo da mercadoria a
+# confirmar"): nunca se presume produção nem revenda.
 # ---------------------------------------------------------------------------
 
 ANEXO_I = "I"
@@ -2899,19 +2903,71 @@ ANEXO_E_SEGMENTO_DA_DEVOLUCAO: dict[str, tuple[str, str]] = {
     SegmentoDevolucao.PRODUCAO_EXPORTACAO: (ANEXO_II, SEGMENTO_EXPORTACAO),
 }
 
-# Naturezas de venda de mercadoria e o anexo que a natureza fixa (HI-125, consulta de 09/10/2026).
-_ANEXO_DA_NATUREZA_DE_MERCADORIA = {
+# Naturezas de mercadoria cujo anexo é FIXO pela natureza (HI-125, consulta de 09/10/2026, item 1).
+_ANEXO_FIXO_DA_NATUREZA = {
     NaturezaOperacaoNFe.REVENDA: ANEXO_I,
     NaturezaOperacaoNFe.PRODUCAO_PROPRIA: ANEXO_II,
-    NaturezaOperacaoNFe.REVENDA_ST_SUBSTITUIDO: ANEXO_I,
-    NaturezaOperacaoNFe.SUBSTITUTO_ST: ANEXO_I,
-    NaturezaOperacaoNFe.MONOFASICO: ANEXO_I,
-    NaturezaOperacaoNFe.EXPORTACAO_DIRETA: ANEXO_I,
-    NaturezaOperacaoNFe.COMERCIAL_EXPORTADORA: ANEXO_I,
 }
 
+# Naturezas de mercadoria cujo anexo vem do CFOP do item (DL-082, decisão do arquiteto).
+_ANEXO_PELO_CFOP_DA_NATUREZA = frozenset(
+    {
+        NaturezaOperacaoNFe.REVENDA_ST_SUBSTITUIDO,
+        NaturezaOperacaoNFe.SUBSTITUTO_ST,
+        NaturezaOperacaoNFe.MONOFASICO,
+        NaturezaOperacaoNFe.EXPORTACAO_DIRETA,
+        NaturezaOperacaoNFe.COMERCIAL_EXPORTADORA,
+    }
+)
+
+# Descrições oficiais que decidem o anexo (Informe 2023.002 v2.10, em `apps/fiscal/dados`).
+# Produção do estabelecimento: 5.101 "Venda de produção do estabelecimento."; 5.401 "... em operação
+# com produto sujeito ao regime de substituição tributária"; 7.101 "Venda de produção do
+# estabelecimento."; 5.501 "Remessa de produção do estabelecimento, com fim específico de
+# exportação."
+# Mercadoria de terceiros: 5.102 e 7.102 "Venda de mercadoria adquirida ou recebida de terceiros";
+# 5.403 e 5.405 (ST) "Venda de mercadoria adquirida ou recebida de terceiros em operação com
+# mercadoria sujeita ao regime de substituição tributária"; 5.502 "Remessa de mercadoria adquirida
+# ou recebida de terceiros, com fim específico de exportação." Qualquer outra descrição não decide.
+_PREFIXOS_PRODUCAO = (
+    "Venda de produção do estabelecimento",
+    "Remessa de produção do estabelecimento",
+)
+_PREFIXOS_REVENDA = (
+    "Venda de mercadoria adquirida ou recebida de terceiros",
+    "Remessa de mercadoria adquirida ou recebida de terceiros",
+)
+
 # Naturezas de mercadoria: as que têm anexo e aceitam a marca de monofásico (DL-082).
-NATUREZAS_DE_MERCADORIA = frozenset(_ANEXO_DA_NATUREZA_DE_MERCADORIA)
+NATUREZAS_DE_MERCADORIA = frozenset(_ANEXO_FIXO_DA_NATUREZA) | _ANEXO_PELO_CFOP_DA_NATUREZA
+
+
+def anexo_pelo_cfop(cfop: str) -> str | None:
+    """Anexo que a descrição oficial do CFOP decide, ou `None` se ela não decide.
+
+    Consulta a tabela oficial (`apps.fiscal.cfop`). CFOP fora da tabela não decide.
+    """
+    info = consultar_cfop_oficial(cfop)
+    if info is None:
+        return None
+    if info.descricao.startswith(_PREFIXOS_PRODUCAO):
+        return ANEXO_II
+    if info.descricao.startswith(_PREFIXOS_REVENDA):
+        return ANEXO_I
+    return None
+
+
+def anexo_da_mercadoria(natureza: str, cfop: str) -> str | None:
+    """Anexo de um item de mercadoria. `None` = a natureza e o CFOP não decidem (recusa do pré-DAS).
+
+    Para natureza que não é de mercadoria, devolve `None` também: quem chama confere
+    `NATUREZAS_DE_MERCADORIA` antes.
+    """
+    if natureza in _ANEXO_FIXO_DA_NATUREZA:
+        return _ANEXO_FIXO_DA_NATUREZA[natureza]
+    if natureza in _ANEXO_PELO_CFOP_DA_NATUREZA:
+        return anexo_pelo_cfop(cfop)
+    return None
 
 
 def segmento_da_mercadoria(*, st: bool, monofasico: bool, exportacao: bool) -> str:
@@ -2931,14 +2987,17 @@ def segmento_da_mercadoria(*, st: bool, monofasico: bool, exportacao: bool) -> s
     return SEGMENTO_NORMAL
 
 
-def classificacao_da_venda(natureza: str, monofasico_marcado: bool) -> tuple[str, str] | None:
-    """(anexo, segmento) de um item de VENDA de mercadoria, ou `None` se não é mercadoria.
+def classificacao_da_venda(
+    natureza: str, monofasico_marcado: bool, cfop: str
+) -> tuple[str | None, str] | None:
+    """(anexo, segmento) de um item de VENDA de mercadoria; `None` se a natureza não é de
+    mercadoria.
 
+    O anexo pode ser `None` (CFOP que não decide): o pré-DAS recusa, nomeando natureza e CFOP.
     `monofasico` vale pela natureza `monofasico` OU pela marca do contador no item (HI-128). Sem
     marca e sem natureza monofásica, o item é normal (lado conservador: paga a mais, nunca a menos).
     """
-    anexo = _ANEXO_DA_NATUREZA_DE_MERCADORIA.get(natureza)
-    if anexo is None:
+    if natureza not in NATUREZAS_DE_MERCADORIA:
         return None
     segmento = segmento_da_mercadoria(
         st=natureza == NaturezaOperacaoNFe.REVENDA_ST_SUBSTITUIDO,
@@ -2946,7 +3005,7 @@ def classificacao_da_venda(natureza: str, monofasico_marcado: bool) -> tuple[str
         exportacao=natureza
         in (NaturezaOperacaoNFe.EXPORTACAO_DIRETA, NaturezaOperacaoNFe.COMERCIAL_EXPORTADORA),
     )
-    return anexo, segmento
+    return anexo_da_mercadoria(natureza, cfop), segmento
 
 
 def classificacao_da_devolucao(segmento_confirmado: str) -> tuple[str, str] | None:

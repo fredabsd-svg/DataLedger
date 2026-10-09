@@ -25,7 +25,9 @@ _ALVO_ANTERIOR = [("empresas", "0011_bl533_bl534_gatilho_com_nome_e_trava")]
 
 
 def _alvo_atual():
-    return MigrationExecutor(db_connection).loader.graph.leaf_nodes("empresas")
+    # DL-082: restaura TODAS as apps (ver test_dl038_migracao): reverter `empresas` cascateia
+    # para `fiscal`.
+    return MigrationExecutor(db_connection).loader.graph.leaf_nodes()
 
 
 def test_migracao_0012_preenche_escritorio_de_estabelecimento_existente():
@@ -99,12 +101,13 @@ def test_migracao_0012_reverter_falha_com_cnpj_repetido_entre_escritorios():
     with db_connection.cursor() as cursor:
         cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
 
-    with pytest.raises(IntegrityError):
-        MigrationExecutor(db_connection).migrate(_ALVO_ANTERIOR)
-
-    # A migração fica MEIO revertida dentro da transação que falhou —
-    # Django já desfaz isso por conta própria (a operação inteira roda
-    # dentro de uma transação de esquema); só confirmamos que dá para
-    # seguir usando o banco normalmente depois, na versão ATUAL.
-    MigrationExecutor(db_connection).migrate(_alvo_atual())
+    try:
+        with pytest.raises(IntegrityError):
+            MigrationExecutor(db_connection).migrate(_ALVO_ANTERIOR)
+    finally:
+        # A migração fica MEIO revertida dentro da transação que falhou —
+        # Django já desfaz isso por conta própria (a operação inteira roda
+        # dentro de uma transação de esquema); só confirmamos que dá para
+        # seguir usando o banco normalmente depois, na versão ATUAL.
+        MigrationExecutor(db_connection).migrate(_alvo_atual())
     assert Empresa.objects.filter(cnpj=cnpj_repetido).count() == 2

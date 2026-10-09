@@ -297,7 +297,7 @@ def _classe_da_parcela(registro: NaturezaItemNFe, papel: str) -> tuple[str, str]
     não tem classe: o pré-DAS a recusa pela natureza.
     """
     if papel == "receita":
-        return classificacao_da_venda(registro.natureza, registro.monofasico)
+        return classificacao_da_venda(registro.natureza, registro.monofasico, registro.item.cfop)
     if registro.natureza == NaturezaOperacaoNFe.DEVOLUCAO_VENDA:
         return classificacao_da_devolucao(registro.segmento_devolucao)
     return None

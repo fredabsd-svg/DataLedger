@@ -431,7 +431,7 @@ def segregacao_da_escrituracao(escrituracao: EscrituracaoNFe) -> dict[str, Decim
         # DL-082: a memória tem as quatro chaves que a tela conhece. Monofásico pela marca cai em
         # `monofasico`. ST com monofásico no mesmo item cai em `sujeita_st`: a tela não tem rótulo
         # de "ST e monofásico" (views_web, frente B). O pré-DAS segrega os dois tributos certos.
-        classe = classificacao_da_venda(registro.natureza, registro.monofasico)
+        classe = classificacao_da_venda(registro.natureza, registro.monofasico, registro.item.cfop)
         segmento = info.segregacao if classe is None else classe[1]
         if segmento == "st_monofasico":
             segmento = "sujeita_st"

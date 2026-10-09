@@ -80,16 +80,22 @@ def test_reversao_recusa_com_item_em_rascunho_com_natureza_nova_e_nao_muda_nada(
     )
     convalidado_antes = _check_do_banco()[0]
 
-    with pytest.raises(RuntimeError) as erro:
-        call_command("migrate", "fiscal", ULTIMA_ANTES, verbosity=0)
+    try:
+        with pytest.raises(RuntimeError) as erro:
+            call_command("migrate", "fiscal", ULTIMA_ANTES, verbosity=0)
 
-    assert "Reversão da migração 0012 recusada" in str(erro.value)
-    assert "combustivel_revenda em 1" in str(erro.value)
-    # Nada mudou: o CHECK novo continua como estava, e a natureza continua no item.
-    assert convalidado_antes is True
-    assert _check_do_banco()[0] is True
-    assert _natureza_do_item(esc) == "combustivel_revenda"
-    call_command("migrate", "fiscal", verbosity=0)  # head (DL-082, 0014)
+        assert "Reversão da migração 0012 recusada" in str(erro.value)
+        assert "combustivel_revenda em 1" in str(erro.value)
+        # O CHECK da 0012 continua como estava, e a natureza continua no item. As reversões da
+        # 0014 e da 0013 rodam antes, cada uma na sua transação, e já estão feitas quando a 0012
+        # recusa: o que esta recusa protege é a natureza nova.
+        assert convalidado_antes is True
+        assert _check_do_banco()[0] is True
+        assert _natureza_do_item(esc) == "combustivel_revenda"
+    finally:
+        # Head de TODAS as apps, também se uma asserção falhar: um banco parado em 0011 faz os
+        # testes seguintes falharem por colunas que não existem.
+        call_command("migrate", verbosity=0)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -104,29 +110,30 @@ def test_reversao_passa_com_efetivada_estornada_e_o_check_antigo_fica_not_valid(
     servico.estornar(esc, "migração DL083: teste de reversão", usuario=gestor)
     assert _natureza_do_item(esc) == "combustivel_revenda"
 
-    call_command("migrate", "fiscal", ULTIMA_ANTES, verbosity=0)
+    try:
+        call_command("migrate", "fiscal", ULTIMA_ANTES, verbosity=0)
 
-    convalidado, definicao = _check_do_banco()
-    assert convalidado is False  # NOT VALID: vale para linhas novas, não revalida a estornada.
-    assert "combustivel_revenda" not in definicao
-    assert "devolucao_combustivel_consumo" not in definicao
-    # A estornada é imutável: a natureza continua no item, e o banco aceita a leitura.
-    assert _natureza_do_item(esc) == "combustivel_revenda"
+        convalidado, definicao = _check_do_banco()
+        assert convalidado is False  # NOT VALID: vale para linhas novas, não revalida a estornada.
+        assert "combustivel_revenda" not in definicao
+        assert "devolucao_combustivel_consumo" not in definicao
+        # A estornada é imutável: a natureza continua no item, e o banco aceita a leitura.
+        assert _natureza_do_item(esc) == "combustivel_revenda"
 
-    # (iii) reaplicação: o CHECK com a lista nova volta, validado.
-    call_command("migrate", "fiscal", "0012", verbosity=0)
-    convalidado, definicao = _check_do_banco()
-    assert convalidado is True
-    assert "combustivel_revenda" in definicao
-    assert "devolucao_combustivel_consumo" in definicao
-    call_command("migrate", "fiscal", verbosity=0)  # head (DL-082, 0014)
+        # (iii) reaplicação: o CHECK com a lista nova volta, validado.
+        call_command("migrate", "fiscal", "0012", verbosity=0)
+        convalidado, definicao = _check_do_banco()
+        assert convalidado is True
+        assert "combustivel_revenda" in definicao
+        assert "devolucao_combustivel_consumo" in definicao
+    finally:
+        call_command("migrate", verbosity=0)  # head de TODAS as apps (DL-082, 0014)
 
 
 @pytest.mark.django_db(transaction=True)
 def test_reaplicacao_com_devolucao_de_combustivel_consumo_estornada_valida_o_check(escritorio_a):
     """A devolução de combustível para consumo (29 caracteres) cabe na coluna depois da reversão e
-    da
-    reaplicação, e o CHECK novo volta validado. A coluna não é encolhida na reversão."""
+    da reaplicação, e o CHECK novo volta validado. A coluna não é encolhida na reversão."""
     gestor, empresa = _gestor_e_empresa(escritorio_a)
     documento = receber(
         escritorio_a,
@@ -147,10 +154,12 @@ def test_reaplicacao_com_devolucao_de_combustivel_consumo_estornada_valida_o_che
     servico.efetivar(esc, usuario=gestor)
     servico.estornar(esc, "migração DL083: devolução de consumo", usuario=gestor)
 
-    call_command("migrate", "fiscal", ULTIMA_ANTES, verbosity=0)
-    assert _check_do_banco()[0] is False
-    call_command("migrate", "fiscal", "0012", verbosity=0)
+    try:
+        call_command("migrate", "fiscal", ULTIMA_ANTES, verbosity=0)
+        assert _check_do_banco()[0] is False
+        call_command("migrate", "fiscal", "0012", verbosity=0)
 
-    assert _check_do_banco()[0] is True
-    assert _natureza_do_item(esc) == "devolucao_combustivel_consumo"
-    call_command("migrate", "fiscal", verbosity=0)  # head (DL-082, 0014)
+        assert _check_do_banco()[0] is True
+        assert _natureza_do_item(esc) == "devolucao_combustivel_consumo"
+    finally:
+        call_command("migrate", verbosity=0)  # head de TODAS as apps (DL-082, 0014)

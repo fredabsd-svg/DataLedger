@@ -71,7 +71,10 @@ def test_migracao_0009_aplica_em_banco_com_empresas_existentes_sem_alterar_dado(
     escritorio = Escritorio.objects.create(nome="Escritório Migração B8", cnpj="91100000000061")
 
     alvo_anterior = [("empresas", "0008_dl038_cliente_pessoa_fisica")]
-    alvo_atual = MigrationExecutor(db_connection).loader.graph.leaf_nodes("empresas")
+    # DL-082: restaura TODAS as apps (leaf_nodes() sem app), não só `empresas`: reverter
+    # `empresas` desfaz também as migrações de `fiscal` que dependem dela, e o retorno só
+    # para `empresas` deixava a `fiscal` para trás.
+    alvo_atual = MigrationExecutor(db_connection).loader.graph.leaf_nodes()
     try:
         MigrationExecutor(db_connection).migrate(alvo_anterior)
 
