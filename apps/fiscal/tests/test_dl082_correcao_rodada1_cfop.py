@@ -167,12 +167,12 @@ def test_cfop_fora_da_tabela_nao_e_prestacao():
         ("3503", True),
         ("1503", True),
         ("1504", True),
-        ("1505", True),
-        ("1506", True),
+        ("1505", False),  # reconferência, R4: devolução de remessa para lote, não de venda
+        ("1506", False),
         ("2503", True),
         ("2504", True),
-        ("2505", True),
-        ("2506", True),
+        ("2505", False),
+        ("2506", False),
         ("1.503", True),  # com ponto
         ("1501", False),
         ("1661", False),  # devolução de combustível, interna
@@ -188,17 +188,14 @@ def test_devolucao_de_exportacao(cfop, esperado):
 
 
 def test_anexo_da_devolucao_de_exportacao_segue_a_descricao_oficial():
-    """Escrito à mão. 1.503 e 1.505 são de produção do estabelecimento (Anexo II); 1.504 e 1.506 são
-    de mercadoria adquirida de terceiros (Anexo I). Os 2.50x valem o mesmo."""
+    """Escrito à mão. 1.503 é de produção do estabelecimento (Anexo II); 1.504 é de mercadoria
+    adquirida de terceiros (Anexo I). Os 2.50x valem o mesmo. Os x.505 e x.506 saíram na
+    reconferência (R4): devolvem remessa para formação de lote, não venda."""
     assert ANEXO_DA_DEVOLUCAO_DE_EXPORTACAO_DE_ENTRADA == {
         "1.503": ANEXO_II,
         "1.504": ANEXO_I,
-        "1.505": ANEXO_II,
-        "1.506": ANEXO_I,
         "2.503": ANEXO_II,
         "2.504": ANEXO_I,
-        "2.505": ANEXO_II,
-        "2.506": ANEXO_I,
     }
     descricoes = {linha["codigo"]: linha["descricao"] for linha in _linhas_do_csv()}
     for codigo, anexo in ANEXO_DA_DEVOLUCAO_DE_EXPORTACAO_DE_ENTRADA.items():
@@ -211,7 +208,7 @@ def test_anexo_da_devolucao_de_exportacao_segue_a_descricao_oficial():
             ), codigo
 
 
-@pytest.mark.parametrize("cfop", ["1503", "1504", "1505", "1506", "2503", "2506", "3202"])
+@pytest.mark.parametrize("cfop", ["1503", "1504", "2503", "2504", "3202"])
 def test_mercado_da_devolucao_de_exportacao_e_externo(cfop):
     assert mercado_do_item_nfe(NaturezaOperacaoNFe.DEVOLUCAO_VENDA, cfop) == MercadoReceita.EXTERNO
 

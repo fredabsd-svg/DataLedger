@@ -235,16 +235,15 @@ def test_devolucao_de_comercial_exportadora_deduz_do_externo_e_total_e_3494_50(
 
 
 def test_sugestao_do_segmento_de_devolucao_de_exportacao(escritorio_a, usuario_gestor_a, empresa_a):
-    """A3 e a sugestão. O anexo sai da descrição oficial: 1.503 e 1.505 são de produção (II); 1.504
-    e 1.506 são de mercadoria de terceiros (I). Os 3.503 não dizem o anexo: sem sugestão."""
+    """A3 e a sugestão. O anexo sai da descrição oficial: 1.503 é de produção (II); 1.504 é de
+    mercadoria de terceiros (I). Os 3.503 não dizem o anexo: sem sugestão. Os x.505 e x.506 saíram
+    na reconferência (R4)."""
     empresa = cenario_simples(empresa_a)
     casos = {
         "1503": SD.PRODUCAO_EXPORTACAO,
         "1504": SD.REVENDA_EXPORTACAO,
-        "1505": SD.PRODUCAO_EXPORTACAO,
-        "1506": SD.REVENDA_EXPORTACAO,
         "2503": SD.PRODUCAO_EXPORTACAO,
-        "2506": SD.REVENDA_EXPORTACAO,
+        "2504": SD.REVENDA_EXPORTACAO,
     }
     for numero, (cfop, segmento) in enumerate(casos.items(), start=10):
         documento = nota(
@@ -332,7 +331,8 @@ def test_segmentos_permitidos_separam_exportacao_do_mercado_interno():
         "producao_st_monofasico",
     }
     assert set(segmentos_permitidos("1503")) == exportacao
-    assert set(segmentos_permitidos("2506")) == exportacao
+    assert set(segmentos_permitidos("2504")) == exportacao
+    assert set(segmentos_permitidos("2506")) == interno  # R4: remessa para lote, não venda
     assert set(segmentos_permitidos("3202")) == exportacao
     assert set(segmentos_permitidos("1661")) == interno
     assert set(segmentos_permitidos("1202")) == interno

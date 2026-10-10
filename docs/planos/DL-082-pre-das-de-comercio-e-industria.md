@@ -177,6 +177,28 @@ caem. Decisões do arquiteto para a correção única:
 - **Medido pelo desenvolvedor:** 9.160/1/55, em 18 min 19 s numa única
   invocação local.
 
+## Decisões tomadas na reconferência
+
+[Reconferência](../auditorias/2026-10-09-dl-082-reconferencia.md): aprovada
+com ressalvas, R1 a R7, todas baixas. Era a última rodada; os ajustes abaixo
+são do arquiteto (§3.1), com testes em
+`apps/fiscal/tests/test_dl082_ajustes_do_arquiteto.py`.
+
+- **R1:** das duas correções que a auditoria ofereceu, escolhi excluir a
+  devolução de venda de combustível do saldo do Simples
+  (`_parcelas_do_periodo`). O pré-DAS do mês da devolução continua
+  recusando; o mês seguinte não herda saldo dela. A outra opção, recusar
+  todos os meses que recebem o saldo, travaria meses sem nota de
+  combustível. O Presumido continua recebendo a linha.
+- **R4:** 1.505, 1.506, 2.505 e 2.506 devolvem remessa para formação de lote
+  de exportação, e não venda (descrição oficial do CFOP). Saíram da tabela
+  de anexo da devolução de exportação; a tela não sugere segmento de
+  exportação; o pré-DAS recusa o mês com o código
+  `devolucao_de_remessa_para_lote_de_exportacao`, nomeando a nota. Hipótese
+  conservadora até o contador confirmar o tratamento.
+- **R5:** teste parametrizado com os quatro casos propostos pela auditoria.
+- **R2, R3, R6, R7** e os dois resíduos declarados: BL-690.
+
 ## Critérios de aceite
 
 1. Os exemplos oficiais 1, 2, 3 e 6 do Manual do PGDAS-D batem ao centavo por

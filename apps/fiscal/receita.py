@@ -54,6 +54,7 @@ from django.utils import timezone
 
 from apps.auditoria.services import registrar
 from apps.empresas.models import Empresa, HistoricoRegimeTributario, RegimeTributario
+from apps.fiscal.cfop import e_devolucao_de_venda_de_combustivel
 from apps.fiscal.itens_nfe import atribuir_receita_da_nota_efetivada
 from apps.fiscal.models import (
     ConfirmacaoReceitaMensal,
@@ -448,6 +449,14 @@ def _parcelas_do_periodo(
     vendas: dict[tuple[int, int], dict] = {}
     devolucoes: dict[tuple[int, int], dict] = {}
     for linha in linhas_nfe_do_periodo(empresa, inicio, fim):
+        if linha.papel != "receita" and e_devolucao_de_venda_de_combustivel(linha.cfop):
+            # Reconferência da DL-082, R1 (ajuste do arquiteto): a devolução de venda de
+            # combustível está fora do corte do Simples (HI-132). O pré-DAS do mês dela já recusa;
+            # aqui ela também não entra na dedução nem no saldo que passa aos meses seguintes. Sem
+            # isto, o saldo de uma devolução de combustível de maio abatia, em silêncio, a receita
+            # de mercadoria comum de junho, e o DAS saía menor. Fora daqui (o Presumido) a linha
+            # continua a mesma.
+            continue
         mes = (linha.competencia.year, linha.competencia.month)
         destino = vendas if linha.papel == "receita" else devolucoes
         celulas = destino.setdefault(mes, {})

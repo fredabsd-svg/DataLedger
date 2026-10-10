@@ -103,6 +103,7 @@ from apps.fiscal.cfop import (
 from apps.fiscal.models import (
     ANEXO_I,
     ANEXO_II,
+    DEVOLUCAO_DE_REMESSA_PARA_LOTE_DE_EXPORTACAO,
     NATUREZAS_DE_MERCADORIA,
     SEGMENTO_EXPORTACAO,
     SEGMENTO_MONOFASICO,
@@ -1134,6 +1135,28 @@ def _recusas_de_nfe(nfe_do_mes, mercadoria, ano: int, mes: int) -> tuple[list[Bl
                 "calcula esse serviço no primeiro corte. Confirme a natureza ou o CFOP do item.",
                 "HI-68; tabela oficial de CFOP (Informe 2023.002 v2.10; descrição de prestação de "
                 "comunicação ou de transporte)",
+            )
+        )
+
+    # Reconferência, R4 (ajuste do arquiteto): devolução com CFOP 1.505, 1.506, 2.505 ou 2.506
+    # devolve REMESSA para formação de lote de exportação, e não venda. Não há receita a deduzir.
+    # Até o contador confirmar o tratamento, o mês recusa com o motivo, em vez de deduzir.
+    devolucao_de_remessa = sorted(
+        {
+            f"nota {linha.numero} (CFOP {linha.cfop})"
+            for linha in nfe_do_mes
+            if linha.papel == "deducao"
+            and linha.cfop.replace(".", "") in DEVOLUCAO_DE_REMESSA_PARA_LOTE_DE_EXPORTACAO
+        }
+    )
+    if devolucao_de_remessa:
+        bloqueios.append(
+            Bloqueio(
+                "devolucao_de_remessa_para_lote_de_exportacao",
+                f"Devolução de remessa para formação de lote de exportação em {rotulo}: "
+                f"{'; '.join(devolucao_de_remessa)}. A remessa não foi venda, então não há receita "
+                "a deduzir. Estorne a escrituração e confira o tratamento da nota.",
+                "Tabela oficial de CFOP (Informe 2023.002 v2.10; CFOP 1.505, 1.506, 2.505 e 2.506)",
             )
         )
 

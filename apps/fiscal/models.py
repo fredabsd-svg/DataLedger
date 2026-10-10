@@ -2812,7 +2812,8 @@ def e_devolucao_de_exportacao(cfop: str) -> bool:
     """A devolução de venda com este CFOP deduz do mercado EXTERNO (e só ela tem segmento de
     exportação).
 
-    São as 3.xxx (entrada de fora do país, DL-081) e as 1.503 a 1.506 e 2.503 a 2.506 (A3).
+    São as 3.xxx (entrada de fora do país, DL-081) e as 1.503, 1.504, 2.503 e 2.504 (A3; as x.505
+    e x.506 saíram na reconferência, R4).
     Recebe o CFOP com ou sem ponto ("1503" ou "1.503"). É a ÚNICA regra disto: mercado, sugestão e
     validação do segmento a usam, e nenhum outro lugar compara o primeiro dígito.
     """
@@ -2880,16 +2881,18 @@ SEGMENTO_EXPORTACAO = "exportacao"
 # e 1.505 são de produção do estabelecimento (Anexo II); 1.504 e 1.506 são de mercadoria de
 # terceiros (Anexo I). Os 2.50x valem o mesmo. Os 3.50x não dizem produção ou revenda: entram no
 # mercado externo, sem anexo (ver `e_devolucao_de_exportacao`).
+#
+# Reconferência, R4 (ajuste do arquiteto): 1.505, 1.506, 2.505 e 2.506 devolvem REMESSA para
+# formação de lote de exportação (a origem, 5.504 e 5.505, não é venda). Não há receita a deduzir,
+# então saíram daqui; o pré-DAS recusa a devolução com esses CFOP, com o motivo, até o contador
+# confirmar o tratamento (`DEVOLUCAO_DE_REMESSA_PARA_LOTE_DE_EXPORTACAO`).
 ANEXO_DA_DEVOLUCAO_DE_EXPORTACAO_DE_ENTRADA: dict[str, str] = {
     "1.503": ANEXO_II,
     "1.504": ANEXO_I,
-    "1.505": ANEXO_II,
-    "1.506": ANEXO_I,
     "2.503": ANEXO_II,
     "2.504": ANEXO_I,
-    "2.505": ANEXO_II,
-    "2.506": ANEXO_I,
 }
+DEVOLUCAO_DE_REMESSA_PARA_LOTE_DE_EXPORTACAO = frozenset({"1505", "1506", "2505", "2506"})
 
 
 class SegmentoDevolucao(models.TextChoices):

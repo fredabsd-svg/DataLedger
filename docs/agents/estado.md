@@ -343,7 +343,18 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
     de comércio e indústria (Anexos I e II): frentes A e B integradas na
     branch (`a1e06a6`, `670b58c`, `1138310`);
     [rodada 1](../auditorias/2026-10-09-dl-082-rodada-1.md) aprovada com
-    ressalvas; correção única integrada; reconferência em andamento.**
+    ressalvas; correção única integrada;
+    [reconferência](../auditorias/2026-10-09-dl-082-reconferencia.md)
+    aprovada com ressalvas (R1 a R7, todas baixas).** Ajustes do arquiteto,
+    sem terceira rodada (§3.1):
+    - R1: a devolução de venda de combustível sai do saldo do Simples; o
+      saldo de um mês não abate mais, em silêncio, o DAS do mês seguinte;
+    - R4: os CFOP 1.505, 1.506, 2.505 e 2.506 (devolução de remessa para
+      lote de exportação) deixam de ser devolução de exportação, e o
+      pré-DAS recusa o mês com o motivo;
+    - R5: testes dos dois lados do aviso de exportação direta.
+
+    R2, R3, R6, R7 e os dois resíduos declarados foram para o BL-690.
     [Consulta ao contador-senior](../projeto/consultas/2026-10-09-contador-senior-pre-das-comercio.md):
     exemplos 1, 2, 3 e 6 do Manual do PGDAS-D batem ao centavo com as tabelas
     do repositório; um RBT12 para todos os anexos; segregação sem
@@ -451,9 +462,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
       estão integrados; R6, R7 e o resto foram para o BL-689. Próximo: o PR
       (junto com a DL-082 e a DL-086, que estão na mesma branch).
 
-15. **[DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md):** a
-    frente A está em andamento em paralelo (Haiku, cópia `dl082` sobre
-    `a59d853`).
+15. **[DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md):**
+    ciclo de auditoria encerrado; situação no item 11. Próximo: o PR, junto
+    com a DL-085, a DL-086 e a DL-089.
 
 16. **Ordem do Fred de 09/10/2026 (RC-175):** revisar o fiscal por completo,
     codar o que falta e pesquisar os acumuladores do sistema de referência
