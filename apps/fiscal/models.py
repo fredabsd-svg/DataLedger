@@ -2338,6 +2338,12 @@ class ReceitaTrimestralPresumido(models.Model):
     descricao = models.CharField("descrição", max_length=300)
     valor = models.DecimalField("valor", max_digits=15, decimal_places=2)
     suporte = models.CharField("documento de suporte", max_length=300)
+    # DL-084, item 5 (HI-135): a competência (AAAA-MM, mês do trimestre) ou o número da parcela
+    # ("parcela N") entra na IDENTIDADE contra duplicidade. Três mensalidades iguais do mesmo
+    # contrato são receitas diferentes por este campo, e a descrição livre nunca diferencia. Vazio
+    # = não informado (a identidade continua a de antes). Formato validado pelo serviço e pela
+    # CHECK `presumido_receita_competencia_valida`.
+    competencia = models.CharField("competência ou parcela", max_length=20, blank=True, default="")
     estado = models.CharField(
         "estado", max_length=10, choices=OPCOES_ESTADO_RECEITA_PRESUMIDO, default="ativa"
     )
@@ -2384,6 +2390,13 @@ class ReceitaTrimestralPresumido(models.Model):
             models.CheckConstraint(
                 condition=~Q(suporte=""),
                 name="presumido_receita_suporte_obrigatorio",
+            ),
+            # DL-084 (HI-135): vazio, mês AAAA-MM ou "parcela N". O serviço já recusa o resto com
+            # mensagem nomeada; a CHECK é a segunda defesa.
+            models.CheckConstraint(
+                condition=Q(competencia="")
+                | Q(competencia__regex=r"^([0-9]{4}-(0[1-9]|1[0-2])|parcela [1-9][0-9]?)$"),
+                name="presumido_receita_competencia_valida",
             ),
             models.CheckConstraint(
                 condition=(
@@ -2621,6 +2634,252 @@ class MedidaJudicialLC224(models.Model):
 
     def __str__(self):
         return f"Medida {self.pk} — {self.numero_processo} ({self.get_tributo_display()})"
+
+
+OPCOES_FORMA_RECOLHIMENTO = [
+    ("quota_unica", "Quota única"),
+    ("duas_quotas", "Duas quotas"),
+    ("tres_quotas", "Três quotas"),
+]
+OPCOES_PADRAO_COMBUSTIVEL = [
+    ("", "Sem padrão"),
+    ("posto", "Posto de combustível"),
+    ("trr", "Transportador-revendedor-retalhista (TRR)"),
+    ("distribuidora", "Distribuidora"),
+]
+
+
+class ParametrosPresumidoEmpresa(models.Model):
+    """Parâmetros do Lucro Presumido de UMA empresa (DL-084, item 6; HI-136).
+
+    Sem linha, a empresa usa o padrão do escritório: três quotas e sem padrão de combustível. A
+    forma de recolhimento só decide qual plano a tela abre; o cálculo continua o mesmo. O padrão de
+    combustível sugere a natureza "para consumo" quando o CFOP não decide (posto e TRR);
+    distribuidora
+    não tem padrão: quem decide é o item.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="parametros_presumido",
+        verbose_name="empresa",
+    )
+    forma_recolhimento = models.CharField(
+        "forma de recolhimento padrão",
+        max_length=12,
+        choices=OPCOES_FORMA_RECOLHIMENTO,
+        default="tres_quotas",
+    )
+    padrao_combustivel = models.CharField(
+        "padrão de combustível",
+        max_length=14,
+        choices=OPCOES_PADRAO_COMBUSTIVEL,
+        blank=True,
+        default="",
+    )
+    atualizado_em = models.DateTimeField("atualizado em", auto_now=True)
+    atualizado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="atualizado por",
+    )
+
+    class Meta:
+        verbose_name = "parâmetros do presumido da empresa"
+        verbose_name_plural = "parâmetros do presumido das empresas"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["empresa"],
+                name="presumido_parametros_unico_por_empresa",
+            ),
+            models.CheckConstraint(
+                condition=Q(forma_recolhimento__in=["quota_unica", "duas_quotas", "tres_quotas"]),
+                name="presumido_parametros_forma_valida",
+            ),
+            models.CheckConstraint(
+                condition=Q(padrao_combustivel__in=["", "posto", "trr", "distribuidora"]),
+                name="presumido_parametros_combustivel_valido",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Parâmetros do presumido — empresa {self.empresa_id}"
+
+
+OPCOES_ESFERA_FERIADO = [
+    ("estadual", "Estadual"),
+    ("municipal", "Municipal"),
+]
+
+
+class FeriadoLocal(models.Model):
+    """Feriado estadual ou municipal, dado DO PRODUTO por UF e município (DL-084, item 2; HI-137).
+
+    Não pertence a nenhuma empresa: é a lei do lugar. A empresa herda pelo município do
+    ESTABELECIMENTO MATRIZ (`municipio` e `uf`, normalizados em `chave_municipio`). Feriado estadual
+    com `municipio` vazio vale para todo o estado (só a lei). Quando a lista bancária confirma o
+    fechamento numa praça, há uma linha com o município dela (e `fonte_bancaria`), que substitui a
+    linha do estado no mesmo dia. Cada linha guarda a lei (`fundamento`) e a data em que foi lida
+    (`data_leitura`); a CHECK e o NOT NULL impedem linha sem uma ou sem outra.
+
+    O feriado local NUNCA muda a data de vencimento: só gera aviso (`avisos_de_feriado_local`).
+    `fonte_bancaria` é a lista da Febraban que confirma o fechamento na praça, quando houver.
+    Escrita só pela migração de carga, com a fonte; não há caminho de cliente.
+    """
+
+    uf = models.CharField("UF", max_length=2)
+    municipio = models.CharField(
+        "município (vazio = estadual)", max_length=100, blank=True, default=""
+    )
+    esfera = models.CharField("esfera", max_length=10, choices=OPCOES_ESFERA_FERIADO)
+    mes = models.PositiveSmallIntegerField("mês")
+    dia = models.PositiveSmallIntegerField("dia")
+    descricao = models.CharField("descrição", max_length=200)
+    fundamento = models.CharField("lei ou ato que declara o feriado", max_length=300)
+    data_leitura = models.DateField("data da leitura da fonte")
+    fonte_bancaria = models.CharField(
+        "fonte bancária (Febraban), quando houver", max_length=300, blank=True, default=""
+    )
+    vigencia_inicio = models.DateField("início da vigência")
+    vigencia_fim = models.DateField("fim da vigência", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "feriado local"
+        verbose_name_plural = "feriados locais"
+        ordering = ["uf", "municipio", "mes", "dia"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["uf", "municipio", "mes", "dia", "vigencia_inicio"],
+                name="feriado_local_unico",
+            ),
+            models.CheckConstraint(
+                condition=Q(uf__regex=r"^[A-Z]{2}$"),
+                name="feriado_local_uf_valida",
+            ),
+            models.CheckConstraint(
+                condition=Q(esfera__in=["estadual", "municipal"]),
+                name="feriado_local_esfera_valida",
+            ),
+            # Municipal tem município. Estadual pode vir com município: é a linha da praça que
+            # traz a confirmação bancária dela, e substitui a linha da UF no mesmo dia
+            # (`presumido._feriados_locais_da_praca`).
+            models.CheckConstraint(
+                condition=Q(esfera="estadual") | ~Q(municipio=""),
+                name="feriado_local_municipal_tem_municipio",
+            ),
+            models.CheckConstraint(
+                condition=Q(mes__gte=1, mes__lte=12, dia__gte=1, dia__lte=31),
+                name="feriado_local_data_valida",
+            ),
+            models.CheckConstraint(
+                condition=~Q(fundamento=""),
+                name="feriado_local_fundamento_obrigatorio",
+            ),
+            models.CheckConstraint(
+                condition=Q(vigencia_fim__isnull=True)
+                | Q(vigencia_fim__gte=models.F("vigencia_inicio")),
+                name="feriado_local_vigencia_coerente",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.descricao} ({self.uf}{' ' + self.municipio if self.municipio else ''})"
+
+
+class ExcecaoFeriadoLocal(models.Model):
+    """Um ano em que o feriado foi movido por decreto (DL-084, item 2; HI-137).
+
+    Ex.: em 2026 o feriado estadual de 05/10 foi observado em 09/10 (Decreto estadual 7.238/2026,
+    citado no Decreto municipal de Palmas 2.993/2026). A data observada recebe o aviso; a data
+    normativa, nesse ano, não avisa. A data de vencimento não muda em nenhum dos dois casos.
+    """
+
+    feriado = models.ForeignKey(
+        FeriadoLocal,
+        on_delete=models.PROTECT,
+        related_name="excecoes",
+        verbose_name="feriado",
+    )
+    ano = models.PositiveSmallIntegerField("ano")
+    data_observada = models.DateField("data observada no ano")
+    fundamento = models.CharField("ato que moveu o feriado", max_length=300)
+    data_leitura = models.DateField("data da leitura da fonte")
+    fonte_bancaria = models.CharField(
+        "fonte bancária (Febraban), quando houver", max_length=300, blank=True, default=""
+    )
+
+    class Meta:
+        verbose_name = "exceção de feriado local por ano"
+        verbose_name_plural = "exceções de feriado local por ano"
+        ordering = ["feriado_id", "ano"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["feriado", "ano"],
+                name="excecao_feriado_unica_por_ano",
+            ),
+            models.CheckConstraint(
+                condition=Q(ano__gte=1970, ano__lte=2999),
+                name="excecao_feriado_ano_valido",
+            ),
+            models.CheckConstraint(
+                condition=~Q(fundamento=""),
+                name="excecao_feriado_fundamento_obrigatorio",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Exceção de {self.feriado_id} em {self.ano}"
+
+
+class EncerramentoMedidaJudicialLC224(models.Model):
+    """Ato que encerra uma medida judicial a partir de um trimestre (DL-084, item 7; BL-680).
+
+    A medida fica intacta (o trigger dela só aceita a revogação). O encerramento é um ato à parte,
+    com trilha: a medida cobre os trimestres até (ano, trimestre), inclusive, e deixa de valer nos
+    seguintes. Os trimestres anteriores continuam com a medida, e o histórico não é apagado. Só cabe
+    um encerramento por medida, e ele não se altera nem se apaga (trigger da migração 0015).
+    """
+
+    medida = models.ForeignKey(
+        MedidaJudicialLC224,
+        on_delete=models.PROTECT,
+        related_name="encerramentos",
+        verbose_name="medida",
+    )
+    ano = models.PositiveSmallIntegerField("ano do último trimestre coberto")
+    trimestre = models.PositiveSmallIntegerField("último trimestre coberto (1 a 4)")
+    motivo = models.CharField("motivo do encerramento", max_length=500)
+    encerrada_em = models.DateTimeField("encerrada em", auto_now_add=True)
+    encerrada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="encerrada por",
+    )
+
+    class Meta:
+        verbose_name = "encerramento de medida judicial contra a LC 224"
+        verbose_name_plural = "encerramentos de medidas judiciais contra a LC 224"
+        ordering = ["medida_id", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["medida"],
+                name="presumido_encerramento_unico_por_medida",
+            ),
+            models.CheckConstraint(
+                condition=Q(trimestre__gte=1, trimestre__lte=4),
+                name="presumido_encerramento_trimestre_valido",
+            ),
+            models.CheckConstraint(
+                condition=~Q(motivo=""),
+                name="presumido_encerramento_motivo_obrigatorio",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Encerramento da medida {self.medida_id} em {self.ano}/T{self.trimestre}"
 
 
 # ---------------------------------------------------------------------------

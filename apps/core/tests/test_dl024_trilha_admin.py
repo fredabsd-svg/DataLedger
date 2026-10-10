@@ -114,11 +114,14 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         DeclaracaoReceitasIntegrais,
         DocumentoFiscal,
         DocumentoNFe,
+        EncerramentoMedidaJudicialLC224,
         EscrituracaoFiscal,
         EscrituracaoNFe,
         EscrituracaoTomada,
         EventoFiscal,
         EventoNFe,
+        ExcecaoFeriadoLocal,
+        FeriadoLocal,
         FolhaFatorR,
         ItemNFe,
         LeituraItensNFe,
@@ -128,6 +131,7 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         MedidaJudicialLC224,
         NaturezaItemNFe,
         OpcaoRegimeCaixaSimples,
+        ParametrosPresumidoEmpresa,
         ReceitaInformada,
         ReceitaTrimestralPresumido,
         RegimeIssEmpresa,
@@ -296,6 +300,13 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         # partes e a conclusão, depois, cada uma com a sua trilha. Nenhuma exclusão foi adicionada.
         LoteEscrituracaoNFe,
         LoteEscrituracaoNFeNota,
+        # DL-084 (rotina do Presumido, 2026-10-10): parâmetros por empresa, feriados locais (carga
+        # do produto, com a exceção por ano) e o encerramento de medida judicial. Todos na cobertura
+        # por padrão. Nenhuma exclusão foi adicionada.
+        ParametrosPresumidoEmpresa,
+        FeriadoLocal,
+        ExcecaoFeriadoLocal,
+        EncerramentoMedidaJudicialLC224,
     }
     assert cobertos == esperados_cobertos, (
         f"DL-030: cobertura da trilha divergente.\n"

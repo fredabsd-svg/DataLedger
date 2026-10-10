@@ -55,8 +55,16 @@ CONTRATO_ATIVIDADE = _contrato(
 CONTRATO_ENCERRAR_ATIVIDADE = _contrato({"fim"}, "no encerramento da atividade")
 CONTRATO_CRITERIO = _contrato({"ano", "criterio"}, "na definição do critério")
 CONTRATO_RECEITA = _contrato(
-    {"ano", "trimestre", "tipo", "atividade_id", "descricao", "valor", "suporte"},
+    {"ano", "trimestre", "tipo", "atividade_id", "descricao", "valor", "suporte", "competencia"},
     "no lançamento da receita do trimestre",
+)
+CONTRATO_PARAMETROS = _contrato(
+    {"forma_recolhimento", "padrao_combustivel"},
+    "nos parâmetros da empresa no presumido",
+)
+CONTRATO_ENCERRAR_MEDIDA = _contrato(
+    {"ano", "trimestre", "motivo"},
+    "no encerramento da medida judicial",
 )
 CONTRATO_ESTORNO = _contrato({"motivo"}, "no estorno da receita")
 CONTRATO_INTEGRAIS = _contrato({"ano", "trimestre", "observacao"}, "na declaração de integrais")
@@ -172,13 +180,28 @@ def _receita_payload(receita) -> dict:
         "descricao": receita.descricao,
         "valor": _dec(receita.valor),
         "suporte": receita.suporte,
+        "competencia": receita.competencia,
         "estado": receita.estado,
         "motivo_estorno": receita.motivo_estorno,
         "estornada_em": receita.estornada_em.isoformat() if receita.estornada_em else None,
     }
 
 
+def _encerramento_payload(medida) -> dict | None:
+    """O encerramento da medida, se houver (DL-084, item 7). A trilha guarda o antes e o depois."""
+    encerramento = next(iter(medida.encerramentos.all()), None)
+    if encerramento is None:
+        return None
+    return {
+        "ano": encerramento.ano,
+        "trimestre": encerramento.trimestre,
+        "motivo": encerramento.motivo,
+        "encerrada_em": encerramento.encerrada_em.isoformat(),
+    }
+
+
 def _medida_payload(medida) -> dict:
+    fim_efetivo = servico.fim_efetivo_da_medida(medida)
     return {
         "id": medida.pk,
         "tributo": medida.tributo,
@@ -194,6 +217,11 @@ def _medida_payload(medida) -> dict:
         "ativa": medida.ativa,
         "revogada_em": medida.revogada_em.isoformat() if medida.revogada_em else None,
         "motivo_revogacao": medida.motivo_revogacao,
+        # DL-084, item 7: o último trimestre que a medida cobre hoje, depois do encerramento.
+        "fim_efetivo": (
+            None if fim_efetivo is None else {"ano": fim_efetivo[0], "trimestre": fim_efetivo[1]}
+        ),
+        "encerramento": _encerramento_payload(medida),
     }
 
 
@@ -202,7 +230,12 @@ def _parcela_payload(parcela: calc.Parcela) -> dict:
         "numero": parcela.numero,
         "valor": _dec(parcela.valor),
         "vencimento": _iso(parcela.vencimento),
+        # Sempre falso desde a DL-084 (item 1); o campo fica só para a tela atual não quebrar.
         "aviso_calendario": parcela.aviso_calendario,
+        # DL-084, item 1: data civil de onde o vencimento antecipou por dia sem expediente bancário.
+        "antecipada_de": _iso(parcela.antecipada_de),
+        # DL-084, item 2: avisos do feriado local da praça nesta data. Não mudam a data.
+        "avisos_locais": list(parcela.avisos_locais),
         "juros": parcela.juros,
     }
 
@@ -597,6 +630,75 @@ class RevogarMedidaPresumidoView(_Base):
         return Response(_medida_payload(medida), status=status.HTTP_200_OK)
 
 
+class EncerrarMedidaPresumidoView(_Base):
+    """POST encerra a medida a partir de (ano, trimestre), inclusive (DL-084, item 7)."""
+
+    def post(self, request, empresa_id, medida_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_ENCERRAR_MEDIDA)
+        empresa = self.get_empresa()
+        dados = _corpo(request)
+        try:
+            ano = _inteiro(dados.get("ano"), "ano")
+            trimestre = _inteiro(dados.get("trimestre"), "trimestre")
+            servico.encerrar_medida(
+                empresa, medida_id, ano, trimestre, dados.get("motivo"), request.user, request
+            )
+        except servico.PresumidoErro as exc:
+            return _traduzir(exc)
+        medida = servico.listar_medidas(empresa).get(pk=medida_id)
+        return Response(_medida_payload(medida), status=status.HTTP_200_OK)
+
+
+class ParametrosPresumidoView(_Base):
+    """GET os parâmetros da empresa (padrão do escritório se nunca gravados); POST grava.
+
+    Padrão do escritório: três quotas e sem padrão de combustível (DL-084, item 6; HI-136).
+    """
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        return Response(_parametros_payload(servico.parametros_da_empresa(empresa)))
+
+    def post(self, request, empresa_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_PARAMETROS)
+        empresa = self.get_empresa()
+        try:
+            parametros = servico.definir_parametros(empresa, _corpo(request), request.user, request)
+        except servico.PresumidoErro as exc:
+            return _traduzir(exc)
+        return Response(_parametros_payload(parametros))
+
+
+class PendenciasPresumidoView(_Base):
+    """GET as pendências de cadastro do Presumido no mês (?ano=&mes=). DL-084, item 8."""
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        ano = _inteiro(request.query_params.get("ano"), "ano")
+        mes = _inteiro(request.query_params.get("mes"), "mes")
+        if not (_ANO_MINIMO <= ano <= _ANO_MAXIMO):
+            raise DRFValidationError(f"'ano' inválido: {ano}.")
+        try:
+            pendencias = servico.pendencias_de_cadastro(empresa, ano, mes)
+        except servico.PresumidoErro as exc:
+            return _traduzir(exc)
+        return Response(
+            {
+                "ano": ano,
+                "mes": mes,
+                "pendencias": [{"codigo": p.codigo, "mensagem": p.mensagem} for p in pendencias],
+            }
+        )
+
+
+def _parametros_payload(parametros: servico.ParametrosDaEmpresa) -> dict:
+    return {
+        "forma_recolhimento": parametros.forma_recolhimento,
+        "padrao_combustivel": parametros.padrao_combustivel,
+        "definido": parametros.definido,
+    }
+
+
 class ApuracaoPresumidoView(_Base):
     """GET a apuração do trimestre (?ano=&trimestre=), com memória e recusas nomeadas."""
 
@@ -607,7 +709,12 @@ class ApuracaoPresumidoView(_Base):
             resultado = servico.apurar_trimestre(empresa, ano, trimestre)
         except servico.PresumidoErro as exc:
             return _traduzir(exc)
-        return Response(_apuracao_payload(resultado))
+        payload = _apuracao_payload(resultado)
+        # DL-084, item 6: a forma padrão só diz qual plano a tela abre. Não muda o cálculo.
+        payload["forma_recolhimento_padrao"] = servico.parametros_da_empresa(
+            empresa
+        ).forma_recolhimento
+        return Response(payload)
 
 
 class LimitePresumidoView(_Base):

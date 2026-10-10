@@ -31,13 +31,28 @@ Decisões que o código não explica sozinho:
   entra na dedução do 4º trimestre, porque a parcela dele não foi recolhida (ficou suspensa ou
   depositada). A medida não muda o limite, o excedente nem o caso: só tira o trimestre da soma.
   A tela mostra esses trimestres como "parcela suspensa por medida judicial — fora da dedução".
+
+DL-084 (rotina do Presumido), decisões que o código não explica sozinho:
+
+- Vencimento: recua por dia sem expediente bancário nacional (Sexta-feira Santa, segunda e terça
+  de Carnaval, Corpus Christi; calculados pela Páscoa). Não há mais "calendário a conferir".
+- Feriado local (estadual ou municipal) só AVISA: a data normativa nunca muda. A praça da empresa é
+  o município do estabelecimento MATRIZ; sem matriz com município e UF, o feriado local não é
+  avaliado (nenhum aviso sai, e nenhum feriado é inventado).
+- Medida judicial encerrada num trimestre: o ato é separado da medida (que o trigger dela não
+  deixa mudar). A medida cobre os trimestres até (ano, trimestre), inclusive. Os seguintes não.
+- Retenção de CSLL com tpRetPisCofins 3: a estimativa 1/4,65 só vale se `vRetCSLL` for 4,65% da
+  base (`vServ − desconto incondicional`), com um centavo de tolerância. Se for 1%, a nota reteve
+  só a CSLL, e fica "a classificar" com aviso.
+- Receita informada: a competência (AAAA-MM do trimestre) ou a parcela entra na identidade.
+- Parâmetros da empresa: sem linha, a empresa usa três quotas e sem padrão de combustível.
 """
 
 from __future__ import annotations
 
 import calendar
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -47,7 +62,12 @@ from django.db.models.functions import Substr
 from django.utils import timezone
 
 from apps.auditoria.services import registrar
-from apps.empresas.models import Empresa, HistoricoRegimeTributario, RegimeTributario
+from apps.empresas.models import (
+    Empresa,
+    HistoricoRegimeTributario,
+    RegimeTributario,
+    TipoEstabelecimento,
+)
 from apps.fiscal import escrituracao_nfe as nfe_servico
 from apps.fiscal import presumido_calculo as calc
 from apps.fiscal import presumido_tabelas as tab
@@ -60,11 +80,14 @@ from apps.fiscal.models import (
     ConfirmacaoRetencaoPresumido,
     CriterioReceitaPresumido,
     DeclaracaoReceitasIntegrais,
+    EncerramentoMedidaJudicialLC224,
     EscrituracaoFiscal,
     EstadoEscrituracao,
     EventoFiscal,
+    FeriadoLocal,
     MedidaJudicialLC224,
     NaturezaOperacaoNFe,
+    ParametrosPresumidoEmpresa,
     ReceitaTrimestralPresumido,
 )
 from apps.fiscal.services import CODIGOS_QUE_CANCELAM, situacao_do_documento
@@ -501,6 +524,36 @@ def criterio_do_ano(empresa: Empresa, ano: int) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+_COMPETENCIA_MES = re.compile(r"[0-9]{4}-[0-9]{2}")
+_COMPETENCIA_PARCELA = re.compile(r"parcela [1-9][0-9]?")
+
+
+def _competencia(valor, ano: int, trimestre: int) -> str:
+    """Competência ou parcela da receita (DL-084, item 5; HI-135). Vazio é "não informado".
+
+    Aceita "AAAA-MM" (mês DENTRO do trimestre informado) ou "parcela N". Forma canônica em
+    minúsculas.
+    Qualquer outra coisa é recusa nomeada, e nunca chega ao banco.
+    """
+    if valor is None:
+        return ""
+    if not isinstance(valor, str):
+        raise EntradaInvalidaPresumido("Competência: use texto no formato AAAA-MM ou 'parcela N'.")
+    texto = _texto(valor, "a competência", 20, obrigatorio=False).lower()
+    if not texto:
+        return ""
+    if _COMPETENCIA_PARCELA.fullmatch(texto):
+        return texto
+    if _COMPETENCIA_MES.fullmatch(texto):
+        ano_informado, mes_informado = (int(parte) for parte in texto.split("-"))
+        if ano_informado != ano or mes_informado not in _meses_do_trimestre(trimestre):
+            raise EntradaInvalidaPresumido(
+                f"A competência {texto} não está no {trimestre}º trimestre de {ano}."
+            )
+        return texto
+    raise EntradaInvalidaPresumido("Competência: use AAAA-MM (mês do trimestre) ou 'parcela N'.")
+
+
 @transaction.atomic
 def criar_receita(empresa: Empresa, ano: int, trimestre: int, dados: dict, usuario, request=None):
     validar_ano_e_trimestre(ano, trimestre)
@@ -512,6 +565,7 @@ def criar_receita(empresa: Empresa, ano: int, trimestre: int, dados: dict, usuar
         raise EntradaInvalidaPresumido("O valor da receita precisa ser positivo.")
     descricao = _texto(dados.get("descricao"), "a descrição", TEXTO_CURTO_MAXIMO)
     suporte = _texto(dados.get("suporte"), "o documento de suporte", TEXTO_CURTO_MAXIMO)
+    competencia = _competencia(dados.get("competencia"), ano, trimestre)
     atividade = None
     if tipo == TIPO_PRESUNCAO:
         atividade_id = dados.get("atividade_id")
@@ -534,6 +588,9 @@ def criar_receita(empresa: Empresa, ano: int, trimestre: int, dados: dict, usuar
     # guarda de `receita.lancar_receita_informada` (DL-074, A3), dentro da trava da empresa, para
     # que dois envios iguais simultâneos não passem os dois. Receita estornada não conta. A
     # descrição não entra na identidade: um lançamento igual com outra descrição ainda é a mesma.
+    # DL-084, item 5 (HI-135): a competência ou a parcela ENTRA na identidade. Três mensalidades
+    # iguais do mesmo contrato, em meses diferentes, são receitas diferentes. Sem competência, a
+    # identidade é a de antes, e a segunda mensalidade igual continua recusada.
     existente = (
         ReceitaTrimestralPresumido.objects.filter(
             empresa=travada,
@@ -543,16 +600,28 @@ def criar_receita(empresa: Empresa, ano: int, trimestre: int, dados: dict, usuar
             atividade=atividade,
             valor=valor,
             suporte=suporte,
+            competencia=competencia,
             estado=ESTADO_ATIVA,
         )
         .order_by("id")
         .first()
     )
     if existente is not None:
+        identidade = "mesmo tipo, atividade, valor e documento de suporte"
+        if competencia:
+            identidade += f" e competência {competencia}"
+        complemento = (
+            ""
+            if competencia
+            else (
+                " Se for outra parcela do mesmo contrato, informe a competência (AAAA-MM) ou o "
+                "número da parcela."
+            )
+        )
         raise PresumidoConflito(
-            f"Já existe receita igual neste trimestre (receita nº {existente.pk}, ativa): mesmo "
-            "tipo, atividade, valor e documento de suporte. Se for outra receita, informe outro "
-            "documento de suporte, ou estorne a anterior."
+            f"Já existe receita igual neste trimestre (receita nº {existente.pk}, ativa): "
+            f"{identidade}.{complemento} Se for outra receita, informe outro documento de "
+            "suporte, ou estorne a anterior."
         )
     receita = ReceitaTrimestralPresumido(
         empresa=travada,
@@ -563,6 +632,7 @@ def criar_receita(empresa: Empresa, ano: int, trimestre: int, dados: dict, usuar
         descricao=descricao,
         valor=valor,
         suporte=suporte,
+        competencia=competencia,
         estado=ESTADO_ATIVA,
         criada_por=usuario,
     )
@@ -573,7 +643,13 @@ def criar_receita(empresa: Empresa, ano: int, trimestre: int, dados: dict, usuar
         escritorio=travada.escritorio,
         objeto=receita,
         request=request,
-        detalhes={"ano": ano, "trimestre": trimestre, "tipo": tipo, "valor": str(valor)},
+        detalhes={
+            "ano": ano,
+            "trimestre": trimestre,
+            "tipo": tipo,
+            "valor": str(valor),
+            "competencia": competencia,
+        },
     )
     return receita
 
@@ -710,12 +786,30 @@ class RetencaoProposta:
     csll_motivo: str
 
 
-def proposta_de_retencao(campos) -> RetencaoProposta:
+def _na_faixa_da_csll(valor: Decimal, base: Decimal, fator: Decimal) -> bool:
+    """O `vRetCSLL` está a até um centavo de `base × fator`? Exato em Decimal, sem float"
+    "(HI-100)."""
+    return abs(valor - base * fator) <= tab.TOLERANCIA_COERENCIA_CSLL
+
+
+def base_da_nota(valor_servico: Decimal, campos) -> Decimal:
+    """Base da retenção: `vServ − desconto incondicional` (DL-084, item 3). Sem desconto no XML, é o
+    próprio valor do serviço (desconto ZERO, o mesmo critério de `_ler_nota`)."""
+    desconto = campos.v_desc_incond if campos.v_desc_incond is not None else ZERO
+    return valor_servico - desconto
+
+
+def proposta_de_retencao(campos, base: Decimal) -> RetencaoProposta:
     """Retenção proposta de UMA nota (HI-102, HI-103). Ausente é ausente: nunca vira zero.
 
-    CSLL: `tpRetPisCofins` 8 é exata (`vRetCSLL`); 3 é estimada por `vRetCSLL / 4,65`. Código
-    ambíguo, outros códigos, `vPis`/`vCofins` junto com código de retenção, ou `vRetCSLL` ausente:
-    "a classificar", sem valor.
+    CSLL: `tpRetPisCofins` 8 é exata (`vRetCSLL`). Com 3, a estimativa 1/4,65 só vale se o
+    `vRetCSLL` for 4,65% da `base` (as três retenções às alíquotas-padrão), com um centavo de
+    tolerância. Se for 1% da base, a nota reteve só a CSLL e o código 3 está errado: "a
+    classificar",
+    com aviso. Qualquer outro valor também fica "a classificar". Código ambíguo, outros códigos,
+    `vPis`/`vCofins` junto com código de retenção, ou `vRetCSLL` ausente: "a classificar", sem
+    valor.
+    Nenhuma dedução acontece por esta proposta; só a confirmação do contador deduz (HI-103).
     """
     irrf = campos.v_ret_irrf
     tp = campos.tp_ret_pis_cofins
@@ -734,12 +828,28 @@ def proposta_de_retencao(campos) -> RetencaoProposta:
     if tp == TP_CSLL_EXATA:
         return RetencaoProposta(irrf, campos.v_ret_csll, "exata", "")
     if tp == TP_CSLL_ESTIMADA:
-        estimada = calc.centavos(campos.v_ret_csll / tab.FATOR_ESTIMATIVA_CSLL_TP3)
+        na_faixa_4_65 = _na_faixa_da_csll(campos.v_ret_csll, base, tab.FAIXA_COERENCIA_CSLL_TP3)
+        na_faixa_so_csll = _na_faixa_da_csll(campos.v_ret_csll, base, tab.FAIXA_COERENCIA_SO_CSLL)
+        if na_faixa_4_65 and not na_faixa_so_csll:
+            estimada = calc.centavos(campos.v_ret_csll / tab.FATOR_ESTIMATIVA_CSLL_TP3)
+            return RetencaoProposta(
+                irrf,
+                estimada,
+                "estimada",
+                "estimada — conferir no comprovante de retenção",
+            )
+        if na_faixa_so_csll and not na_faixa_4_65:
+            return RetencaoProposta(
+                irrf,
+                None,
+                "a_classificar",
+                "o tomador reteve só a CSLL? vRetCSLL é 1% da base, e o código 3 não confere",
+            )
         return RetencaoProposta(
             irrf,
-            estimada,
-            "estimada",
-            "estimada — conferir no comprovante de retenção",
+            None,
+            "a_classificar",
+            "vRetCSLL não bate com 4,65% nem com 1% da base (com um centavo de tolerância)",
         )
     motivo = (
         "tpRetPisCofins ausente na nota"
@@ -852,7 +962,7 @@ def _ler_nota(
         desconto_incondicionado=desconto,
         base=valor - desconto,
         atividade=padrao.atividade,
-        retencao=proposta_de_retencao(campos),
+        retencao=proposta_de_retencao(campos, valor - desconto),
     )
     return nota, None
 
@@ -1253,7 +1363,7 @@ def confirmar_retencao(
         )
 
     campos = campos_tomada_do_documento(escrituracao.vinculo.documento)
-    proposta = proposta_de_retencao(campos)
+    proposta = proposta_de_retencao(campos, base_da_nota(escrituracao.valor_servico, campos))
     difere = (irrf is not None and irrf != campos.v_ret_irrf) or (
         csll is not None and csll != proposta.csll
     )
@@ -1443,21 +1553,108 @@ def revogar_medida(
 
 
 def listar_medidas(empresa: Empresa):
-    return MedidaJudicialLC224.objects.filter(empresa=empresa).order_by(
-        "ano_inicial", "trimestre_inicial", "id"
+    return (
+        MedidaJudicialLC224.objects.filter(empresa=empresa)
+        .prefetch_related("encerramentos")
+        .order_by("ano_inicial", "trimestre_inicial", "id")
     )
+
+
+def fim_efetivo_da_medida(medida: MedidaJudicialLC224) -> tuple[int, int] | None:
+    """Último trimestre coberto pela medida, depois do encerramento (DL-084, item 7). None = sem
+    fim.
+
+    O fim declarado na medida vale, a menos que um encerramento o antecipe. O encerramento nunca o
+    estende: `encerrar_medida` recusa um trimestre que não seja anterior ao fim atual.
+    """
+    fim = None if medida.ano_final is None else (medida.ano_final, medida.trimestre_final)
+    for encerramento in medida.encerramentos.all():
+        alvo = (encerramento.ano, encerramento.trimestre)
+        if fim is None or alvo < fim:
+            fim = alvo
+    return fim
 
 
 def _medida_que_cobre(medidas, tributo: str, ano: int, trimestre: int):
     for medida in medidas:
         if medida.tributo not in (tributo, tab.AMBOS):
             continue
-        fim = None if medida.ano_final is None else (medida.ano_final, medida.trimestre_final)
         if calc.cobre_o_trimestre(
-            (medida.ano_inicial, medida.trimestre_inicial), fim, ano, trimestre
+            (medida.ano_inicial, medida.trimestre_inicial),
+            fim_efetivo_da_medida(medida),
+            ano,
+            trimestre,
         ):
             return medida
     return None
+
+
+@transaction.atomic
+def encerrar_medida(
+    empresa: Empresa, medida_id, ano, trimestre, motivo, usuario, request=None
+) -> EncerramentoMedidaJudicialLC224:
+    """Encerra a medida judicial a partir do trimestre (ano, trimestre), inclusive (DL-084, item 7).
+
+    A medida cobre os trimestres ATÉ (ano, trimestre) e deixa de valer nos seguintes. Os anteriores
+    não mudam: o cálculo deles não depende de nada que este ato altere. Vale uma vez por medida, e
+    não se estende: o trimestre tem de ser anterior ao fim que a medida já tem. Medida revogada não
+    se
+    encerra, porque a revogação já a tirou de todos os trimestres (`revogar_medida`).
+    """
+    validar_ano_e_trimestre(ano, trimestre)
+    motivo_limpo = _texto(motivo, "o motivo do encerramento", MOTIVO_MAXIMO)
+    medida_id = inteiro_de_entrada(medida_id, "a medida judicial")
+    travada = receita_servico.travar_empresa(empresa)
+    medida = (
+        MedidaJudicialLC224.objects.select_for_update(of=("self",))
+        .filter(pk=medida_id, empresa=travada)
+        .first()
+    )
+    if medida is None:
+        raise NaoEncontradoPresumido("Medida judicial não encontrada nesta empresa.")
+    if not medida.ativa:
+        raise PresumidoConflito(
+            "Medida revogada não se encerra: a revogação já a tirou de todos os trimestres."
+        )
+    if (ano, trimestre) < (medida.ano_inicial, medida.trimestre_inicial):
+        raise EntradaInvalidaPresumido(
+            "O encerramento é anterior ao início da medida: não há o que encerrar."
+        )
+    fim_anterior = fim_efetivo_da_medida(medida)
+    if fim_anterior is not None and (ano, trimestre) >= fim_anterior:
+        raise PresumidoConflito(
+            f"A medida já vale só até {fim_anterior[0]}/T{fim_anterior[1]}: o encerramento tem de "
+            "ser anterior a esse trimestre."
+        )
+    encerramento = EncerramentoMedidaJudicialLC224(
+        medida=medida,
+        ano=ano,
+        trimestre=trimestre,
+        motivo=motivo_limpo,
+        encerrada_por=usuario,
+    )
+    _inserir(
+        encerramento,
+        "presumido_encerramento_unico_por_medida",
+        "Esta medida acabou de ser encerrada por outra ação. Atualize a tela.",
+    )
+    registrar(
+        acao="presumido.medida_encerrada",
+        usuario=usuario,
+        escritorio=travada.escritorio,
+        objeto=encerramento,
+        request=request,
+        detalhes={
+            "medida_id": medida.pk,
+            "antes": {"fim_efetivo": _rotulo_trimestre(fim_anterior)},
+            "depois": {"fim_efetivo": _rotulo_trimestre((ano, trimestre))},
+        },
+    )
+    return encerramento
+
+
+def _rotulo_trimestre(par: tuple[int, int] | None) -> str | None:
+    return None if par is None else f"{par[0]}/T{par[1]}"
 
 
 def _suspensos_por_tributo(medidas, ano: int) -> dict[str, frozenset[int]]:
@@ -1572,6 +1769,37 @@ def _avisos(empresa: Empresa, acrescimo: bool) -> tuple[str, ...]:
     return tuple(avisos)
 
 
+def _com_avisos_locais(
+    opcoes: calc.OpcoesDeQuota, praca: str | None, feriados: tuple[calc.FeriadoLocalDado, ...]
+) -> calc.OpcoesDeQuota:
+    """Cada parcela recebe os avisos do feriado local da praça na sua data (DL-084, item 2).
+
+    Só troca `avisos_locais`. A data de vencimento de cada parcela fica como o cálculo a deu:
+    feriado
+    local não muda a data normativa.
+    """
+    if praca is None or not feriados:
+        return opcoes
+
+    def avisar(parcelas):
+        if parcelas is None:
+            return None
+        return tuple(
+            replace(
+                parcela,
+                avisos_locais=calc.avisos_de_feriado_local(parcela.vencimento, feriados, praca),
+            )
+            for parcela in parcelas
+        )
+
+    return replace(
+        opcoes,
+        quota_unica=avisar(opcoes.quota_unica),
+        duas_quotas=avisar(opcoes.duas_quotas),
+        tres_quotas=avisar(opcoes.tres_quotas),
+    )
+
+
 def _colunas(
     tributo: str,
     ano: int,
@@ -1580,6 +1808,8 @@ def _colunas(
     integrais: Decimal,
     retencao: Decimal,
     medida,
+    praca: str | None = None,
+    feriados: tuple[calc.FeriadoLocalDado, ...] = (),
 ) -> ColunasTributo:
     linha = apuracao_anual.linhas[trimestre - 1]
     sem = linha.sem_lc224
@@ -1593,7 +1823,7 @@ def _colunas(
     apos_deducao = tributo_devido - deducao_aplicada
     a_recolher = max(ZERO, apos_deducao - retencao)
     saldo_negativo = max(ZERO, retencao - apos_deducao)
-    quotas = calc.opcoes_de_quota(a_recolher, ano, trimestre)
+    quotas = _com_avisos_locais(calc.opcoes_de_quota(a_recolher, ano, trimestre), praca, feriados)
     caso = (
         apuracao_anual.fechamento.caso if (trimestre == 4 and apuracao_anual.fechamento) else None
     )
@@ -1756,9 +1986,14 @@ def apurar_trimestre(empresa: Empresa, ano, trimestre) -> Apuracao:
         )
 
     retencao_irrf, retencao_csll = _retencoes_confirmadas(empresa, dados)
-    medidas = list(MedidaJudicialLC224.objects.filter(empresa=empresa, ativa=True))
+    medidas = list(
+        MedidaJudicialLC224.objects.filter(empresa=empresa, ativa=True).prefetch_related(
+            "encerramentos"
+        )
+    )
     suspensos = _suspensos_por_tributo(medidas, ano)
     anual = {t: calc.apurar_ano(t, ano, periodos, suspensos[t]) for t in tab.TRIBUTOS}
+    praca, feriados = _feriados_locais_da_praca(empresa)
     colunas = {
         tab.IRPJ: _colunas(
             tab.IRPJ,
@@ -1768,6 +2003,8 @@ def apurar_trimestre(empresa: Empresa, ano, trimestre) -> Apuracao:
             dados.integrais,
             retencao_irrf,
             _medida_que_cobre(medidas, tab.IRPJ, ano, trimestre),
+            praca,
+            feriados,
         ),
         tab.CSLL: _colunas(
             tab.CSLL,
@@ -1777,6 +2014,8 @@ def apurar_trimestre(empresa: Empresa, ano, trimestre) -> Apuracao:
             dados.integrais,
             retencao_csll,
             _medida_que_cobre(medidas, tab.CSLL, ano, trimestre),
+            praca,
+            feriados,
         ),
     }
     acrescimo = any(c.acrescimo_aplicavel for c in colunas.values())
@@ -1879,7 +2118,11 @@ def controle_limite_ano(
     # a mesma recusa da apuração do trimestre, para o contador não ler limite e excedente como
     # completos. A receita já entra pelo mesmo caminho (`_periodos_do_ano`).
     recusas.extend(_nfe_nao_escriturada(empresa, ano, range(1, 13)))
-    medidas = list(MedidaJudicialLC224.objects.filter(empresa=empresa, ativa=True))
+    medidas = list(
+        MedidaJudicialLC224.objects.filter(empresa=empresa, ativa=True).prefetch_related(
+            "encerramentos"
+        )
+    )
     suspensos = _suspensos_por_tributo(medidas, ano)
     anual = calc.apurar_ano(tributo, ano, periodos, suspensos[tributo])
     existe_quarto = _quarto_trimestre_existe(ano, hoje if hoje is not None else _hoje())
@@ -1904,4 +2147,207 @@ def controle_limite_ano(
         fechamento=anual.fechamento if existe_quarto else None,
         recusas=tuple(recusas),
         deducao_quarto_trimestre=anual.deducao_quarto_trimestre if existe_quarto else ZERO,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Feriados locais da praça (DL-084, item 2; HI-137)
+# ---------------------------------------------------------------------------
+
+
+def _praca_da_empresa(empresa: Empresa) -> tuple[str, str] | None:
+    """(município, UF) do estabelecimento MATRIZ. None sem matriz com município e UF cadastrados.
+
+    É a praça de pagamento. Sem ela, nenhum feriado local é avaliado: o produto não chuta a praça.
+    """
+    matriz = empresa.estabelecimentos.filter(tipo=TipoEstabelecimento.MATRIZ).first()
+    if matriz is None or not matriz.uf or not matriz.municipio.strip():
+        return None
+    return matriz.municipio.strip(), matriz.uf
+
+
+def _feriados_locais_da_praca(
+    empresa: Empresa,
+) -> tuple[str | None, tuple[calc.FeriadoLocalDado, ...]]:
+    """(nome da praça, feriados locais que valem nela). Estadual (município vazio) e municipal.
+
+    Lê a tabela do produto uma vez por apuração, com as exceções do ano (`prefetch_related`).
+    """
+    praca = _praca_da_empresa(empresa)
+    if praca is None:
+        return None, ()
+    municipio, uf = praca
+    registros = list(
+        FeriadoLocal.objects.filter(uf=uf)
+        .filter(Q(municipio="") | Q(municipio=calc.chave_municipio(municipio)))
+        .prefetch_related("excecoes")
+        .order_by("mes", "dia", "id")
+    )
+    # A linha da praça substitui a da UF no mesmo dia: é ela que traz a confirmação bancária dessa
+    # praça (DL-084, item 2). A ordenação põe a da praça primeiro; a estadual só entra se não
+    # houver.
+    registros.sort(key=lambda registro: registro.municipio == "")
+    escolhidos: list[FeriadoLocal] = []
+    dias_ja_escolhidos: set[tuple[int, int]] = set()
+    for registro in registros:
+        if (registro.mes, registro.dia) in dias_ja_escolhidos:
+            continue
+        dias_ja_escolhidos.add((registro.mes, registro.dia))
+        escolhidos.append(registro)
+    feriados = tuple(
+        calc.FeriadoLocalDado(
+            descricao=registro.descricao,
+            mes=registro.mes,
+            dia=registro.dia,
+            vigencia_inicio=registro.vigencia_inicio,
+            vigencia_fim=registro.vigencia_fim,
+            fonte_bancaria=registro.fonte_bancaria,
+            excecoes=tuple(
+                calc.ExcecaoFeriadoDado(
+                    ano=excecao.ano,
+                    data_observada=excecao.data_observada,
+                    fonte_bancaria=excecao.fonte_bancaria,
+                )
+                for excecao in registro.excecoes.all()
+            ),
+        )
+        for registro in escolhidos
+    )
+    return municipio, feriados
+
+
+# ---------------------------------------------------------------------------
+# Parâmetros por empresa (DL-084, item 6; HI-136)
+# ---------------------------------------------------------------------------
+
+FORMA_RECOLHIMENTO_PADRAO = "tres_quotas"
+FORMAS_RECOLHIMENTO = ("quota_unica", "duas_quotas", "tres_quotas")
+PADROES_COMBUSTIVEL = ("", "posto", "trr", "distribuidora")
+
+
+@dataclass(frozen=True)
+class ParametrosDaEmpresa:
+    forma_recolhimento: str
+    padrao_combustivel: str
+    definido: bool
+
+
+def parametros_da_empresa(empresa: Empresa) -> ParametrosDaEmpresa:
+    """Os parâmetros da empresa. Sem linha, vale o padrão do escritório: três quotas, sem padrão.
+
+    `definido` diz se alguém gravou os parâmetros (a tela mostra "padrão do escritório" quando não).
+    """
+    registro = ParametrosPresumidoEmpresa.objects.filter(empresa=empresa).first()
+    if registro is None:
+        return ParametrosDaEmpresa(FORMA_RECOLHIMENTO_PADRAO, "", False)
+    return ParametrosDaEmpresa(registro.forma_recolhimento, registro.padrao_combustivel, True)
+
+
+@transaction.atomic
+def definir_parametros(empresa: Empresa, dados: dict, usuario, request=None) -> ParametrosDaEmpresa:
+    """Grava os parâmetros da empresa, com trilha (antes e depois), sob a trava da empresa.
+
+    Campo ausente mantém o valor atual. A forma só decide qual plano a tela abre; o cálculo é o
+    mesmo. O padrão de combustível só sugere a natureza quando o CFOP não decide, e não muda nada
+    que já foi escriturado. Sem mudança real e com linha já existente, não há trilha nem gravação.
+    """
+    travada = receita_servico.travar_empresa(empresa)
+    registro = (
+        ParametrosPresumidoEmpresa.objects.select_for_update(of=("self",))
+        .filter(empresa=travada)
+        .first()
+    )
+    if registro is None:
+        atual = ParametrosDaEmpresa(FORMA_RECOLHIMENTO_PADRAO, "", False)
+    else:
+        atual = ParametrosDaEmpresa(registro.forma_recolhimento, registro.padrao_combustivel, True)
+    forma = dados.get("forma_recolhimento", atual.forma_recolhimento)
+    padrao = dados.get("padrao_combustivel", atual.padrao_combustivel)
+    if forma not in FORMAS_RECOLHIMENTO:
+        raise EntradaInvalidaPresumido(
+            "Forma de recolhimento: use quota_unica, duas_quotas ou tres_quotas."
+        )
+    if padrao is None:
+        padrao = ""
+    if padrao not in PADROES_COMBUSTIVEL:
+        raise EntradaInvalidaPresumido(
+            "Padrão de combustível: use posto, trr, distribuidora, ou vazio para sem padrão."
+        )
+    antes = {
+        "forma_recolhimento": atual.forma_recolhimento,
+        "padrao_combustivel": atual.padrao_combustivel,
+    }
+    depois = {"forma_recolhimento": forma, "padrao_combustivel": padrao}
+    if registro is None:
+        registro = ParametrosPresumidoEmpresa(
+            empresa=travada,
+            forma_recolhimento=forma,
+            padrao_combustivel=padrao,
+            atualizado_por=usuario,
+        )
+        _inserir(
+            registro,
+            "presumido_parametros_unico_por_empresa",
+            "Os parâmetros desta empresa acabaram de ser definidos por outra ação. Atualize atela.",
+        )
+    elif antes != depois:
+        registro.forma_recolhimento = forma
+        registro.padrao_combustivel = padrao
+        registro.atualizado_por = usuario
+        registro.save()
+    else:
+        return atual
+    registrar(
+        acao="presumido.parametros_definidos",
+        usuario=usuario,
+        escritorio=travada.escritorio,
+        objeto=registro,
+        request=request,
+        detalhes={"antes": antes, "depois": depois, "tinha_registro": atual.definido},
+    )
+    return ParametrosDaEmpresa(forma, padrao, True)
+
+
+# ---------------------------------------------------------------------------
+# Pendências de cadastro do mês (DL-084, item 8; HI-136)
+# ---------------------------------------------------------------------------
+
+CODIGO_SEM_ATIVIDADE_PADRAO = "sem_atividade_padrao"
+
+
+@dataclass(frozen=True)
+class PendenciaCadastro:
+    codigo: str
+    mensagem: str
+
+
+def pendencias_de_cadastro(empresa: Empresa, ano: int, mes: int) -> tuple[PendenciaCadastro, ...]:
+    """Pendências de cadastro do Presumido no mês (DL-084, item 8).
+
+    Hoje uma só: empresa do Lucro Presumido no mês sem atividade de presunção padrão vigente em
+    nenhum dia dele. Não existe lista central de pendências do mês no módulo fiscal, então ela sai
+    daqui, pelo serviço e pela API. Empresa que ainda não tinha começado (abertura depois do mês) e
+    empresa de outro regime não aparecem.
+    """
+    validar_ano_e_trimestre(ano, 1)
+    if not isinstance(mes, int) or isinstance(mes, bool) or not 1 <= mes <= 12:
+        raise EntradaInvalidaPresumido("Mês inválido: use 1 a 12.")
+    inicio = date(ano, mes, 1)
+    fim = date(ano, mes, calendar.monthrange(ano, mes)[1])
+    if RegimeTributario.LUCRO_PRESUMIDO not in _regimes_do_trimestre(empresa, inicio, fim):
+        return ()
+    if empresa.data_abertura_cnpj is not None and empresa.data_abertura_cnpj > fim:
+        return ()
+    padroes = AtividadePresuncaoEmpresa.objects.filter(empresa=empresa, padrao=True)
+    if any(_sobrepoe(inicio, fim, padrao) for padrao in padroes):
+        return ()
+    return (
+        PendenciaCadastro(
+            codigo=CODIGO_SEM_ATIVIDADE_PADRAO,
+            mensagem=(
+                f"Sem atividade de presunção padrão vigente em {mes:02d}/{ano}: cadastre a "
+                "atividade da empresa (Lei 9.249, art. 15; HI-101). Sem ela, as notas do mês "
+                "não têm atividade."
+            ),
+        ),
     )

@@ -170,6 +170,49 @@ INICIO_ACRESCIMO = {
 # estimativa, sempre marcada "estimada" (HI-103).
 FATOR_ESTIMATIVA_CSLL_TP3 = Decimal("4.65")
 
+# Teste de coerência da CSLL retida (DL-084, item 3; HI-103; consulta PE-83.3). Com tpRetPisCofins
+# 3,
+# o `vRetCSLL` da nota é a soma de CSLL, Cofins e PIS retidos às alíquotas-padrão, e isso dá 4,65%
+# da base (`vServ − desconto incondicional`). Se a nota reteve SÓ a CSLL, o valor é 1% da base, e o
+# código 3 está errado. A tolerância é de um centavo, porque o valor da nota é arredondado.
+FAIXA_COERENCIA_CSLL_TP3 = Decimal("0.0465")
+FAIXA_COERENCIA_SO_CSLL = Decimal("0.01")
+TOLERANCIA_COERENCIA_CSLL = Decimal("0.01")
+
+# ---------------------------------------------------------------------------
+# Dias sem expediente bancário nacional, para o vencimento (DL-084, item 1; HI-105 substituída)
+# ---------------------------------------------------------------------------
+# Estes dias não são úteis para o vencimento: a data antecipa para o dia útil anterior. São
+# calculados pela Páscoa (`presumido_calculo.pascoa`). Cada entrada: (dias a partir do domingo de
+# Páscoa, nome, fonte). As fontes foram lidas em 09/10/2026 (DATA_LEITURA_NORMAS).
+DATA_LEITURA_NORMAS = date(2026, 10, 9)
+DIAS_SEM_EXPEDIENTE_BANCARIO = (
+    (
+        -48,
+        "segunda-feira de Carnaval",
+        "Res. CMN 4.880/2020, art. 6º, I (lida em 09/10/2026); instruções do DARF avulso da "
+        "RFB (gov.br, lidas em 09/10/2026); lista federal da Febraban de 2026",
+    ),
+    (
+        -47,
+        "terça-feira de Carnaval",
+        "Res. CMN 4.880/2020, art. 6º, I (lida em 09/10/2026); instruções do DARF avulso da "
+        "RFB (gov.br, lidas em 09/10/2026); lista federal da Febraban de 2026",
+    ),
+    (
+        -2,
+        "Sexta-feira Santa",
+        "Instruções do DARF avulso da RFB (gov.br, lidas em 09/10/2026); lista federal da "
+        "Febraban de 2026 (03/04/2026); Lei municipal de Palmas 577/96, art. 1º, I (lida em "
+        "09/10/2026, para Palmas)",
+    ),
+    (
+        60,
+        "Corpus Christi",
+        "Res. CMN 4.880/2020, art. 6º, II (lida em 09/10/2026); lista federal da Febraban de 2026",
+    ),
+)
+
 # Aviso fixo sobre as ADIs contra o acréscimo (consulta, item 10; portal do STF, lido em
 # 08/10/2026). É texto de conferência, não decisão judicial.
 ADI_REFERENCIA = "ADI 7936 e ADI 7944"
@@ -218,8 +261,9 @@ FERIADOS_NACIONAIS_FIXOS = (
     (11, 20, "Dia Nacional de Zumbi e da Consciência Negra", "Lei 14.759/2023, art. 1º"),
     (12, 25, "Natal", "Lei 662/1949, art. 1º"),
 )
-# Ano a partir do qual o feriado de 20/11 vale. A Lei 14.759 é de 21/12/2023.
-ANO_FERIADO_20_NOVEMBRO = 2023
+# Ano a partir do qual o feriado de 20/11 vale. A Lei 14.759 foi publicada em 22/12/2023, depois da
+# data de 2023, então o primeiro 20/11 observado é o de 2024 (consulta PE-83.9: "vale desde 2024").
+ANO_FERIADO_20_NOVEMBRO = 2024
 
 MESES = (
     "janeiro",

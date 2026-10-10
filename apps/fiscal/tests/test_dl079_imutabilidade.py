@@ -13,7 +13,7 @@ from django.db import IntegrityError, connection, transaction
 from apps.empresas.models import HistoricoRegimeTributario, RegimeTributario
 from apps.fiscal import presumido as servico
 from apps.fiscal import presumido_tabelas as tab
-from apps.fiscal.presumido import proposta_de_retencao
+from apps.fiscal.presumido import base_da_nota, proposta_de_retencao
 from apps.fiscal.tests.suporte_presumido_dl079 import nota_efetivada
 from apps.fiscal.tomadas_campos import campos_tomada_do_documento
 
@@ -240,7 +240,7 @@ def test_proposta_csll_ausente_nunca_vira_zero(escritorio_a, usuario_gestor_a, e
         tp_ret="8",
     )
     campos = campos_tomada_do_documento(escrituracao.vinculo.documento)
-    proposta = proposta_de_retencao(campos)
+    proposta = proposta_de_retencao(campos, base_da_nota(escrituracao.valor_servico, campos))
     assert proposta.csll is None
     assert proposta.csll_situacao == "a_classificar"
     assert proposta.csll_motivo == "vRetCSLL ausente na nota"
@@ -262,7 +262,8 @@ def test_proposta_com_pis_cofins_preenchidos_junto_com_codigo_e_ambigua(
         v_pis="5.00",
         v_cofins="20.00",
     )
-    proposta = proposta_de_retencao(campos_tomada_do_documento(escrituracao.vinculo.documento))
+    campos = campos_tomada_do_documento(escrituracao.vinculo.documento)
+    proposta = proposta_de_retencao(campos, base_da_nota(escrituracao.valor_servico, campos))
     assert proposta.csll is None and proposta.csll_situacao == "a_classificar"
     assert "ambíguo" in proposta.csll_motivo
 
@@ -279,7 +280,8 @@ def test_proposta_exata_com_codigo_8_e_sem_pis_cofins(escritorio_a, usuario_gest
         ret_csll="90.00",
         tp_ret="8",
     )
-    proposta = proposta_de_retencao(campos_tomada_do_documento(escrituracao.vinculo.documento))
+    campos = campos_tomada_do_documento(escrituracao.vinculo.documento)
+    proposta = proposta_de_retencao(campos, base_da_nota(escrituracao.valor_servico, campos))
     assert proposta.csll == D("90.00") and proposta.csll_situacao == "exata"
 
 

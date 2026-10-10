@@ -33,6 +33,7 @@ sobra, caso) NÃO muda com a medida: só a dedução exclui o trimestre.
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -435,15 +436,16 @@ def apurar_ano(
 
 
 # ---------------------------------------------------------------------------
-# Calendário: último dia útil, Páscoa e Carnaval (HI-105)
+# Calendário: último dia útil, Páscoa e dias sem expediente bancário (DL-084, item 1)
 # ---------------------------------------------------------------------------
 
 
 def pascoa(ano: int) -> date:
     """Domingo de Páscoa, pelo algoritmo de Gauss/Meeus (calendário gregoriano).
 
-    Usado só para AVISAR: a Sexta-feira Santa e a terça de Carnaval não são feriado nacional por
-    lei, então não mudam o vencimento; quando a data cai nelas, a tela pede conferência.
+    Base de TODOS os dias sem expediente bancário móveis (Sexta-feira Santa, Carnaval e Corpus
+    Christi): um erro aqui muda o vencimento de março ou de maio. Por isso o teste compara anos com
+    Páscoa em março e em abril com datas escritas à mão.
     """
     a = ano % 19
     b = ano // 100
@@ -462,14 +464,24 @@ def pascoa(ano: int) -> date:
     return date(ano, mes, dia)
 
 
-def datas_a_conferir(ano: int) -> frozenset[date]:
-    """Sexta-feira Santa (Páscoa − 2) e terça de Carnaval (Páscoa − 47) do ano."""
+def dias_sem_expediente_bancario(ano: int) -> dict[date, str]:
+    """Data → nome dos dias sem expediente bancário nacional do ano (Páscoa e tabela do módulo).
+
+    Não são úteis para o vencimento (DL-084, item 1): ver `ultimo_dia_util`. A fonte de cada um está
+    em `presumido_tabelas.DIAS_SEM_EXPEDIENTE_BANCARIO`.
+    """
     domingo = pascoa(ano)
-    return frozenset({domingo - timedelta(days=2), domingo - timedelta(days=47)})
+    return {
+        domingo + timedelta(days=deslocamento): nome
+        for deslocamento, nome, _fonte in tab.DIAS_SEM_EXPEDIENTE_BANCARIO
+    }
 
 
 def feriado_nacional_fixo(dia: date) -> bool:
-    """Feriado nacional fixo por lei, vigente na data (Leis 662/1949, 6.802/1980 e 14.759/2023)."""
+    """Feriado nacional fixo por lei, vigente na data (Leis 662/1949, 6.802/1980 e 14.759/2023).
+
+    20/11 vale desde 2024 (Lei 14.759/2023, publicada em 22/12/2023; consulta PE-83.9).
+    """
     for mes, dia_do_mes, _nome, _fundamento in tab.FERIADOS_NACIONAIS_FIXOS:
         if (dia.month, dia.day) == (mes, dia_do_mes):
             if mes == 11 and dia_do_mes == 20 and dia.year < tab.ANO_FERIADO_20_NOVEMBRO:
@@ -478,17 +490,35 @@ def feriado_nacional_fixo(dia: date) -> bool:
     return False
 
 
-def ultimo_dia_util(ano: int, mes: int) -> tuple[date, bool]:
-    """Último dia útil do mês e se ele pede conferência de calendário.
+def _dia_civil_util(dia: date) -> bool:
+    """Sem fim de semana e sem feriado nacional fixo: é o que o vencimento antes do DL-084 usava."""
+    return dia.weekday() < 5 and not feriado_nacional_fixo(dia)
 
-    Recua sábado, domingo e feriado nacional fixo. Sexta-feira Santa e terça de Carnaval NÃO
-    recuam: o vencimento fica nelas e a data sai com o aviso "calendário a conferir".
+
+def _ultimo_dia_util_civil(ano: int, mes: int) -> date:
+    proximo = date(ano + (mes == 12), 1 if mes == 12 else mes + 1, 1)
+    dia = proximo - timedelta(days=1)
+    while not _dia_civil_util(dia):
+        dia -= timedelta(days=1)
+    return dia
+
+
+def ultimo_dia_util(ano: int, mes: int) -> tuple[date, bool]:
+    """Último dia útil do mês e se ele ANTECIPOU por dia sem expediente bancário (DL-084, item 1).
+
+    Recua sábado, domingo, feriado nacional fixo e os dias sem expediente bancário nacional (Sexta-
+    feira Santa, segunda e terça de Carnaval, Corpus Christi). O bool é True só quando algum desses
+    dias bancários foi pulado: a data antecipou. Feriado local NÃO entra aqui; ele só avisa
+    (`avisos_de_feriado_local`), porque a data normativa não muda por feriado local.
     """
     proximo = date(ano + (mes == 12), 1 if mes == 12 else mes + 1, 1)
     dia = proximo - timedelta(days=1)
-    while dia.weekday() >= 5 or feriado_nacional_fixo(dia):
+    antecipado = False
+    while not _dia_civil_util(dia) or dia in dias_sem_expediente_bancario(dia.year):
+        if _dia_civil_util(dia):
+            antecipado = True
         dia -= timedelta(days=1)
-    return dia, dia in datas_a_conferir(dia.year)
+    return dia, antecipado
 
 
 # ---------------------------------------------------------------------------
@@ -514,11 +544,22 @@ def _mes_seguinte(ano: int, mes: int, deslocamento: int) -> tuple[int, int]:
 
 @dataclass(frozen=True)
 class Parcela:
+    """Uma quota (ou o imposto em quota única) com a data de vencimento e os avisos da data.
+
+    `aviso_calendario` NÃO é mais preenchido (DL-084, item 1): o aviso "calendário a conferir" saiu
+    com a HI-105 substituída. O campo fica só porque a tela da frente B o lê; sempre é falso.
+    `antecipada_de` é a data civil (sábado, domingo e feriado fixo) quando o vencimento recuou por
+    dia sem expediente bancário nacional; None quando não recuou. `avisos_locais` vêm do feriado
+    local da praça (DL-084, item 2): não mudam a data, só avisam.
+    """
+
     numero: int
     valor: Decimal
     vencimento: date
     aviso_calendario: bool
     juros: str
+    antecipada_de: date | None = None
+    avisos_locais: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -544,11 +585,17 @@ def _valores_das_quotas(devido: Decimal, quantidade: int) -> tuple[Decimal, ...]
 
 
 def _parcelas(ano: int, trimestre: int, valores: tuple[Decimal, ...]) -> tuple[Parcela, ...]:
-    """Parcelas com vencimento no último dia útil de cada mês após o trimestre, juros em texto."""
+    """Parcelas com vencimento no último dia útil de cada mês após o trimestre, juros em texto.
+
+    `antecipada_de` guarda a data civil quando o vencimento recuou por dia sem expediente bancário
+    (DL-084, item 1). A data que o contador paga é `vencimento`; a outra só explica o recuo.
+    """
     mes_fim = trimestre * 3
     parcelas = []
     for numero, valor in enumerate(valores, start=1):
-        vencimento, aviso = ultimo_dia_util(*_mes_seguinte(ano, mes_fim, numero))
+        ano_venc, mes_venc = _mes_seguinte(ano, mes_fim, numero)
+        vencimento, antecipado = ultimo_dia_util(ano_venc, mes_venc)
+        civil = _ultimo_dia_util_civil(ano_venc, mes_venc)
         if numero == 1:
             juros = JUROS_QUOTA_1
         elif numero == 2:
@@ -556,8 +603,93 @@ def _parcelas(ano: int, trimestre: int, valores: tuple[Decimal, ...]) -> tuple[P
         else:
             _, mes_selic = _mes_seguinte(ano, mes_fim, 2)
             juros = f"Selic acumulada de {tab.MESES[mes_selic - 1]} + 1% — taxa não embutida"
-        parcelas.append(Parcela(numero, valor, vencimento, aviso, juros))
+        parcelas.append(
+            Parcela(
+                numero=numero,
+                valor=valor,
+                vencimento=vencimento,
+                aviso_calendario=False,
+                juros=juros,
+                antecipada_de=civil if antecipado else None,
+            )
+        )
     return tuple(parcelas)
+
+
+# ---------------------------------------------------------------------------
+# Feriados locais: só AVISO, nunca muda a data (DL-084, item 2; HI-137)
+# ---------------------------------------------------------------------------
+
+AVISO_LOCAL_SEM_FONTE_BANCARIA = "feriado local: confirmar expediente bancário na praça"
+AVISO_LOCAL_BANCARIO = "feriado bancário em {praca} (Febraban)"
+AVISO_LOCAL_ANTECIPAR = "antecipar: sem expediente bancário na praça"
+
+
+@dataclass(frozen=True)
+class ExcecaoFeriadoDado:
+    """Um ano em que o feriado foi movido por decreto (ex.: 05/10/2026 observado em 09/10/2026)."""
+
+    ano: int
+    data_observada: date
+    fonte_bancaria: str
+
+
+@dataclass(frozen=True)
+class FeriadoLocalDado:
+    """Um feriado local (estadual ou municipal) já lido do banco, sem consulta própria.
+
+    `fonte_bancaria` vazia = a lista da Febraban não confirma o fechamento na praça: o aviso fica
+    o mais fraco ("confirmar expediente"). Com fonte, o aviso diz que a praça fecha.
+    """
+
+    descricao: str
+    mes: int
+    dia: int
+    vigencia_inicio: date
+    vigencia_fim: date | None
+    fonte_bancaria: str
+    excecoes: tuple[ExcecaoFeriadoDado, ...] = ()
+
+
+def chave_municipio(nome: str) -> str:
+    """Nome de município sem acento, em maiúsculas e com espaços simples: a chave de comparação.
+
+    É a forma gravada em `FeriadoLocal.municipio`, para que "Palmas", "PALMAS" e "palmas" casem.
+    """
+    sem_acento = unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode("ascii")
+    return " ".join(sem_acento.upper().split())
+
+
+def avisos_de_feriado_local(
+    dia: date, feriados: tuple[FeriadoLocalDado, ...], praca: str
+) -> tuple[str, ...]:
+    """Avisos que um feriado local põe numa data de vencimento. Nunca mudam a data.
+
+    A data observada vale no ano: se houver exceção desse ano (decreto que moveu o feriado), o
+    aviso vai para a data observada, e a data normativa NÃO avisa, porque nesse ano ela não é
+    feriado. Sem exceção, a data normativa é a própria data do feriado.
+    """
+    avisos: list[str] = []
+    for feriado in feriados:
+        if dia < feriado.vigencia_inicio:
+            continue
+        if feriado.vigencia_fim is not None and dia > feriado.vigencia_fim:
+            continue
+        excecao = next((e for e in feriado.excecoes if e.ano == dia.year), None)
+        if excecao is not None:
+            if excecao.data_observada != dia:
+                continue
+            fonte = excecao.fonte_bancaria
+        else:
+            if (feriado.mes, feriado.dia) != (dia.month, dia.day):
+                continue
+            fonte = feriado.fonte_bancaria
+        if fonte:
+            avisos.append(AVISO_LOCAL_BANCARIO.format(praca=praca))
+            avisos.append(AVISO_LOCAL_ANTECIPAR)
+        else:
+            avisos.append(AVISO_LOCAL_SEM_FONTE_BANCARIA)
+    return tuple(avisos)
 
 
 def opcoes_de_quota(devido: Decimal, ano: int, trimestre: int) -> OpcoesDeQuota:

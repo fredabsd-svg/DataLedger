@@ -39,6 +39,11 @@ def _escrituracao_individual(escritorio, usuario, empresa):
     return servico.efetivar(esc, usuario=usuario)
 
 
+# DL-084 (ajuste mínimo, sem mudar expectativa): a reversão faz DDL. No PostgreSQL, ela não
+# roda numa transação que já gravou em `empresas_empresa` (eventos de gatilho pendentes).
+# Os testes de migração da DL-082 e da DL-083 já usam `transaction=True` por isso. Este era o
+# único fora do padrão.
+@pytest.mark.django_db(transaction=True)
 def test_migracao_0013_vai_volta_e_vai_sem_tocar_nas_escrituracoes(escritorio_a):
     usuario = usuario_gestor(escritorio_a, "gestor-migracao-dl085")
     empresa = Empresa.objects.create(

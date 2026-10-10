@@ -405,6 +405,41 @@ def sugerir_natureza_item(documento, item, tipo: str | None = None) -> Sugestao:
     return Sugestao(natureza, f"sugerida pelo sinal de {origem}")
 
 
+# DL-084, item 6 (HI-136; PE-85.1): o padrão de combustível da empresa sugere a natureza "para
+# consumo" (1,6%) SÓ quando o CFOP não decide. Posto e TRR vendem a consumidor final. Distribuidora
+# não tem padrão: quem decide é o item.
+#
+# Quando o CFOP não decide: o item NÃO tem CFOP de combustível (5949, por exemplo) e o NCM diz que é
+# combustível. Aí o CFOP não separa consumo de revenda, e o padrão separa. Não entram: (a) CFOP de
+# combustível, que já decide consumo (x.656) ou revenda (x.655) e só espera o NCM; (b) item comum de
+# posto (loja de conveniência), cujo NCM não é de combustível.
+_PADROES_QUE_SUGEREM_CONSUMO = ("posto", "trr")
+
+
+def sugerir_natureza_com_padrao(
+    documento, item, padrao_combustivel: str | None, tipo: str | None = None
+) -> Sugestao:
+    """`sugerir_natureza_item` com o padrão de combustível da empresa, como último recurso (DL-084).
+
+    Isolada numa função nova de propósito: o lote, a API e a tela chamam `sugerir_natureza_item` e
+    ainda não passam o padrão (são outros arquivos, fora da DL-084). Ligar os chamadores é pendência
+    registrada na entrega. Qualquer outro caso devolve o resultado de `sugerir_natureza_item`, sem
+    mudança.
+    """
+    base = sugerir_natureza_item(documento, item, tipo)
+    if base.natureza is not None or padrao_combustivel not in _PADROES_QUE_SUGEREM_CONSUMO:
+        return base
+    if _natureza_de_combustivel_pelo_cfop(item.cfop) is not None:
+        return base
+    if normalizar_ncm(item.ncm) not in NCM_COMBUSTIVEL:
+        return base
+    return Sugestao(
+        NaturezaOperacaoNFe.COMBUSTIVEL,
+        "sugerida pelo padrão de combustível da empresa (posto ou TRR): o NCM é de combustível "
+        "e o CFOP não diz se é consumo ou revenda",
+    )
+
+
 def segregacao_da_escrituracao(escrituracao: EscrituracaoNFe) -> dict[str, Decimal]:
     """Receita de mercadoria por segregação do Simples (consulta, item 3): memória, sem alíquota.
 

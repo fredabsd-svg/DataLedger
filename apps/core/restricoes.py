@@ -421,6 +421,11 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     "escrituracao_nfe_ativa_unica_por_vinculo": "apps.fiscal.escrituracao_nfe._inserir",
     "fiscal_leituraitensnfe_documento_id_key": "apps.fiscal.itens_nfe.ler_itens",
     "presumido_confirmacao_ativa_unica_por_escrituracao": "apps.fiscal.presumido._inserir",
+    # DL-084 (frente A): as duas unicidades novas do presumido passam por `_inserir`, que traduz a
+    # violação em conflito (409). Os parâmetros são gravados sob a trava da empresa; o encerramento
+    # de medida é único por medida, e a corrida de dois encerramentos cai aqui.
+    "presumido_parametros_unico_por_empresa": "apps.fiscal.presumido._inserir",
+    "presumido_encerramento_unico_por_medida": "apps.fiscal.presumido._inserir",
     # DL-077 (fatia 3, frente A): as unicidades da importação de lançamentos são checadas pelo
     # serviço antes de gravar (`receber` recusa o arquivo repetido com 409; o IntegrityError de
     # corrida é reconvertido ali) e o de-para é gravado por `definir_de_para` (update_or_create).
@@ -660,6 +665,56 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
     ),
     "presumido_medida_ativa_coerente": (
         "Revogação sem motivo ou data: só o serviço de revogação escreve estes campos. "
+    ),
+    # DL-084 (rotina do Presumido): CHECKs e unicidades novas. O serviço valida antes de gravar, e a
+    # API só passa o que ele aceita. Só SQL direto as viola.
+    "presumido_receita_competencia_valida": (
+        "Competência fora de AAAA-MM (mês do trimestre) ou 'parcela N': o serviço recusa antes. "
+    ),
+    "presumido_parametros_forma_valida": (
+        "Forma de recolhimento fora de quota única, duas ou três quotas: o serviço recusa antes. "
+    ),
+    "presumido_parametros_combustivel_valido": (
+        "Padrão de combustível fora de posto, TRR, distribuidora ou vazio: o serviço recusa antes. "
+    ),
+    "presumido_encerramento_trimestre_valido": (
+        "Trimestre do encerramento fora de 1 a 4: o serviço recusa antes. "
+    ),
+    "presumido_encerramento_motivo_obrigatorio": (
+        "Encerramento sem motivo: o serviço recusa antes. "
+    ),
+    # DL-084 (item 2): a tabela de feriados locais é carga da migração 0015, com lei e data da
+    # leitura.
+    # Não há caminho de escrita pelo cliente; a CHECK e o NOT NULL garantem a fonte em cada linha.
+    "feriado_local_unico": (
+        "Carga de feriado local da migração 0015, uma linha por UF, município, dia e vigência: não "
+        "há caminho de cliente que grave feriado. "
+    ),
+    "feriado_local_uf_valida": (
+        "Feriado local com UF fora de duas letras maiúsculas: só a carga grava."
+    ),
+    "feriado_local_esfera_valida": (
+        "Feriado local com esfera fora de estadual e municipal: só a carga grava."
+    ),
+    "feriado_local_municipal_tem_municipio": (
+        "Feriado municipal sem município: só a carga grava, e o município vem do cadastro da lei."
+    ),
+    "feriado_local_data_valida": "Feriado local com mês ou dia fora da faixa: só a carga grava.",
+    "feriado_local_fundamento_obrigatorio": (
+        "Feriado local sem a lei que o declara: a carga exige a fonte em cada linha."
+    ),
+    "feriado_local_vigencia_coerente": (
+        "Vigência do feriado com fim antes do início: só a carga grava."
+    ),
+    "excecao_feriado_unica_por_ano": (
+        "Uma exceção por feriado e ano, gravada pela carga da migração 0015: não há caminho de"
+        "cliente."
+    ),
+    "excecao_feriado_ano_valido": (
+        "Exceção de feriado com ano fora de 1970 a 2999: só a carga grava."
+    ),
+    "excecao_feriado_fundamento_obrigatorio": (
+        "Exceção de feriado sem o ato que moveu a data: a carga exige a fonte em cada linha."
     ),
     # DL-077 (fatia 3, frente A): restrições de domínio fechado escritas só pelo serviço.
     "ck_importacao_lancamentos_estado_valido": (
