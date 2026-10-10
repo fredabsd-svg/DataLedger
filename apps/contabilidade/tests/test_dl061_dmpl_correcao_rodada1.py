@@ -72,6 +72,7 @@ from apps.contabilidade.tests.test_dl061_dmpl import (
     _pendencias_nao_vazias,
     _plano_basico,
 )
+from apps.tenancy.models import Papel
 
 pytestmark = pytest.mark.django_db
 
@@ -541,7 +542,7 @@ def _estornar_a_transferencia_para_lucros(empresa):
     transferencia = LancamentoContabil.objects.get(
         empresa=empresa, historico__contains="transferência para lucros acumulados"
     )
-    return estornar_lancamento(transferencia, data=date(2026, 3, 31))
+    return estornar_lancamento(transferencia, data=date(2026, 3, 31), papel=Papel.GESTOR)
 
 
 def test_n3_saldo_na_conta_de_passagem_gera_aviso_e_nao_veta():

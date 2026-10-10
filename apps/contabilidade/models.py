@@ -4,7 +4,9 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import connection, models, transaction
-from django.db.models.functions import ExtractMonth, ExtractYear
+from django.db.models import F, Value
+from django.db.models.functions import ExtractMonth, ExtractYear, Trim
+from django.db.models.lookups import Exact
 
 from apps.contabilidade.validators import validar_data_de_lancamento_do_modelo
 from apps.empresas.models import Empresa, ModoEscrituracao
@@ -2264,8 +2266,10 @@ class OrigemLancamento(models.TextChoices):
     - `manual`: digitado pelo usuário (tela, API, admin) e também o que o zeramento do
       resultado gera. O zeramento é disparado por ação de usuário (`ZerarResultadoView`,
       com `PodeFecharCompetencia`: ADMINISTRADOR e GESTOR, RC-102) e não é gerado pela
-      escrita fiscal nem pela importação; por isso fica `manual`. Se um dia precisar de
-      origem própria, é valor novo e migração aditiva.
+      escrita fiscal nem pela importação; por isso fica `manual`. Ele NÃO fica estornável
+      por quem só escritura: a chave `zeramento:` o torna automático para o estorno
+      (DL-089, A2; ver `exige_permissao_de_estorno_automatico` em `services.py`). Se um
+      dia precisar de origem própria, é valor novo e migração aditiva.
     - `importacao`: efetivado pela importação de TXT/Excel (DL-077). Só o serviço
       `importacao_lancamentos.efetivar` grava esta origem (é o único caminho que passa
       `permitir_prefixo_da_importacao`).
@@ -2303,9 +2307,35 @@ class TipoDocumentoOrigem(models.TextChoices):
     ESCRITURACAO_NFSE = "escrituracao_nfse", "Escrituração de NFS-e (reservado)"
 
 
+# DL-089 (A6): cada origem automática aceita só certos tipos de documento. Um par fora
+# desta tabela (ex.: `importacao` com NF-e) é estado incoerente e NÃO pode entrar, porque
+# a chave natural da regeração (BL-66) é o par (tipo, identificador). Esta tabela é a fonte
+# do serviço (`criar_lancamento`) e é espelhada no CHECK `ck_lancamentocontabil_origem_
+# pareada_ao_documento`. `manual` não aparece: lançamento manual não tem documento.
+TIPOS_DE_DOCUMENTO_POR_ORIGEM = {
+    OrigemLancamento.IMPORTACAO: (TipoDocumentoOrigem.IMPORTACAO_LANCAMENTOS,),
+    OrigemLancamento.ESCRITA_FISCAL: (
+        TipoDocumentoOrigem.ESCRITURACAO_NFE,
+        TipoDocumentoOrigem.ESCRITURACAO_NFSE,
+    ),
+}
+
+
 # Tamanho máximo do identificador de documento: texto, para não acoplar o formato do id
 # de outro app. 64 cabe um UUID, uma chave de acesso de NF-e (44) e um inteiro.
 TAMANHO_MAXIMO_IDENTIFICADOR_DOCUMENTO = 64
+
+
+def _identificador_aparado_e_nao_vazio():
+    """Condição SQL: o identificador não tem espaço nas pontas e não é vazio (DL-089, A6).
+
+    `btrim(documento_origem_id) = documento_origem_id` recusa espaço no início ou no fim;
+    `btrim(...) <> ''` recusa o identificador só de espaços. Usa `btrim` (só espaço, como o
+    PostgreSQL), e o serviço recusa qualquer espaço em branco nas pontas, o que é mais
+    restritivo: o CHECK é o piso, não o teto.
+    """
+    aparado = Trim("documento_origem_id")
+    return Exact(aparado, F("documento_origem_id")) & ~Exact(aparado, Value(""))
 
 
 class LancamentoContabil(models.Model):
@@ -2336,8 +2366,10 @@ class LancamentoContabil(models.Model):
     com a restrição nomeada `lancamento_origem_imutavel`; a exceção do backfill
     da competência continua a mesma e não cobre estes campos. O estorno de um
     lançamento de origem automática herda a origem e o documento do original,
-    e a permissão de BL-73 (`apps.contabilidade.permissoes.
-    papel_pode_estornar_origem_automatica`) decide quem pode estorná-lo.
+    e a permissão de BL-73 decide quem pode estorná-lo: `services.exige_permissao_de_
+    estorno_automatico` diz quais lançamentos exigem a permissão (origem automática, chave
+    `importacao:`/`zeramento:` ou vínculo com importação), e `permissoes.
+    papel_pode_estornar_origem_automatica` diz quem a tem.
     """
 
     empresa = models.ForeignKey(Empresa, on_delete=models.PROTECT, related_name="lancamentos")
@@ -2531,8 +2563,11 @@ class LancamentoContabil(models.Model):
                 ),
                 name="ck_lancamentocontabil_documento_tipo_valido",
             ),
-            # Ou não há documento nenhum; ou há tipo e identificador não vazio, e a
-            # origem não é `manual` (lançamento digitado não tem documento de origem).
+            # Ou não há documento nenhum; ou há tipo e identificador, e a origem não é
+            # `manual` (lançamento digitado não tem documento de origem). O identificador
+            # não pode ter espaço nas pontas nem ser só espaço (DL-089, A6): `" 12 "` seria
+            # outra grafia do documento `12`, e `"   "` não identifica documento algum. A
+            # chave natural da regeração não aceita duas grafias do mesmo documento.
             models.CheckConstraint(
                 condition=(
                     (
@@ -2542,25 +2577,40 @@ class LancamentoContabil(models.Model):
                     | (
                         models.Q(documento_origem_tipo__isnull=False)
                         & models.Q(documento_origem_id__isnull=False)
-                        & ~models.Q(documento_origem_id="")
+                        & _identificador_aparado_e_nao_vazio()
                         & ~models.Q(origem=OrigemLancamento.MANUAL)
                     )
                 ),
                 name="ck_lancamentocontabil_documento_consistente",
+            ),
+            # DL-089 (A6): origem e tipo de documento pareados. `importacao` só com lote de
+            # importação; `escrita_fiscal` só com escrituração de NF-e ou NFS-e. Sem documento,
+            # nada a parear. Espelha `TIPOS_DE_DOCUMENTO_POR_ORIGEM`, que é a fonte do serviço.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(documento_origem_tipo__isnull=True)
+                    | models.Q(
+                        origem=OrigemLancamento.IMPORTACAO,
+                        documento_origem_tipo=TipoDocumentoOrigem.IMPORTACAO_LANCAMENTOS,
+                    )
+                    | models.Q(
+                        origem=OrigemLancamento.ESCRITA_FISCAL,
+                        documento_origem_tipo__in=[
+                            TipoDocumentoOrigem.ESCRITURACAO_NFE,
+                            TipoDocumentoOrigem.ESCRITURACAO_NFSE,
+                        ],
+                    )
+                ),
+                name="ck_lancamentocontabil_origem_pareada_ao_documento",
             ),
         ]
 
     def __str__(self):
         return f"Lançamento {self.pk} — {self.data} — {self.historico}"
 
-    @property
-    def e_de_origem_automatica(self):
-        """Verdadeiro quando o lançamento não foi digitado à mão (DL-089, BL-73).
-
-        "Automática" é tudo que não é `manual`: a escrita fiscal e a importação. É esta
-        regra que decide quem pode estornar (`papel_pode_estornar_origem_automatica`).
-        """
-        return self.origem != OrigemLancamento.MANUAL
+    # A pergunta "este lançamento é de origem automática para o estorno?" (DL-089, BL-73)
+    # NÃO mora aqui: depende das chaves de idempotência reservadas e do vínculo com a
+    # importação, e os prefixos moram em `services.py`. Ver `exige_permissao_de_estorno_automatico`.
 
     def save(self, *args, **kwargs):
         if self.pk is not None:

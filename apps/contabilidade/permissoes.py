@@ -81,10 +81,12 @@ def papel_pode_ler_contabilidade(papel):
     return papel in PAPEIS_QUE_LEEM_CONTABILIDADE
 
 
-# DL-089 / BL-73: estornar lançamento de ORIGEM AUTOMÁTICA (escrita fiscal, importação)
-# exige permissão própria, distinta da de lançar (`PodeEscriturar`: ADMINISTRADOR, GESTOR,
-# ANALISTA e FINANCEIRO). Quem digita não deveria, por acidente, desfazer o que a escrita
-# fiscal gerou; a regeração (BL-66) também conta com isso.
+# DL-089 / BL-73: estornar lançamento de ORIGEM AUTOMÁTICA (escrita fiscal, importação, e o
+# zeramento do resultado, que tem chave `zeramento:` e origem `manual`) exige permissão própria,
+# distinta da de lançar (`PodeEscriturar`: ADMINISTRADOR, GESTOR, ANALISTA e FINANCEIRO). Quem
+# digita não deveria, por acidente, desfazer o que o sistema gerou; a regeração (BL-66) também
+# conta com isso. Quais lançamentos são "automáticos" é decidido em
+# `services.exige_permissao_de_estorno_automatico`; aqui só se decide quem pode.
 #
 # Papéis: ADMINISTRADOR e GESTOR, a mesma matriz de RC-102 (confirmada pelo Fred em
 # 2026-09-20 para fechar, reabrir e entregar competência). Não é a MESMA permissão: é a

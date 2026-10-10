@@ -1042,6 +1042,20 @@ class EstornarLancamentoView(EmpresaEscopadaContabilMixin, APIView):
             # nada gravado.
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         except EstornoDeOrigemAutomaticaNaoPermitido as exc:
+            # DL-089 (A8, BL-73): a TENTATIVA negada também fica na trilha, porque é ela que
+            # mostra quem tentou desfazer o que o sistema gerou. Fica FORA do `atomic` acima,
+            # que já reverteu sem gravar nada; senão a negativa seria desfeita junto com ele.
+            # Só papel e identificadores: nada sensível em `detalhes`.
+            registrar(
+                acao="lancamento.estorno_negado",
+                objeto=lancamento,
+                request=request,
+                detalhes={
+                    "papel": str(getattr(request, "papel", None) or ""),
+                    "origem": lancamento.origem,
+                    "motivo": "origem_automatica_sem_permissao",
+                },
+            )
             raise PermissionDenied(str(exc)) from exc
         except LancamentoInvalido as exc:
             raise DRFValidationError(str(exc)) from exc

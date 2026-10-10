@@ -1240,9 +1240,12 @@ def test_integracao_zeramento_fora_de_ordem_recupera_com_estorno_e_refazer(cenar
     # período que revertem (ver o docstring acima).
     data_do_estorno = date(2026, 4, 30)
     for lancamento in resultado_abril_1["lancamentos_etapa1"]:
-        estornar_lancamento(lancamento, criado_por=gestor, data=data_do_estorno)
+        estornar_lancamento(lancamento, criado_por=gestor, data=data_do_estorno, papel=Papel.GESTOR)
     estornar_lancamento(
-        resultado_abril_1["lancamento_etapa2"], criado_por=gestor, data=data_do_estorno
+        resultado_abril_1["lancamento_etapa2"],
+        criado_por=gestor,
+        data=data_do_estorno,
+        papel=Papel.GESTOR,
     )
 
     # 4) Agora março TEM que funcionar — este é o defeito corrigido.
@@ -1287,9 +1290,12 @@ def test_integracao_novo_zeramento_de_abril_e_idempotente(cenario):
     resultado_abril_1 = _simular_zeramento_legado_de_abril(cenario, valor="500.00")
     data_do_estorno = date(2026, 4, 30)
     for lancamento in resultado_abril_1["lancamentos_etapa1"]:
-        estornar_lancamento(lancamento, criado_por=gestor, data=data_do_estorno)
+        estornar_lancamento(lancamento, criado_por=gestor, data=data_do_estorno, papel=Papel.GESTOR)
     estornar_lancamento(
-        resultado_abril_1["lancamento_etapa2"], criado_por=gestor, data=data_do_estorno
+        resultado_abril_1["lancamento_etapa2"],
+        criado_por=gestor,
+        data=data_do_estorno,
+        papel=Papel.GESTOR,
     )
     zerar_resultado(empresa=empresa, ano=2026, mes=3, usuario=gestor)
     zerar_resultado(empresa=empresa, ano=2026, mes=4, usuario=gestor)

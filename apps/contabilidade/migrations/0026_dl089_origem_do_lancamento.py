@@ -12,13 +12,17 @@
 #    em lançamento efetivado seria recusado pelo gatilho de imutabilidade (DL-052), e o
 #    backfill da DL-016 F5 só é possível porque tem exceção explícita para `competencia_id`.
 #    Efeito declarado: lançamento que a importação da DL-077 efetivou ANTES desta migração
-#    fica `manual`. Ele continua identificável pela chave `importacao:` e pelo vínculo em
-#    `LancamentoImportado`, mas reclassificá-lo exigiria uma exceção nova no gatilho. Não foi
-#    feito: é decisão do responsável, não desta migração.
+#    fica `manual` na coluna. Ele continua automático para o ESTORNO, porque
+#    `exige_permissao_de_estorno_automatico` (services) lê a chave `importacao:` e o vínculo em
+#    `LancamentoImportado` (DL-089, A1). Reclassificar a coluna exigiria uma exceção nova no
+#    gatilho, e não foi feito: é decisão do responsável, não desta migração.
 #
-# 2. Três `CheckConstraint` (origem válida; tipo de documento válido; documento consistente:
-#    ou não há documento, ou há tipo e identificador não vazio, e a origem não é `manual`).
+# 2. Quatro `CheckConstraint`: origem válida; tipo de documento válido; documento consistente
+#    (ou não há documento, ou há tipo e identificador sem espaço nas pontas e não vazio após
+#    aparar, e a origem não é `manual`); e origem pareada ao tipo de documento (DL-089, A6:
+#    `importacao` só com `importacao_lancamentos`; `escrita_fiscal` só com NF-e ou NFS-e).
 #    Valem em SQLite e PostgreSQL; em PostgreSQL também protegem `bulk_create` e SQL direto.
+#    A 0026 ainda não está na `main`, então estas CHECKs entram nela, e não numa 0027.
 #
 # 3. SÓ EM POSTGRESQL (RunPython com guarda de `connection.vendor`, mesmo padrão das
 #    migrações 0013 e 0017): `CREATE OR REPLACE` da função
@@ -42,7 +46,10 @@
 
 from django.conf import settings
 from django.db import migrations, models
-from django.db.models import Q
+from django.db.models import F, Q, Value
+from django.db.models.expressions import NegatedExpression
+from django.db.models.functions import Trim
+from django.db.models.lookups import Exact
 
 _LIMITE_DE_IDS_NA_MENSAGEM = 20
 
@@ -270,12 +277,35 @@ class Migration(migrations.Migration):
                     models.Q(
                         ("documento_origem_tipo__isnull", False),
                         ("documento_origem_id__isnull", False),
-                        models.Q(("documento_origem_id", ""), _negated=True),
+                        Exact(
+                            Trim("documento_origem_id"), F("documento_origem_id")
+                        ),
+                        NegatedExpression(
+                            Exact(Trim("documento_origem_id"), Value(""))
+                        ),
                         models.Q(("origem", "manual"), _negated=True),
                     ),
                     _connector="OR",
                 ),
                 name="ck_lancamentocontabil_documento_consistente",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="lancamentocontabil",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    ("documento_origem_tipo__isnull", True),
+                    models.Q(
+                        ("documento_origem_tipo", "importacao_lancamentos"),
+                        ("origem", "importacao"),
+                    ),
+                    models.Q(
+                        ("documento_origem_tipo__in", ["escrituracao_nfe", "escrituracao_nfse"]),
+                        ("origem", "escrita_fiscal"),
+                    ),
+                    _connector="OR",
+                ),
+                name="ck_lancamentocontabil_origem_pareada_ao_documento",
             ),
         ),
         migrations.RunPython(_aplicar_gatilho_de_origem, _restaurar_gatilho_anterior),

@@ -28,6 +28,14 @@ comentário completo em balancete.html e em templates/base.html.
             <strong>{{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}</strong>
         </span>
     {% endif %}
+    {% comment %}DL-089 (A5): o cabeçalho, que é o que se imprime, declara o filtro de origem. Sem isto o
+    papel mostraria um subconjunto como se fosse o Diário inteiro.{% endcomment %}
+    {% if origem_selecionada_rotulo %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Origem</span>
+            <strong>{{ origem_selecionada_rotulo }}</strong>
+        </span>
+    {% endif %}
 {% endblock %}
 
 {% comment %}
@@ -150,6 +158,6 @@ para quem lê a contabilidade, que é quem já vê o Diário.
             </tfoot>
         </table>
     {% elif inicio and fim %}
-        <p>Nenhum lançamento no período de {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}.</p>
+        <p>Nenhum lançamento no período de {{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}{% if origem_selecionada_rotulo %} com a origem “{{ origem_selecionada_rotulo }}”{% endif %}.</p>
     {% endif %}
 {% endblock %}

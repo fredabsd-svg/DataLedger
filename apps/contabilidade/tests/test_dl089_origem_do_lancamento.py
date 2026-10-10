@@ -32,6 +32,7 @@ from apps.contabilidade.services import (
     LancamentoInvalido,
     criar_lancamento,
     estornar_lancamento,
+    exige_permissao_de_estorno_automatico,
 )
 from apps.contabilidade.tests.cenario_dl077_exportacao import (
     CNPJ_DA_EMPRESA,
@@ -123,7 +124,7 @@ def test_criar_lancamento_sem_origem_grava_manual_e_sem_documento(cenario):
     assert lancamento.origem == OrigemLancamento.MANUAL
     assert lancamento.documento_origem_tipo is None
     assert lancamento.documento_origem_id is None
-    assert lancamento.e_de_origem_automatica is False
+    assert exige_permissao_de_estorno_automatico(lancamento) is False
 
 
 def test_criar_lancamento_com_origem_automatica_grava_origem_e_documento(cenario):
@@ -140,7 +141,7 @@ def test_criar_lancamento_com_origem_automatica_grava_origem_e_documento(cenario
     assert lancamento.documento_origem_tipo == TipoDocumentoOrigem.IMPORTACAO_LANCAMENTOS
     # O identificador é guardado como TEXTO, mesmo quando veio como inteiro.
     assert lancamento.documento_origem_id == str(lote.pk)
-    assert lancamento.e_de_origem_automatica is True
+    assert exige_permissao_de_estorno_automatico(lancamento) is True
 
 
 def test_identificador_inteiro_e_gravado_como_texto_e_bool_e_recusado(cenario):

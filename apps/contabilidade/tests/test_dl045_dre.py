@@ -2211,7 +2211,7 @@ def test_a3_estorno_de_zeramento_nao_dobra_o_acumulado(cenario):
         [zeramento_janeiro.get("lancamento_etapa2")]
         + list(zeramento_janeiro.get("lancamentos_etapa1") or []),
     ):
-        estornar_lancamento(lancamento_zeramento, data=date(2026, 2, 10))
+        estornar_lancamento(lancamento_zeramento, data=date(2026, 2, 10), papel=Papel.GESTOR)
 
     _lancar(
         empresa,
@@ -3334,7 +3334,7 @@ def test_r7_n05_estornos_de_zeramento_isolados_entre_empresas(cenario):
         None,
         [zeramento_b.get("lancamento_etapa2")] + list(zeramento_b.get("lancamentos_etapa1") or []),
     ):
-        estornar_lancamento(lancamento_zeramento, data=date(2026, 2, 10))
+        estornar_lancamento(lancamento_zeramento, data=date(2026, 2, 10), papel=Papel.GESTOR)
 
     dre_a_fevereiro = apurar_dre(empresa=empresa_a, ano=2026, mes=2)
     assert dre_a_fevereiro["coluna_mes"]["estornos_de_zeramento_na_coluna"] == []
@@ -3360,7 +3360,7 @@ def test_r7_n06_estorno_de_zeramento_de_fevereiro_nao_aparece_em_marco(cenario):
         [zeramento_janeiro.get("lancamento_etapa2")]
         + list(zeramento_janeiro.get("lancamentos_etapa1") or []),
     ):
-        estornar_lancamento(lancamento_zeramento, data=date(2026, 2, 10))
+        estornar_lancamento(lancamento_zeramento, data=date(2026, 2, 10), papel=Papel.GESTOR)
 
     # O A3/test_a3 já confere que fevereiro LISTA o estorno; aqui, o
     # ponto é o MÊS ERRADO não listar.

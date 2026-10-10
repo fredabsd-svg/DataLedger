@@ -268,6 +268,7 @@ from apps.contabilidade.services import (
     definir_adocao_antecipada_da_nbc_tg_51,
     encerrar_competencia,
     encerrar_vigencia_de_parametro_contabil,
+    existe_lancamento_de_origem,
     # DL-045 fatia 3: função PURA (sem consulta) que devolve o bloco de
     # identificação NBC TG 26 item 51 — mesma que `apurar_balanco_
     # patrimonial` já embute no próprio retorno (`resultado["identificacao"]`
@@ -3441,6 +3442,34 @@ def _aviso_de_movimento_fora_do_periodo(
 # ---------------------------------------------------------------------------
 
 
+# DL-089 (A5): rótulos do filtro de origem na tela do Diário. São os da tela, e não os do
+# modelo: o modelo diz "(reservado)" em `escrita_fiscal`, que é jargão interno para o contador.
+ROTULO_DA_ORIGEM_NO_DIARIO = {
+    OrigemLancamento.MANUAL: "Manual",
+    OrigemLancamento.IMPORTACAO: "Importação de lançamentos",
+    OrigemLancamento.ESCRITA_FISCAL: "Escrita fiscal",
+}
+
+
+def _opcoes_de_origem_do_diario(empresa, origem_selecionada):
+    """Opções do seletor de origem do Diário.
+
+    `escrita_fiscal` só aparece quando a empresa tem lançamento dessa origem, ou quando ela
+    já é o filtro pedido: sem isso, o seletor mostraria "Todas as origens" em cima de um
+    filtro que a própria tela aplicou. As outras origens sempre aparecem.
+    """
+    opcoes = [("", "Todas as origens")]
+    for valor in OrigemLancamento.values:
+        if (
+            valor == OrigemLancamento.ESCRITA_FISCAL
+            and valor != origem_selecionada
+            and not existe_lancamento_de_origem(empresa=empresa, origem=valor)
+        ):
+            continue
+        opcoes.append((valor, ROTULO_DA_ORIGEM_NO_DIARIO[valor]))
+    return opcoes
+
+
 @login_required
 @require_safe
 def diario(request, empresa_id):
@@ -3467,13 +3496,17 @@ def diario(request, empresa_id):
         origem_filtro = None
     # DL-077, fatia 3: o link "Importar lançamentos" só aparece para quem escritura (o servidor
     # recusa de qualquer forma; a tela só deixa de convidar quem seria recusado).
+    origem_selecionada = origem_filtro or ""
     contexto = {
         "empresa": empresa,
         "inicio": inicio,
         "fim": fim,
         "pode_escriturar": _pode_escriturar(request),
-        "origens": [("", "Todas as origens"), *OrigemLancamento.choices],
-        "origem_selecionada": origem_filtro or "",
+        "origens": _opcoes_de_origem_do_diario(empresa, origem_selecionada),
+        "origem_selecionada": origem_selecionada,
+        # Rótulo do filtro aplicado: a mensagem de vazio e o cabeçalho impresso o citam, para
+        # que o papel diga qual origem foi listada (A5). Vazio quando não há filtro.
+        "origem_selecionada_rotulo": ROTULO_DA_ORIGEM_NO_DIARIO.get(origem_selecionada, ""),
     }
     if erro_periodo or erro_origem:
         messages.error(request, erro_periodo or erro_origem)
