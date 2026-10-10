@@ -77,6 +77,27 @@ Segregação (HI-68, critérios 4 e 5; consulta de 08/10/2026, itens 1 a 3):
   pré-DAS recusa e nomeia cada receita (LC 123, art. 18, § 4º-A; Res. CGSN 140, art. 25,
   § 9º). Com ela, a situação escolhe o segmento: próprio município → normal; outro
   município → ISS a outro município; retido → ISS retido. Nunca se presume "próprio".
+
+DL-088, frente A1 — motor de 2027 (Res. CGSN 190/2026; consulta de 09/10/2026, seção 1; HI-146 a
+HI-148). Fica INTERNO: `_calcular_pre_das(..., regime_regular_ibs_cbs=...)` calcula 2027 e 2028 com
+a opção pelo regime regular informada. O caminho PÚBLICO `pre_das()` continua recusando 2027: falta
+a opção pelo regime regular como dado da empresa (frente A2). Sem ela, o cálculo poria CBS e IBS no
+DAS de quem optou pelo regime regular (art. 22-A deduz essas parcelas).
+- Tabelas de 2027 e 2028: `tabelas.anexo(numero, ano, mes)`, com CBS e IBS no lugar de PIS e
+  Cofins. Em 2029 em diante a recusa continua, com o motivo da divergência (HI-146).
+- Exportação (art. 25, § 3º): desconsiderados IBS, CBS, IPI, ICMS e ISS. No serviço, a conta é a
+  mesma (IPI e ICMS não têm linha nos anexos de serviço).
+- Tributação concentrada e ST (art. 25, §§ 6º e 8º, I): o segmento de monofásico desconsidera CBS e
+  IBS em 2027. O sistema tem UMA marca de monofasia por item, herdada de PIS e Cofins; lê-la como
+  tributação concentrada de CBS e IBS é hipótese (ver a docstring de `_TRIBUTOS_QUE_SAEM_2027`).
+  ST de ICMS continua desconsiderando ICMS.
+- Opção pelo regime regular (art. 22-A): com `regime_regular_ibs_cbs=True`, as parcelas de CBS e
+  IBS da faixa saem do DAS (deduzidas); o valor deduzido aparece em `LinhaTributo.deduzido`.
+- Anexo II em 2027 só para indústria com IPI mantido (Zona Franca; art. 25, § 1º, II). O sistema
+  não tem o dado que a distingue: `anexo_da_mercadoria_no_ano` leva a produção própria ao Anexo I.
+  Empresa da ZFM com produção própria, em 2027, precisa desse dado antes da liberação (pendência).
+- RBT12 de 2027 (defasado, e a 1ª faixa): ver `apps.fiscal.rbt12`. Na 1ª faixa, o pré-DAS calcula
+  com a alíquota nominal da 1ª faixa, e recusa o fator r (sem janela do FS12 lida).
 """
 
 from __future__ import annotations
@@ -172,6 +193,42 @@ DISP_OUTRO_MUNICIPIO = (
 )
 DISP_SITUACAO_ISS = "LC 123, art. 18, § 4º-A; Res. CGSN 140, art. 25, § 9º; HI-80"
 DISP_ANEXO_IV = "LC 123/2006, art. 18, § 5º-C; art. 13, VI (CPP fora do Simples, paga à parte)"
+
+# DL-088, frente A1 (2027 e 2028). Lidos na consulta de 09/10/2026, seção 1 (DOU 10/08/2026).
+DISP_TABELAS_2027 = (
+    "Res. CGSN 190/2026, art. 6º (Anexos I a V da Res. CGSN 140 com CBS e IBS); LC 123/2006, "
+    "art. 18, § 1º-B, com a redação da LC 214/2025, art. 519 (tabelas em "
+    "apps/fiscal/simples_tabelas.py, ANEXOS_2027_2028; HI-146)"
+)
+DISP_REGIME_REGULAR = (
+    "Res. CGSN 190/2026, arts. 22-A e 40-C; LC 214/2025, art. 41, § 3º (opção pelo regime regular "
+    "de IBS/CBS; HI-148)"
+)
+DISP_DEDUCAO_22A = (
+    "Res. CGSN 190/2026, art. 22-A: DAS apurado na forma do art. 22, deduzidas as parcelas de CBS "
+    "e IBS da faixa; a dedução não dispensa a apuração pelo regime regular (parágrafo único)"
+)
+DISP_EXPORTACAO_2027 = (
+    "Res. CGSN 140/2018, art. 25, § 3º (redação da Res. CGSN 190/2026): IBS, CBS, IPI, ICMS e ISS "
+    "desconsiderados; HI-148"
+)
+DISP_MONOFASICO_2027 = (
+    "Res. CGSN 140/2018, art. 25, §§ 6º e 8º, I (redação da Res. CGSN 190/2026): tributação "
+    "concentrada ou ST de IBS e CBS, com CBS e IBS desconsiderados (HI-148; hipótese de leitura, "
+    "ver `_TRIBUTOS_QUE_SAEM_2027`)"
+)
+DISP_PRIMEIRA_FAIXA = (
+    "Res. CGSN 190/2026, art. 22, § 2º, I: no 1º e 2º mês de atividade, alíquotas da 1ª faixa "
+    "(parcela a deduzir zero: a alíquota efetiva é a nominal, sem RBT12; HI-147)"
+)
+DISP_FATOR_R_INICIO = (
+    "Res. CGSN 190/2026, art. 22, § 2º, I (1º e 2º mês de atividade: 1ª faixa, sem RBT12); "
+    "fator r sem janela lida do FS12 (HI-147; pendência)"
+)
+DISP_PUBLICO_2027 = (
+    "Res. CGSN 190/2026, arts. 22-A e 40-C; LC 214/2025, art. 41, § 3º (a opção pelo regime "
+    "regular é dado da empresa, ainda não cadastrado: frente A2 da DL-088)"
+)
 
 DISPOSITIVO_DO_ENQUADRAMENTO = {
     EnquadramentoAtividade.ANEXO_III: (
@@ -283,23 +340,82 @@ _CONDICOES_DO_SEGMENTO = {
 }
 
 
-def _desconsiderados(anexo_numero: str, segmento: str) -> frozenset[str]:
-    """Tributos que saem do DAS neste segmento. Sem redistribuição (DL-075, DL-082).
+# DL-088 (2027 e 2028): o mesmo modelo, com CBS e IBS no lugar de PIS e Cofins. A exportação tira
+# IBS, CBS, IPI, ICMS e ISS (art. 25, § 3º). O IPI entra na conta da exportação: é ele que deixa
+# de sair no caso de Anexo II, e é o que `test_dl088_*` vigia.
+#
+# Monofásico em 2027: a marca de monofasia do item veio de PIS e Cofins (2026). Em 2027 o
+# tributo concentrado é CBS e IBS (Res. 190, art. 5º, XXI; art. 25, § 6º), e o único dado que o
+# sistema tem é essa marca. Lê-la como tributação concentrada de CBS e IBS é HIPÓTESE, registrada
+# em HI-148. A ST de IBS e CBS, distinta da concentração, não tem dado próprio hoje (pendência).
+_TRIBUTOS_QUE_SAEM_2027 = {
+    "st": frozenset({tabelas.ICMS}),
+    "monofasico": frozenset({tabelas.CBS, tabelas.IBS}),
+    "exportacao": frozenset({tabelas.CBS, tabelas.IBS, tabelas.IPI, tabelas.ICMS, tabelas.ISS}),
+}
+_DESCONSIDERADOS_SERVICO_2027 = {
+    SEG_RETIDO: frozenset({tabelas.ISS}),
+    SEG_EXPORTACAO: frozenset({tabelas.CBS, tabelas.IBS, tabelas.IPI, tabelas.ICMS, tabelas.ISS}),
+}
+_DISP_DO_SEGMENTO_DE_MERCADORIA_2027 = {
+    SEGMENTO_NORMAL: DISP_VALOR,
+    SEGMENTO_SUJEITA_ST: DISP_SEGREGACAO_ST,
+    SEGMENTO_MONOFASICO: DISP_MONOFASICO_2027,
+    SEGMENTO_ST_MONOFASICO: f"{DISP_SEGREGACAO_ST}; {DISP_MONOFASICO_2027}",
+    SEGMENTO_EXPORTACAO: DISP_EXPORTACAO_2027,
+}
+_DISP_DO_SEGMENTO_DE_SERVICO_2027 = {
+    SEG_NORMAL: DISP_VALOR,
+    SEG_RETIDO: DISP_RETIDO,
+    SEG_OUTRO_MUNICIPIO: DISP_OUTRO_MUNICIPIO,
+    SEG_EXPORTACAO: DISP_EXPORTACAO_2027,
+}
+
+
+def _desconsiderados(anexo_numero: str, segmento: str, ano: int = 2026) -> frozenset[str]:
+    """Tributos que saem do DAS neste segmento. Sem redistribuição (DL-075, DL-082, DL-088).
 
     Anexos I e II: a união dos conjuntos das condições de mercadoria. Demais anexos: os de serviço.
+    `ano` escolhe a regra: 2026 (PIS e Cofins) ou 2027 em diante (CBS e IBS). Quem não passa o ano
+    fica com 2026, como antes da DL-088; o pré-DAS sempre passa.
     """
+    if ano >= 2027:
+        if anexo_numero in (ANEXO_I, ANEXO_II):
+            saem: frozenset[str] = frozenset()
+            for condicao in _CONDICOES_DO_SEGMENTO[segmento]:
+                saem = saem | _TRIBUTOS_QUE_SAEM_2027[condicao]
+            return saem
+        return _DESCONSIDERADOS_SERVICO_2027.get(segmento, frozenset())
     if anexo_numero in (ANEXO_I, ANEXO_II):
-        saem: frozenset[str] = frozenset()
+        saem = frozenset()
         for condicao in _CONDICOES_DO_SEGMENTO[segmento]:
             saem = saem | _TRIBUTOS_QUE_SAEM[condicao]
         return saem
     return _DESCONSIDERADOS_SERVICO.get(segmento, frozenset())
 
 
-def _dispositivo_do_segmento(anexo_numero: str, segmento: str) -> str:
+def _dispositivo_do_segmento(anexo_numero: str, segmento: str, ano: int = 2026) -> str:
+    if ano >= 2027:
+        if anexo_numero in (ANEXO_I, ANEXO_II):
+            return _DISP_DO_SEGMENTO_DE_MERCADORIA_2027[segmento]
+        return _DISP_DO_SEGMENTO_DE_SERVICO_2027[segmento]
     if anexo_numero in (ANEXO_I, ANEXO_II):
         return _DISP_DO_SEGMENTO_DE_MERCADORIA[segmento]
     return _DISP_DO_SEGMENTO_DE_SERVICO[segmento]
+
+
+def anexo_da_mercadoria_no_ano(ano: int, anexo_numero: str) -> str:
+    """Anexo efetivo de um item de mercadoria no ano (DL-088; Res. CGSN 190/2026, art. 25, § 1º).
+
+    Até 2026, produção própria vai ao Anexo II. A partir de 2027 o Anexo II fica SÓ para a indústria
+    com IPI mantido (Zona Franca); a produção própria fora dela vai ao Anexo I. O sistema não tem o
+    dado de IPI mantido (ZFM), então toda produção própria sai no Anexo I. Isso é o correto para a
+    indústria fora da ZFM e ERRADO para a da ZFM: a diferença precisa de dado antes da liberação
+    do pré-DAS de 2027 (frente A2; pendência).
+    """
+    if ano >= 2027 and anexo_numero == ANEXO_II:
+        return ANEXO_I
+    return anexo_numero
 
 
 # Naturezas de NF-e que o pré-DAS NÃO calcula (DL-082, HI-132, HI-131 e a consulta de 09/10/2026,
@@ -383,6 +499,9 @@ class LinhaTributo:
     percentual: Decimal
     valor: Decimal
     desconsiderado: bool
+    # DL-088, art. 22-A: a parcela de CBS ou IBS deduzida do DAS por opção pelo regime regular. O
+    # `valor` é zero; este campo guarda o que foi deduzido, para a memória e a conferência.
+    deduzido: Decimal = Decimal("0.00")
 
 
 @dataclass(frozen=True)
@@ -539,7 +658,14 @@ class CalculoDoAnexo:
 
 
 def calcular_anexo(
-    anexo_numero: str, rbt12: Decimal, receitas: Sequence[tuple[str, Decimal]]
+    anexo_numero: str,
+    rbt12: Decimal | None,
+    receitas: Sequence[tuple[str, Decimal]],
+    *,
+    ano: int = 2026,
+    mes: int = 12,
+    regime_regular: bool = False,
+    primeira_faixa: bool = False,
 ) -> CalculoDoAnexo:
     """Faixa, alíquota efetiva, percentuais e valor de cada tributo de cada segmento.
 
@@ -549,16 +675,30 @@ def calcular_anexo(
     percentual, valor de cada tributo arredondado a centavo (HI-71). Tributo desconsiderado sai
     zero,
     sem redistribuição (HI-127). Anexos I e II não têm teto (só o ISS tem, § 1º-B, I).
+
+    DL-088: `ano` e `mes` escolhem a tabela e a regra de segmento (2027 e 2028: CBS e IBS). O padrão
+    2026/12 é só para os chamadores anteriores. `regime_regular=True` aplica o art. 22-A: a parcela
+    de CBS e de IBS da faixa, em cada segmento onde não está desconsiderada, sai do DAS (valor zero,
+    `deduzido` com o montante). `primeira_faixa=True` (início de atividade, meses 1 e 2) usa a 1ª
+    faixa sem RBT12: a alíquota efetiva é a nominal, pois a parcela a deduzir é zero.
+
+    Cálculo de exemplo, à mão, em `apps/fiscal/tests/test_dl088_calculo_2027.py`.
     """
-    anexo = tabelas.anexo(anexo_numero)
-    faixa = anexo.faixa_da_receita(rbt12)
-    efetiva = aliquota_efetiva(rbt12, faixa)
+    anexo = tabelas.anexo(anexo_numero, ano, mes)
+    if primeira_faixa:
+        faixa = anexo.faixa(1)
+        efetiva = faixa.aliquota_nominal
+    else:
+        if rbt12 is None:
+            raise ValueError("RBT12 ausente: só a 1ª faixa dispensa o RBT12 numérico.")
+        faixa = anexo.faixa_da_receita(rbt12)
+        efetiva = aliquota_efetiva(rbt12, faixa)
     itens, teto_aplicado, diferenca, destino = percentuais_efetivos(anexo, faixa, efetiva)
     percentual_de = dict(itens)
     segmentos: list[SegmentoApurado] = []
     total = Decimal("0.00")
     for segmento, receita in receitas:
-        desconsiderados = _desconsiderados(anexo_numero, segmento)
+        desconsiderados = _desconsiderados(anexo_numero, segmento, ano)
         linhas: list[LinhaTributo] = []
         total_segmento = Decimal("0.00")
         for tributo in anexo.tributos:
@@ -566,8 +706,16 @@ def calcular_anexo(
                 continue
             desconsiderado = tributo in desconsiderados
             percentual = percentual_de[tributo]
-            valor = Decimal("0.00") if desconsiderado else valor_do_tributo(receita, percentual)
-            linhas.append(LinhaTributo(tributo, percentual, valor, desconsiderado))
+            cheio = Decimal("0.00") if desconsiderado else valor_do_tributo(receita, percentual)
+            # Art. 22-A: CBS e IBS deduzidos do DAS pela opção pelo regime regular. A parcela
+            # não desconsiderada vai para `deduzido`; o valor do DAS fica zero.
+            deduzido_22a = (
+                cheio
+                if regime_regular and not desconsiderado and tributo in (tabelas.CBS, tabelas.IBS)
+                else Decimal("0.00")
+            )
+            valor = cheio - deduzido_22a
+            linhas.append(LinhaTributo(tributo, percentual, valor, desconsiderado, deduzido_22a))
             total_segmento += valor
         segmentos.append(
             SegmentoApurado(
@@ -1273,31 +1421,65 @@ def _recusas_de_nfe(nfe_do_mes, mercadoria, ano: int, mes: int) -> tuple[list[Bl
 
 
 def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
-    """Pré-DAS do mês, por mercado e anexo efetivo, com a memória de cálculo.
+    """Pré-DAS do mês, por mercado e anexo efetivo, com a memória de cálculo. Caminho PÚBLICO.
 
     Recusa com `PreDasRecusado` (lista todos os bloqueios). Não grava nada: é
     cálculo sob demanda, a partir dos lançamentos atuais. A entrada inválida
     (competência) sai como `EntradaInvalidaReceita`, antes de qualquer cálculo.
+
+    DL-088: a partir de 01/2027 este caminho recusa, com o bloqueio
+    `opcao_regime_regular_nao_informada`. Sem a opção pelo regime regular (dado da empresa, frente
+    A2), o cálculo poria CBS e IBS no DAS de quem optou. O motor de 2027 é `_calcular_pre_das`,
+    chamado com a opção explícita pelos testes e, depois da A2, pelo caminho público.
+    """
+    return _calcular_pre_das(empresa, ano, mes, regime_regular_ibs_cbs=None)
+
+
+def _calcular_pre_das(
+    empresa: Empresa, ano: int, mes: int, *, regime_regular_ibs_cbs: bool | None
+) -> PreDas:
+    """Motor do pré-DAS (interno). Ver `pre_das` para a recusa pública de 2027.
+
+    `regime_regular_ibs_cbs`: a opção pelo regime regular de IBS/CBS do PA (art. 22-A). É exigida a
+    partir de 01/2027: `None` ali recusa com o bloqueio nomeado. Antes de 2027 não existe a opção,
+    e passar `True` é erro de chamada.
     """
     receita_servico.validar_competencia(ano, mes)
+    if regime_regular_ibs_cbs and ano < 2027:
+        raise ValueError("A opção pelo regime regular de IBS/CBS só existe a partir de 2027.")
     bloqueios: list[Bloqueio] = []
+    regime = bool(regime_regular_ibs_cbs)
 
-    # 1. Tabelas: vigência cadastrada, e 2027 recusado citando a Res. CGSN 190/2026.
+    # 1. Tabelas: vigência cadastrada. 2029 em diante recusa com o motivo nomeado (HI-146).
     if not tabelas.tabelas_vigentes_em(ano, mes):
-        if ano >= 2027:
+        if ano >= 2029:
             mensagem = (
-                f"O pré-DAS de {_mes_rotulo(ano, mes)} não é calculado: as tabelas a partir de "
-                "01/01/2027 dependem da Res. CGSN 190/2026 e da LC 214/2025 (arts. 519 a 534), "
-                "que não foram incorporadas (HI-70)."
+                f"O pré-DAS de {_mes_rotulo(ano, mes)} não é calculado: a LC 123 (Anexo I, 6ª "
+                "faixa, na redação da LC 214/2025, art. 519) diz 19,00% e a Res. CGSN 190/2026 diz "
+                "18,90%. Essa divergência não está resolvida e as tabelas de 2029 não estão "
+                "cadastradas (HI-146)."
             )
-            dispositivo = "Res. CGSN 190/2026 (cópia; texto não lido); LC 214/2025, arts. 519 a 534"
+            dispositivo = "Res. CGSN 190/2026, art. 6º; LC 214/2025, art. 519; HI-146"
         else:
             mensagem = (
                 f"Não há tabela cadastrada para {_mes_rotulo(ano, mes)}: a vigência cadastrada "
-                f"é 01/01/2018 a {tabelas.VIGENCIA_FIM:%d/%m/%Y}."
+                f"é 01/01/2018 a {tabelas.VIGENCIA_CADASTRADA_FIM:%d/%m/%Y}."
             )
             dispositivo = "LC 123/2006, art. 18; LC 155/2016, art. 11 (vigência dos anexos)"
         raise PreDasRecusado([Bloqueio("tabela_fora_de_vigencia", mensagem, dispositivo)])
+
+    # 1b. DL-088: a opção pelo regime regular (art. 22-A) é dado da empresa, e o caminho público
+    # não o tem. Sem ela, o DAS de 2027 não se calcula (CBS e IBS entram ou não, conforme a opção).
+    if ano >= 2027 and regime_regular_ibs_cbs is None:
+        bloqueios.append(
+            Bloqueio(
+                "opcao_regime_regular_nao_informada",
+                f"O pré-DAS de {_mes_rotulo(ano, mes)} não é calculado: falta a opção pelo regime "
+                "regular de IBS/CBS (art. 22-A da Res. CGSN 190/2026). Sem ela, o cálculo não sabe "
+                "se CBS e IBS entram no DAS. O sistema ainda não guarda essa opção (DL-088, A2).",
+                DISP_PUBLICO_2027,
+            )
+        )
 
     # 2. Mês confirmado e regime de caixa (HI-64; HI-66).
     situacao = receita_servico.situacao_do_mes(empresa, ano, mes)
@@ -1332,7 +1514,9 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
         rbt = apuracao.rbt12(empresa, ano, mes)
     except apuracao.ApuracaoRecusada as exc:
         bloqueios.append(Bloqueio("rbt12_recusado", exc.mensagem, "Res. CGSN 140/2018, art. 22"))
-    if rbt is not None and not rbt.apuravel:
+    # DL-088: a 1ª faixa (1º e 2º mês de atividade) não é "não apurável": é um estado sem RBT12
+    # numérico, e o cálculo a trata à parte (passo 7). Só os meses pendentes recusam aqui.
+    if rbt is not None and not rbt.apuravel and not rbt.primeira_faixa:
         bloqueios.append(
             Bloqueio(
                 "rbt12_nao_apuravel",
@@ -1462,18 +1646,24 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
     # HI-129). A receita de cada segmento já sai líquida da devolução do próprio segmento.
     recusas_nfe, avisos = _recusas_de_nfe(nfe_do_mes, mercadoria, ano, mes)
     bloqueios.extend(recusas_nfe)
-    dados_mercadoria = {
-        (seg.mercado, seg.anexo, seg.segmento): (seg.bruto, seg.deduzido)
-        for seg in mercadoria.segmentos
-    }
+    # DL-088: o anexo de mercadoria passa pela vigência (produção própria vai ao Anexo I em 2027).
+    # Dois segmentos que passam a ter a mesma chave (mercado, anexo, segmento) SOMAM bruto e
+    # deduzido: o líquido é linear, então a soma é exata. Em 2026 nenhuma chave colide.
+    dados_mercadoria: dict[tuple[str, str, str], tuple[Decimal, Decimal]] = {}
+    for seg in mercadoria.segmentos:
+        chave = (seg.mercado, anexo_da_mercadoria_no_ano(ano, seg.anexo), seg.segmento)
+        bruto_acumulado, deduzido_acumulado = dados_mercadoria.get(
+            chave, (Decimal("0.00"), Decimal("0.00"))
+        )
+        dados_mercadoria[chave] = (bruto_acumulado + seg.bruto, deduzido_acumulado + seg.deduzido)
     # A7 (correção da rodada 1 do DL-082): segmento com VENDA no mês e líquido zero (devolução
     # integral) entra com 0,00. Antes o filtro `liquido != 0` o tirava do resultado, e a tela, a API
     # e a memória não mostravam nem a venda nem a devolução. O valor não muda: o tributo sobre 0,00
     # é 0,00.
     linhas_mercadoria = [
-        (seg.mercado, seg.anexo, seg.segmento, seg.liquido)
-        for seg in mercadoria.segmentos
-        if seg.bruto != 0 or seg.liquido != 0
+        (mercado, anexo, segmento, bruto - deduzido)
+        for (mercado, anexo, segmento), (bruto, deduzido) in sorted(dados_mercadoria.items())
+        if bruto != 0 or bruto - deduzido != 0
     ]
 
     # 5. Fator r, só se alguma linha o exige, com folha confirmada nos meses da janela.
@@ -1482,7 +1672,18 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
         for _m, _s, enquadramento, _v in linhas
     )
     fator = None
-    if precisa_fator_r and rbt is not None and rbt.apuravel:
+    if precisa_fator_r and rbt is not None and rbt.primeira_faixa:
+        # DL-088: no 1º e no 2º mês não há RBT12 numérico nem janela do FS12 lida. Não se chama
+        # `folha_fator_r.fs12` aqui: a janela recusa nesse estado.
+        bloqueios.append(
+            Bloqueio(
+                "fator_r_no_inicio_de_atividade",
+                f"Fator r exigido em {_mes_rotulo(ano, mes)}, que é o 1º ou o 2º mês de atividade: "
+                "a regra do fator r nesse caso não foi lida (HI-147; pendência).",
+                DISP_FATOR_R_INICIO,
+            )
+        )
+    elif precisa_fator_r and rbt is not None and rbt.apuravel:
         fs = folha_fator_r.fs12(empresa, ano, mes)
         if fs.valor is None:
             bloqueios.append(
@@ -1533,11 +1734,13 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
             )
         )
 
-    rbt_por_mercado: dict[str, Decimal] = {}
+    # Na 1ª faixa (DL-088) o RBT12 de cada mercado é None: não há número para comparar com o corte.
+    rbt_por_mercado: dict[str, Decimal | None] = {}
     for mercado in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO):
         if any(chave[0] == mercado for chave in grupos):
             rbt_por_mercado[mercado] = rbt.de(mercado).apurado
-            if rbt_por_mercado[mercado] > LIMITE_DO_PRIMEIRO_CORTE:
+            valor_do_mercado = rbt_por_mercado[mercado]
+            if valor_do_mercado is not None and valor_do_mercado > LIMITE_DO_PRIMEIRO_CORTE:
                 bloqueios.append(
                     Bloqueio(
                         "rbt12_acima_do_primeiro_corte",
@@ -1554,13 +1757,26 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
     # 7. Cálculo por mercado e anexo, com a memória de cálculo.
     memoria: list[Passo] = []
     passo = _Memoria(memoria)
-    passo.add("Competência e tabelas", _mes_rotulo(ano, mes), DISP_TABELAS)
+    passo.add(
+        "Competência e tabelas",
+        _mes_rotulo(ano, mes),
+        DISP_TABELAS if ano < 2027 else DISP_TABELAS_2027,
+    )
     passo.add("Mês confirmado completo", "confirmado", DISP_MES_CONFIRMADO)
+    if ano >= 2027:
+        passo.add(
+            "Opção pelo regime regular de IBS/CBS (art. 22-A)",
+            "sim: CBS e IBS deduzidos do DAS" if regime else "não: CBS e IBS no DAS",
+            DISP_REGIME_REGULAR,
+        )
     for mercado in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO):
         if mercado in rbt_por_mercado:
+            valor_do_mercado = rbt_por_mercado[mercado]
             passo.add(
                 f"RBT12 do mercado {mercado} (regra {rbt.regra})",
-                _dinheiro(rbt_por_mercado[mercado]),
+                "1ª faixa, sem RBT12 numérico"
+                if valor_do_mercado is None
+                else _dinheiro(valor_do_mercado),
                 DISP_RBT12,
             )
     if any(anexo_numero in (ANEXO_I, ANEXO_II) for _m, anexo_numero, _s in grupos):
@@ -1588,14 +1804,23 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
     for mercado, anexo_numero in sorted(
         {(m, a) for m, a, _s in grupos}, key=lambda c: (c[0], c[1])
     ):
-        anexo = tabelas.anexo(anexo_numero)
+        anexo = tabelas.anexo(anexo_numero, ano, mes)
         rbt_mercado = rbt_por_mercado[mercado]
+        primeira = rbt.primeira_faixa
         receitas = [
             (segmento, valor)
             for (m, a, segmento), valor in sorted(grupos.items())
             if m == mercado and a == anexo_numero
         ]
-        calculo = calcular_anexo(anexo_numero, rbt_mercado, receitas)
+        calculo = calcular_anexo(
+            anexo_numero,
+            rbt_mercado,
+            receitas,
+            ano=ano,
+            mes=mes,
+            regime_regular=regime,
+            primeira_faixa=primeira,
+        )
         faixa = calculo.faixa
         efetiva = calculo.efetiva
         itens = calculo.itens
@@ -1607,11 +1832,18 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
             anexo_numero,
             " | ".join(_disp_enquadramento(e) for e in enquadrados),
         )
-        passo.add(
-            f"{rotulo}: faixa {faixa.numero} (RBT12 até {_dinheiro(faixa.limite_superior)})",
-            f"faixa {faixa.numero}",
-            anexo.dispositivo,
-        )
+        if primeira:
+            passo.add(
+                f"{rotulo}: faixa {faixa.numero}, início de atividade (sem RBT12 numérico)",
+                f"faixa {faixa.numero}",
+                DISP_PRIMEIRA_FAIXA,
+            )
+        else:
+            passo.add(
+                f"{rotulo}: faixa {faixa.numero} (RBT12 até {_dinheiro(faixa.limite_superior)})",
+                f"faixa {faixa.numero}",
+                anexo.dispositivo,
+            )
         passo.add(f"{rotulo}: alíquota nominal", _fmt(faixa.aliquota_nominal, 6), anexo.dispositivo)
         passo.add(
             f"{rotulo}: parcela a deduzir", _dinheiro(faixa.parcela_a_deduzir), anexo.dispositivo
@@ -1651,12 +1883,17 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
                 total_por_tributo[linha.tributo] = (
                     total_por_tributo.get(linha.tributo, Decimal("0.00")) + linha.valor
                 )
+                if linha.deduzido:
+                    rotulo_linha = " (deduzido do DAS, art. 22-A)"
+                    dispositivo_linha = DISP_DEDUCAO_22A
+                else:
+                    rotulo_linha = " (desconsiderado)" if linha.desconsiderado else ""
+                    dispositivo_linha = _dispositivo_do_segmento(anexo_numero, seg.segmento, ano)
                 passo.add(
                     f"{rotulo}, {seg.segmento}: {linha.tributo} = {_dinheiro(seg.receita)} × "
-                    f"{_fmt(linha.percentual)}"
-                    + (" (desconsiderado)" if linha.desconsiderado else ""),
+                    f"{_fmt(linha.percentual)}" + rotulo_linha,
                     _dinheiro(linha.valor),
-                    _dispositivo_do_segmento(anexo_numero, seg.segmento),
+                    dispositivo_linha,
                 )
         total_anexo = calculo.total
         passo.add(f"{rotulo}: subtotal", _dinheiro(total_anexo), DISP_VALOR)

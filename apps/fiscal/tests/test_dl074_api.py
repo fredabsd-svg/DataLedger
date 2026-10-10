@@ -396,10 +396,11 @@ def test_rbt12_recusa_nomeada_vira_409(client, empresa_a, usuario_gestor_a):
     assert "data de abertura no CNPJ" in resposta.json()["detail"]
 
 
-def test_rbt12_de_2027_vira_409_com_a_resolucao_190(client, empresa, usuario_gestor_a):
+def test_rbt12_de_2029_vira_409_com_a_resolucao_190(client, empresa, usuario_gestor_a):
+    # DL-088: 2027 e 2028 são apurados (RBT12 defasado); a recusa passou a ser de 2029 (HI-146).
     client.force_login(usuario_gestor_a)
 
-    resposta = client.get(f"{_base(empresa)}/rbt12/?ano=2027&mes=1")
+    resposta = client.get(f"{_base(empresa)}/rbt12/?ano=2029&mes=1")
 
     assert resposta.status_code == 409
     assert "190/2026" in resposta.json()["detail"]

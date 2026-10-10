@@ -471,10 +471,10 @@ def test_sem_periodo_do_simples_no_pa_e_recusado(empresa_a):
         apuracao.rbt12(empresa_a, 2026, 1)
 
 
-def test_2027_e_recusado_nomeando_a_resolucao_190(empresa_antiga):
-    # Limites de 2027 não estão cadastrados e as regras mudam pela Res. CGSN 190/2026, não lida.
+def test_2029_e_recusado_nomeando_a_resolucao_190(empresa_antiga):
+    # DL-088: 2027 e 2028 têm limites e a janela defasada (Res. 190). 2029 segue recusado (HI-146).
     with pytest.raises(apuracao.ApuracaoRecusada, match="190/2026"):
-        apuracao.rbt12(empresa_antiga, 2027, 1)
+        apuracao.rbt12(empresa_antiga, 2029, 1)
 
 
 # ---------------------------------------------------------------------------
