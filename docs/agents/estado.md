@@ -507,8 +507,12 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
         (HI-150).
       - Medido pelo desenvolvedor: 9.138/1/55.
       - [Rodada 1](../auditorias/2026-10-09-dl-089-rodada-1.md) **aprovada
-        com ressalvas**; correção única em andamento. O Razão fica sem
-        filtro de origem (DE-101).
+        com ressalvas**. O Razão fica sem filtro de origem (DE-101).
+      - **Correção única integrada** (`bab28e7`): importação e zeramento
+        contam como automáticos para o estorno; pareamento origem × tipo de
+        documento no serviço e no banco; o 403 do estorno vai para a
+        trilha; o Diário declara o filtro de origem. Medido pelo
+        desenvolvedor: 9.236/1/55. Reconferência em andamento.
     - em seguida: as NF-e de entrada, o ICMS-TO, a integração contábil e os
       livros.
 
