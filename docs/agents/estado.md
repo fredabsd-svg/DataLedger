@@ -497,7 +497,10 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
       - O RBT12 passa a ser defasado um mês; CBS e IBS entram no DAS.
       - HI-146 a HI-149.
       - **PE-92 traz prazos para o Fred**, o primeiro em **15/10/2026**.
-      - Executa depois da DL-082.
+      - **Frente A1 em desenvolvimento** (Haiku, cópia `dl088` sobre
+        `c48d9ad`): tabelas, RBT12 defasado e motor do pré-DAS de 2027; o
+        pré-DAS de 2027 continua recusado até a A2 (opção pelo regime
+        regular), que vem depois da DL-084 para não cruzar arquivos.
     - [DL-089](../planos/DL-089-origem-do-lancamento-contabil.md): origem
       do lançamento contábil (BL-72, BL-73). **Frente A integrada na branch**
       (`cc3c82c`).
