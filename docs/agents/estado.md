@@ -440,9 +440,15 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
       encerramento da medida judicial (BL-680).
 
     **Ordem de execução:** DL-083 → DL-085 → DL-082 → DL-084. A
-    [DL-084](../planos/DL-084-rotina-do-presumido.md) está **em
-    desenvolvimento** (frente A, Haiku, cópia `dl084`), em paralelo às
-    correções da DL-082 e da DL-089.
+    [DL-084](../planos/DL-084-rotina-do-presumido.md): **frente A integrada
+    na branch** (migração `fiscal 0015`): vencimento antecipado nos dias
+    sem expediente bancário, feriados de Palmas e do Tocantins com aviso,
+    coerência da CSLL retida, competência na receita informada, parâmetros
+    por empresa (três quotas por padrão), encerramento da medida judicial e
+    pendência de cadastro. Medido pelo desenvolvedor: 9.302/1/55. A parte
+    "a retificar" da retenção tardia ficou bloqueada (BL-692); HI-151 para
+    o Fred. Próximo: frente B (telas e ligação do padrão de combustível),
+    depois a auditoria.
 
 14. **[DL-085](../planos/DL-085-escrituracao-de-nfe-em-volume.md) —
     escrituração de NF-e e NFC-e em volume.**

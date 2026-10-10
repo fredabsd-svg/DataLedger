@@ -270,6 +270,12 @@ máquina:
   líder.
 - **Uma equipe por sessão.**
 - Status de tarefa pode atrasar; encerramento pode ser lento.
+- **Testes em paralelo precisam de banco próprio.** O Django cria o banco de
+  teste com o nome do banco configurado, e duas execuções simultâneas de
+  `pytest` apagam o banco uma da outra: em 10/10/2026, uma execução do
+  arquiteto deu 1.221 falhas falsas ao rodar junto com as dos
+  desenvolvedores. Quem roda testes ao mesmo tempo que outro agente usa
+  `DATABASE_URL=postgres://dataledger:dataledger@localhost:5432/<nome-proprio>`.
 - **Processos de agentes não sobrevivem ao encerramento da sessão.** As
   definições e documentos deste repositório é que garantem continuidade — por
   isso [estado.md](estado.md) precisa estar sempre atualizado.

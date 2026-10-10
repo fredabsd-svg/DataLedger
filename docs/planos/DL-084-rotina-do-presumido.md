@@ -83,6 +83,33 @@ atualizadas pela RC-172.
 8. **Pendência de cadastro** (HI-136). A empresa do Presumido sem atividade
    de presunção padrão vigente aparece na lista de pendências do mês.
 
+## Entrega da frente A (10/10/2026)
+
+Commit integrado na branch; o desenvolvedor mediu a suíte completa num banco
+próprio: 9.302/1/55 (a falha é a de ambiente, Python 3.13 local).
+
+- **Itens 1, 2, 3, 5, 7 e 8:** implementados e testados. Mutantes do
+  critério 9 derrubam testes (Páscoa deslocada, retenção no trimestre
+  seguinte, competência fora da identidade, aviso local mudando a data).
+- **Item 4 (retenção tardia):** medido, a dedução **já** ficava no trimestre
+  da receita, e o excesso aparece como saldo negativo; o teste novo prende
+  isso. "Reabrir como a retificar" e "já pago" ficam **bloqueados**: o
+  Presumido não tem estado de trimestre efetivado ou pago. Isso vira etapa
+  própria (BL-692).
+- **Item 6:** os parâmetros por empresa existem (três quotas por padrão), e a
+  função do padrão de combustível também, mas **ainda não está ligada** ao
+  lote, à API de escrituração e à tela, que estavam fora dos arquivos
+  permitidos. A ligação vai com a frente B.
+- **Item 7:** o portal do STF respondeu 403 neste ambiente; o andamento das
+  ADI 7936 e 7944 não foi reconferido, e a data do aviso continua 08/10/2026.
+- **20/11:** a vigência passou para 2024 (a Lei 14.759 foi publicada em
+  22/12/2023). Não muda vencimento de 2026 em diante.
+- Hipóteses novas: HI-151 (encerramento cobre o trimestre; praça pela
+  matriz).
+
+Próximo: frente B (telas, ligação do padrão de combustível, retirada do
+aviso "calendário a conferir" em `views_web.py`), depois a auditoria.
+
 ## Critérios de aceite
 
 1. O vencimento é antecipado nas quatro datas, em anos com Páscoa em março e
