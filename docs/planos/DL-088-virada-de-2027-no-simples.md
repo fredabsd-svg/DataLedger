@@ -132,6 +132,35 @@ arquivos fiquem disjuntos, a frente A foi dividida:
 Não há urgência de calendário: o primeiro pré-DAS de 2027 é o de janeiro,
 apurado em fevereiro de 2027.
 
+## Entrega da frente A1 (10/10/2026)
+
+Integrada na branch. Medido pelo desenvolvedor, num banco próprio: suíte
+completa 9.374/1/55 (a falha é a de ambiente, Python 3.13 local); 49 testes
+novos.
+
+- **Tabelas de 2027-2028** com CBS e IBS, tetos do ISS e fonte do DOU; a
+  tabela é escolhida pela data do período.
+- **RBT12 defasado** a partir de 01/2027, início de atividade em três fases,
+  FS12 com a mesma janela; 2029 recusado com a divergência da 6ª faixa.
+- **Motor do pré-DAS de 2027:** CBS e IBS no lugar de PIS e Cofins;
+  exportação sem IBS, CBS, IPI, ICMS e ISS; art. 22-A como dedução; produção
+  própria no Anexo I. O caminho público **recusa 2027** com o motivo
+  `opcao_regime_regular_nao_informada`.
+- **Mutantes** do critério 6: os cinco derrubam testes.
+- Cinco testes antigos que testavam a recusa de 2027 passaram a testar a de
+  2029, com a mesma asserção.
+- Hipóteses novas: HI-152 (monofasia lida como tributação concentrada; sem
+  dado de Zona Franca; limites anuais sem releitura).
+
+Pendências para a A2 e a frente B:
+- a opção pelo regime regular e o dado de IPI mantido (Zona Franca);
+- a NF-e de 2027, que `escrituracao_nfe.py` ainda recusa (HI-133, HI-149);
+- a tela do RBT12 mostra "há meses da janela sem confirmação" quando o
+  motivo real é "primeira faixa" (início de atividade);
+- as fórmulas de sublimite não existem no módulo; a do Anexo II para o ICMS
+  usa parâmetros do Anexo III na consulta, e isso deve ser conferido antes
+  de implementar.
+
 ## Reversão
 
 Reverter o merge volta a recusar 2027. A opção pelo regime regular, se for

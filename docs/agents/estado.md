@@ -175,6 +175,43 @@ publicação ou exclusão (HI-55). Roteiro de execução no fim do
 [consultas/](../projeto/consultas/2026-10-08-contador-senior-fiscal.md);
 hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 
+**Fechamento de 10/10/2026 (RC-176: "registre e envie tudo, depois pode
+encerrar por hoje").** Para retomar, comece por aqui:
+
+- **Branch `ccr-bf4b4a55-hpqgbp`, enviada ao GitHub, sem PR aberto.** Ela
+  está à frente da `main` com:
+  - DL-085 e DL-086, ciclo de auditoria encerrado;
+  - DL-082 e DL-089, ciclo de auditoria encerrado;
+  - DL-084 frente A e DL-088 frente A1, **sem auditoria ainda**.
+- **Testes medidos pelo arquiteto, em banco próprio:**
+  - `apps/contabilidade`, `apps/core` e `apps/auditoria`: 4.299 passaram,
+    com 1 falha de ambiente (`test_versao_minima_python`, Python 3.13
+    local);
+  - `apps/fiscal` com a DL-084: 3.369 passaram.
+
+  Antes do PR, rode a suíte completa numa única invocação. Ela leva cerca de
+  19 min local, e o job "Lint e testes" tem limite de 20 min: confira o
+  tempo na CI.
+- **Testes em paralelo precisam de banco próprio**
+  (`DATABASE_URL=.../<nome>`). Ver [equipe.md](equipe.md), "Limitações
+  reais da plataforma".
+- **Próximos passos, nesta ordem:**
+  1. Frente B da DL-084 (telas e ligação do padrão de combustível), depois
+     a auditoria da DL-084.
+  2. Frente A2 da DL-088 (opção pelo regime regular, Zona Franca, NF-e de
+     2027), frente B e auditoria.
+  3. PR com tudo o que estiver auditado, e merge pela RC-171 com os quatro
+     checks verdes. Alternativa: abrir o PR já com DL-082/085/086/089 e
+     deixar DL-084 e DL-088 para o PR seguinte. Para isso, separe os
+     commits; a ordem na branch está no `git log`.
+  4. Depois: DL-087 (classificação fiscal versionada).
+- **Para o Fred:**
+  - PE-90, PE-91 e PE-92;
+  - HI-150 e DE-102 (importação e zeramento contam como automáticos no
+    estorno?);
+  - HI-151 (encerramento da medida cobre o trimestre?);
+  - HI-152 (monofasia em 2027; algum cliente na Zona Franca?).
+
 **AGORA, em 08/10/2026:**
 
 1. **[DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) — a
@@ -503,10 +540,13 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
       - O RBT12 passa a ser defasado um mês; CBS e IBS entram no DAS.
       - HI-146 a HI-149.
       - **PE-92 traz prazos para o Fred**, o primeiro em **15/10/2026**.
-      - **Frente A1 em desenvolvimento** (Haiku, cópia `dl088` sobre
-        `c48d9ad`): tabelas, RBT12 defasado e motor do pré-DAS de 2027; o
-        pré-DAS de 2027 continua recusado até a A2 (opção pelo regime
-        regular), que vem depois da DL-084 para não cruzar arquivos.
+      - **Frente A1 integrada na branch:** tabelas de 2027-2028, RBT12
+        defasado, início de atividade em três fases e motor do pré-DAS de
+        2027. O pré-DAS de 2027 **continua recusado** ao público até a A2
+        (opção pelo regime regular, dado de Zona Franca, NF-e de 2027).
+        Medido pelo desenvolvedor: 9.374/1/55. HI-152 para o Fred.
+        Próximo: frente A2 (a DL-084 já está integrada, então os arquivos
+        não cruzam mais), frente B e auditoria.
     - [DL-089](../planos/DL-089-origem-do-lancamento-contabil.md): origem
       do lançamento contábil (BL-72, BL-73). **Frente A integrada na branch**
       (`cc3c82c`).
