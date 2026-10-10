@@ -382,6 +382,7 @@ def test_a8_tentativa_negada_de_estorno_automatico_grava_trilha(client, cenario)
         "papel": Papel.ANALISTA,
         "origem": OrigemLancamento.IMPORTACAO,
         "motivo": "origem_automatica_sem_permissao",
+        "criterio": "origem",
     }
     assert not RegistroAuditoria.objects.filter(acao="lancamento.estornado").exists()
     assert _estornos_de(original) == 0

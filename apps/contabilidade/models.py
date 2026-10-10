@@ -2584,17 +2584,25 @@ class LancamentoContabil(models.Model):
                 name="ck_lancamentocontabil_documento_consistente",
             ),
             # DL-089 (A6): origem e tipo de documento pareados. `importacao` só com lote de
-            # importação; `escrita_fiscal` só com escrituração de NF-e ou NFS-e. Sem documento,
-            # nada a parear. Espelha `TIPOS_DE_DOCUMENTO_POR_ORIGEM`, que é a fonte do serviço.
+            # importação; `escrita_fiscal` só com escrituração de NF-e ou NFS-e. Espelha
+            # `TIPOS_DE_DOCUMENTO_POR_ORIGEM`, que é a fonte do serviço. Reconferência, R1 (ajuste
+            # do arquiteto): só `manual` fica sem documento; origem automática sem documento não
+            # teria a chave natural da regeração (BL-66). O `manual` com documento já é recusado
+            # por `ck_lancamentocontabil_documento_consistente`.
             models.CheckConstraint(
                 condition=(
-                    models.Q(documento_origem_tipo__isnull=True)
+                    models.Q(origem=OrigemLancamento.MANUAL)
+                    # `isnull=False` explícito: no PostgreSQL, comparar NULL dá "desconhecido",
+                    # e a CHECK aceita "desconhecido". Sem ele, origem automática sem documento
+                    # passaria (reconferência, R1).
                     | models.Q(
                         origem=OrigemLancamento.IMPORTACAO,
+                        documento_origem_tipo__isnull=False,
                         documento_origem_tipo=TipoDocumentoOrigem.IMPORTACAO_LANCAMENTOS,
                     )
                     | models.Q(
                         origem=OrigemLancamento.ESCRITA_FISCAL,
+                        documento_origem_tipo__isnull=False,
                         documento_origem_tipo__in=[
                             TipoDocumentoOrigem.ESCRITURACAO_NFE,
                             TipoDocumentoOrigem.ESCRITURACAO_NFSE,

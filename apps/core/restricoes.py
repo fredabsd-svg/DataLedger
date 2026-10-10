@@ -815,8 +815,9 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
     "ck_lancamentocontabil_origem_pareada_ao_documento": (
         "`CheckConstraint` do modelo `LancamentoContabil` (DL-089, A6): `importacao` só com "
         "`importacao_lancamentos`, e `escrita_fiscal` só com `escrituracao_nfe` ou "
-        "`escrituracao_nfse`. `criar_lancamento` valida o par com `TIPOS_DE_DOCUMENTO_POR_ORIGEM` "
-        "antes de gravar. Sem caminho de escrita por cliente."
+        "`escrituracao_nfse`; só `manual` fica sem documento (reconferência, R1). "
+        "`criar_lancamento` valida o par com `TIPOS_DE_DOCUMENTO_POR_ORIGEM` e exige o documento "
+        "da origem automática antes de gravar. Sem caminho de escrita por cliente."
     ),
     # DL-010 F1: `apps.fiscal.services._vincular_participantes` nunca monta
     # dois vínculos para a MESMA empresa no mesmo documento (o ramo do

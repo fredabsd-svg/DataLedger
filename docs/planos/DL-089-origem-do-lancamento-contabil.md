@@ -93,6 +93,30 @@ três mutantes do plano caem. Decisões do arquiteto, reversíveis pelo Fred:
   manual". Fica registrado no backlog.
 - **A8:** a tentativa de estorno negada pela BL-73 entra na trilha.
 
+## Decisões tomadas na reconferência
+
+[Reconferência](../auditorias/2026-10-10-dl-089-reconferencia.md): aprovada
+com ressalvas, R1 a R5, todas baixas. Era a última rodada; os ajustes abaixo
+são do arquiteto (§3.1), com testes em
+`apps/contabilidade/tests/test_dl089_ajustes_do_arquiteto.py`.
+
+- **R1:** origem automática exige documento de origem, no serviço e na CHECK
+  `ck_lancamentocontabil_origem_pareada_ao_documento`, editada na própria
+  0026 (ainda fora da `main`). Ao escrever o teste do banco, apareceu um
+  defeito que a auditoria não tinha medido: no PostgreSQL, comparar NULL dá
+  "desconhecido", e a CHECK aceita "desconhecido". A condição agora exige o
+  tipo não nulo de forma explícita.
+- **R2:** teste de isolamento por empresa do seletor do Diário.
+- **R3:** a mensagem do 403 diz de onde veio o lançamento (escrita fiscal ou
+  importação, importação de lançamentos, zeramento do resultado), e a trilha
+  grava o critério (`origem`, `chave_importacao`, `chave_zeramento`,
+  `vinculo_importacao`).
+- **R4:** HI-150 atualizada; DE-102 registra A1, A2 e R1; A4 foi para o
+  BL-691.
+- **R5:** banco de desenvolvimento que aplicou a 0026 antiga precisa ser
+  recriado. A 0026 não está na `main`, então nenhum ambiente compartilhado a
+  aplicou.
+
 ## Critérios de aceite
 
 1. Todo lançamento existente fica com origem `manual`, e os novos que vêm

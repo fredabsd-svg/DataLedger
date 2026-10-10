@@ -1054,6 +1054,8 @@ class EstornarLancamentoView(EmpresaEscopadaContabilMixin, APIView):
                     "papel": str(getattr(request, "papel", None) or ""),
                     "origem": lancamento.origem,
                     "motivo": "origem_automatica_sem_permissao",
+                    # Reconferência, R3: qual regra fez o lançamento contar como automático.
+                    "criterio": exc.criterio,
                 },
             )
             raise PermissionDenied(str(exc)) from exc

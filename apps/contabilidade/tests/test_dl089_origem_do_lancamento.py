@@ -256,7 +256,12 @@ def test_banco_recusa_origem_inventada_por_insert_direto(cenario):
                 origem="inventada",
             )
 
-    assert _nome_da_restricao(erro) == "ck_lancamentocontabil_origem_valida"
+    # Reconferência, R1: origem que não é `manual` e não tem documento também cai no
+    # pareamento. As duas CHECKs recusam; qual o PostgreSQL nomeia primeiro não é contrato.
+    assert _nome_da_restricao(erro) in {
+        "ck_lancamentocontabil_origem_valida",
+        "ck_lancamentocontabil_origem_pareada_ao_documento",
+    }
 
 
 @so_postgresql

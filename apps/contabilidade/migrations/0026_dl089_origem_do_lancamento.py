@@ -294,13 +294,15 @@ class Migration(migrations.Migration):
             model_name="lancamentocontabil",
             constraint=models.CheckConstraint(
                 condition=models.Q(
-                    ("documento_origem_tipo__isnull", True),
+                    ("origem", "manual"),
                     models.Q(
                         ("documento_origem_tipo", "importacao_lancamentos"),
+                        ("documento_origem_tipo__isnull", False),
                         ("origem", "importacao"),
                     ),
                     models.Q(
                         ("documento_origem_tipo__in", ["escrituracao_nfe", "escrituracao_nfse"]),
+                        ("documento_origem_tipo__isnull", False),
                         ("origem", "escrita_fiscal"),
                     ),
                     _connector="OR",

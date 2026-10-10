@@ -5300,3 +5300,33 @@ só com a origem escolhida. Esse saldo não existe em nenhum documento contábil
 e confundiria a conferência.
 
 **Reversão:** acrescentar o filtro no Razão é aditivo, se o Fred pedir.
+
+## DE-102 — O que conta como automático para o estorno, e documento obrigatório
+
+**Data:** 10/10/2026. **Etapa:** [DL-089](../planos/DL-089-origem-do-lancamento-contabil.md),
+A1 e A2 da [rodada 1](../auditorias/2026-10-09-dl-089-rodada-1.md) e R1 da
+[reconferência](../auditorias/2026-10-10-dl-089-reconferencia.md).
+
+**Decisão:**
+
+1. Para o estorno, um lançamento é automático quando tem origem `importacao`
+   ou `escrita_fiscal`, **ou** chave de idempotência `importacao:` ou
+   `zeramento:`, **ou** vínculo com um lançamento importado. O estorno dele
+   exige ADMINISTRADOR ou GESTOR. A regra mora numa função só
+   (`criterio_de_estorno_automatico`), e a trilha da negativa grava qual
+   critério valeu.
+2. Origem automática sempre tem documento de origem, no serviço e no banco.
+
+**Motivo:** as importações anteriores à migração 0026 e o zeramento ficaram
+com origem `manual`, e a origem é imutável. Sem o item 1, quem só escritura
+estornaria uma importação antiga ou o zeramento do resultado, que infla
+Lucros e Prejuízos. Sem o item 2, a regeração da escrita fiscal (BL-66) não
+teria a chave natural do lançamento.
+
+**Alternativas descartadas:** reclassificar a origem das linhas antigas, o
+que exigiria abrir exceção no gatilho de imutabilidade.
+
+**Reversão:** tirar um critério da função é uma linha, se o Fred decidir que
+a importação ou o zeramento não devem contar como automáticos (HI-150). O
+item 2 sai com a reversão da 0026.
+

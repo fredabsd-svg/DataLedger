@@ -146,7 +146,14 @@ class EstornoDeOrigemAutomaticaNaoPermitido(Exception):
     Distinta de `LancamentoInvalido` de propósito: o lançamento é válido; quem pede é
     que não pode. A view traduz para 403, e nada é gravado (a recusa vem antes de
     qualquer INSERT, dentro da mesma transação).
+
+    `criterio` diz qual regra tornou o lançamento automático (ver
+    `criterio_de_estorno_automatico`); a view o grava na trilha (reconferência, R3).
     """
+
+    def __init__(self, mensagem, *, criterio=None):
+        super().__init__(mensagem)
+        self.criterio = criterio
 
 
 class MarcacaoDmplInvalida(Exception):
@@ -734,12 +741,21 @@ def _origem_e_documento_validos(origem, documento_origem):
     `(origem, None, None)` quando não há documento. Recusa com `LancamentoInvalido`:
     um valor que o banco recusaria depois viraria 500, e o contrato é recusar antes.
 
-    Regra: lançamento `manual` não tem documento de origem, e documento só existe com
-    tipo controlado e identificador não vazio.
+    Regra: lançamento `manual` não tem documento de origem; o de origem automática sempre
+    tem (reconferência, R1); e documento só existe com tipo controlado e identificador não
+    vazio.
     """
     if origem not in OrigemLancamento.values:
         raise LancamentoInvalido(f"Origem de lançamento desconhecida: {origem!r}.")
     if documento_origem is None:
+        if origem != OrigemLancamento.MANUAL:
+            # Reconferência da DL-089, R1 (ajuste do arquiteto): lançamento automático sem
+            # documento não teria a chave natural da regeração (BL-66). O banco recusa o mesmo
+            # caso (`ck_lancamentocontabil_origem_pareada_ao_documento`).
+            raise LancamentoInvalido(
+                f"Lançamento de origem {origem!r} exige o documento de origem (tipo e "
+                "identificador)."
+            )
         return origem, None, None
     if origem == OrigemLancamento.MANUAL:
         raise LancamentoInvalido("Lançamento manual não tem documento de origem.")
@@ -1281,14 +1297,37 @@ def exige_permissao_de_estorno_automatico(lancamento):
     `criar_lancamento`: uma chave que a recusa deixaria passar não pode escapar desta regra.
     Só leitura. Quem chama já segura o lançamento com `select_for_update`.
     """
+    return criterio_de_estorno_automatico(lancamento) is not None
+
+
+# Reconferência da DL-089, R3: o que a mensagem do 403 diz para cada critério. A trilha grava a
+# chave; a mensagem diz, em palavras do contador, de onde veio o lançamento.
+DESCRICAO_DO_CRITERIO_DE_ESTORNO_AUTOMATICO = {
+    "origem": "escrita fiscal ou importação",
+    "chave_importacao": "importação de lançamentos",
+    "chave_zeramento": "zeramento do resultado",
+    "vinculo_importacao": "importação de lançamentos",
+}
+
+
+def criterio_de_estorno_automatico(lancamento):
+    """Qual regra torna o lançamento automático para o estorno, ou `None` se ele é manual.
+
+    Devolve `"origem"`, `"chave_importacao"`, `"chave_zeramento"` ou `"vinculo_importacao"`,
+    na ordem em que `exige_permissao_de_estorno_automatico` os descreve (reconferência, R3:
+    a trilha e a mensagem do 403 dizem o critério, e não "origem manual" junto de
+    "automático").
+    """
     if lancamento.origem != OrigemLancamento.MANUAL:
-        return True
+        return "origem"
     chave = (lancamento.chave_idempotencia or "").lower()
-    if chave.startswith(f"{_PREFIXO_CHAVE_IMPORTACAO}:") or chave.startswith(
-        f"{_PREFIXO_CHAVE_ZERAMENTO}:"
-    ):
-        return True
-    return lancamento.origem_na_importacao.exists()
+    if chave.startswith(f"{_PREFIXO_CHAVE_IMPORTACAO}:"):
+        return "chave_importacao"
+    if chave.startswith(f"{_PREFIXO_CHAVE_ZERAMENTO}:"):
+        return "chave_zeramento"
+    if lancamento.origem_na_importacao.exists():
+        return "vinculo_importacao"
+    return None
 
 
 def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=None, papel=None):
@@ -1330,12 +1369,13 @@ def estornar_lancamento(lancamento, *, criado_por=None, data=None, historico=Non
         # DL-089 / BL-73: permissão antes de qualquer outra checagem, para que quem não
         # pode estornar automático receba 403, e não a informação sobre o estado do
         # lançamento ("já estornado" etc.).
-        if exige_permissao_de_estorno_automatico(lancamento) and not (
-            papel_pode_estornar_origem_automatica(papel)
-        ):
+        criterio = criterio_de_estorno_automatico(lancamento)
+        if criterio is not None and not papel_pode_estornar_origem_automatica(papel):
             raise EstornoDeOrigemAutomaticaNaoPermitido(
-                "Este papel não pode estornar lançamento de origem automática "
-                "(escrita fiscal ou importação). Peça a um administrador ou gestor."
+                "Este papel não pode estornar lançamento gerado pelo sistema ("
+                f"{DESCRICAO_DO_CRITERIO_DE_ESTORNO_AUTOMATICO[criterio]}). "
+                "Peça a um administrador ou gestor.",
+                criterio=criterio,
             )
 
         if lancamento.estorno_de_id is not None:
