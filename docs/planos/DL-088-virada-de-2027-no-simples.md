@@ -111,6 +111,27 @@ Hipóteses HI-146 a HI-149; pendência PE-92 com o Fred.
 | B — telas e calendário | `auxiliar-implementacao` (Haiku), depois da frente A | `views_web.py`, `templates/fiscal/` |
 | Auditoria | `auditor-qa` (Sonnet) | sem escrita |
 
+### Ajuste da divisão (arquiteto, 10/10/2026)
+
+A DL-084 está em desenvolvimento em paralelo e mexe em `models.py`,
+`escrituracao_nfe.py` e na migração `fiscal 0015`. Para que os conjuntos de
+arquivos fiquem disjuntos, a frente A foi dividida:
+
+- **A1 (agora):** tabelas de 2027-2028, RBT12 defasado e início de atividade,
+  motor do pré-DAS de 2027 (CBS e IBS, exportação, ST de IBS-CBS, art. 22-A
+  recebido como parâmetro, Anexo II só com IPI mantido). Arquivos:
+  `simples_tabelas.py`, `rbt12.py`, `pre_das.py`, `receita.py`, testes
+  `test_dl088_*`. **Sem** `models.py`, migração ou `escrituracao_nfe.py`. O
+  caminho público do pré-DAS de 2027 **continua recusado**, com o motivo
+  "falta a opção pelo regime regular": calcular sem saber da opção poria CBS
+  e IBS no DAS de quem optou pelo regime regular.
+- **A2 (depois da integração da DL-084):** a opção pelo regime regular como
+  dado da empresa com vigência por semestre (migração nova), a liberação do
+  pré-DAS de 2027, a receita de NF-e de 2027 (HI-149) e a API.
+
+Não há urgência de calendário: o primeiro pré-DAS de 2027 é o de janeiro,
+apurado em fevereiro de 2027.
+
 ## Reversão
 
 Reverter o merge volta a recusar 2027. A opção pelo regime regular, se for
