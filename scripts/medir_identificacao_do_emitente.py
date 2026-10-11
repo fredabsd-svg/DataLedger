@@ -1262,7 +1262,14 @@ def _preparar_empresa_livro_caixa(escritorio):
         # `PERIODO_INICIO`/`PERIODO_FIM` usado nesta medição.
         if ultimo_p20 is not None:
             estornar_lancamento_caixa(
-                ultimo_p20, criado_por=None, data=inicio_do_periodo + timedelta(days=25)
+                ultimo_p20,
+                # DL-086 (A-02): `estornar_lancamento_caixa` passou a exigir
+                # MOTIVO (validado no serviço, gravado na trilha de auditoria).
+                # Este instrumento só monta cenário sintético para medir a
+                # identificação do emitente, então o motivo declara a origem.
+                motivo="Estorno sintético do instrumento de medição (DL-046/DL-086).",
+                criado_por=None,
+                data=inicio_do_periodo + timedelta(days=25),
             )
         return empresa, conta
 

@@ -793,7 +793,20 @@ def painel(request):
         # só que por uma porta que esta iteração abriu. `[]`, não `None`,
         # para as duas funções abaixo (que já filtram por papel sozinhas)
         # nunca ficarem sem lista para iterar.
-        pode_ver_carteira = papel_pode_ler_contabilidade(papel)
+        #
+        # DL-086 (BL-585): a porta da CARTEIRA é `papel_pode_ler_carteira`
+        # (apps.empresas.permissoes, DL-055), não `papel_pode_ler_
+        # contabilidade` — o dado exibido aqui é o cadastro de empresas
+        # (razão social, inscrição, situação), exatamente o que a regra da
+        # carteira protege; "quem lê a escrituração" é outra pergunta. Hoje
+        # as duas tuplas são a MESMA por referência (`PAPEIS_QUE_LEEM_
+        # CARTEIRA = PAPEIS_QUE_LEEM_CONTABILIDADE`), então o comportamento
+        # não muda; o que muda é que, se um dia as decisões se separarem
+        # (o docstring de apps.empresas.permissoes prevê isso), este bloco
+        # segue a lista de CARTEIRA — critério de aceite do BL-585, provado
+        # em apps/tenancy/tests/test_dl086_painel_carteira_e_erro.py com as
+        # duas funções monkeypatchadas para conjuntos divergentes.
+        pode_ver_carteira = papel_pode_ler_carteira(papel)
         empresas_da_carteira_lista = (
             _empresas_da_carteira(request.escritorio) if pode_ver_carteira else []
         )
@@ -1005,10 +1018,19 @@ def bootstrap_primeiro_acesso(request):
                 {"nome": nome, "cnpj": cnpj},
             )
 
+        # DL-086 (achado F-10): a mensagem anterior mandava "convidar o
+        # segundo funcionário pela tela de escritório" — tela que NÃO existe
+        # (`tenancy:emitir-convite` é só endpoint POST, sem template;
+        # mapa-de-telas.md confirma, e a tela de emissão de convite é o
+        # BL-691, aberto). AGENTS.md §8: funcionalidade inexistente não pode
+        # ser apresentada como pronta — a mensagem promete só o que há e
+        # declara o roteiro.
         messages.success(
             request,
             f"Escritório criado: {resultado.escritorio.nome}. "
-            "Você é o ADMINISTRADOR. Convide o segundo funcionário pela tela de escritório.",
+            "Você é o ADMINISTRADOR. A tela para convidar o segundo funcionário "
+            "está no roteiro do produto (BL-691) e ainda não existe; até lá, o "
+            "segundo acesso é organizado pelo administrador do escritório.",
         )
         return redirect("tenancy:painel")
 

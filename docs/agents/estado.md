@@ -151,10 +151,11 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-083](../planos/DL-083-receita-de-nfe-no-presumido.md) | Fiscal: receita de NF-e no Lucro Presumido e regras de receita da RC-172 | Integrada (PR #106, squash `3f3206c`) — rodada 1 e reconferência reprovadas; ajustes do arquiteto (§3.1) |
 | [DL-084](../planos/DL-084-rotina-do-presumido.md) | Fiscal: rotina do Lucro Presumido (RC-172) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-085](../planos/DL-085-escrituracao-de-nfe-em-volume.md) | Fiscal: escrituração de NF-e e NFC-e em volume (RC-173) | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-086](../planos/DL-086-documentacao-e-painel-do-fiscal.md) | Fiscal: documentação e painel alinhados ao código (RC-175) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-086](../planos/DL-086-revisao-de-layout-e-acessos.md) | Revisão de layout, botões, páginas e acessos | Integrada (PR #107, squash `451a25f`) — resíduos em BL-689 a BL-697 |
 | [DL-087](../planos/DL-087-classificacao-fiscal-versionada.md) | Fiscal: classificação fiscal versionada e regras de importação (RC-175) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-088](../planos/DL-088-virada-de-2027-no-simples.md) | Fiscal: virada de 2027 no Simples Nacional (RC-175) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-089](../planos/DL-089-origem-do-lancamento-contabil.md) | Contabilidade: origem e documento de origem do lançamento (BL-72, BL-73) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-090](../planos/DL-090-documentacao-e-painel-do-fiscal.md) | Fiscal: documentação e painel alinhados ao código (RC-175; nasceu como DL-086 e foi renumerada na junção com a `main`, DE-105) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -175,12 +176,63 @@ publicação ou exclusão (HI-55). Roteiro de execução no fim do
 [consultas/](../projeto/consultas/2026-10-08-contador-senior-fiscal.md);
 hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 
+**AGORA, em 11/10/2026 (retomada do fiscal, na branch
+`ccr-bf4b4a55-hpqgbp`):**
+
+- A `main` foi integrada na branch, e as colisões de identificador da junção
+  estão resolvidas pela [DE-105](../projeto/decisoes.md): a documentação e o
+  painel do fiscal passaram a **DL-090** (eram DL-086), os resíduos da
+  DL-085/082/089/084 a `BL-698` a `BL-701`, e as decisões do Razão e do
+  estorno a `DE-103` e `DE-104`; a revisão de layout mantém `DL-086`,
+  `DE-101` e `BL-689` a `BL-697`.
+- Trabalho em curso: **[DL-084](../planos/DL-084-rotina-do-presumido.md)
+  frente B** — telas e ligação do padrão de combustível — e depois a
+  auditoria dela (rodada 1, correção única, reconferência; §3.1).
+- A ordem de retomada segue a do fechamento de 10/10, abaixo: DL-088 frentes
+  A2 e B com auditoria; PR com tudo o que estiver auditado e merge com os
+  quatro checks verdes (RC-171); depois DL-087.
+- Seguem com o Fred: PE-90, PE-91 e PE-92; HI-150 e DE-104; HI-151; HI-152.
+
+**[DL-086](../planos/DL-086-revisao-de-layout-e-acessos.md) — Revisão de
+layout, botões, páginas e acessos: INTEGRADA** pelo
+[PR #107](https://github.com/fredabsd-svg/DataLedger/pull/107), squash
+`451a25f`, em 11/10/2026 (demanda direta do Fred — "revise e melhore o
+layout, botões e páginas do sistema, bem como acessos e demais"). Três
+auditorias independentes (fiscal/livro-caixa, fundação/contabilidade e acesso
+ponta a ponta) consolidadas pelo arquiteto; implementação particionada por
+módulo com equipe multiagente, na branch `feat/dl-086-revisao-layout-e-acessos`.
+Nível 2 (§3.1) com UM item nível 1 — motivo obrigatório no estorno do
+livro-caixa, gravado na trilha (A-02) — com testes de sucesso/erro/limite em
+`apps/livro_caixa/tests/test_dl086_estorno_com_motivo.py` e auditoria
+independente no PR. O que entrou: gaveta móvel com controle de
+fechar e sem parada de teclado invisível (C-01/C-02); dropdown "Cadastros"
+com `open` condicional e rótulo de estado no alternador (C-03/C-04);
+`--tinta-media` e os acentos do Início recalculados para o canvas atual
+(A-01/A-02); cartões que deixam de perder a tinta para a regra de link de
+prosa (F-01); ~150 linhas de CSS morto removidas e o contrato corrigido
+(A-03); botão com quatro estados completos, foco não duplicado e altura
+igual entre `<a>` e `<button>` (B-01/E-02); trilha nomeando a tela atual em
+seis telas (D-01); estados vazios, ações de linha com alvo, "Limpar
+filtros" e rótulos que nomeiam a consequência (A-01 a A-24 por módulo);
+motivo obrigatório no estorno do livro-caixa com rótulos de erro em
+linguagem de escritório (A-02/A-09); 403 uniforme para o papel sem leitura
+antes de resolver a empresa, nos dois módulos (BL-584, teste derivado do
+urlconf); enumeração do cadastro tarifada pelo limite da DL-056 (C-01 de
+acesso); chave única `username_hmac` na trilha com teste de correlação
+(BL-593); `SECURE_REFERRER_POLICY = same-origin` (C-07, parcial); handlers
+404/403/500 com a cara do produto (H-01); e portabilidade Windows das
+guardas (controles da varredura + sha256 da tabela CFOP com `.gitattributes`
+byte-exato). Fora do escopo, registrado no backlog: **BL-689 a BL-696**, mais
+o BL-697 (estorno da contabilidade sem motivo);
+seguem abertos BL-18, BL-35, BL-547, BL-548, BL-552, BL-580/581/642,
+BL-598, BL-599, BL-640, BL-652, BL-653.
+
 **Fechamento de 10/10/2026 (RC-176: "registre e envie tudo, depois pode
 encerrar por hoje").** Para retomar, comece por aqui:
 
 - **Branch `ccr-bf4b4a55-hpqgbp`, enviada ao GitHub, sem PR aberto.** Ela
   está à frente da `main` com:
-  - DL-085 e DL-086, ciclo de auditoria encerrado;
+  - DL-085 e DL-090, ciclo de auditoria encerrado;
   - DL-082 e DL-089, ciclo de auditoria encerrado;
   - DL-084 frente A e DL-088 frente A1, **sem auditoria ainda**.
 - **Testes medidos pelo arquiteto, em banco próprio:**
@@ -201,18 +253,18 @@ encerrar por hoje").** Para retomar, comece por aqui:
   2. Frente A2 da DL-088 (opção pelo regime regular, Zona Franca, NF-e de
      2027), frente B e auditoria.
   3. PR com tudo o que estiver auditado, e merge pela RC-171 com os quatro
-     checks verdes. Alternativa: abrir o PR já com DL-082/085/086/089 e
+     checks verdes. Alternativa: abrir o PR já com DL-082/085/089/090 e
      deixar DL-084 e DL-088 para o PR seguinte. Para isso, separe os
      commits; a ordem na branch está no `git log`.
   4. Depois: DL-087 (classificação fiscal versionada).
 - **Para o Fred:**
   - PE-90, PE-91 e PE-92;
-  - HI-150 e DE-102 (importação e zeramento contam como automáticos no
+  - HI-150 e DE-104 (importação e zeramento contam como automáticos no
     estorno?);
   - HI-151 (encerramento da medida cobre o trimestre?);
   - HI-152 (monofasia em 2027; algum cliente na Zona Franca?).
 
-**AGORA, em 08/10/2026:**
+**Em 08/10/2026:**
 
 1. **[DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) — a
    marcação manual da DMPL respeita o período fechado (BL-655): INTEGRADA**
@@ -391,7 +443,7 @@ encerrar por hoje").** Para retomar, comece por aqui:
       pré-DAS recusa o mês com o motivo;
     - R5: testes dos dois lados do aviso de exportação direta.
 
-    R2, R3, R6, R7 e os dois resíduos declarados foram para o BL-690.
+    R2, R3, R6, R7 e os dois resíduos declarados foram para o BL-699.
     [Consulta ao contador-senior](../projeto/consultas/2026-10-09-contador-senior-pre-das-comercio.md):
     exemplos 1, 2, 3 e 6 do Manual do PGDAS-D batem ao centavo com as tabelas
     do repositório; um RBT12 para todos os anexos; segregação sem
@@ -483,7 +535,7 @@ encerrar por hoje").** Para retomar, comece por aqui:
     coerência da CSLL retida, competência na receita informada, parâmetros
     por empresa (três quotas por padrão), encerramento da medida judicial e
     pendência de cadastro. Medido pelo desenvolvedor: 9.302/1/55. A parte
-    "a retificar" da retenção tardia ficou bloqueada (BL-692); HI-151 para
+    "a retificar" da retenção tardia ficou bloqueada (BL-701); HI-151 para
     o Fred. Próximo: frente B (telas e ligação do padrão de combustível),
     depois a auditoria.
 
@@ -502,12 +554,12 @@ encerrar por hoje").** Para retomar, comece por aqui:
       empresa antes do vínculo.
     - [Reconferência](../auditorias/2026-10-09-dl-085-reconferencia-e-dl-086.md)
       **aprovada com ressalvas**. Os ajustes do arquiteto R1 a R5, R8 e R9
-      estão integrados; R6, R7 e o resto foram para o BL-689. Próximo: o PR
-      (junto com a DL-082 e a DL-086, que estão na mesma branch).
+      estão integrados; R6, R7 e o resto foram para o BL-698. Próximo: o PR
+      (junto com a DL-082 e a DL-090, que estão na mesma branch).
 
 15. **[DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md):**
     ciclo de auditoria encerrado; situação no item 11. Próximo: o PR, junto
-    com a DL-085, a DL-086 e a DL-089.
+    com a DL-085, a DL-090 e a DL-089.
 
 16. **Ordem do Fred de 09/10/2026 (RC-175):** revisar o fiscal por completo,
     codar o que falta e pesquisar os acumuladores do sistema de referência
@@ -524,7 +576,7 @@ encerrar por hoje").** Para retomar, comece por aqui:
       HI-141 a HI-145 e as PE-90 e PE-91, para o Fred.
 
     Planos:
-    - [DL-086](../planos/DL-086-documentacao-e-painel-do-fiscal.md):
+    - [DL-090](../planos/DL-090-documentacao-e-painel-do-fiscal.md):
       documentação e painel, **integrada na branch** (`1f06604`, mais os
       textos da página inicial e do cartão do módulo, ajustados pelo
       arquiteto). Os indicadores de NF-e no painel ficam no BL-681, item 2,
@@ -556,7 +608,7 @@ encerrar por hoje").** Para retomar, comece por aqui:
         (HI-150).
       - Medido pelo desenvolvedor: 9.138/1/55.
       - [Rodada 1](../auditorias/2026-10-09-dl-089-rodada-1.md) **aprovada
-        com ressalvas**. O Razão fica sem filtro de origem (DE-101).
+        com ressalvas**. O Razão fica sem filtro de origem (DE-103).
       - **Correção única integrada** (`bab28e7`): importação e zeramento
         contam como automáticos para o estorno; pareamento origem × tipo de
         documento no serviço e no banco; o 403 do estorno vai para a
@@ -567,8 +619,8 @@ encerrar por hoje").** Para retomar, comece por aqui:
         sem terceira rodada (§3.1): origem automática exige documento de
         origem no serviço e no banco (a CHECK aceitava NULL, defeito achado
         ao escrever o teste); teste de isolamento do seletor do Diário; a
-        mensagem do 403 e a trilha dizem qual critério valeu. DE-102;
-        resíduos no BL-691. **Ciclo de auditoria encerrado.**
+        mensagem do 403 e a trilha dizem qual critério valeu. DE-104;
+        resíduos no BL-700. **Ciclo de auditoria encerrado.**
     - em seguida: as NF-e de entrada, o ICMS-TO, a integração contábil e os
       livros.
 

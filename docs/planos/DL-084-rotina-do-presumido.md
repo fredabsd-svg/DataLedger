@@ -95,7 +95,7 @@ próprio: 9.302/1/55 (a falha é a de ambiente, Python 3.13 local).
   da receita, e o excesso aparece como saldo negativo; o teste novo prende
   isso. "Reabrir como a retificar" e "já pago" ficam **bloqueados**: o
   Presumido não tem estado de trimestre efetivado ou pago. Isso vira etapa
-  própria (BL-692).
+  própria (BL-701).
 - **Item 6:** os parâmetros por empresa existem (três quotas por padrão), e a
   função do padrão de combustível também, mas **ainda não está ligada** ao
   lote, à API de escrituração e à tela, que estavam fora dos arquivos

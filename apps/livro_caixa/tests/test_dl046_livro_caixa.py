@@ -56,6 +56,13 @@ from apps.livro_caixa.services import (
 )
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
+# A-02 (DL-086): o estorno do livro-caixa passou a exigir MOTIVO (validado no
+# serviço, gravado nos `detalhes` da trilha de auditoria). Nestes arquivos o
+# motivo é sintético: o que eles medem é outra regra (encadeamento, mês
+# encerrado, imutabilidade, apuração), não o texto do motivo — esse tem teste
+# próprio em test_dl086_estorno_com_motivo.py.
+MOTIVO = "Estorno sintético do teste."
+
 pytestmark = pytest.mark.django_db
 
 CPF_TITULAR = "11144477735"
@@ -651,7 +658,7 @@ def test_estorno_cria_lancamento_reverso_rastreavel(cenario):
         historico="A estornar",
         recebido_de=OrigemRecebimento.PJ,
     )
-    estorno = estornar_lancamento_caixa(original)
+    estorno = estornar_lancamento_caixa(original, motivo=MOTIVO)
     assert estorno.estorno_de_id == original.pk
     assert estorno.valor == original.valor
     assert estorno.conta_id == original.conta_id
@@ -667,9 +674,9 @@ def test_estorno_nao_pode_ser_estornado_de_novo(cenario):
         historico="A estornar",
         recebido_de=OrigemRecebimento.PJ,
     )
-    estorno = estornar_lancamento_caixa(original)
+    estorno = estornar_lancamento_caixa(original, motivo=MOTIVO)
     with pytest.raises(LancamentoCaixaInvalido):
-        estornar_lancamento_caixa(estorno)
+        estornar_lancamento_caixa(estorno, motivo=MOTIVO)
 
 
 def test_lancamento_ja_estornado_nao_pode_ser_estornado_de_novo(cenario):
@@ -681,9 +688,9 @@ def test_lancamento_ja_estornado_nao_pode_ser_estornado_de_novo(cenario):
         historico="A estornar",
         recebido_de=OrigemRecebimento.PJ,
     )
-    estornar_lancamento_caixa(original)
+    estornar_lancamento_caixa(original, motivo=MOTIVO)
     with pytest.raises(LancamentoCaixaInvalido):
-        estornar_lancamento_caixa(original)
+        estornar_lancamento_caixa(original, motivo=MOTIVO)
 
 
 def test_estorno_e_unico_no_banco_sob_contorno_do_servico(cenario):
@@ -698,7 +705,7 @@ def test_estorno_e_unico_no_banco_sob_contorno_do_servico(cenario):
         historico="A estornar",
         recebido_de=OrigemRecebimento.PJ,
     )
-    estornar_lancamento_caixa(original)
+    estornar_lancamento_caixa(original, motivo=MOTIVO)
     segundo_estorno = LancamentoCaixa(
         empresa=cenario["empresa_a"],
         conta=cenario["conta_receita"],
@@ -722,7 +729,7 @@ def test_estorno_recusa_data_anterior_ao_original(cenario):
         recebido_de=OrigemRecebimento.PJ,
     )
     with pytest.raises(LancamentoCaixaInvalido):
-        estornar_lancamento_caixa(original, data=date(2026, 1, 10))
+        estornar_lancamento_caixa(original, data=date(2026, 1, 10), motivo=MOTIVO)
 
 
 # ---------------------------------------------------------------------------
@@ -754,7 +761,7 @@ def test_apuracao_concilia_com_os_lancamentos_incluindo_estorno(cenario):
         valor="200.00",
         historico="Despesa 1",
     )
-    estornar_lancamento_caixa(receita_1, data=date(2026, 1, 20))
+    estornar_lancamento_caixa(receita_1, data=date(2026, 1, 20), motivo=MOTIVO)
 
     apuracao = apurar_livro_caixa(
         empresa=cenario["empresa_a"], inicio=date(2026, 1, 1), fim=date(2026, 1, 31)
@@ -1067,7 +1074,11 @@ def test_api_estorno_e_relatorio(client, cenario):
     )
     lancamento_id = criacao.json()["id"]
 
-    estorno = client.post(_url_estornar(cenario["empresa_a"].id, lancamento_id))
+    estorno = client.post(
+        _url_estornar(cenario["empresa_a"].id, lancamento_id),
+        data=json.dumps({"motivo": MOTIVO}),
+        content_type="application/json",
+    )
     assert estorno.status_code == 201, estorno.content
     assert estorno.json()["estorno_de"] == lancamento_id
 
@@ -1519,7 +1530,7 @@ def test_estorno_de_lancamento_antigo_continua_possivel_apos_alteracao_permitida
     # tentativa de reclassificar acima tenha sido corretamente recusada —
     # e mesmo que, num cenário anterior a esta correção, a conta pudesse
     # ter mudado de código livremente.
-    estorno = estornar_lancamento_caixa(original)
+    estorno = estornar_lancamento_caixa(original, motivo=MOTIVO)
     assert estorno.pk is not None
     assert estorno.cpf_titular_pagamento == CPF_TITULAR
     assert estorno.cpf_beneficiario_servico == CPF_BENEFICIARIO
@@ -2034,7 +2045,7 @@ def test_m32_estorno_de_despesa_reduz_saidas_sem_alterar_entradas(cenario):
         valor="300.00",
         historico="Despesa do mês",
     )
-    estornar_lancamento_caixa(despesa, data=date(2026, 4, 10))
+    estornar_lancamento_caixa(despesa, data=date(2026, 4, 10), motivo=MOTIVO)
 
     apuracao = apurar_livro_caixa(
         empresa=cenario["empresa_a"], inicio=date(2026, 4, 1), fim=date(2026, 4, 30)
@@ -2078,7 +2089,7 @@ def test_b1_conta_inativa_permite_estorno_de_lancamento_antigo(cenario):
     conta.ativa = False
     conta.save(update_fields=["ativa"])
 
-    estorno = estornar_lancamento_caixa(original)
+    estorno = estornar_lancamento_caixa(original, motivo=MOTIVO)
     assert estorno.pk is not None
 
 
@@ -2239,7 +2250,7 @@ def test_b5_trilha_do_estorno_usa_acao_propria(cenario):
         historico="Original B5",
         recebido_de=OrigemRecebimento.PJ,
     )
-    estorno = estornar_lancamento_caixa(original)
+    estorno = estornar_lancamento_caixa(original, motivo=MOTIVO)
 
     registro_original = RegistroAuditoria.objects.get(
         acao="lancamento_caixa.criado", detalhes__conta=cenario["conta_receita"].codigo
@@ -2596,7 +2607,7 @@ def test_n13_estorno_copia_o_indicador_de_beneficiario_nao_informado(cenario):
         cpf_titular_pagamento=CPF_TITULAR,
         cpf_beneficiario_nao_informado=True,
     )
-    estorno = estornar_lancamento_caixa(original)
+    estorno = estornar_lancamento_caixa(original, motivo=MOTIVO)
     assert estorno.cpf_beneficiario_nao_informado is True
     assert estorno.cpf_beneficiario_servico == ""
 
@@ -2672,6 +2683,6 @@ def test_n12_lancamento_legado_gravado_por_orm_continua_estornavel(cenario):
         recebido_de=OrigemRecebimento.PF,
         cpf_titular_pagamento=CPF_TITULAR,
     )
-    estorno = estornar_lancamento_caixa(legado)
+    estorno = estornar_lancamento_caixa(legado, motivo=MOTIVO)
     assert estorno.pk is not None
     assert estorno.cpf_titular_pagamento == CPF_TITULAR

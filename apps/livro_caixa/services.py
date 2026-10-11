@@ -660,6 +660,7 @@ def criar_lancamento_caixa(
     criado_por=None,
     chave_idempotencia=None,
     estorno_de=None,
+    motivo_estorno=None,
     request=None,
     _pular_validacao_dependente_da_conta=False,
 ):
@@ -696,7 +697,27 @@ def criar_lancamento_caixa(
     view nenhuma): M4 (DE-087 item 4) — setada só por
     `estornar_lancamento_caixa`, para o ESTORNO copiar o original sem
     revalidar as regras de CPF/CNPJ contra o código ATUAL da conta.
+
+    `motivo_estorno` (A-02, DL-086): texto já validado por
+    `_normalizar_motivo_do_estorno`, informado só pelo estorno. Vai para os
+    `detalhes` da trilha de auditoria (nunca para uma coluna do
+    lançamento — ver o docstring de `estornar_lancamento_caixa`). Não entra
+    na impressão digital da idempotência: o motivo explica o ATO de
+    estornar, não é conteúdo contábil do lançamento, e incluí-lo faria uma
+    repetição idempotente com o mesmo conteúdo virar conflito (409).
     """
+    # B2 (rodada 1 da auditoria independente da DL-086): quem cria o REVERSO
+    # informa o motivo. `estorno_de` sem `motivo_estorno` criaria um estorno
+    # cuja trilha sai sem `motivo_estorno` — exatamente o que a A-02 existe
+    # para impedir. Hoje os dois caminhos de produto (tela e API) passam por
+    # `estornar_lancamento_caixa`, que já valida; esta guarda protege o
+    # chamador FUTURO (shell, importador, MCP) — a mesma classe de risco que
+    # o BL-669 registrou para outro serviço. `not motivo_estorno` cobre
+    # `None` E string vazia (N1 da reconferência); espaços em branco só o
+    # normalizador do caminho de produto recusa — esta guarda é um
+    # interruptor de segurança, não o validador.
+    if estorno_de is not None and not motivo_estorno:
+        raise LancamentoCaixaInvalido(MENSAGEM_MOTIVO_ESTORNO_OBRIGATORIO)
     try:
         recusar_se_nao_livro_caixa(empresa)
     except EmpresaNaoEmModoLivroCaixa as exc:
@@ -934,29 +955,108 @@ def criar_lancamento_caixa(
         # defeito de quem monitora 500.
         raise
 
+    detalhes_da_trilha = {
+        "empresa_id": empresa.id,
+        "conta": conta.codigo,
+        "valor": str(valor),
+        "data": data.isoformat(),
+        "estorno_de_id": estorno_de.id if estorno_de is not None else None,
+    }
+    if motivo_estorno is not None:
+        # A-02 (DL-086): o motivo do estorno é gravado na TRILHA deste
+        # registro (`lancamento_caixa.estornado`), na mesma transação do
+        # lançamento reverso — o contador precisa de "por que foi
+        # estornado" ao lado de "quem estornou e quando", e a trilha é o
+        # único lugar do livro que pode receber um fato novo depois do
+        # INSERT (a tabela é imutável no banco, migração 0011 da DL-069).
+        detalhes_da_trilha["motivo_estorno"] = motivo_estorno
     registrar(
         acao="lancamento_caixa.estornado" if estorno_de is not None else "lancamento_caixa.criado",
         usuario=criado_por,
         escritorio=empresa.escritorio,
         objeto=lancamento,
         request=request,
-        detalhes={
-            "empresa_id": empresa.id,
-            "conta": conta.codigo,
-            "valor": str(valor),
-            "data": data.isoformat(),
-            "estorno_de_id": estorno_de.id if estorno_de is not None else None,
-        },
+        detalhes=detalhes_da_trilha,
     )
     lancamento.criado_agora = True
     return lancamento
 
 
+# ---------------------------------------------------------------------------
+# Estorno do lançamento (A-02, DL-086) — NÍVEL 1
+#
+# O estorno passa a exigir MOTIVO, mesmo contrato dos cinco estornos fiscais
+# (`MOTIVO_MAXIMO = 500` em apps/fiscal/{escrituracao,escrituracao_nfe,
+# receita,tomadas,folha_fator_r}.py) e da reabertura de mês deste módulo
+# (`TAMANHO_MAXIMO_MOTIVO_REABERTURA`). A regra mora AQUI, no serviço, e não
+# nas duas portas (tela e API): AGENTS.md §8 proíbe duplicar regra entre
+# tela e API, e uma terceira porta futura (MCP, importador) herdaria a
+# exigência sem ninguém precisar lembrar dela.
+#
+# POR QUE O MOTIVO VAI PARA A TRILHA, E NÃO PARA UMA COLUNA DO MODELO.
+# O padrão fiscal grava `motivo_estorno` na linha estornada porque lá o
+# estorno MUDA O ESTADO de uma linha existente (`efetivada -> estornada`), e
+# o gatilho de imutabilidade daquele módulo lista a coluna como uma das que a
+# transição pode escrever. No livro-caixa o estorno é OUTRO mecanismo: ele
+# CRIA uma linha nova (o lançamento reverso) e nunca toca na original — e
+# `livro_caixa_lancamentocaixa` recusa TODO `UPDATE` no banco (gatilho
+# `trg_lancamento_caixa_imutavel`, migração 0011 da DL-069), sem lista de
+# colunas permitidas. Não há, portanto, como "seguir o padrão fiscal" na
+# forma: não existe linha mutável onde pendurar o motivo. O motivo é um fato
+# do ATO de estornar (quem, quando, por quê), e o lugar de fato de ato é a
+# trilha de auditoria — `detalhes["motivo_estorno"]` do registro
+# `lancamento_caixa.estornado`, gravado na MESMA transação do reverso. É
+# também o caminho que o plano da DL-086 prevê ("se a trilha carrega o
+# motivo, sem migração") e o precedente do módulo vizinho
+# (`apps.contabilidade.services.reabrir_competencia`, `detalhes["motivo"]`).
+# ---------------------------------------------------------------------------
+
+TAMANHO_MAXIMO_MOTIVO_ESTORNO = 500
+
+MENSAGEM_MOTIVO_ESTORNO_OBRIGATORIO = (
+    "Informe o motivo do estorno: ele fica na trilha de auditoria do livro-caixa."
+)
+
+
+def _normalizar_motivo_do_estorno(motivo):
+    """Valida e normaliza o motivo do estorno (A-02, DL-086): vazio, só
+    espaço em branco, com caractere nulo ou acima de
+    `TAMANHO_MAXIMO_MOTIVO_ESTORNO` é recusado (`LancamentoCaixaInvalido`,
+    400) ANTES de qualquer lock ou gravação — erro de entrada, não de estado,
+    mesma ordem de `_normalizar_motivo_da_reabertura`.
+
+    O caractere nulo é recusado explicitamente porque o PostgreSQL não o
+    grava em texto (`jsonb` dos `detalhes` da trilha incluído): sem esta
+    recusa, o motivo daria 500 no INSERT da trilha — e a trilha grava na
+    MESMA transação do estorno, então o lançamento inteiro cairia junto.
+    """
+    if motivo is not None and not isinstance(motivo, str):
+        raise LancamentoCaixaInvalido("O motivo do estorno deve ser texto.")
+    motivo_normalizado = (motivo or "").strip()
+    if not motivo_normalizado:
+        raise LancamentoCaixaInvalido(MENSAGEM_MOTIVO_ESTORNO_OBRIGATORIO)
+    if "\x00" in motivo_normalizado:
+        raise LancamentoCaixaInvalido(
+            "O motivo do estorno não pode conter o caractere nulo (código 0)."
+        )
+    if len(motivo_normalizado) > TAMANHO_MAXIMO_MOTIVO_ESTORNO:
+        raise LancamentoCaixaInvalido(
+            f"O motivo do estorno tem {len(motivo_normalizado)} caracteres; o máximo é "
+            f"{TAMANHO_MAXIMO_MOTIVO_ESTORNO}."
+        )
+    return motivo_normalizado
+
+
 def estornar_lancamento_caixa(
-    lancamento, *, criado_por=None, data=None, historico=None, request=None
+    lancamento, *, motivo, criado_por=None, data=None, historico=None, request=None
 ):
     """Cria o lançamento reverso de `lancamento` — mesma conta, mesmo
     valor, `estorno_de=lancamento`. Nunca edita nem apaga o original.
+
+    `motivo` é OBRIGATÓRIO (A-02, DL-086): texto não vazio, normalizado por
+    `_normalizar_motivo_do_estorno` e gravado nos `detalhes` da trilha de
+    auditoria do estorno. Recusado antes de qualquer lock, então um estorno
+    sem motivo NÃO cria o lançamento reverso (nada é gravado).
 
     Estorno único (mesmo padrão de `estornar_lancamento`, contabilidade):
     `select_for_update()` bloqueia a linha do original durante toda a
@@ -987,6 +1087,11 @@ def estornar_lancamento_caixa(
     (`MesCaixaEncerrado`) — o caminho é reabrir o mês, com motivo, e só então
     estornar. Nada é gravado na recusa.
     """
+    # A-02 (DL-086): a entrada é validada ANTES da transação/lock — motivo
+    # vazio é erro de formulário (400), não conflito de estado (409), e não
+    # pode custar um lock do mês nem gravar nada.
+    motivo_normalizado = _normalizar_motivo_do_estorno(motivo)
+
     with transaction.atomic():
         lancamento = LancamentoCaixa.objects.select_for_update().get(pk=lancamento.pk)
 
@@ -1037,6 +1142,10 @@ def estornar_lancamento_caixa(
             juros_previdencia=lancamento.juros_previdencia,
             criado_por=criado_por,
             estorno_de=lancamento,
+            # A-02 (DL-086): o motivo normalizado vai para os `detalhes` da
+            # trilha do registro `lancamento_caixa.estornado` (ver o bloco de
+            # comentários desta seção sobre por que a trilha, e não coluna).
+            motivo_estorno=motivo_normalizado,
             request=request,
             # M4 (DE-087 item 4): o estorno COPIA o original — nunca
             # revalida as regras de CPF/CNPJ contra o código ATUAL da

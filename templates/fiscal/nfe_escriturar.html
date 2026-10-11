@@ -111,7 +111,16 @@ serviço diz se a nota confere, e o servidor recusa de novo no POST, por mais qu
                     <button type="submit" class="botao botao--primario">Criar rascunho</button>
                 </form>
             {% else %}
-                <p class="texto-apoio">Seu papel consulta esta nota, mas não cria o rascunho.</p>
+                {% comment %}
+                DL-086 (A-03, direção de arte §2B): o estado "sem permissão" é desenhado — o botão
+                que sumia ensina a pessoa a duvidar da própria memória. Ele aparece desabilitado
+                com o motivo ao lado (padrão folhas_fator_r.html / tomada_escriturar.html). A
+                autorização de verdade continua no servidor: o POST recebe 403.
+                {% endcomment %}
+                <div class="acoes-formulario">
+                    <button type="button" class="botao botao--primario" disabled aria-describedby="id_motivo_rascunho">Criar rascunho</button>
+                </div>
+                <p class="texto-apoio" id="id_motivo_rascunho">Seu papel consulta esta nota, mas não cria o rascunho.</p>
             {% endif %}
         {% endif %}
 
@@ -381,7 +390,11 @@ serviço diz se a nota confere, e o servidor recusa de novo no POST, por mais qu
                         </div>
                     </form>
                 {% else %}
-                    <p class="texto-apoio">Seu papel consulta esta nota, mas não efetiva a escrituração.</p>
+                    {# DL-086 (A-03, §2B): desabilitado com motivo, nunca sumindo — como no "Criar rascunho" acima. #}
+                    <div class="acoes-formulario">
+                        <button type="button" class="botao botao--primario" disabled aria-describedby="id_motivo_efetivar_leitor">Efetivar escrituração</button>
+                    </div>
+                    <p class="texto-apoio" id="id_motivo_efetivar_leitor">Seu papel consulta esta nota, mas não efetiva a escrituração.</p>
                 {% endif %}
             {% endif %}
 
@@ -393,6 +406,15 @@ serviço diz se a nota confere, e o servidor recusa de novo no POST, por mais qu
                     <p>
                         <a class="botao botao--perigoso" href="{{ url_estornar }}">Estornar escrituração</a>
                     </p>
+                {% else %}
+                    {% comment %}
+                    DL-086 (A-03, §2B): para quem só consulta, o estorno não some — aparece
+                    desabilitado, no mesmo tom `--perigoso` (DE-101), com o motivo visível.
+                    {% endcomment %}
+                    <div class="acoes-formulario">
+                        <button type="button" class="botao botao--perigoso" disabled aria-describedby="id_motivo_estornar">Estornar escrituração</button>
+                    </div>
+                    <p class="texto-apoio" id="id_motivo_estornar">Seu papel consulta esta nota, mas não estorna a escrituração.</p>
                 {% endif %}
             {% endif %}
         {% endif %}

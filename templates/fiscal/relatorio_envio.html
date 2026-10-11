@@ -62,13 +62,17 @@ removida daqui. Ver DE-083 para o detalhe completo.
                         <td>{{ linha.resultado.get_resultado_display }}</td>
                         <td class="valor-quebravel">{{ linha.resultado.motivo|default:"—" }}</td>
                         <td>
+                            {% comment %}
+                            DL-086 (A-18, direção de arte §8.4b): link solto em célula de ação vira
+                            `.botao--secundario.botao--pequeno` (padrão notas_a_escriturar.html:103).
+                            O que identifica o documento/evento (código, nº, série, chave) continua
+                            texto: identifica, não age.
+                            {% endcomment %}
                             {% if linha.resultado.documento %}
-                                <a href="{% url 'fiscal_web:documento_detalhe' linha.resultado.documento.id %}">
-                                    Ver documento
-                                </a>
+                                <a class="botao botao--secundario botao--pequeno" href="{% url 'fiscal_web:documento_detalhe' linha.resultado.documento.id %}">Ver documento</a>
                             {% elif linha.resultado.evento %}
                                 Evento {{ linha.resultado.evento.codigo }}
-                                (<a href="{% url 'fiscal_web:evento_xml' linha.resultado.evento.id %}">XML</a>)
+                                <a class="botao botao--secundario botao--pequeno" href="{% url 'fiscal_web:evento_xml' linha.resultado.evento.id %}">Baixar XML</a>
                             {% elif linha.resultado.documento_nfe %}
                                 {{ linha.resultado.documento_nfe.get_modelo_display }}
                                 nº {{ linha.resultado.documento_nfe.numero }},
@@ -86,6 +90,20 @@ removida daqui. Ver DE-083 para o detalhe completo.
             </tbody>
         </table>
     {% else %}
-        <p>Nenhum arquivo foi processado neste envio.</p>
+        {% comment %}
+        DL-086 (A-12, direção de arte §8.4c): "Nenhum arquivo foi processado..." era prosa solta —
+        vira `.estado-vazio` com a anatomia completa. A saída do vazio é um novo envio (nada nesta
+        tela preenche a lista linha a linha deste lote): botão PRIMÁRIO para a Recepção, que nomeia
+        a consequência, e não só "Voltar" — o caminho de voltar já está na trilha acima.
+        {% endcomment %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Nenhum arquivo foi processado neste envio.</strong></p>
+            <p class="estado-vazio__descricao">
+                Sem linha por arquivo, não há o que conferir neste relatório. Os totais acima valem
+                para o lote; para conferir arquivo a arquivo, envie de novo pela Recepção.
+            </p>
+            <a class="botao botao--primario" href="{% url 'fiscal_web:recepcao' %}">Enviar outro arquivo</a>
+        </div>
     {% endif %}
 {% endblock %}

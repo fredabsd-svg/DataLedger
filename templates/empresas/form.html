@@ -119,6 +119,14 @@ DL-044 (Fase B): título migra para a faixa branca do topo.
                 </div>
             {% endif %}
         {% endfor %}
-        <button type="submit">Salvar</button>
+        {% comment %}
+        DL-086 (achado F-08, §8.4): o rótulo nomeia a consequência em vez do
+        genérico "Salvar". Este template é usado SÓ pela view de criação
+        (`criar_empresa`, apps/empresas/views.py — não existe tela de edição
+        de empresa que o compartilhe), então o rótulo é "Criar empresa";
+        se um dia houver modo de edição, ele precisa dizer "Salvar
+        alterações" no mesmo padrão.
+        {% endcomment %}
+        <button type="submit">Criar empresa</button>
     </form>
 {% endblock %}

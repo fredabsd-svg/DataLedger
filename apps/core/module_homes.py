@@ -904,7 +904,7 @@ def _dados_fiscal(request, escopo):
             total_documentos,
         )
     )
-    # DL-086 (I11 da revisão do fiscal): o banner descreve o que o módulo faz e o que ainda não
+    # DL-090 (I11 da revisão do fiscal): o banner descreve o que o módulo faz e o que ainda não
     # faz, para o contador não tomar a ausência de um cálculo por ausência de módulo. A lista
     # sai do código (DL-072 a DL-085); se uma DL mudar a capacidade, este texto muda junto.
     banners = [

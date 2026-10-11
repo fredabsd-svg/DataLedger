@@ -30,7 +30,9 @@ from decimal import Decimal
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.paginator import Paginator
 from django.db.models import Exists, OuterRef
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -79,6 +81,7 @@ from apps.livro_caixa.permissoes import (
     papel_pode_ler_livro_caixa,
 )
 from apps.livro_caixa.services import (
+    TAMANHO_MAXIMO_MOTIVO_ESTORNO,
     TAMANHO_MAXIMO_MOTIVO_REABERTURA,
     ChaveIdempotenciaConflitanteCaixa,
     FechamentoMesCaixaInvalido,
@@ -133,7 +136,27 @@ def _empresa_do_escritorio_ativo(request, empresa_id):
     elimina a consulta duplicada sem duas fontes de cache para o mesmo
     dado — o nome ("dl038") ficou do primeiro módulo a criar o cache, não
     é mais "propriedade" exclusiva da contabilidade.
+
+    DL-086 (BL-584): o papel que NÃO LÊ o módulo é checado ANTES de resolver
+    o id (e antes do cache). A ordem anterior (empresa → papel) era um
+    ORÁCULO DE EXISTÊNCIA: o CLIENTE recebia 403 para empresa existente do
+    próprio escritório e 404 para id inexistente, enumerando a carteira sem
+    poder lê-la — o mesmo achado medido na contabilidade (61 combinações de
+    rota e método, auditoria da DL-055), corrigido aqui pelo mesmo mecanismo
+    e pelo mesmo motivo: uma única guarda no helper cobre TODA rota do módulo
+    que carrega `empresa_id`, sem depender de cada view lembrar da ordem.
     """
+    # BL-584 (DL-086): recusa uniforme (403) para id existente e inexistente
+    # quando o papel não lê o livro-caixa. A uniformidade NÃO pode revelar o
+    # modo de escrituração — o B7 da DL-038 continua valendo: quem não lê não
+    # descobre nem que a empresa existe, nem se ela é livro-caixa ou
+    # contabilidade. Por isso a guarda roda AQUI, antes de qualquer consulta,
+    # e antes de `_sem_livro_caixa_para_contabilidade` (que só é chamado
+    # depois, com a empresa já resolvida — ver o docstring daquele helper).
+    # Para papel que LÊ, nada muda: empresa de outro escritório ou id
+    # inexistente continua 404 (isolamento, critério 2 da DL-015).
+    if not _pode_ler(request):
+        raise PermissionDenied("Seu papel não permite ler o livro-caixa desta empresa.")
     cache = getattr(request, "_dl038_cache_empresa_do_escritorio_ativo", None)
     if cache is None:
         cache = {}
@@ -310,6 +333,41 @@ def _decimal_do_formulario(texto):
         )
     traduzido = bruto.replace(".", "").replace(",", ".")
     return para_decimal(traduzido)
+
+
+# A-09 (DL-086): rótulo pt-BR de cada campo do formulário de lançamento,
+# copiado dos <label> de templates/livro_caixa/lancamento_form.html. A recusa
+# dizia "'valor_irrf' inválido" — o NOME DO PARÂMETRO da API, que o contador
+# nunca viu na tela: ele procura o campo pelo rótulo que lê, e uma recusa que
+# nomeia outra coisa o faz duvidar de qual campo errou (direção de arte §2B:
+# "erro é texto, com o que fazer a seguir"). O mapa também traduz as mensagens
+# que vêm do SERVIÇO (`services._valor_monetario_opcional` fala o nome do
+# campo porque a API o expõe), para a tela nunca mostrar nome técnico — uma
+# tradução só, aqui na fronteira da tela, sem tocar no contrato da API.
+_ROTULOS_DOS_CAMPOS_DO_LANCAMENTO_CAIXA = {
+    "data": "Data",
+    "valor": "Valor",
+    "valor_irrf": "Valor do IRRF retido (só receita de PJ)",
+    "competencia_previdencia": "Competência da previdência oficial",
+    "multa_previdencia": "Multa paga com a previdência oficial",
+    "juros_previdencia": "Juros pagos com a previdência oficial",
+}
+
+
+def _rotulo_do_campo_de_lancamento(nome_tecnico):
+    """Rótulo que a TELA mostra para o campo; sem entrada no mapa, devolve o
+    próprio nome (nunca `None` nem chave vazia numa mensagem ao contador)."""
+    return _ROTULOS_DOS_CAMPOS_DO_LANCAMENTO_CAIXA.get(nome_tecnico, nome_tecnico)
+
+
+def _recusa_do_lancamento_em_lingua_de_escritorio(mensagem):
+    """A-09 (DL-086): troca o nome técnico ENTRE ASPAS simples ('valor_irrf')
+    pelo rótulo da tela numa mensagem que vem do serviço. Só os campos deste
+    formulário entram no mapa; qualquer outro trecho da mensagem é preservado
+    (a mensagem continua sendo a do serviço — uma regra, uma voz)."""
+    for nome_tecnico, rotulo in _ROTULOS_DOS_CAMPOS_DO_LANCAMENTO_CAIXA.items():
+        mensagem = mensagem.replace(f"'{nome_tecnico}'", rotulo)
+    return mensagem
 
 
 # ---------------------------------------------------------------------------
@@ -681,13 +739,19 @@ def lancamento_caixa_novo(request, empresa_id):
                     _valor_monetario_opcional_do_formulario(request.POST.get(nome_do_campo, ""))
                 )
             except ValorMonetarioInvalido as exc:
-                return _recusa(f"'{nome_do_campo}' inválido: {exc}")
+                # A-09 (DL-086): o rótulo que o contador LÊ na tela, mais o
+                # que fazer (a mensagem do helper já diz a gramática aceita e
+                # dá o exemplo "1.000,00").
+                return _recusa(f"{_rotulo_do_campo_de_lancamento(nome_do_campo)}: {exc}")
 
         data_texto = request.POST.get("data", "")
         try:
             data_lancamento = para_data(data_texto)
         except DataInvalida as exc:
-            return _recusa(f"'data' inválida: {exc}")
+            # A-09 (DL-086): "'data' inválida" é o nome do parâmetro; o campo
+            # na tela se chama "Data", e a recusa precisa dizer o que fazer.
+            rotulo = _rotulo_do_campo_de_lancamento("data")
+            return _recusa(f"{rotulo}: {exc} Escolha a data no calendário do campo.")
 
         try:
             lancamento = criar_lancamento_caixa(
@@ -730,9 +794,19 @@ def lancamento_caixa_novo(request, empresa_id):
             # `para_data` (a `data` do lançamento já é convertida antes) —
             # mesma mensagem do campo vizinho, para os dois não contarem
             # histórias diferentes do mesmo tipo de erro.
-            return _recusa(f"'competencia_previdencia' inválida: {exc}")
+            # A-09 (DL-086): rótulo da tela + o que fazer (mesma instrução do
+            # texto de apoio do campo em lancamento_form.html).
+            rotulo = _rotulo_do_campo_de_lancamento("competencia_previdencia")
+            return _recusa(
+                f"{rotulo}: {exc} Informe o primeiro dia do mês de competência "
+                "(01/03/2026 para março de 2026)."
+            )
         except LancamentoCaixaInvalido as exc:
-            return _recusa(str(exc))
+            # A-09 (DL-086): o serviço fala o nome do campo ('valor_irrf' não
+            # pode ser negativo) porque a API expõe esse nome; a TELA traduz
+            # para o rótulo que o contador lê. A regra continua sendo uma só,
+            # a do serviço — aqui só a língua da fronteira.
+            return _recusa(_recusa_do_lancamento_em_lingua_de_escritorio(str(exc)))
 
         if lancamento.criado_agora:
             messages.success(
@@ -753,6 +827,23 @@ def lancamento_caixa_novo(request, empresa_id):
 # ---------------------------------------------------------------------------
 # Lista de lançamentos do período, com ação "Estornar" (item 3 do FAZER)
 # ---------------------------------------------------------------------------
+
+
+# A-15 (DL-086): o mesmo tamanho de página das listas do Fiscal
+# (`apps.fiscal.views_web.ITENS_POR_PAGINA`), copiado por VALOR pelo mesmo
+# motivo do cabeçalho deste módulo — livro-caixa não deve importar constante
+# privada de outro módulo; os dois mudam de tamanho independentemente.
+ITENS_POR_PAGINA = 25
+
+
+def _querystring_sem_pagina(request):
+    """Querystring atual, sem 'pagina' — para os links de paginação
+    preservarem os filtros ativos sem acumular 'pagina' repetida (A-15,
+    DL-086; mesmo contrato de `apps.fiscal.views_web._querystring_sem_pagina`,
+    cópia local pelo motivo do cabeçalho deste módulo)."""
+    dados = request.GET.copy()
+    dados.pop("pagina", None)
+    return dados.urlencode()
 
 
 def _periodo_do_formulario_caixa(request):
@@ -801,6 +892,11 @@ def lancamentos_caixa_lista(request, empresa_id):
         "pode_escriturar": _pode_escriturar(request),
         "inicio": inicio,
         "fim": fim,
+        # A-12 (DL-086): o período PADRÃO (mês atual, sem querystring) é vazio
+        # de DADO; o período pedido na querystring é vazio por FILTRO. O
+        # template escolhe por aqui o botão de saída do `.estado-vazio`
+        # (primário cria dado; secundário sai do filtro) — direção de arte §8.4c.
+        "periodo_filtrado": bool(request.GET.get("inicio") or request.GET.get("fim")),
     }
     if inicio is None or fim is None:
         messages.error(request, "O período informado não pôde ser usado.")
@@ -813,12 +909,23 @@ def lancamentos_caixa_lista(request, empresa_id):
     # estornado?" para todas as linhas de uma vez, número de consultas
     # CONSTANTE em relação à quantidade de lançamentos — mesmo padrão que
     # `apurar_livro_caixa` (services.py) já segue para esta lista.
-    lancamentos = list(
+    lancamentos_do_periodo = (
         LancamentoCaixa.objects.filter(empresa=empresa, data__gte=inicio, data__lte=fim)
         .select_related("conta")
         .annotate(_tem_estorno=Exists(LancamentoCaixa.objects.filter(estorno_de=OuterRef("pk"))))
         .order_by("-data", "-id")
     )
+    # A-15 (DL-086): período arbitrário podia renderizar a lista INTEIRA numa
+    # página só — agora o `Paginator` corta no servidor (25 por página, mesmo
+    # tamanho e mesmo contrato de querystring, 'pagina', das listas do fiscal).
+    # `get_page` normaliza 'pagina' inválida sem404 (mesmo comportamento das
+    # listas do fiscal); a única consulta a mais por requisição é o COUNT, e é
+    # CONSTANTE — a guarda N33/N38 (número de consultas entre 1 e 40
+    # lançamentos) continua valendo.
+    pagina = Paginator(lancamentos_do_periodo, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
+    contexto["pagina"] = pagina
+    contexto["querystring_sem_pagina"] = _querystring_sem_pagina(request)
+    lancamentos = list(pagina.object_list)
     # DL-053, critério 7: o mês encerrado aparece como encerrado e a ação de
     # estornar NÃO é oferecida nele (o estorno usa a data do original, então
     # exigiria reabrir o mês). Uma consulta para o intervalo inteiro; a
@@ -856,11 +963,18 @@ def lancamentos_caixa_lista(request, empresa_id):
     return render(request, "livro_caixa/lancamentos_lista.html", contexto)
 
 
-def _contexto_lancamento_estornar(empresa, lancamento):
+def _contexto_lancamento_estornar(empresa, lancamento, motivo=""):
     return {
         "empresa": empresa,
         "lancamento": lancamento,
         "valor_ptbr": _valor_ptbr(lancamento.valor),
+        # A-02 (DL-086): o motivo digitado VOLTA para o textarea quando a
+        # requisição é recusada — arquétipo B da direção de arte (§2): "o
+        # formulário não some quando dá erro: o que a pessoa digitou continua
+        # lá". `motivo_maximo` alimenta o `maxlength` do campo e o texto de
+        # apoio, mesmo desenho de `templates/fiscal/nfe_estornar.html`.
+        "motivo": motivo,
+        "motivo_maximo": TAMANHO_MAXIMO_MOTIVO_ESTORNO,
         # DL-053: o estorno usa a data do ORIGINAL; se o mês dela está
         # encerrado a tela explica e não oferece o botão (informativo — o
         # servidor recusa o POST de qualquer forma, com 409).
@@ -877,6 +991,19 @@ def _contexto_lancamento_estornar(empresa, lancamento):
 def _texto_do_mes_posterior_encerrado(empresa, lancamento):
     mes = _primeiro_mes_posterior_encerrado(empresa, lancamento.data.year, lancamento.data.month)
     return None if mes is None else f"{mes:02d}/{lancamento.data.year}"
+
+
+# A-02 (DL-086): o estorno passa a carregar o MOTIVO obrigatório no corpo —
+# mesmo contrato dos cinco estornos fiscais (`_CONTRATO_ESTORNAR_NFE` e irmãos,
+# apps/fiscal/views_web.py). Sem esta entrada o contrato recusaria (400) o
+# próprio formulário da tela.
+_CONTRATO_DO_ESTORNO_DE_LANCAMENTO_CAIXA = ContratoDeRequisicao(
+    campos=frozenset({"csrfmiddlewaretoken", "motivo"}),
+    aceita_arquivo=False,
+    aceita_querystring=False,
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no estorno de lançamento de caixa",
+)
 
 
 @login_required
@@ -896,27 +1023,29 @@ def lancamento_caixa_estornar(request, empresa_id, lancamento_id):
     lancamento = get_object_or_404(LancamentoCaixa, pk=lancamento_id, empresa=empresa)
 
     if request.method == "POST":
+        # B1 (reconferência da DL-086): o motivo é lido ANTES do contrato
+        # para que TODO caminho de erro preserve o digitado (arquétipo B, §2
+        # — "o formulário não some quando dá erro"), inclusive a violação de
+        # contrato, que renderizava sem o texto digitado.
+        motivo = request.POST.get("motivo", "")
         try:
-            recusar_dado_nao_contratado(
-                request,
-                ContratoDeRequisicao(
-                    campos=frozenset({"csrfmiddlewaretoken"}),
-                    aceita_arquivo=False,
-                    aceita_querystring=False,
-                    cabecalhos_ignorados=("Idempotency-Key",),
-                    contexto="no estorno de lançamento de caixa",
-                ),
-            )
+            recusar_dado_nao_contratado(request, _CONTRATO_DO_ESTORNO_DE_LANCAMENTO_CAIXA)
         except DadoNaoContratado as exc:
             messages.error(request, exc.mensagem)
             return render(
                 request,
                 "livro_caixa/lancamento_estornar.html",
-                _contexto_lancamento_estornar(empresa, lancamento),
+                _contexto_lancamento_estornar(empresa, lancamento, motivo=motivo),
                 status=400,
             )
+        # A-02 (DL-086): o motivo é VALIDADO NO SERVIÇO
+        # (`services._normalizar_motivo_do_estorno`) — vazio, só espaços ou
+        # acima do teto volta como `LancamentoCaixaInvalido` (400), sem
+        # estornar. Uma regra só, shared com a API (AGENTS.md §8).
         try:
-            estornar_lancamento_caixa(lancamento, criado_por=request.user, request=request)
+            estornar_lancamento_caixa(
+                lancamento, motivo=motivo, criado_por=request.user, request=request
+            )
         except MesCaixaEncerrado as exc:
             # DL-053, critério 2: estorno de lançamento de mês encerrado —
             # 409, nada gravado; reabrir o mês é o caminho (RC-130).
@@ -942,18 +1071,26 @@ def lancamento_caixa_estornar(request, empresa_id, lancamento_id):
             return render(
                 request,
                 "livro_caixa/lancamento_estornar.html",
-                _contexto_lancamento_estornar(empresa, lancamento),
+                _contexto_lancamento_estornar(empresa, lancamento, motivo=motivo),
                 status=409,
             )
         except LancamentoCaixaInvalido as exc:
+            # A-02 (DL-086): inclui a recusa do MOTIVO (vazio/só espaços/
+            # acima do teto) e as recusas que já existiam (lançamento que já
+            # é um estorno, já estornado, data fora do mês do original). O
+            # que foi digitado volta no formulário; nada foi gravado.
             messages.error(request, str(exc))
             return render(
                 request,
                 "livro_caixa/lancamento_estornar.html",
-                _contexto_lancamento_estornar(empresa, lancamento),
+                _contexto_lancamento_estornar(empresa, lancamento, motivo=motivo),
                 status=400,
             )
-        messages.success(request, f"Lançamento nº {lancamento.id} estornado com sucesso.")
+        messages.success(
+            request,
+            f"Lançamento nº {lancamento.id} estornado com sucesso. O motivo do estorno "
+            "ficou registrado na trilha de auditoria.",
+        )
         return redirect("livro_caixa_web:lancamentos", empresa_id=empresa.id)
 
     return render(

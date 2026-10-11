@@ -106,7 +106,13 @@ mesmo critério das telas de fechamento de competência da contabilidade.
             <input type="hidden" name="ano" value="{{ ano }}">
             <input type="hidden" name="mes" value="{{ mes }}">
             <div class="acoes-de-linha">
-                <button type="submit" class="botao botao--primario">Encerrar mês {{ mes|stringformat:"02d" }}/{{ ano }}</button>
+                {% comment %}
+                A-08 (DL-086, DE-101): encerrar/fechar período é ação SENSÍVEL —
+                mesmo tom `--perigoso` de reabrir/estornar/entregar em todo o
+                produto. O rótulo já nomeia a consequência (o mês/ano), então só
+                o TOM mudou.
+                {% endcomment %}
+                <button type="submit" class="botao botao--perigoso">Encerrar mês {{ mes|stringformat:"02d" }}/{{ ano }}</button>
                 <a class="botao botao--fantasma" href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}?ano={{ ano }}">Cancelar</a>
             </div>
         </form>

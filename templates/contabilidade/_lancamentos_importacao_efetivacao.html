@@ -69,8 +69,15 @@ recusa de novo antes de gravar.
                 <form method="post" action="{% url 'contabilidade_web:lancamentos_importacao_efetivar' empresa.id importacao.id %}" class="formulario">
                     {% csrf_token %}
                     <input type="hidden" name="politica" value="{{ politica_tudo_ou_nada }}">
-                    <div class="campo campo-checkbox">
-                        <label class="campo-checkbox__opcao">
+                    {% comment %}
+                    DL-086 (F-06): `.campo--caixa` — o componente pronto de
+                    confirmação — no lugar de `.campo-checkbox`, que não existe
+                    em CSS nenhum (sem ele, a frase de confirmação caía no
+                    negrito de `.campo label`). Mesmo padrão de
+                    competencia_entregar.html.
+                    {% endcomment %}
+                    <div class="campo campo--caixa">
+                        <label>
                             <input type="checkbox" name="confirmar" value="sim" required>
                             Os {{ tudo_ou_nada.quantidade }} lançamentos serão gravados no Diário e não poderão ser alterados — só estornados.
                         </label>

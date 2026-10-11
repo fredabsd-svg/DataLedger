@@ -114,10 +114,20 @@
         </table>
         </div>
     {% else %}
+        {% comment %}
+        A-24 (DL-086): este `.estado-vazio` tinha um `<p>` solto dentro — fora
+        da anatomia do componente (direção de arte §8.4c: ícone, título,
+        descrição). Sem botão de saída porque a ação que tira a tela do vazio
+        (o formulário "Registrar nova vigência") é o bloco logo abaixo, na
+        própria tela.
+        {% endcomment %}
         <div class="estado-vazio">
-            <p>Esta empresa ainda não tem nenhuma quantidade de dependentes registrada — a
-            apuração do carnê-leão considera zero dependentes em todo mês até o primeiro
-            registro.</p>
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-contabilidade"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Esta empresa ainda não tem nenhuma quantidade de dependentes registrada.</strong></p>
+            <p class="estado-vazio__descricao">
+                A apuração do carnê-leão considera zero dependentes em todo mês até o primeiro
+                registro.
+            </p>
         </div>
     {% endif %}
 
@@ -144,7 +154,12 @@
                 </div>
             {% endfor %}
             <div class="acoes-formulario">
-                <button type="submit">Salvar</button>
+                {% comment %}
+                A-19 (DL-086): "Salvar" não nomeava a consequência (direção de
+                arte §8.4). Este formulário grava UMA VIGÊNCIA da quantidade de
+                dependentes — por isso o rótulo diz exatamente isso.
+                {% endcomment %}
+                <button type="submit">Registrar vigência dos dependentes</button>
             </div>
         </form>
     {% endif %}

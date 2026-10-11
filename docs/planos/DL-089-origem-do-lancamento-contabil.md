@@ -111,8 +111,8 @@ são do arquiteto (§3.1), com testes em
   importação, importação de lançamentos, zeramento do resultado), e a trilha
   grava o critério (`origem`, `chave_importacao`, `chave_zeramento`,
   `vinculo_importacao`).
-- **R4:** HI-150 atualizada; DE-102 registra A1, A2 e R1; A4 foi para o
-  BL-691.
+- **R4:** HI-150 atualizada; DE-104 registra A1, A2 e R1; A4 foi para o
+  BL-700.
 - **R5:** banco de desenvolvimento que aplicou a 0026 antiga precisa ser
   recriado. A 0026 não está na `main`, então nenhum ambiente compartilhado a
   aplicou.

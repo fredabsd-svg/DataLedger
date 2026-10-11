@@ -63,6 +63,13 @@ from apps.livro_caixa.tests.test_dl053_fechamento_do_mes import (  # noqa: F401
 )
 from apps.tenancy.models import Papel
 
+# A-02 (DL-086): o estorno do livro-caixa passou a exigir MOTIVO (validado no
+# serviço, gravado nos `detalhes` da trilha de auditoria). Nestes arquivos o
+# motivo é sintético: o que eles medem é outra regra (encadeamento, mês
+# encerrado, imutabilidade, apuração), não o texto do motivo — esse tem teste
+# próprio em test_dl086_estorno_com_motivo.py.
+MOTIVO = "Estorno sintético do teste."
+
 pytestmark = pytest.mark.django_db
 
 so_postgresql = pytest.mark.skipif(
@@ -215,7 +222,7 @@ def test_sql_direto_no_lancamento_e_recusado_e_nada_muda(cenario, sql):
 @so_postgresql
 def test_o_estorno_tambem_e_imutavel_e_o_original_fica_intacto(cenario):
     original = _lancar(cenario, date(2026, 3, 10))
-    estorno = estornar_lancamento_caixa(original, criado_por=cenario["gestor"])
+    estorno = estornar_lancamento_caixa(original, criado_por=cenario["gestor"], motivo=MOTIVO)
     antes = (_linha(LancamentoCaixa, original.pk), _linha(LancamentoCaixa, estorno.pk))
 
     _recusado(
@@ -415,7 +422,7 @@ def test_lancar_estornar_encerrar_reabrir_cascata_e_reencerrar_continuam_funcion
     """O ciclo inteiro de escrita do livro-caixa, pelos serviços. Em PostgreSQL
     roda com o gatilho ligado; em SQLite é o mesmo roteiro sem gatilho."""
     original = _lancar(cenario, date(2026, 1, 10))
-    estorno = estornar_lancamento_caixa(original, criado_por=cenario["gestor"])
+    estorno = estornar_lancamento_caixa(original, criado_por=cenario["gestor"], motivo=MOTIVO)
     assert estorno.estorno_de_id == original.pk
 
     # INSERT do fechamento (nenhum UPDATE ainda).
@@ -442,7 +449,7 @@ def test_lancar_estornar_encerrar_reabrir_cascata_e_reencerrar_continuam_funcion
 
     # Mês reaberto aceita lançamento de novo; o estorno também.
     novo = _lancar(cenario, date(2026, 1, 20), valor="30.00")
-    estornar_lancamento_caixa(novo, criado_por=cenario["gestor"])
+    estornar_lancamento_caixa(novo, criado_por=cenario["gestor"], motivo=MOTIVO)
 
     # Reencerrar reaproveita a linha: UPDATE de `fechado_em`/`fechado_por` por OUTRO
     # usuário (aberto -> encerrado).

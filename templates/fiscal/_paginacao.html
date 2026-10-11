@@ -1,5 +1,11 @@
 {% comment %}
-Paginação compartilhada das duas listas do Fiscal (envios e documentos).
+Paginação compartilhada das listas longas do produto — hoje as duas do
+Fiscal (envios e documentos), a conferência de importação da contabilidade
+(`lancamentos_importacao.html`) e a lista de lançamentos do livro-caixa
+(`lancamentos_lista.html`, A-15 da DL-086). GENÉRICA de propósito: só
+`pagina` e `querystring_sem_pagina`, nenhum dado de domínio — quem tem
+lista longa inclui este arquivo em vez de copiá-lo (DL-086: o cabeçalho
+antigo dizia "duas listas do Fiscal" e já era desmentido pelos usos).
 Sem JavaScript (R6 da DL-026/direção de arte, §4.6): dois links simples,
 "Anterior"/"Próxima", que preservam os filtros ativos (`querystring_sem_
 pagina`, montada pela view a partir de `request.GET` sem a chave 'pagina') e

@@ -28,6 +28,15 @@ Variáveis: `empresas_do_escritorio`, `empresa_filtro_bruto`, `ano_filtro`, `mes
                maxlength="2" aria-describedby="id_competencia_ajuda">
     </div>
     <button type="submit">Consultar</button>
+    {% if algum_filtro_ativo %}
+        {% comment %}
+        DL-086 (A-14, §8.4): "Limpar filtros" em `.botao--fantasma` só com filtro ativo além do
+        padrão — a decisão é da VIEW (`algum_filtro_ativo` contra o padrão da tela;
+        `url_limpar_filtros` preserva a empresa de contexto, padrão nfe_lista.html), nunca
+        derivada da querystring aqui.
+        {% endcomment %}
+        <a class="botao botao--fantasma" href="{{ url_limpar_filtros }}">Limpar filtros</a>
+    {% endif %}
     <p class="texto-apoio" id="id_competencia_ajuda">
         Competência da receita: ano (AAAA) e mês (1 a 12), juntos. Sem eles, a tela usa o mês corrente.
     </p>

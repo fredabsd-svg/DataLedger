@@ -800,7 +800,7 @@ def test_homes_compartilhadas_tem_moldura_acessivel(client, cenario, modulo, lis
 
 
 # ---------------------------------------------------------------------------
-# DL-086 (I11 da revisão do fiscal): o banner do módulo fiscal diz o que existe
+# DL-090 (I11 da revisão do fiscal): o banner do módulo fiscal diz o que existe
 # e o que não existe. A afirmação antiga ("só recebe NFS-e" e "apuração ainda
 # não disponível") não pode voltar. Os trechos abaixo são conferidos contra o
 # código: cada capacidade citada tem uma DL que a entregou.

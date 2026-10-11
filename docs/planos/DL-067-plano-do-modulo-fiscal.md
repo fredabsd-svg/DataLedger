@@ -121,7 +121,7 @@ registrado até ele mudar.**
    de janeiro de 2027. ⚠️ **O texto oficial da NT não foi lido** — a fonte é
    secundária (escritório de advocacia e Senior). Proposta: emendar FIS-29 a
    FIS-34 em demanda própria, depois de ler a NT no portal do SPED.
-   **Decisão ainda com o Fred** (atualizado em 09/10/2026, DL-086): a pergunta
+   **Decisão ainda com o Fred** (atualizado em 09/10/2026, DL-090): a pergunta
    está em [PE-90](../projeto/requisitos.md) e a recomendação do
    `contador-senior`, em [HI-145](../projeto/requisitos.md). A recomendação
    vale até ele decidir: não construir a apuração de PIS/Cofins para out a
@@ -1038,7 +1038,7 @@ nível 1, e PR para a `main`.
 | 11 | [DL-085](DL-085-escrituracao-de-nfe-em-volume.md) | Escrituração de NF-e e NFC-e em volume: prévia por grupo, confirmação em bloco, efetivação em partes, medida (RC-173) | 1 | 10 |
 | 12 | [DL-082](DL-082-pre-das-de-comercio-e-industria.md) | Pré-DAS de comércio e indústria (Anexos I e II) com segregação | 1 | 10 |
 | 13 | [DL-084](DL-084-rotina-do-presumido.md) | Rotina do Presumido: dias sem expediente bancário, feriados locais, coerência da CSLL retida, retenção tardia, competência da receita informada, parâmetros por empresa (RC-172) | 1 | 7 |
-| 14 | [DL-086](DL-086-documentacao-e-painel-do-fiscal.md) | Documentação e painel do fiscal alinhados ao código (RC-175) | 3 | — |
+| 14 | [DL-090](DL-090-documentacao-e-painel-do-fiscal.md) | Documentação e painel do fiscal alinhados ao código (RC-175) | 3 | — |
 | 15 | [DL-087](DL-087-classificacao-fiscal-versionada.md) | Classificação fiscal versionada e regras de importação, corte 1, sem mudar comportamento (o "acumulador" do DataLedger; RC-175) | 1 | 11 e 12 |
 | 16 | [DL-089](DL-089-origem-do-lancamento-contabil.md) | Origem e documento de origem do lançamento contábil (BL-72, BL-73), pré-requisito da integração | 1 | — |
 | 17 | [DL-088](DL-088-virada-de-2027-no-simples.md) | Virada de 2027 no Simples: tabelas 2027-2028 lidas no DOU, RBT12 defasado, CBS/IBS no DAS, regime regular, receita de NF-e 2027 no regime único | 1 | 11 e 12 |

@@ -27,3 +27,16 @@
 *.md text eol=lf
 *.toml text eol=lf
 *.py text eol=lf
+
+# Dado byte-exato nunca é convertido (DL-086): `-text` desliga toda conversão
+# de fim de linha nos dois sentidos — o checkout devolve os bytes do blob.
+#
+# - `apps/fiscal/dados/*.csv`: a tabela de CFOP é conferida pelo sha256 do
+#   ARQUIVO (DL-081, `apps/fiscal/tests/test_dl081_cfop.py`); com
+#   `core.autocrlf=true` o clone Windows fazia checkout em CRLF e o digest
+#   não batia.
+# - Fixtures do Carnê-Leão: cópia byte a byte dos modelos oficiais da RFB
+#   (ISO-8859-1 + CRLF, ver o README da pasta) e oráculo de testes que leem
+#   bytes — qualquer conversão as desfiguraria em silêncio.
+apps/fiscal/dados/*.csv -text
+apps/livro_caixa/tests/fixtures/**/*.csv -text

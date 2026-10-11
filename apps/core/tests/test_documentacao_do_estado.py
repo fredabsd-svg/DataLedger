@@ -168,7 +168,7 @@ def test_readme_nao_repete_afirmacoes_ja_desmentidas(afirmacao, por_que_e_falsa)
     )
 
 
-# DL-086 (revisão do fiscal, de 09/10/2026, itens I1, I2, I5 e I6): descrições do módulo
+# DL-090 (revisão do fiscal, de 09/10/2026, itens I1, I2, I5 e I6): descrições do módulo
 # fiscal que o código desmentiu. Vale para o README e para o estado, que são os dois lugares
 # que um agente lê primeiro. Cada frase foi conferida como ausente dos dois arquivos quando
 # foi escrita; a guarda existe para ela não voltar.

@@ -123,13 +123,24 @@
        uma legenda" não isenta ninguém (direcao-de-arte.md §1). --- */
     --tinta: #1C1A16;          /* 16,37:1 sobre --papel; 14,86:1 sobre --papel-alt */
     --tinta-suave: #55504A;    /* 7,52:1 sobre --papel — texto secundário */
-    --tinta-media: #6E695F;    /* 5,14:1 sobre --papel; 4,67:1 sobre --papel-alt — texto auxiliar REAL, não decorativo */
+    --tinta-media: #6A655B;    /* 5,46:1 sobre --papel; 4,95:1 sobre --papel-alt;
+       5,79:1 sobre --papel-elevado; 4,75:1 sobre --app-fundo; 5,12:1 sobre
+       --app-superficie-alt — texto auxiliar REAL, não decorativo.
+       DL-086 (achado A-01): o valor anterior (#6E695F) foi calculado para o
+       canvas bege e dava 4,47:1 sobre --app-fundo — abaixo dos 4,5:1 que
+       este comentário prometia — desde que a 3ª iteração da DL-044 mudou o
+       canvas de TODA tela logada para o cinza-azulado. Escurecido um degrau
+       (o menor que fecha todos os pares com margem), pares remediados pela
+       fórmula de luminância relativa WCAG nesta etapa. */
 
     /* --- Acento: UMA só tinta, para ação principal e foco. Se aparecer uma
        segunda cor de acento, a direção foi quebrada (direcao-de-arte §1). --- */
     --acento: #1D3A6E;         /* 10,51:1 sobre --papel (link) */
     --acento-escuro: #142A50;  /* hover/active do botão primário */
-    --acento-suave: #E4EAF3;   /* fundo de destaque leve (ex.: linha selecionada) */
+    /* DL-086 (achado A-03): `--acento-suave` (#E4EAF3, "fundo de destaque
+       leve") removido — token ÓRFÃO, zero `var(--acento-suave)` no produto
+       (medido por busca em todos os CSS e templates). O destaque leve real
+       do app logado é `--app-acento-suave`, abaixo. */
     --acento-texto: #FFFFFF;   /* 11,15:1 sobre --acento — texto do botão primário */
 
     /* --- Acento do APP LOGADO (DL-044, 3ª iteração — referência escolhida
@@ -701,11 +712,26 @@ summary:focus,
    esta regra em nenhum estado — cada `.botao--*`/`.botao--*:hover`
    continua sendo a ÚNICA fonte de cor para si mesmo, exatamente como já
    era fora de `.area-principal` (landing, que nunca usa `.botao`). */
-.barra-lateral ~ .area-principal a:not(.botao) {
+/* DL-086 (achado F-01): a MESMA classe de defeito do `.botao--primario`,
+   quarta ocorrência, agora nos CARTÕES que são links inteiros —
+   `.cartao-de-relatorio` (hub de relatórios), `.tile-de-modulo` (Início),
+   `.indicador-do-painel` (faixa de indicadores) e `.mh-kpi` (module home)
+   declaram `color: var(--tinta)` com especificidade 0-1-0 e perdiam para
+   esta regra: título, número e rótulo saíam azul-vívido em vez de tinta,
+   invertendo a hierarquia "o número é o herói, tinta primeiro". Mesmo
+   remédio do botão: `:not()` EXCLUI o cartão da correspondência e a
+   declaração do próprio cartão volta a valer — links de PROSA dentro do
+   cartão (ex.: `.fila-categoria__itens a`) continuam azuis, que é o papel
+   deles. Cartão novo que for link inteiro entra nesta lista.
+   ⚠️ A regra de IMPRESSÃO que espelha este seletor (dentro de
+   `@media print`, no fim deste arquivo) precisa carregar a MESMA cadeia de
+   `:not()` — ela vence por empate de especificidade + ordem, e o empate
+   deixa de existir se as duas divergirem. */
+.barra-lateral ~ .area-principal a:not(.botao):not(.cartao-de-relatorio):not(.tile-de-modulo):not(.indicador-do-painel):not(.mh-kpi) {
     color: var(--app-acento);
 }
 
-.barra-lateral ~ .area-principal a:not(.botao):hover {
+.barra-lateral ~ .area-principal a:not(.botao):not(.cartao-de-relatorio):not(.tile-de-modulo):not(.indicador-do-painel):not(.mh-kpi):hover {
     color: var(--app-acento-escuro);
 }
 
@@ -793,8 +819,11 @@ summary:focus,
     color: var(--tinta-media);
 }
 
-.contexto-item strong,
-.contexto-operacao strong {
+/* DL-086 (achado A-03): o seletor `.contexto-operacao strong` foi removido
+   desta regra — classe morta (zero usos em templates desde a reescrita da
+   moldura na DL-042); `.contexto-item` segue vivo (pílulas da faixa de
+   contexto e timbre de impressão). */
+.contexto-item strong {
     color: var(--tinta);
     font-weight: 700;
 }
@@ -1044,9 +1073,10 @@ a.marca:hover {
     border-left-color: var(--bl-texto);
 }
 
-.navegacao-principal kbd.tecla {
-    margin-left: auto;
-}
+/* DL-086 (achado A-03): `.navegacao-principal kbd.tecla { margin-left:
+   auto }` removida — `kbd.tecla` é visualmente oculto desde a DL-044
+   (regra `kbd.tecla` mais abaixo, com o histórico B2/BL-283), então a
+   margem empurrava uma caixa de 1px invisível. */
 
 /* DL-040/DL-042: menu estruturado por módulo, com submenu em dropdown
    NATIVO (<details>/<summary> — sem JavaScript nenhum: R6 da direção de
@@ -1151,13 +1181,13 @@ a.marca:hover {
     background: var(--bl-hover);
 }
 
-/* Item ATUAL do submenu (`.item-atual`, mesma classe que
-   `.navegacao-empresa` usa para virar aba — ver o comentário lá): aqui,
-   dentro da barra escura, ganha o MESMO fundo+barra de destaque que o
-   primeiro nível já tinha (`.navegacao-principal a[aria-current]`),
-   nunca só negrito solto (que já é a regra genérica de `.item-atual`,
-   insuficiente sozinha dentro de um menu de navegação — precisa do MESMO
-   sinal visual que "isto está selecionado" já dá nos outros níveis). */
+/* Item ATUAL do submenu (`.item-atual`, regra base mais abaixo neste
+   arquivo): aqui, dentro da barra escura, ganha o MESMO fundo+barra de
+   destaque que o primeiro nível já tinha (`.navegacao-principal
+   a[aria-current]`), nunca só negrito solto (que já é a regra genérica de
+   `.item-atual`, insuficiente sozinha dentro de um menu de navegação —
+   precisa do MESMO sinal visual que "isto está selecionado" já dá nos
+   outros níveis). */
 .menu-dropdown ul .item-atual,
 .menu-dropdown__paineis .item-atual {
     display: flex;
@@ -1353,115 +1383,94 @@ kbd.tecla {
     transform: rotate(180deg);
 }
 
-/* Marca/gatilho móveis: existem no DOM sempre (irmãos de `.barra-lateral`,
-   nunca dentro dela), mas só aparecem ≤48rem — ver o `@media` no fim deste
-   arquivo. Acima do breakpoint não fazem sentido nenhum (a marca já mora
-   dentro da barra, sempre visível). */
-.marca--movel,
-.menu-movel-gatilho {
+/* DL-086 (achado C-04): o nome acessível do alternador dizia "Recolher
+   menu" mesmo com a barra JÁ recolhida — o anúncio não refletia o estado.
+   Dois spans no mesmo label (templates/base.html), um por estado, e a
+   troca é feita por `display` (não por `.visualmente-oculto`): o span com
+   `display: none` sai da árvore de acessibilidade, então o nome acessível
+   do controle é sempre o verbo da ação que ele VAI executar. Sem
+   JavaScript — o `:checked ~` é o mesmo das regras acima. */
+.rotulo-alternador-expandir {
     display: none;
 }
 
-/* Navegação contextual da empresa (Plano de contas/Diário/Balancete/
-   Conferência/Novo lançamento — templates/contabilidade/
-   _navegacao_empresa.html): mesmo tratamento visual da navegação
-   principal do cabeçalho, mas vive no início do conteúdo porque depende
-   de uma empresa (a moldura comum não sabe de qual).
-
-   BL (achado do especialista-frontend, DL-042 2ª passada): este bloco —
-   e `.cabecalho__contexto`/`.contexto-item`/`.contexto-rotulo`/`.item-
-   atual`/`.sessao-usuario`/`.form-sair`, que ficavam logo abaixo dele —
-   estava DUPLICADO na íntegra desde o commit 8674653 (a reescrita da
-   moldura para barra lateral): a mesma dúzia de regras, byte a byte,
-   aparecia duas vezes neste arquivo — uma cópia sem este comentário,
-   colada por engano ao mover blocos de CSS de lugar. Inofensivo em
-   efeito (a segunda cópia só reafirmava os MESMOS valores), mas exatamente
-   a classe de defeito que o AGENTS.md pede para evitar: regra escrita em
-   dois lugares diverge assim que uma das cópias for editada sem a outra.
-   Corrigido nesta etapa — uma cópia só, a partir daqui. */
-/* DL-044 (Fred: "a navegação entre relatórios é uma linha de links
-   sublinhados"; critério 3 do plano — "nenhuma ação clicável com
-   aparência de link sublinhado solto"): a MARCAÇÃO desta parcial não
-   mudou nem uma letra (nenhum atributo `accesskey`/`aria-keyshortcuts`/
-   `aria-current` foi tocado — as guardas de
-   apps/contabilidade/tests/test_dl024_atalhos_e_acessibilidade.py
-   continuam medindo exatamente o mesmo HTML). O que mudou é só a
-   APARÊNCIA: de uma linha de `<a>` sublinhados para uma faixa de ABAS
-   (padrão confirmado pela pesquisa — Polaris "Tabs", usado para
-   "alternar entre visões relacionadas do mesmo contexto", que é
-   exatamente este caso: Plano de contas/Diário/Balancete/... da MESMA
-   empresa). */
-.navegacao-empresa {
-    margin-bottom: var(--esp-5);
-    border-bottom: var(--traco-fina) solid var(--borda-hairline);
+.barra-lateral__interruptor:checked ~ .app-shell .rotulo-alternador-recolher {
+    display: none;
 }
 
-.navegacao-empresa ul {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: var(--esp-1);
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    font-size: var(--tipo-sm);
+.barra-lateral__interruptor:checked ~ .app-shell .rotulo-alternador-expandir {
+    display: inline;
 }
 
-.navegacao-empresa a,
-.navegacao-empresa .item-atual {
-    display: inline-flex;
-    align-items: baseline;
-    gap: var(--esp-atalho);
-    padding: var(--esp-2) var(--esp-3);
-    /* A aba "encosta" na borda-base da faixa (`border-bottom` de
-       `.navegacao-empresa`, acima) — por isso a MARGEM negativa: sem
-       ela, a borda de baixo do item ficaria 1px ACIMA da linha da faixa
-       (a espessura da própria borda), um desalinhamento de 1px visível
-       em qualquer tela com régua. */
-    margin-bottom: calc(-1 * var(--traco-fina));
-    border-bottom: var(--traco-media) solid transparent;
-    border-radius: var(--raio-superficie) var(--raio-superficie) 0 0;
-    text-decoration: none;
+/* Marca/gatilho móveis: existem no DOM sempre (irmãos de `.barra-lateral`,
+   nunca dentro dela), mas só aparecem ≤48rem — ver o `@media` no fim deste
+   arquivo. Acima do breakpoint não fazem sentido nenhum (a marca já mora
+   dentro da barra, sempre visível).
+
+   DL-086 (achado C-01, alta): o gatilho da gaveta móvel era um
+   `<details>`/`<summary>` e a gaveta ABERTA (`position: fixed; inset: 0`)
+   cobria o próprio gatilho — não havia como fechá-la sem navegar para
+   outra página (WCAG 2.1.2), e não existia controle de "fechar" nenhum
+   dentro dela. O mecanismo virou o MESMO "checkbox hack" já aprovado no
+   recolhimento da barra: `#menu-movel-aberto` (`.menu-movel__interruptor`)
+   é IRMÃO da `.barra-lateral` dentro de `.app-shell` (a lição "irmão,
+   nunca envoltório" da DL-040 continua valendo — conteúdo de `<details>`
+   fechado sai da árvore de composição e nenhum CSS reverte), o `<label>`
+   "Menu" (`.menu-movel-gatilho`) abre, e um segundo `<label>` "Fechar
+   menu" (`.barra-lateral__fechar`) DENTRO da barra fecha — sem JavaScript
+   (R6). O input fica `display: none` ACIMA do breakpoint (não é controle
+   em tela larga — se ficasse só visualmente oculto, seria uma parada de
+   teclado sem função, a mesma classe do achado C-02) e volta ao tab order
+   dentro do `@media`, com o anel de foco desenhado no label visível
+   (técnica de `.barra-lateral__interruptor`). */
+.marca--movel,
+.menu-movel-gatilho,
+.menu-movel__interruptor,
+.barra-lateral__fechar {
+    display: none;
 }
 
-.navegacao-empresa a {
-    color: var(--tinta-suave);
+/* Foco do teclado nos dois labels da gaveta: anel no controle VISÍVEL,
+   nunca na caixa de 1px do input (mesma exceção nomeada e compensada de
+   `.barra-lateral__interruptor:focus`). O gatilho "Menu" fica na faixa
+   clara do topo (anel `--acento`, 10,51:1 sobre --papel); o "Fechar menu"
+   fica dentro da barra escura (anel `--bl-texto`, 13,40:1 sobre
+   --bl-fundo) — mesmos pares já medidos da regra global de foco. */
+.menu-movel__interruptor:focus {
+    outline: none;
 }
 
-.navegacao-empresa a:hover {
-    color: var(--tinta);
-    background: var(--papel-alt);
-    border-bottom-color: var(--borda-input);
+.menu-movel__interruptor:focus ~ .menu-movel-gatilho {
+    outline: var(--traco-grossa) solid var(--acento);
+    outline-offset: var(--desloc-foco);
+}
+
+.menu-movel__interruptor:focus ~ .barra-lateral .barra-lateral__fechar {
+    outline: var(--traco-grossa) solid var(--bl-texto);
+    outline-offset: var(--desloc-foco);
 }
 
 /* Rótulo da página ATUAL de uma navegação (nunca link para si mesma) —
-   generalizada pela DL-040 de `.navegacao-empresa .item-atual` para
-   `.item-atual` puro, porque o mesmo padrão passou a valer também dentro
-   de `.menu-dropdown ul` (o submenu "Contabilidade" do menu principal,
-   templates/base.html). Continua existindo BASE (cor + negrito, sem
-   padding/borda) para esse segundo uso; a aparência de ABA (padding,
-   sublinhado de cor, canto arredondado) é ADICIONADA só dentro de
-   `.navegacao-empresa`, pela regra combinada acima e pela específica
-   abaixo — nunca no seletor solto `.item-atual`, que vazaria a moldura de
-   aba para dentro do menu suspenso da barra lateral. */
+   usado dentro de `.menu-dropdown ul`/`.menu-dropdown__paineis` (os
+   submenus da barra lateral, templates/base.html), que têm a própria
+   regra de estado ativo mais acima (fundo + barra de destaque).
+
+   DL-086 (achado A-03): a família `.navegacao-empresa` (as ABAS da
+   parcial `_navegacao_empresa.html`) e `.sessao-usuario` foram REMOVIDAS
+   deste arquivo — a parcial foi apagada na 4ª iteração da DL-044 (DE-081,
+   atalhos migrados para o dropdown) e a seção de usuário virou o menu
+   "Conta" na DL-040/042, mas as regras ficaram aqui descrevendo um
+   mecanismo que não existe mais (a classe de defeito que o AGENTS.md
+   nomeia: documento/CSS desmentido pelo repositório). O histórico
+   completo — incluindo a duplicação byte a byte achada na DL-042 e o
+   desenho de abas da DL-044 — está preservado no controle de versão e em
+   direcao-de-arte.md §8.2a (seção "extinta"). */
 .item-atual {
     display: inline-flex;
     align-items: baseline;
     gap: var(--esp-atalho);
     color: var(--tinta);
     font-weight: 700;
-}
-
-.navegacao-empresa .item-atual {
-    border-bottom-color: var(--acento);
-}
-
-.sessao-usuario {
-    display: flex;
-    align-items: center;
-    gap: var(--esp-4);
-    font-size: var(--tipo-xs);
-    color: var(--tinta-suave);
 }
 
 .form-sair {
@@ -1533,6 +1542,15 @@ kbd.tecla {
     border: var(--traco-fina) solid transparent;
     box-shadow: var(--sombra-botao);
     transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 60ms ease;
+    /* DL-086 (achado B-01): `<a class="botao">` e `<button>` nativo
+       renderizavam com ~3px de altura diferente na mesma linha — o
+       `<button>` carrega `align-self: flex-start` (regra `button`, mais
+       abaixo) e `line-height: normal` da folha de estilo do agente de
+       usuário, que o `<a>` não herdava. Os dois valores passam a ser
+       explícitos e IDÊNTICOS nos dois elementos: o tom decide a aparência,
+       nunca a tag. */
+    align-self: flex-start;
+    line-height: var(--lh-normal);
 }
 
 .botao:active {
@@ -1790,75 +1808,15 @@ kbd.tecla {
     font-weight: 700;
 }
 
-/* DL-044 (3ª iteração — retorno do Fred: "tudo junto num lugar só" —
-   faixa de contexto + trilha + abas + título empilhados). A trilha
-   (quando existe — `trilha_padrao`, templates/base.html) é sempre o
-   elemento IMEDIATAMENTE anterior a `.cabecalho-pagina` no HTML (mesmo
-   `<main>`, sem nada entre os dois) — o seletor de irmão adjacente funde
-   os dois num cartão branco só: a trilha vira a "linha de cima", sem
-   fundo/sombra próprios, e só o conjunto (trilha + título) ganha UMA
-   moldura. Quando não há trilha (ex.: Início), `.cabecalho-pagina`
-   continua sozinha, com a própria moldura completa — nada muda para ela. */
-.trilha:has(+ .cabecalho-pagina) {
-    padding: var(--esp-3) var(--esp-5) 0;
-    margin-bottom: calc(-1 * var(--esp-2));
-}
-
-.trilha:has(+ .cabecalho-pagina) + .cabecalho-pagina {
-    border-top-left-radius: 0;
-    border-top-right-radius: 0;
-}
-
-/* DL-040: cabeçalho de página — título (h1 único), contexto e a área de
-   ações primária/secundária, num só padrão para reaproveitar em qualquer
-   tela (templates/tenancy/painel.html, templates/empresas/lista.html,
-   templates/fiscal/documentos_lista.html...). */
-/* DL-044 (3ª iteração — retorno do Fred, referência Conta Azul: "cabeçalho
-   branco com o título da página grande à esquerda"): vira CARTÃO branco
-   com sombra (era só uma linha divisória sobre o mesmo fundo bege da
-   página) — o mesmo módulo visual que `.painel-etapa`/`.tabela-dados` já
-   usam, agora também no título. `.trilha + .cabecalho-pagina` (mais
-   abaixo) funde este cartão com a trilha imediatamente acima, quando ela
-   existe — "tudo junto num lugar só" (retorno do Fred) virou UMA faixa
-   com trilha+título+subtítulo+ações, não três elementos empilhados. */
-.cabecalho-pagina {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--esp-4);
-    margin-bottom: var(--esp-5);
-    padding: var(--esp-4) var(--esp-5);
-    background: var(--papel-elevado);
-    border-radius: var(--raio-superficie);
-    box-shadow: var(--sombra-cartao);
-}
-
-.cabecalho-pagina h1 {
-    margin: 0;
-}
-
-/* DL-044 (2ª iteração): título + subtítulo de CONTEXTO agrupados numa
-   coluna só, para o subtítulo nunca disputar alinhamento com as ações à
-   direita (achado do Fred no Início: "Escritório ativo: ..." repetia a
-   faixa de contexto do topo — vira subtítulo aqui, sem repetir o
-   rótulo). Vazio quando a tela não precisa de subtítulo (a maioria). */
-.cabecalho-pagina__titulo {
-    display: flex;
-    flex-direction: column;
-    gap: var(--esp-1);
-}
-
-.cabecalho-pagina__subtitulo {
-    margin: 0;
-}
-
-.cabecalho-pagina__acoes {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--esp-3);
-    align-items: center;
-}
+/* DL-086 (achado A-03): a família `.cabecalho-pagina` (cartão de título
+   da DL-040/044) e a fusão `.trilha:has(+ .cabecalho-pagina)` foram
+   REMOVIDAS — a migração para `{% block titulo_pagina %}`/`{% block
+   acoes_pagina %}` na faixa do topo (`.cabecalho__faixa`) foi completada
+   na Fase B da DL-044 e NENHUM template usa mais estas classes (medido
+   por busca em `templates/` e `apps/*/templates/` nesta etapa). O
+   direcao-de-arte.md §8.3, que ainda a chamava de "padrão para tela ainda
+   não migrada", foi corrigido na mesma etapa — regra morta descrita como
+   viva é o defeito que o AGENTS.md manda não repetir. */
 
 .conteudo-principal {
     max-width: var(--largura-conteudo);
@@ -2130,12 +2088,16 @@ kbd.tecla {
 }
 
 /* Contagem: TEXTO tabulado (é um número), nunca só uma bolha colorida —
-   o rótulo "pendente(s)"/"item(ns)" no HTML já diz o que o número conta. */
+   o rótulo "pendente(s)"/"item(ns)" no HTML já diz o que o número conta.
+   DL-086 (achado A-02): `--app-acento`, não `--acento` — o Início é casca
+   do app logado, e DE-080 reserva o navy editorial à landing/prosa/
+   documento impresso: duas escalas de acento na MESMA superfície quebram a
+   direção (§1). Contraste do par novo: `--app-acento` × branco = 6,44:1. */
 .fila-categoria__contagem {
     font-family: var(--fonte-numerica);
     font-variant-numeric: tabular-nums;
     font-weight: 700;
-    color: var(--acento);
+    color: var(--app-acento);
     flex: none;
 }
 
@@ -2153,13 +2115,18 @@ kbd.tecla {
     font-size: var(--tipo-sm);
 }
 
+/* DL-086 (achado A-02/F-01): link de item da fila é link de PROSA dentro
+   do app logado — `--app-acento` (DE-080). Antes a declaração dizia
+   `--acento` mas nem valia: a regra geral de link de `.area-principal`
+   (0-3-x) já vencia esta (0-1-1) e computava o azul do app de qualquer
+   jeito — a letra morta virou letra certa. */
 .fila-categoria__itens a {
-    color: var(--acento);
+    color: var(--app-acento);
     text-decoration: underline;
 }
 
 .fila-categoria__itens a:hover {
-    color: var(--acento-escuro);
+    color: var(--app-acento-escuro);
 }
 
 /* DL-044 (2ª iteração — achado do Fred: "Início continua 60% vazio"):
@@ -2187,8 +2154,10 @@ kbd.tecla {
     color: var(--tinta);
 }
 
+/* DL-086 (achado A-02): hover e total no acento do APP (`--app-acento`),
+   não no navy editorial — mesma regra de superfície única de DE-080. */
 .indicador-do-painel:hover {
-    border-color: var(--acento);
+    border-color: var(--app-acento);
     box-shadow: var(--sombra-botao-hover);
 }
 
@@ -2197,7 +2166,7 @@ kbd.tecla {
     font-variant-numeric: tabular-nums;
     font-weight: 700;
     font-size: var(--tipo-xl);
-    color: var(--acento);
+    color: var(--app-acento);
 }
 
 .indicador-do-painel__titulo {
@@ -2405,6 +2374,10 @@ a.tile-de-modulo:hover {
    compartilhando `base.html`). */
 button {
     align-self: flex-start;
+    /* DL-086 (achado B-01): line-height explícito, igual ao de `.botao` em
+       `<a>` — sem isto o valor do agente de usuário (`normal`) deixava o
+       `<button>` ~3px mais alto que o link-botonizado da mesma linha. */
+    line-height: var(--lh-normal);
     padding: var(--esp-2) var(--esp-4);
     background: var(--app-acento);
     color: var(--app-acento-texto);
@@ -2429,7 +2402,13 @@ button:active {
     box-shadow: none;
 }
 
-button:disabled {
+/* DL-086 (achado B-01): `[aria-disabled="true"]` recebe o MESMO estado de
+   `.botao:disabled`/`.botao[aria-disabled]` — o produto usa aria-disabled
+   onde o botão precisa continuar focável para anunciar o motivo (§2B do
+   contrato: "desabilitado COM o motivo, nunca sumindo"), e um `<button>`
+   nativo nessa situação não pode ficar com cara de ativo. */
+button:disabled,
+button[aria-disabled="true"] {
     opacity: 0.55;
     box-shadow: none;
     cursor: not-allowed;
@@ -3642,11 +3621,13 @@ button:disabled {
     /* Fora do papel: a barra lateral inteira (marca "DataLedger.",
        navegação, atalho de teclado — accesskey não existe em papel — e o
        menu "Conta"/Sair), o gatilho móvel e a marca móvel (telas
-       estreitas), a navegação da empresa, os botões de ação (Consultar
-       período, Adicionar linha...) e o formulário de filtro inteiro (as
-       datas do filtro já aparecem em texto, em .cabecalho__contexto, que
-       continua impresso — ver a nota logo abaixo sobre o que, DENTRO dele,
-       some também). */
+       estreitas), os botões de ação (Consultar período, Adicionar
+       linha...) e o formulário de filtro inteiro (as datas do filtro já
+       aparecem em texto, em .cabecalho__contexto, que continua impresso —
+       ver a nota logo abaixo sobre o que, DENTRO dele, some também).
+       DL-086: `.navegacao-empresa` saiu desta lista junto com a remoção
+       das regras mortas (achado A-03 — a parcial não existe desde a
+       DL-044/DE-081). */
     /* DL-040: a trilha de navegação/"Voltar" das telas secundárias
        (`.trilha`) é controle de NAVEGAÇÃO, nunca conteúdo do documento —
        mesma classe do resto desta lista (menu, navegação da empresa,
@@ -3657,7 +3638,6 @@ button:disabled {
     .barra-lateral,
     .marca--movel,
     .menu-movel-gatilho,
-    .navegacao-empresa,
     .formulario-periodo,
     /* DL-045, reconferência (R5): a navegação de competência da DRE
        ("‹ Mês anterior / Março de 2026 / Mês seguinte ›",
@@ -4107,8 +4087,13 @@ button:disabled {
        ORDEM de declaração (a mesma regra do CSS que `.botao--primario`
        × `.barra-lateral ~ .area-principal a` já usa, comentário acima)
        — sem precisar de `!important` nem de um seletor mais específico
-       que o necessário. */
-    .barra-lateral ~ .area-principal a:not(.botao) {
+       que o necessário.
+
+       DL-086 (achado F-01): a cadeia de `:not()` acompanha a da regra de
+       TELA (acréscimo dos cartões que são links inteiros) — sem isto, o
+       empate de especificidade que decide a cor no papel deixaria de
+       existir e o link de prosa voltaria a sair azul no PDF. */
+    .barra-lateral ~ .area-principal a:not(.botao):not(.cartao-de-relatorio):not(.tile-de-modulo):not(.indicador-do-painel):not(.mh-kpi) {
         color: var(--impressao-tinta);
     }
 }
@@ -4156,16 +4141,19 @@ button:disabled {
 @media (max-width: 48rem) {
     /* DL-042: a barra lateral virou GAVETA — mesma técnica "irmão, nunca
        envoltório" da DL-040 (ver o comentário grande em templates/
-       base.html), agora aplicada a `.barra-lateral` em vez de
-       `.navegacao-principal`. `<details class="menu-movel-gatilho">` é
-       IRMÃO de `.barra-lateral` dentro de `.app-shell`; conteúdo dentro
-       de um `<details>` fechado é retirado da árvore de composição pelo
-       próprio navegador (nenhum CSS de autor, nem `!important`, reverte
-       isso) — por isso a barra nunca fica DENTRO do `<details>`, só sua
-       VISIBILIDADE depende do atributo `[open]`, via o combinador `~`
-       abaixo (CSS comum, reversível). Começa FECHADA (sem `open` no
-       HTML) — a régua nativa do `<details>` cobre isso sem JavaScript
-       nenhum (R6 da direção de arte). */
+       base.html), agora aplicada a `.barra-lateral`. DL-086 (achado C-01,
+       alta): o mecanismo era um `<details class="menu-movel-gatilho">` e a
+       gaveta aberta (`position: fixed; inset: 0`) COBRIA o próprio gatilho
+       — não havia como fechá-la sem navegar para outra página (WCAG 2.1.2),
+       e nenhum controle de fechar existia dentro dela. Virou o "checkbox
+       hack" já aprovado no recolhimento da barra: `#menu-movel-aberto`
+       (`.menu-movel__interruptor`) é IRMÃO de `.barra-lateral` dentro de
+       `.app-shell` (a lição da DL-040 continua: conteúdo de `<details>`
+       fechado sai da árvore de composição e nenhum CSS reverte), o
+       `<label>` "Menu" (`.menu-movel-gatilho`) abre e um segundo `<label>`
+       "Fechar menu" (`.barra-lateral__fechar`) DENTRO da barra fecha — os
+       dois operam o MESMO input, CSS puro, sem JavaScript (R6). Começa
+       FECHADA (sem `checked` no HTML). */
     .app-shell {
         flex-wrap: wrap;
         position: relative;
@@ -4195,12 +4183,14 @@ button:disabled {
         border: var(--traco-fina) solid var(--borda-input);
         border-radius: var(--raio);
         font-size: var(--tipo-sm);
-        list-style: none;
         color: var(--tinta);
     }
 
-    .menu-movel__gatilho::-webkit-details-marker {
-        display: none;
+    /* DL-086 (achado C-01): o input volta ao tab order SÓ onde o controle
+       existe (acima do breakpoint ele é `display: none` — ver a regra base;
+       seria parada de teclado invisível se ficasse só visualmente oculto). */
+    .menu-movel__interruptor {
+        display: block;
     }
 
     /* Barra de marca+gatilho ocupa a largura inteira (uma linha só,
@@ -4219,8 +4209,45 @@ button:disabled {
         border-right: none;
     }
 
-    .menu-movel-gatilho[open] ~ .barra-lateral {
+    .menu-movel__interruptor:checked ~ .barra-lateral {
         display: flex;
+    }
+
+    /* DL-086 (achado C-01): "Fechar menu" — controle explícito dentro da
+       gaveta, mesmo alvo circular do alternador (a barra é escura:
+       `--bl-texto`/`--bl-hover`, o par já medido do alternador). O label
+       fecha porque é o MESMO checkbox do gatilho: clicar de novo desmarca. */
+    .barra-lateral__fechar {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: var(--tamanho-alvo-alternador);
+        height: var(--tamanho-alvo-alternador);
+        border-radius: var(--raio-pilula);
+        cursor: pointer;
+        color: var(--bl-texto-suave);
+    }
+
+    .barra-lateral__fechar:hover {
+        color: var(--bl-texto);
+        background: var(--bl-hover);
+    }
+
+    /* DL-086 (achado C-02): o interruptor de RECOLHER não tem função na
+       gaveta móvel (que já ocupa a tela inteira) e o label dele
+       (`.barra-lateral__alternador`) é `display: none` aqui — sem esta
+       regra o input continuaria no tab order como parada de teclado
+       INVISÍVEL (WCAG 2.4.7), e ativá-lo por engano colapsaria a gaveta
+       para a largura recolhida (o seletor 0-4-0 do modo recolhido vencia
+       o `width: auto` da gaveta). O estado `checked` herdado do desktop
+       também é neutralizado: a gaveta ignora a largura recolhida. */
+    .barra-lateral__interruptor {
+        display: none;
+    }
+
+    .barra-lateral__interruptor:checked ~ .app-shell .barra-lateral {
+        width: auto;
+        overflow: visible;
     }
 
     /* DL-044: `.barra-lateral` virou um contêiner flex de UM filho só
@@ -4293,20 +4320,12 @@ button:disabled {
         padding-bottom: var(--esp-2);
     }
 
-    /* DL-040 v2: `_navegacao_empresa.html` (os seis atalhos Alt+ da
-       contabilidade) some em telas ≤48rem — não é a mesma decisão de
-       REMOVER a parcial (ela continua existindo, com os atalhos, em
-       telas ≥48rem, e `test_bl296_navegacao_cobre_todas_as_telas.py`
-       continua provando que ela está incluída em toda tela). O que
-       muda é só a VISIBILIDADE nesta largura: a gaveta da barra lateral
-       (agora atrás do botão "Menu", ver acima) já oferece a MESMA
-       navegação agrupada, e um `accesskey` não tem equivalente físico em
-       teclado de toque — a fileira de seis links era o maior consumidor
-       de altura vertical medido no celular (título só visível a ~470px
-       do topo, DL-040), sem ganho nenhum para quem não tem tecla Alt. */
-    .navegacao-empresa {
-        display: none;
-    }
+    /* DL-086 (achado A-03): a regra `.navegacao-empresa { display: none }`
+       e o comentário da DL-040 v2 que a acompanhava foram removidos — a
+       parcial `_navegacao_empresa.html` foi APAGADA na 4ª iteração da
+       DL-044 (DE-081), então este comentário descrevia um mecanismo morto
+       ("ela continua existindo em telas ≥48rem" — não continuava) e a
+       regra ocultava uma classe que nenhum template emite mais. */
 
     /* Correção do overflow medido no Balancete (critério de apuração
        cortado na borda da tela): a fileira "rótulo à esquerda / campo à

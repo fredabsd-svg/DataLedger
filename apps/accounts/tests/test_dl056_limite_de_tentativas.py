@@ -233,7 +233,8 @@ def test_bloqueio_na_trilha_sem_senha_nem_texto_digitado(relogio):
     registro = RegistroAuditoria.objects.get(acao="login.bloqueado")
     assert registro.endereco_ip == IP_A
     assert registro.detalhes["motivo"] == "usuario"
-    assert registro.detalhes["usuario_hash"]
+    # BL-593 (DL-086): chave unificada com o `login.falha` (username_hmac).
+    assert registro.detalhes["username_hmac"]
     assert digitado not in str(registro.detalhes)
     assert senha not in str(registro.detalhes)
 
@@ -310,20 +311,42 @@ def test_cadastro_acima_do_limite_por_ip_e_recusado_sem_criar_nada(relogio):
     assert _cadastrar(101, ip=IP_A).status_code == 302
 
 
-def test_cadastro_invalido_nao_consome_o_limite(relogio):
-    for n in range(10):
+def test_cadastro_invalido_consome_o_limite_dl086(relogio):
+    """INVERSÃO de contrato (DL-086, achado C-01): o teste anterior
+    (`test_cadastro_invalido_nao_consome_o_limite`) afirmava o comportamento
+    que ERA a vulnerabilidade — POST inválido não consumia cota, então as
+    mensagens de validação ("Este e-mail já está em uso", "Este CNPJ já está
+    cadastrado") permitiam enumeração ILIMITADA e sem autenticação. Agora
+    todo POST reserva antes de validar, como o login."""
+    for n in range(5):
         dados = _dados_cadastro(n)
         dados["password2"] = "diferente"
         assert Client().post(reverse("cadastro"), dados, REMOTE_ADDR=IP_A).status_code == 400
-    assert not TentativaDeAcesso.objects.exists()
-    assert _cadastrar(50).status_code == 302
+    assert TentativaDeAcesso.objects.filter(escopo="cadastro_ip").count() == 5
+    # 6º POST, mesmo com dados VÁLIDOS: bloqueado, sem criar nada.
+    assert _cadastrar(50).status_code == 429
+    assert not get_user_model().objects.exists()
 
 
-def test_cadastro_repetido_com_mesmo_email_nao_consome_o_limite(relogio):
+def test_cadastro_repetido_consome_o_limite_e_bloqueio_nao_revela_colisao_dl086(relogio):
+    """INVERSÃO de contrato (DL-086, achado C-01): repetição com o mesmo
+    e-mail consome cota como qualquer POST; e, acima do limite, a resposta
+    traz SÓ a mensagem de limite — nunca "Este e-mail já está em uso", que
+    era o oráculo de enumeração."""
     assert _cadastrar(1).status_code == 302
-    for _ in range(10):
+    for _ in range(3):
         assert _cadastrar(1).status_code == 400  # e-mail/CNPJ já em uso
-    assert TentativaDeAcesso.objects.filter(escopo="cadastro_ip").count() == 1
+    assert TentativaDeAcesso.objects.filter(escopo="cadastro_ip").count() == 4
+    bloqueada = _cadastrar(1)  # 5ª reserva do IP
+    assert bloqueada.status_code == 400
+    assert "Este e-mail já está em uso" in bloqueada.content.decode()
+    sexta = _cadastrar(1)
+    assert sexta.status_code == 429
+    corpo = sexta.content.decode()
+    assert "Este e-mail já está em uso" not in corpo
+    assert "Este CNPJ já está cadastrado" not in corpo
+    assert "Muitos cadastros" in corpo
+    assert RegistroAuditoria.objects.filter(acao="cadastro.bloqueado").exists()
 
 
 def test_limite_de_cadastro_vem_de_settings(relogio, settings):

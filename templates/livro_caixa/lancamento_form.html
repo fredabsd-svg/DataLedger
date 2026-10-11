@@ -24,10 +24,22 @@
 
 {% block content %}
     {% if not contas %}
-        <p>
-            Esta empresa ainda não tem nenhuma conta do livro-caixa ativa.
-            <a href="{% url 'livro_caixa_web:conta_nova' empresa.id %}">Cadastre uma conta</a> antes de lançar.
-        </p>
+        {% comment %}
+        A-12 (DL-086): a prosa solta com link vira `.estado-vazio` completo
+        (direção de arte §8.4c: ícone, título, descrição e o botão da saída).
+        O vazio NÃO é por filtro — falta CADASTRO, e a saída cria dado, então o
+        botão é primário. Só quem escritura chega nesta tela (a view recusa os
+        demais com 403), por isso não há ramo "sem permissão" aqui.
+        {% endcomment %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-contabilidade"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Esta empresa ainda não tem nenhuma conta do livro-caixa ativa.</strong></p>
+            <p class="estado-vazio__descricao">
+                Sem conta ativa não há onde lançar. Cadastre uma conta — o código do
+                Carnê-Leão Web dela decide a dedutibilidade (HI-30) — e volte aqui para lançar.
+            </p>
+            <a class="botao botao--primario" href="{% url 'livro_caixa_web:conta_nova' empresa.id %}">Cadastrar conta</a>
+        </div>
     {% else %}
         {% comment %}
         DL-053, critério 7: um campo de data não consegue excluir meses sem
@@ -92,8 +104,17 @@
 
                 <div class="campo">
                     <label for="id_valor">Valor</label>
+                    {% comment %}
+                    A-21 (DL-086): o formato monetário vivia SÓ no placeholder
+                    (que some ao digitar) — dica visível em texto, mesmo padrão
+                    de templates/fiscal/folha_form.html. O placeholder fica.
+                    {% endcomment %}
                     <input type="text" inputmode="decimal" id="id_valor" name="valor"
-                           value="{{ valor_texto }}" placeholder="0,00" required>
+                           value="{{ valor_texto }}" placeholder="0,00" required
+                           aria-describedby="id_valor_ajuda">
+                    <p class="texto-apoio" id="id_valor_ajuda">
+                        Em pt-BR, como 1.234,56.
+                    </p>
                 </div>
 
                 <div class="campo">
@@ -116,16 +137,26 @@
                 explicando, e o servidor recusa se preenchidos numa
                 despesa (`LancamentoCaixa.clean()`).
                 {% endcomment %}
-                <div class="campo campo-criterio-de-apuracao">
-                    <span class="campo-rotulo">Recebido de (só para receita)</span>
-                    {% for valor_opcao, rotulo_opcao in origens %}
-                        <label class="campo-criterio-de-apuracao__opcao">
-                            <input type="radio" name="recebido_de" value="{{ valor_opcao }}"
-                                   {% if valor_opcao == recebido_de_selecionado %}checked{% endif %}>
-                            {{ rotulo_opcao }}
-                        </label>
-                    {% endfor %}
-                </div>
+                {% comment %}
+                A-11 (DL-086): o grupo "Recebido de" era um `<div>` com um
+                `<span>` no lugar do rótulo — o grupo não tinha NOME ACESSÍVEL.
+                `<fieldset>`/`<legend>` com `.campo-radio` (modelo
+                templates/empresas/form.html) é a marcação nativa de "UM grupo
+                de controles com UM nome"; `name`, valores, `checked` e o envio
+                continuam idênticos.
+                {% endcomment %}
+                <fieldset class="campo campo-radio">
+                    <legend>Recebido de (só para receita)</legend>
+                    <div class="campo-radio__opcoes">
+                        {% for valor_opcao, rotulo_opcao in origens %}
+                            <label class="campo-radio__opcao">
+                                <input type="radio" name="recebido_de" value="{{ valor_opcao }}"
+                                       {% if valor_opcao == recebido_de_selecionado %}checked{% endif %}>
+                                {{ rotulo_opcao }}
+                            </label>
+                        {% endfor %}
+                    </div>
+                </fieldset>
 
                 {% comment %}
                 N1 (reconferência da DL-046, DE-088 item 1): os textos de
@@ -217,6 +248,8 @@
                            value="{{ valor_irrf }}" placeholder="0,00"
                            aria-describedby="id_valor_irrf_ajuda">
                     <p class="texto-apoio" id="id_valor_irrf_ajuda">
+                        {% comment %}A-21 (DL-086): formato monetário em texto visível, não só no placeholder.{% endcomment %}
+                        Em pt-BR, como 1.234,56.
                         Preencha somente quando o rendimento recebido de pessoa jurídica (PJ) teve
                         IRRF retido pelo pagador — é o que faz o arquivo de importação do
                         Carnê-Leão Web declarar a retenção e o valor. O leiaute só tem esta coluna
@@ -247,6 +280,8 @@
                            name="multa_previdencia" value="{{ multa_previdencia }}" placeholder="0,00"
                            aria-describedby="id_multa_previdencia_ajuda">
                     <p class="texto-apoio" id="id_multa_previdencia_ajuda">
+                        {% comment %}A-21 (DL-086): formato monetário em texto visível, não só no placeholder.{% endcomment %}
+                        Em pt-BR, como 1.234,56.
                         Somente na conta de previdência oficial (P20.01.00001). Multa de atraso é
                         acréscimo legal e NÃO entra na dedução do carnê-leão (Perguntas e Respostas
                         IRPF 2026, pergunta 334) — este valor serve para compor o arquivo de
@@ -260,6 +295,8 @@
                            name="juros_previdencia" value="{{ juros_previdencia }}" placeholder="0,00"
                            aria-describedby="id_juros_previdencia_ajuda">
                     <p class="texto-apoio" id="id_juros_previdencia_ajuda">
+                        {% comment %}A-21 (DL-086): formato monetário em texto visível, não só no placeholder.{% endcomment %}
+                        Em pt-BR, como 1.234,56.
                         Mesma regra da multa, acima: somente na conta de previdência oficial
                         (P20.01.00001), não dedutível no carnê-leão — entra apenas no arquivo de
                         importação do Carnê-Leão Web.

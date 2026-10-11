@@ -190,7 +190,16 @@ social — a pílula "Empresa" já mostra.
                 <div class="campo">
                     {{ campo.label_tag }}
                     {{ campo }}
-                    {% if campo.help_text %}<p class="visualmente-oculto" id="{{ campo.auto_id }}_helptext">{{ campo.help_text }}</p>{% endif %}
+                    {% comment %}
+                    DL-086 (achado F-09): help_text VISÍVEL (`.texto-apoio`,
+                    padrão de empresas/form.html) — estava `.visualmente-oculto`,
+                    ou seja, só leitor de tela recebia a orientação (ex.: o que
+                    é o início da vigência); quem lê a tela com os olhos via o
+                    campo sem explicação nenhuma. O `id` continua o MESMO que
+                    `BoundField.aria_describedby` injeta no widget
+                    (`{auto_id}_helptext`), então os dois canais seguem ligados.
+                    {% endcomment %}
+                    {% if campo.help_text %}<p class="texto-apoio" id="{{ campo.auto_id }}_helptext">{{ campo.help_text }}</p>{% endif %}
                     {% if campo.errors %}
                         <div class="mensagem mensagem-error" id="{{ campo.auto_id }}_error" role="alert">
                             {% for erro in campo.errors %}<p>{{ erro }}</p>{% endfor %}

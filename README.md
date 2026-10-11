@@ -265,10 +265,11 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-083** — Fiscal: receita de NF-e no Lucro Presumido — atividade de presunção pela natureza do item, devolução no trimestre dela, item fora do total e ICMS desonerado pela regra do MOC, combustível em duas naturezas, receita de 2027 bloqueada (RC-172). Situação em [estado.md](docs/agents/estado.md).
 - **DL-084** — Fiscal: rotina do Lucro Presumido — dias sem expediente bancário antecipam o vencimento, feriados locais com aviso, coerência da CSLL retida, retenção tardia reabre o trimestre, competência na receita informada, parâmetros por empresa, encerramento de medida judicial (RC-172 e RC-173). Situação em [estado.md](docs/agents/estado.md).
 - **DL-085** — Fiscal: escrituração de NF-e e NFC-e em volume — prévia por grupo, confirmação em bloco com assinatura, efetivação em partes idempotente, medida com 10.000 NFC-e (RC-173). Situação em [estado.md](docs/agents/estado.md).
-- **DL-086** — Fiscal: documentação e painel alinhados ao que o código faz (RC-175). Situação em [estado.md](docs/agents/estado.md).
+- **DL-086** — Revisão de layout, botões, páginas e acessos: a gaveta móvel ganhou controle de fechar, contraste e acentos recalculados para o canvas atual, a trilha volta a nomear a tela atual, estados vazios e ações de linha no padrão do contrato, estorno do livro-caixa com motivo obrigatório na trilha, e o papel sem leitura recebe 403 uniforme (sem oráculo de existência). Situação em [estado.md](docs/agents/estado.md).
 - **DL-087** — Fiscal: classificação fiscal versionada e regras de importação, o equivalente ao acumulador, migrada sem mudar comportamento (RC-175). Situação em [estado.md](docs/agents/estado.md).
 - **DL-088** — Fiscal: virada de 2027 no Simples — tabelas 2027-2028 lidas no DOU, RBT12 dos 12 meses antecedentes ao mês anterior, CBS e IBS no DAS, opção pelo regime regular, receita de NF-e de 2027 no regime único. Situação em [estado.md](docs/agents/estado.md).
 - **DL-089** — Contabilidade: origem e documento de origem do lançamento, e permissão própria para mexer no lançamento automático (BL-72 e BL-73), pré-requisito da integração fiscal → contábil. Situação em [estado.md](docs/agents/estado.md).
+- **DL-090** — Fiscal: documentação e painel alinhados ao que o código faz (RC-175; nasceu como DL-086 e foi renumerada na junção com a `main`, que já tinha DL-086 — DE-105). Situação em [estado.md](docs/agents/estado.md).
 
 Ainda não existem:
 

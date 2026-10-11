@@ -120,11 +120,14 @@
       (`.rotulo-menu`) usa a MESMA técnica de `.visualmente-oculto`
       (afastar da tela, não `display: none`) quando recolhido, para o
       nome acessível do link nunca depender do estado visual do ícone.
-    - Em ≤48rem a barra lateral vira gaveta: `<details class="menu-
-      movel-gatilho">` é IRMÃO de `.barra-lateral` (nunca envoltório —
-      MESMA lição da DL-040, `<details>` fechado remove o conteúdo da
-      árvore de composição, `!important` não reverte isso) e o combinador
-      `[open] ~ .barra-lateral` (CSS, static/css/base.css) controla a
+    - Em ≤48rem a barra lateral vira gaveta: o mecanismo virou o
+      "checkbox hack" na DL-086 (achado C-01 — o `<details>` antigo não
+      tinha como fechar a gaveta aberta, que cobria o próprio gatilho):
+      `#menu-movel-aberto` é IRMÃO de `.barra-lateral` (nunca envoltório —
+      MESMA lição da DL-040, conteúdo de `<details>` fechado sai da árvore
+      de composição e `!important` não reverte), o label "Menu" abre e o
+      label "Fechar menu" dentro da barra fecha, e o combinador
+      `:checked ~ .barra-lateral` (CSS, static/css/base.css) controla a
       visibilidade.
     {% endcomment %}
     <svg class="sprite-de-icones" aria-hidden="true" focusable="false">
@@ -163,6 +166,15 @@
         </symbol>
         <symbol id="icone-recolher" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M15 5 9 12l6 7" />
+        </symbol>
+        {% comment %}
+        DL-086 (achado C-01): ícone "fechar" — o controle que fecha a
+        gaveta móvel (`.barra-lateral__fechar`). Mesma grade e traço dos
+        ícones acima; o "X" é a forma canônica de fechar, diferente do
+        chevron do recolher (que só muda largura).
+        {% endcomment %}
+        <symbol id="icone-fechar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 6l12 12M18 6L6 18" />
         </symbol>
         {% comment %}
         DL-044 (2ª iteração): ícone "mais" — botão secundário "Adicionar
@@ -246,9 +258,24 @@
     <div class="app-shell">
         {% if request.user.is_authenticated %}
             <a class="marca marca--movel" href="{% url 'tenancy:painel' %}">DataLedger<span class="marca__ponto">.</span></a>
-            <details class="menu-movel-gatilho">
-                <summary class="menu-movel__gatilho">Menu</summary>
-            </details>
+            {% comment %}
+            DL-086 (achado C-01, alta): o gatilho da gaveta móvel era um
+            <details>/<summary> e a gaveta ABERTA (position:fixed; inset:0)
+            cobria o próprio gatilho — não havia como fechá-la sem navegar
+            para outra página (WCAG 2.1.2). Mecanismo trocado pelo MESMO
+            "checkbox hack" já aprovado no recolhimento da barra
+            (`#barra-lateral-recolhida`): o input é IRMÃO da `.barra-lateral`
+            dentro de `.app-shell` (a lição "irmão, nunca envoltório" da
+            DL-040 continua valendo — conteúdo de `<details>` fechado sai da
+            árvore de composição e nenhum CSS reverte), o `<label>` "Menu"
+            abre, e um segundo `<label>` "Fechar menu" DENTRO da barra
+            (`.barra-lateral__fechar`, em `.barra-lateral__topo`) fecha — os
+            dois operam o MESMO input, sem JavaScript (R6 da direção de
+            arte). O nome acessível do input vem dos labels; o foco do
+            teclado desenha o anel no label visível (regras em base.css).
+            {% endcomment %}
+            <input type="checkbox" id="menu-movel-aberto" class="menu-movel__interruptor visualmente-oculto">
+            <label class="menu-movel-gatilho menu-movel__gatilho" for="menu-movel-aberto">Menu</label>
 
             <aside class="barra-lateral">
                 {% comment %}
@@ -281,7 +308,29 @@
                     </a>
                     <label class="barra-lateral__alternador" for="barra-lateral-recolhida">
                         <svg class="icone-menu icone-recolher" aria-hidden="true"><use href="#icone-recolher"></use></svg>
-                        <span class="visualmente-oculto">Recolher menu</span>
+                        {% comment %}
+                        DL-086 (achado C-04): um span por ESTADO, trocados
+                        por `:checked ~` (base.css) — o nome acessível do
+                        controle diz o verbo da ação que ele VAI executar
+                        ("Expandir menu" com a barra recolhida), nunca o
+                        mesmo "Recolher menu" em qualquer estado. O span com
+                        `display: none` sai da árvore de acessibilidade; os
+                        dois continuam visualmente ocultos.
+                        {% endcomment %}
+                        <span class="visualmente-oculto rotulo-alternador-recolher">Recolher menu</span>
+                        <span class="visualmente-oculto rotulo-alternador-expandir">Expandir menu</span>
+                    </label>
+                    {% comment %}
+                    DL-086 (achado C-01): controle de FECHAR da gaveta
+                    móvel — só existe ≤48rem (base.css; acima do breakpoint
+                    é `display: none`, a barra é fixa). Mesmo input do
+                    gatilho "Menu": clicar de novo desmarca e fecha, CSS
+                    puro. Nome acessível via span visualmente oculto; o
+                    ícone é decorativo (aria-hidden).
+                    {% endcomment %}
+                    <label class="barra-lateral__fechar" for="menu-movel-aberto">
+                        <svg class="icone-menu" aria-hidden="true"><use href="#icone-fechar"></use></svg>
+                        <span class="visualmente-oculto">Fechar menu</span>
                     </label>
                 </div>
 
@@ -414,7 +463,17 @@
                         {% endcomment %}
                         {% if pode_ler_carteira_no_menu or pode_cadastrar_empresa_no_menu %}
                         <li class="menu-modulo">
-                            <details class="menu-dropdown">
+                            {% comment %}
+                            DL-086 (achado C-03): `open` condicional como nos
+                            demais módulos — o dropdown do módulo ATIVO abre
+                            por padrão (§8.1 do contrato); "Cadastros" ficava
+                            fechado em empresas:lista/criar contra esta regra.
+                            (Bloco `{% comment %}`, nunca `{# #}` multilinha:
+                            o Django só trata `{# #}` como comentário em LINHA
+                            ÚNICA — medido na DL-086, o texto cru renderizava
+                            visível no menu de toda tela.)
+                            {% endcomment %}
+                            <details class="menu-dropdown" {% if request.resolver_match.namespace == "empresas" %}open{% endif %}>
                                 <summary {% if request.resolver_match.namespace == "empresas" %}aria-current="page"{% endif %}>
                                     <svg class="icone-menu" aria-hidden="true"><use href="#icone-empresas"></use></svg>
                                     <span class="rotulo-menu">Cadastros</span>

@@ -61,6 +61,13 @@ from apps.livro_caixa.services import (
 )
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
+# A-02 (DL-086): o estorno do livro-caixa passou a exigir MOTIVO (validado no
+# serviço, gravado nos `detalhes` da trilha de auditoria). Nestes arquivos o
+# motivo é sintético: o que eles medem é outra regra (encadeamento, mês
+# encerrado, imutabilidade, apuração), não o texto do motivo — esse tem teste
+# próprio em test_dl086_estorno_com_motivo.py.
+MOTIVO = "Estorno sintético do teste."
+
 pytestmark = pytest.mark.django_db
 
 _SENHA = "senha-forte-123"
@@ -300,7 +307,7 @@ def test_estorno_de_lancamento_de_mes_encerrado_e_recusado_e_passa_depois_de_rea
     antes = _fotografia(cenario["empresa"])
 
     with pytest.raises(MesCaixaEncerrado) as erro:
-        estornar_lancamento_caixa(original, criado_por=cenario["gestor"])
+        estornar_lancamento_caixa(original, criado_por=cenario["gestor"], motivo=MOTIVO)
 
     assert "01/2026" in str(erro.value)
     # A mensagem chega ao usuário (tela e API): orienta o procedimento da
@@ -315,7 +322,7 @@ def test_estorno_de_lancamento_de_mes_encerrado_e_recusado_e_passa_depois_de_rea
     assert _fotografia(cenario["empresa"]) == antes
 
     _reabrir(cenario)
-    estorno = estornar_lancamento_caixa(original, criado_por=cenario["gestor"])
+    estorno = estornar_lancamento_caixa(original, criado_por=cenario["gestor"], motivo=MOTIVO)
     assert estorno.estorno_de_id == original.pk
     assert estorno.data == original.data
 
@@ -361,12 +368,14 @@ def test_api_estorno_em_mes_encerrado_da_409_e_depois_de_reabrir_da_201(client, 
     cliente = _cliente_logado(_usuario(Papel.FINANCEIRO, cenario["escritorio_a"]))
     url = _url("estornar", cenario["empresa"].id, original.id)
 
-    recusado = cliente.post(url)
+    recusado = cliente.post(
+        url, data=json.dumps({"motivo": MOTIVO}), content_type="application/json"
+    )
     assert recusado.status_code == 409
     assert _fotografia(cenario["empresa"]) == antes
 
     _reabrir(cenario)
-    aceito = cliente.post(url)
+    aceito = cliente.post(url, data=json.dumps({"motivo": MOTIVO}), content_type="application/json")
     assert aceito.status_code == 201
     assert LancamentoCaixa.objects.filter(estorno_de=original).count() == 1
 
@@ -428,7 +437,8 @@ def test_tela_estorno_em_mes_encerrado_da_409_e_nao_grava(cenario):
     cliente = _cliente_logado(_usuario(Papel.ANALISTA, cenario["escritorio_a"]))
 
     resposta = cliente.post(
-        reverse("livro_caixa_web:lancamento_estornar", args=[cenario["empresa"].id, original.id])
+        reverse("livro_caixa_web:lancamento_estornar", args=[cenario["empresa"].id, original.id]),
+        {"motivo": MOTIVO},
     )
 
     assert resposta.status_code == 409

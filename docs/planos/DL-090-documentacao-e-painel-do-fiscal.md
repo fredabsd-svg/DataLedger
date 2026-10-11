@@ -1,4 +1,9 @@
-# DL-086 — Fiscal: documentação e painel alinhados ao que existe
+# DL-090 — Fiscal: documentação e painel alinhados ao que existe
+
+> Nasceu como **DL-086** na sessão de 09/10/2026 e foi renumerada na junção
+> com a `main`, que já tinha outra DL-086 (a revisão de layout, PR #107):
+> [DE-105](../projeto/decisoes.md). As auditorias de 09-10/10/2026 continuam
+> citando o número da época, preservadas como registro histórico (BL-242).
 
 **Demanda:** ordem do Fred de 09/10/2026 (RC-175), revisão completa do fiscal.
 A [revisão do módulo fiscal](../projeto/revisao-do-fiscal-2026-10-09.md),

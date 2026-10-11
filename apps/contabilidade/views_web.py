@@ -32,6 +32,7 @@ from urllib.parse import urlencode
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
@@ -516,7 +517,18 @@ def _empresa_do_escritorio_ativo(request, empresa_id):
     memoiza o resultado feliz: se `get_object_or_404` estourar Http404,
     nada fica em cache e a próxima chamada tenta de novo (mesmo
     comportamento de antes, sem mascarar erro).
+
+    DL-086 (BL-584): o papel que NÃO LÊ o módulo é checado ANTES de resolver
+    o id. A ordem anterior (empresa → papel) era um oráculo de existência: o
+    CLIENTE recebia 403 para empresa existente e 404 para inexistente —
+    enumerando a carteira do escritório sem poder lê-la (61 combinações de
+    rota e método medidas na auditoria da DL-055). O 403 uniforme preserva o
+    B7 da DL-038: quem não lê não descobre nem a existência da empresa, nem
+    o modo de escrituração dela. Para papel que LÊ, nada muda: empresa de
+    outro escritório ou id inexistente continua 404 (isolamento, critério 2).
     """
+    if not _pode_ler(request):
+        raise PermissionDenied("Seu papel não permite ler a contabilidade desta empresa.")
     cache = getattr(request, "_dl038_cache_empresa_do_escritorio_ativo", None)
     if cache is None:
         cache = {}

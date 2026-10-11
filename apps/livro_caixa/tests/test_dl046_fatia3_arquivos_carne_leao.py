@@ -53,6 +53,13 @@ from apps.livro_caixa.tests.test_dl069_livro_caixa_imutavel_no_banco import (
 )
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
+# A-02 (DL-086): o estorno do livro-caixa passou a exigir MOTIVO (validado no
+# serviço, gravado nos `detalhes` da trilha de auditoria). Nestes arquivos o
+# motivo é sintético: o que eles medem é outra regra (encadeamento, mês
+# encerrado, imutabilidade, apuração), não o texto do motivo — esse tem teste
+# próprio em test_dl086_estorno_com_motivo.py.
+MOTIVO = "Estorno sintético do teste."
+
 pytestmark = pytest.mark.django_db
 
 CPF_TITULAR = "11144477735"
@@ -914,7 +921,7 @@ def test_lancamento_estornado_e_o_proprio_estorno_ficam_fora(cenario):
         historico="Lançamento a ser estornado",
         recebido_de=OrigemRecebimento.EX,
     )
-    estornar_lancamento_caixa(original)
+    estornar_lancamento_caixa(original, motivo=MOTIVO)
     # Um lançamento NÃO estornado no mesmo período, para provar que o
     # arquivo não fica vazio por outro motivo.
     criar_lancamento_caixa(
@@ -950,7 +957,7 @@ def test_par_estorno_dividido_entre_dois_lados_do_periodo_ainda_fica_fora(cenari
         historico="Original no início do mês",
         recebido_de=OrigemRecebimento.EX,
     )
-    estornar_lancamento_caixa(original, data=date(2026, 7, 28))
+    estornar_lancamento_caixa(original, data=date(2026, 7, 28), motivo=MOTIVO)
 
     # Período cobre só o ORIGINAL (dia 2), não o estorno (dia 28).
     rendimentos, _pagamentos, _conf = gerar_arquivos_carne_leao(
@@ -1524,7 +1531,7 @@ def test_estorno_copia_os_quatro_campos_novos(cenario):
         multa_previdencia="15.00",
         juros_previdencia="5.00",
     )
-    estorno = estornar_lancamento_caixa(original)
+    estorno = estornar_lancamento_caixa(original, motivo=MOTIVO)
     assert estorno.competencia_previdencia == date(2026, 10, 1)
     assert estorno.multa_previdencia == Decimal("15.00")
     assert estorno.juros_previdencia == Decimal("5.00")

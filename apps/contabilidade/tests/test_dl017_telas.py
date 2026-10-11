@@ -40,6 +40,7 @@ from apps.contabilidade.models import (
 from apps.contabilidade.services import criar_lancamento
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
+from config import urls as urls_do_produto
 
 # urlconf de teste — ver docstring do módulo.
 urlpatterns = [
@@ -54,6 +55,17 @@ urlpatterns = [
     path("contabilidade/painel/", include("apps.contabilidade.urls_web")),
     path("", include("apps.tenancy.urls")),
 ]
+
+# DL-086 (H-01): os handlers de erro do produto. O Django procura
+# `handler403`/`handler404`/`handler500` como atributo do módulo do urlconf
+# ATIVO — e, com `pytest.mark.urls(__name__)`, o urlconf ativo é ESTE espelho,
+# não `config/urls.py`. Sem esta delegação, a recusa de permissão continuaria
+# caindo na página técnica do Django ("403 Forbidden") e os critérios 1 e 3
+# abaixo não exercitariam o handler real do produto. São as MESMAS funções de
+# `config.urls`, não cópias.
+handler403 = urls_do_produto.handler403
+handler404 = urls_do_produto.handler404
+handler500 = urls_do_produto.handler500
 
 pytestmark = [pytest.mark.django_db, pytest.mark.urls(__name__)]
 

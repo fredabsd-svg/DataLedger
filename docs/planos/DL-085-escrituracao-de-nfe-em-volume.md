@@ -165,7 +165,7 @@ Ajustes do arquiteto, com teste em `test_dl085_ajustes_do_arquiteto.py`:
   deadlock (N13, N14, N42).
 - **R5:** o nome acessível da caixa começa pelo rótulo visível (WCAG
   2.5.3).
-- **R8 e R9 (DL-086):** textos corrigidos na página pública, no seletor
+- **R8 e R9 (DL-090):** textos corrigidos na página pública, no seletor
   ("Receber notas") e no banner ("compras de mercadoria"), e uma guarda das
   superfícies de interface.
 - **R6, R7 e o resto:** foram para o BL-689.

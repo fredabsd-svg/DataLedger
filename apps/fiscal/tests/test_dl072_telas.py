@@ -798,7 +798,11 @@ def test_paralegal_ve_as_listas_sem_botoes(
     assert "Seu papel consulta estas notas" in lista
     assert _url_escriturar(empresa_a, _vinculo(nota, empresa_a)) not in lista
     assert _url_escriturar(empresa_a, _vinculo(nota, empresa_a)) not in documentos
-    assert '<th scope="col">Escrituração</th>' not in documentos
+    # DL-086 (A-04, direção de arte §2B): a coluna "Escrituração" não some mais para quem
+    # não escritura — a tabela mantém a forma para todo papel, a ação é substituída por um
+    # motivo visível (contrato anterior: a coluna inteira desaparecia, sem explicação).
+    assert '<th scope="col">Escrituração</th>' in documentos
+    assert "Seu papel consulta estes documentos" in documentos
     assert "Efetivar escrituração" not in conferencia
 
 

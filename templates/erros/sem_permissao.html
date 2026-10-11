@@ -28,4 +28,11 @@ esta tela de erro, mesmo padrão do restante do produto.
 
 {% block content %}
     <p>{{ mensagem|default:"Seu papel não permite realizar esta ação." }}</p>
+    {% comment %}
+    DL-086 (H-02): a recusa diz O QUE foi recusado (a frase específica da
+    view, acima, que não pode sumir) — faltava dizer o que fazer DEPOIS.
+    Sem este passo, quem esbarra no 403 fica sem caminho: a frase do papel
+    explica o porquê, não para quem pedir acesso.
+    {% endcomment %}
+    <p>Se precisar desta operação, fale com um administrador ou gestor do escritório.</p>
 {% endblock %}

@@ -197,7 +197,7 @@ são do arquiteto (§3.1), com testes em
   `devolucao_de_remessa_para_lote_de_exportacao`, nomeando a nota. Hipótese
   conservadora até o contador confirmar o tratamento.
 - **R5:** teste parametrizado com os quatro casos propostos pela auditoria.
-- **R2, R3, R6, R7** e os dois resíduos declarados: BL-690.
+- **R2, R3, R6, R7** e os dois resíduos declarados: BL-699.
 
 ## Critérios de aceite
 

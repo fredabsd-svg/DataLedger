@@ -178,7 +178,13 @@ motivo de cada botão desabilitado. A sugestão não grava nada; quem confirma �
             <p class="acoes-formulario">
                 {% if pode_pagamento %}
                     <a class="botao botao--secundario" href="{{ url_pagamento }}">Informar data de pagamento</a>
-                    <a class="botao botao--secundario" href="{{ url_estornar }}">Estornar escrituração</a>
+                    {% comment %}
+                    DL-086 (A-07, DE-101): estornar é ação sensível — tom `--perigoso` em todo o
+                    produto, como as irmãs nfe_escriturar.html e escrituracao_detalhe.html já
+                    fazem. Aqui era `--secundario`: mesma consequência (desfazer escrituração
+                    efetivada, com motivo na trilha), tom errado.
+                    {% endcomment %}
+                    <a class="botao botao--perigoso" href="{{ url_estornar }}">Estornar escrituração</a>
                 {% endif %}
             </p>
         {% elif nota.situacao == "cancelada_depois_de_escriturada" %}
@@ -188,7 +194,8 @@ motivo de cada botão desabilitado. A sugestão não grava nada; quem confirma �
             </p>
             {% if pode_pagamento %}
                 <p class="acoes-formulario">
-                    <a class="botao botao--secundario" href="{{ url_estornar }}">Estornar escrituração</a>
+                    {# DL-086 (A-07, DE-101): mesmo tom `--perigoso` do estorno acima. #}
+                    <a class="botao botao--perigoso" href="{{ url_estornar }}">Estornar escrituração</a>
                 </p>
             {% endif %}
         {% endif %}

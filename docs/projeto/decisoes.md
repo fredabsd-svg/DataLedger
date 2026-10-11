@@ -5281,10 +5281,11 @@ que o sinal fosse uma variável explícita, não uma inferência.
 
 **Reversão:** local ao `settings.py`, ao `Dockerfile` e ao `.env.example`.
 
-## DE-101 — O Razão não filtra por origem do lançamento; o Diário filtra
+## DE-103 — O Razão não filtra por origem do lançamento; o Diário filtra
 
 **Data:** 09/10/2026. **Etapa:** [DL-089](../planos/DL-089-origem-do-lancamento-contabil.md),
-A5 da [auditoria](../auditorias/2026-10-09-dl-089-rodada-1.md).
+A5 da [auditoria](../auditorias/2026-10-09-dl-089-rodada-1.md). (Nasceu como
+DE-101; renumerada na junção com a `main`, que já tinha DE-101 — DE-105.)
 
 **Decisão:** a origem do lançamento (digitado, importado, escrita fiscal)
 filtra o **Diário**, mas **não** o Razão.
@@ -5301,11 +5302,12 @@ e confundiria a conferência.
 
 **Reversão:** acrescentar o filtro no Razão é aditivo, se o Fred pedir.
 
-## DE-102 — O que conta como automático para o estorno, e documento obrigatório
+## DE-104 — O que conta como automático para o estorno, e documento obrigatório
 
 **Data:** 10/10/2026. **Etapa:** [DL-089](../planos/DL-089-origem-do-lancamento-contabil.md),
 A1 e A2 da [rodada 1](../auditorias/2026-10-09-dl-089-rodada-1.md) e R1 da
-[reconferência](../auditorias/2026-10-10-dl-089-reconferencia.md).
+[reconferência](../auditorias/2026-10-10-dl-089-reconferencia.md). (Nasceu
+como DE-102; renumerada na junção com a `main` — DE-105.)
 
 **Decisão:**
 
@@ -5330,3 +5332,79 @@ que exigiria abrir exceção no gatilho de imutabilidade.
 a importação ou o zeramento não devem contar como automáticos (HI-150). O
 item 2 sai com a reversão da 0026.
 
+## DE-101 — Fechar/encerrar período ou vigência é ação sensível: tom `--perigoso`
+
+**Data:** 11/10/2026. **Etapa:** [DL-086](../planos/DL-086-revisao-de-layout-e-acessos.md).
+**Fecha:** o achado A-08 da auditoria de interface (dois tons para o mesmo ato).
+
+**Problema.** "Encerrar" aparecia com dois tons no produto: o fechamento de
+mês do livro-caixa era `.botao--primario` (segundo o molde da contabilidade,
+onde fechar competência era `<button>` nativo), enquanto "encerrar
+atividade/vigência" no fiscal era `.botao--perigoso`. O §8.4 do contrato
+nomeava reabrir/entregar como sensíveis, mas nunca disse o que fazer com
+encerrar — a decisão nunca foi tomada, e cada módulo decidiu por conta
+própria (medido em quatro telas pela auditoria da DL-086).
+
+**Decisão.** Encerrar/fechar período ou vigência é ação SENSÍVEL: ela
+bloqueia o período para escrita (só reabertura autorizada desfaz) e muda o
+estado do livro. Tom `.botao--perigoso` em todo o produto, com rótulo que
+nomeia o alvo ("Encerrar mês 09/2026" — a regra do arquétipo E já exigia o
+alvo; o que muda é o tom). Telas tocadas: `fechamento_mes_encerrar`
+(livro-caixa) e `competencia_fechar` (contabilidade); as três telas de
+encerramento do fiscal já estavam em `--perigoso`. O §8.4 da
+[direção de arte](direcao-de-arte.md) foi atualizado na mesma etapa.
+
+**Alternativas descartadas.**
+- Manter `--primario` nos fechamentos, "seguindo o molde da contabilidade":
+  mantinha o produto com duas respostas para o mesmo ato — exatamente o que
+  o preâmbulo do contrato proíbe ("um sistema contábil que muda de cara a
+  cada módulo obriga o usuário a reaprender a ler").
+- Um quinto tom "atenção": multiplica a escala para um caso que já cabe em
+  "sensível" (§8.4: quatro tons, nunca mais).
+
+**Reversão:** local aos dois templates citados e ao §8.4 do contrato.
+
+## DE-105 — Junção de 11/10/2026: identificador colidido é renumerado no lado não publicado
+
+**Data:** 11/10/2026. **Etapa:** integração da branch `ccr-bf4b4a55-hpqgbp`
+com a `main` (DL-084 em diante), preparação do PR do fiscal. **Fecha:** a
+classe do BL-242 e do BL-326 repetida em três famílias de identificador.
+
+**Problema.** Duas linhas de trabalho paralelas — a branch de sessão do
+fiscal (09-10/10/2026) e a revisão de layout da `main` (11/10/2026) — pegaram
+cada uma o próximo número livre **que via**, e a `main` não conhecia a
+branch. Na junção apareceram três colisões semânticas, que o Git não acusa:
+
+| Identificador | Definição de 09-10/10 (branch, não publicada) | Definição de 11/10 (`main`, já mesclada) |
+| --- | --- | --- |
+| `DL-086` | Fiscal: documentação e painel alinhados ao código (RC-175) | Revisão de layout, botões, páginas e acessos (PR #107) |
+| `DE-101` | O Razão não filtra por origem do lançamento | Fechar/encerrar período é ação sensível, tom `--perigoso` |
+| `BL-689` a `BL-692` | Resíduos da DL-085, da DL-082, da DL-089 e da DL-084 | Resíduos da revisão de layout (faixa `BL-689` a `BL-697`) |
+
+**Decisão.** Renumera-se o lado **não publicado** — o da branch — e mantém-se
+o número do lado que já chegou à `main` e que o código e os testes citam em
+massa (cerca de 250 comentários "DL-086 (achado A-xx/C-xx)" e dez arquivos
+`test_dl086_*`, contra cerca de 70 referências documentais do outro lado).
+A documentação e o painel do fiscal viram **DL-090** (antes `DL-086`), as
+decisões do Razão e do estorno viram **`DE-103` e `DE-104`** (antes `DE-101`
+e `DE-102`), e os resíduos da DL-085/082/089/084 viram **`BL-698` a `BL-701`**
+(antes `BL-689` a `BL-692`). Auditorias históricas não se reescrevem
+(BL-242): as de 09-10/10 continuam citando os números da época, e a tradução
+fica registrada na abertura de cada plano renumerado.
+
+O critério do BL-242 ("renumerar a definição mais nova") foi lido aqui como
+**renumerar a definição ainda não integrada**: nas duas colisões originais
+(BL-242 e DE-042) "mais nova" e "não publicada" eram o mesmo lado; aqui as
+datas divergiam — a branch numerou primeiro (09/10) mas não publicou, e a
+`main` numerou depois (11/10) e mesclou antes. Prevalece o uso operacional:
+identificador que o código já carrega não se muda por uma colisão documental.
+
+**Alternativas descartadas.** Renumerar o lado da `main` (a revisão de
+layout): moveria cerca de 250 comentários de código, dez nomes de arquivo de
+teste e trinta referências documentais para corrigir uma colisão que só
+existe em texto. Manter os dois significados com nota explicativa: é a
+ambiguidade que derrubou o PR #21 (BL-242) — identificador com dois
+significados não é identificador.
+
+**Reversão:** os planos renumerados guardam o número antigo na abertura; a
+volta é renomear de volta os arquivos e as referências desta decisão.

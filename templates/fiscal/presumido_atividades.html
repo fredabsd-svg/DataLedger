@@ -22,7 +22,13 @@ vem do catálogo e não é digitado; sem atividade vigente, a apuração recusa 
     {% include "fiscal/_filtro_presumido.html" %}
 
     {% if not empresa_selecionada %}
+        {% comment %}
+        DL-086 (A-13, direção de arte §8.4c): o estado vazio completa a anatomia de
+        `.estado-vazio` (ícone decorativo, título e descrição), como nas referências
+        iss_aliquotas.html e atividades.html. Sem botão: a saída é o filtro acima, já visível.
+        {% endcomment %}
         <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
             <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver as atividades de presunção.</strong></p>
             <p class="estado-vazio__descricao">
                 Cada atividade tem vigência e os percentuais de IRPJ e CSLL. Sem atividade vigente, a apuração do trimestre recusa e lista as notas.
@@ -79,6 +85,8 @@ vem do catálogo e não é digitado; sem atividade vigente, a apuração recusa 
             </table>
         {% else %}
             <div class="estado-vazio">
+                {# DL-086 (A-13): mesma anatomia do cartão acima — ícone decorativo, título e descrição. #}
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
                 <p class="estado-vazio__titulo"><strong>Nenhuma atividade de presunção cadastrada para esta empresa.</strong></p>
                 <p class="estado-vazio__descricao">Sem atividade vigente na competência, a nota não entra na apuração e a tela diz quais são.</p>
             </div>
