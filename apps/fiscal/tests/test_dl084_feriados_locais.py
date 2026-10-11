@@ -261,3 +261,70 @@ def test_excecao_do_escritorio_substitui_a_da_base_so_para_as_empresas_dele(
     assert _avisos(date(2026, 10, 9), empresa_palmas) == (AVISO_BANCARIO_PALMAS, AVISO_ANTECIPAR)
     assert _avisos(date(2026, 10, 8), empresa_palmas) == ()
     assert _avisos(date(2026, 10, 5), empresa_palmas) == ()
+
+
+def test_linhas_efetivas_escolhe_o_vencedor_mesmo_com_a_entrada_fora_de_ordem():
+    """A regra de substituição decide pela regra, não pela ordem da entrada (DE-106).
+
+    Caso que mata o mutante E2 da reconferência da DL-084 (`_substitui_a_linha` sempre falsa):
+    com o PERDEDOR vindo primeiro, só a regra promove o vencedor — a ordenação de
+    `_feriados_locais_da_praca` sozinha não cobriria esta entrada. Também prende a fusão das
+    exceções por ano (a do escritório substitui a da base vinda antes dela).
+    """
+    base = calc.FeriadoLocalDado(
+        descricao="15/08 da base",
+        mes=8,
+        dia=15,
+        vigencia_inicio=date(2026, 1, 1),
+        vigencia_fim=None,
+        fonte_bancaria="Febraban (teste sintético)",
+        excecoes=(
+            calc.ExcecaoFeriadoDado(
+                ano=2026, data_observada=date(2026, 8, 14), fonte_bancaria="Febraban (teste)"
+            ),
+        ),
+    )
+    do_escritorio = calc.FeriadoLocalDado(
+        descricao="15/08 do escritório",
+        mes=8,
+        dia=15,
+        vigencia_inicio=date(2026, 1, 1),
+        vigencia_fim=None,
+        fonte_bancaria="",
+        excecoes=(
+            calc.ExcecaoFeriadoDado(
+                ano=2026,
+                data_observada=date(2026, 8, 17),
+                fonte_bancaria="",
+                do_escritorio=True,
+            ),
+        ),
+        do_escritorio=True,
+    )
+    estado = calc.FeriadoLocalDado(
+        descricao="05/10 do estado",
+        mes=10,
+        dia=5,
+        vigencia_inicio=date(2026, 1, 1),
+        vigencia_fim=None,
+        fonte_bancaria="",
+    )
+    praca = calc.FeriadoLocalDado(
+        descricao="05/10 da praça",
+        mes=10,
+        dia=5,
+        vigencia_inicio=date(2026, 1, 1),
+        vigencia_fim=None,
+        fonte_bancaria="",
+        municipio="PALMAS",
+    )
+
+    # Fora de ordem de propósito: o perdedor vem PRIMEIRO em todos os pares.
+    efetivas = calc.linhas_efetivas((base, do_escritorio, estado, praca))
+    por_dia = {(feriado.mes, feriado.dia): feriado for feriado in efetivas}
+
+    assert por_dia[(8, 15)].descricao == "15/08 do escritório"
+    assert por_dia[(10, 5)].descricao == "05/10 da praça"
+    # A exceção do escritório substitui a da base, que estava na frente dela.
+    (excecao,) = por_dia[(8, 15)].excecoes
+    assert excecao.data_observada == date(2026, 8, 17)

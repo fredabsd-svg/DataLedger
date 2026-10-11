@@ -149,6 +149,37 @@ depois da entrega, sem mudança no conjunto.
 Próximo: auditoria independente — rodada 1, correção única, reconferência
 (§3.1).
 
+## Ciclo da rodada 1 encerrado (11/10/2026)
+
+[Rodada 1](../auditorias/2026-10-11-dl-084-rodada-1.md) **APROVADA COM
+RESSALVAS**: A1 e A2 médios, A3 a A5 baixos; 8 de 10 mutantes mortos. Os dois
+sobreviventes (M8, base da CSLL sem o desconto; M9, ordem permissão→empresa
+sem teste nas rotas do fiscal) foram os achados A3 e A4.
+
+**Correção única** (commits `14f13a2` e `8ac49f4`): A1 fechado pela
+[DE-106](../projeto/decisoes.md) — a lei da praça vira base somente leitura e
+a escrita passa a ser do escritório (`FeriadoLocal.escritorio` e
+`ExcecaoFeriadoLocal.escritorio`, migração `0016`), com substituição do mesmo
+dia e um aviso por dia; A2 com as guardas das migrações 0015 e 0016 (a 0016
+recusa as cinco classes ANTES de qualquer coisa mudar — cada migração tem a
+própria transação); A3 e A4 com os testes que matam M8 e M9; A5 com a guarda
+de reversão parametrizada nas cinco classes.
+
+[Reconferência](../auditorias/2026-10-11-dl-084-reconferencia.md)
+**APROVADA** — os cinco achados fechados; as duas nuances (exceção no mesmo
+(feriado, ano) da base e atalho de exceção na tela da base) aceitas como
+limite do desenho e registradas na DE-106. Ajustes do arquiteto depois dela,
+sem terceira rodada (§3.1): as duas nuances na DE-106, o texto de ajuda da
+linha da base distinguindo "a linha é da base" de "a exceção do ano pode ser a
+sua", e o teste unitário de `linhas_efetivas` com entrada fora de ordem, que
+mata o mutante equivalente E2 (conferido na execução).
+
+Medida da suíte completa numa única invocação na reconferência: **9.700
+aprovados, 24 reprovados (ambiente Windows), 78 pulados**.
+
+Próximo: [DL-088](DL-088-virada-de-2027-no-simples.md) frentes A2 e B, depois
+a auditoria dela.
+
 ## Critérios de aceite
 
 1. O vencimento é antecipado nas quatro datas, em anos com Páscoa em março e

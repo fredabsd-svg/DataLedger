@@ -5442,6 +5442,15 @@ ADMINISTRADOR de um escritório ainda alteraria o aviso de outro — a recusa do
 A1 continuaria valendo. Trilha visível nos dois escritórios sem escopo: mostra
 o estrago, não o impede.
 
+**Limites registrados** (reconferência de 11/10/2026, aceitos como desenho):
+(1) a exceção do escritório para o MESMO (feriado, ano) de uma exceção da base
+é recusada antes do banco ("Já existe exceção para este ano neste feriado.");
+a saída é cadastrar a própria linha do dia com a própria exceção, que
+substitui só para as empresas dele — o índice único ficou para a migração ser
+estritamente aditiva; (2) a tela da base não oferece atalho para a exceção —
+o caminho é cadastrar a própria linha ("cadastre a sua para a sua praça"), e a
+rota de exceção segue funcional e testada.
+
 **Reversão:** a migração nova tem guarda; voltar ao arranjo global é reverter
 a migração do `escritorio` e o trecho da reversão da 0015, e tirar o escopo
 das views — nada de dado do contador se perde.
