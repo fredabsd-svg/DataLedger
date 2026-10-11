@@ -163,3 +163,101 @@ def test_a_linha_da_praca_substitui_a_da_uf_no_mesmo_dia(empresa_palmas):
     dias_de_15_08 = [f for f in feriados if (f.mes, f.dia) == (8, 15)]
     assert len(dias_de_15_08) == 1
     assert dias_de_15_08[0].fonte_bancaria
+
+
+# ---------------------------------------------------------------------------
+# Escopo do escritório (DE-106, achado A1 da auditoria da DL-084)
+# ---------------------------------------------------------------------------
+
+
+def _empresa_de_palmas(escritorio, razao, cnpj):
+    empresa = Empresa.objects.create(escritorio=escritorio, razao_social=razao, cnpj=cnpj)
+    _matriz(empresa, "Palmas", "TO")
+    return empresa
+
+
+def _feriado_do_escritorio(escritorio, **extra):
+    dados = {
+        "escritorio": escritorio,
+        "uf": "TO",
+        "municipio": "PALMAS",
+        "esfera": "municipal",
+        "fundamento": "Lei municipal sintética nº B/2026",
+        "data_leitura": date(2026, 10, 9),
+        "fonte_bancaria": "",
+        "vigencia_inicio": date(2026, 1, 1),
+    }
+    dados.update(extra)
+    return FeriadoLocal.objects.create(**dados)
+
+
+def test_a_linha_do_escritorio_nao_afeta_as_empresas_de_outro_escritorio(
+    escritorio_b, empresa_palmas
+):
+    empresa_b_palmas = _empresa_de_palmas(escritorio_b, "Cliente B Palmas Ltda", "77888999000161")
+    linha_b = _feriado_do_escritorio(
+        escritorio_b,
+        mes=1,
+        dia=2,
+        descricao="Feriado sintético do escritório B",
+        fonte_bancaria="Febraban (teste sintético)",
+    )
+    # A linha do escritório B vale para as empresas dele…
+    assert _avisos(date(2027, 1, 2), empresa_b_palmas) == (AVISO_BANCARIO_PALMAS, AVISO_ANTECIPAR)
+    # …e para as empresas do escritório A ela não existe: o aviso nem nasce.
+    assert _avisos(date(2027, 1, 2), empresa_palmas) == ()
+    _praca, feriados = servico._feriados_locais_da_praca(empresa_palmas)
+    assert all(f.descricao != linha_b.descricao for f in feriados)
+
+
+def test_a_linha_do_escritorio_substitui_a_da_base_no_mesmo_dia(escritorio_a, empresa_palmas):
+    # 15/08 da base (Palmas, com a lista bancária) avisa que a praça fecha…
+    assert _avisos(date(2027, 8, 15), empresa_palmas) == (AVISO_BANCARIO_PALMAS, AVISO_ANTECIPAR)
+    # …a linha do escritório A do mesmo dia, sem fonte, substitui a da base para as empresas dele,
+    # e o dia fica com UM aviso só (o mais fraco), nunca dois.
+    _feriado_do_escritorio(
+        escritorio_a,
+        mes=8,
+        dia=15,
+        descricao="15/08 do escritório A",
+        fundamento="Lei sintética nº A/2026",
+    )
+    assert _avisos(date(2027, 8, 15), empresa_palmas) == (AVISO_CONFIRMAR,)
+
+
+def test_excecao_do_escritorio_substitui_a_da_base_so_para_as_empresas_dele(
+    escritorio_b, empresa_palmas
+):
+    empresa_b_palmas = _empresa_de_palmas(escritorio_b, "Cliente B Palmas Ltda", "77888999000161")
+    # Base: o 05/10 de 2026 foi observado em 09/10 (decreto carregado) — o aviso sai em 09/10.
+    assert _avisos(date(2026, 10, 9), empresa_palmas) == (AVISO_BANCARIO_PALMAS, AVISO_ANTECIPAR)
+    assert _avisos(date(2026, 10, 5), empresa_palmas) == ()
+
+    # O escritório B registra o PRÓPRIO 05/10 e a PRÓPRIA exceção de 2026 (observada em 08/10).
+    linha_b = _feriado_do_escritorio(
+        escritorio_b,
+        mes=10,
+        dia=5,
+        descricao="05/10 do escritório B",
+        fonte_bancaria="Febraban (teste sintético)",
+    )
+    ExcecaoFeriadoLocal.objects.create(
+        escritorio=escritorio_b,
+        feriado=linha_b,
+        ano=2026,
+        data_observada=date(2026, 10, 8),
+        fundamento="Decreto sintético nº B/2026",
+        data_leitura=date(2026, 10, 9),
+        fonte_bancaria="Febraban (teste sintético)",
+    )
+
+    # Para as empresas dele, a exceção do escritório substitui a da base no mesmo ano: o aviso vai
+    # para 08/10 e a data observada da base (09/10) deixa de avisar.
+    assert _avisos(date(2026, 10, 8), empresa_b_palmas) == (AVISO_BANCARIO_PALMAS, AVISO_ANTECIPAR)
+    assert _avisos(date(2026, 10, 9), empresa_b_palmas) == ()
+    assert _avisos(date(2026, 10, 5), empresa_b_palmas) == ()
+
+    # E para as empresas do escritório A, NADA mudou.
+    assert _avisos(date(2026, 10, 9), empresa_palmas) == (AVISO_BANCARIO_PALMAS, AVISO_ANTECIPAR)
+    assert _avisos(date(2026, 10, 8), empresa_palmas) == ()
+    assert _avisos(date(2026, 10, 5), empresa_palmas) == ()

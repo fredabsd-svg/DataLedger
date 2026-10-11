@@ -66,9 +66,17 @@ data, e o serviço da tela manda excluí-la antes.
             <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
             {% comment %}
             Direção de arte §8.4: ação sensível em `.botao--perigoso`, com rótulo que nomeia o alvo —
-            o feriado, com data e descrição, nunca só "Excluir".
+            o feriado, com data e descrição, nunca só "Excluir". Linha da base (DE-106): a ação
+            aparece desabilitada com o motivo (§2B), com o MESMO texto da recusa do servidor.
             {% endcomment %}
-            <button type="submit" class="botao botao--perigoso">Excluir feriado de {{ feriado.data }} — {{ feriado.descricao }}</button>
+            {% if feriado.da_base %}
+                <button type="button" class="botao botao--perigoso" disabled aria-describedby="ajuda_linha_da_base">Excluir feriado de {{ feriado.data }} — {{ feriado.descricao }}</button>
+            {% else %}
+                <button type="submit" class="botao botao--perigoso">Excluir feriado de {{ feriado.data }} — {{ feriado.descricao }}</button>
+            {% endif %}
         </div>
     </form>
+    {% if feriado.da_base %}
+        <p class="texto-apoio" id="ajuda_linha_da_base">Esta é uma linha da base (lei e fonte da carga) — somente leitura: cadastre a sua para a sua praça.</p>
+    {% endif %}
 {% endblock %}

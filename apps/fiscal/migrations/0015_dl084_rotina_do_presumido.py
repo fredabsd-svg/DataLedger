@@ -7,14 +7,17 @@
 #   (três quotas, sem padrão de combustível; HI-136).
 # - `fiscal_feriadolocal` e `fiscal_excecaoferiadolocal`: feriados de Palmas e do Tocantins
 # (HI-137),
-#   com a lei e a data da leitura de cada linha. A carga é deste arquivo, com a fonte escrita.
+#   com a lei e a data da leitura de cada linha. A carga é deste arquivo, com a fonte escrita, e é a
+#   BASE da tabela: desde a frente B da DL-084 as telas também escrevem ali, e cada linha nova nasce
+#   escopada ao escritório que agiu (coluna `escritorio`, migração 0016/DE-106), afetando só as
+#   empresas dele; a base continua global e somente leitura.
 # - `fiscal_encerramentomedidajudiciallc224`: ato de encerramento de medida (BL-680, item 1). Tem
 #   gatilho que impede UPDATE e DELETE. A medida em si continua como estava (só a revogação a muda).
 #
 # Reversão (`migrate fiscal 0014`): RECUSA, sem alterar nada, se houver competência preenchida,
-# parâmetro gravado ou encerramento de medida. São dados do contador. A checagem é a ÚLTIMA operação
-# da lista, então na reversão roda PRIMEIRO. Sem esses dados, a reversão remove o que esta migração
-# criou, na ordem inversa.
+# parâmetro gravado, encerramento de medida ou linha de feriado/exceção do escritório. São dados do
+# contador. A checagem é a ÚLTIMA operação da lista, então na reversão roda PRIMEIRO. Sem esses
+# dados, a reversão remove o que esta migração criou, na ordem inversa.
 
 from datetime import date
 
@@ -190,11 +193,28 @@ def _carregar_feriados_locais(apps, schema_editor):
 
 
 def _descarregar_feriados_locais(apps, schema_editor):
-    # Só a carga do produto: a tabela não tem caminho de escrita pelo cliente, e a guarda da
-    # reversão
-    # (última operação) já recusou se houvesse algo além dela.
+    # Remove a carga do produto e as linhas da base: o que as telas gravaram é dado do contador e a
+    # guarda da reversão (última operação) já recusou se houvesse linha do escritório.
     apps.get_model("fiscal", "ExcecaoFeriadoLocal").objects.all().delete()
     apps.get_model("fiscal", "FeriadoLocal").objects.all().delete()
+
+
+def _linhas_do_escritorio(schema_editor, tabela: str) -> int:
+    """Linhas com `escritorio_id` preenchido nesta tabela, quando a coluna existe.
+
+    O escopo do escritório entrou na migração 0016 (DE-106). O modelo histórico desta migração não
+    enxerga a coluna (o estado daqui é o de ANTES dela), e na cadeia normal a reversão da 0016 já
+    recusou ou removeu a coluna antes de chegar aqui. Este contra-seguro protege o dado do contador
+    quando a 0015 for revertida com a coluna ainda no banco — por isso a consulta direta, e não o
+    ORM histórico.
+    """
+    with schema_editor.connection.cursor() as cursor:
+        colunas = schema_editor.connection.introspection.get_table_description(cursor, tabela)
+    if not any(coluna.name == "escritorio_id" for coluna in colunas):
+        return 0
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(f"SELECT COUNT(*) FROM {tabela} WHERE escritorio_id IS NOT NULL")
+        return cursor.fetchone()[0]
 
 
 def _recusar_reversao_com_dados_do_contador(apps, schema_editor):
@@ -212,6 +232,13 @@ def _recusar_reversao_com_dados_do_contador(apps, schema_editor):
     encerramentos = apps.get_model("fiscal", "EncerramentoMedidaJudicialLC224").objects.count()
     if encerramentos:
         pendencias.append(f"{encerramentos} medida(s) encerrada(s)")
+    # Feriado ou exceção com escritório preenchido é linha do contador (a base é carga e pode sair).
+    feriados = _linhas_do_escritorio(schema_editor, "fiscal_feriadolocal")
+    if feriados:
+        pendencias.append(f"{feriados} feriado(s) local(is) do escritório")
+    excecoes = _linhas_do_escritorio(schema_editor, "fiscal_excecaoferiadolocal")
+    if excecoes:
+        pendencias.append(f"{excecoes} exceção(ões) de feriado do escritório")
     if pendencias:
         raise RuntimeError(
             "Reversão da DL-084 recusada, sem alterar nada: "

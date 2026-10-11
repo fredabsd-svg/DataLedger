@@ -312,33 +312,52 @@ def test_cadastrar_feriado_pela_tela_grava_com_fonte_e_leitura(
 
 
 def test_alterar_feriado_pela_tela_edita_sem_mudar_a_data_normativa(
-    client, empresa_palmas, usuario_gestor_a
+    client, empresa_palmas, usuario_gestor_a, escritorio_a
 ):
     client.force_login(usuario_gestor_a)
-    feriado = FeriadoLocal.objects.get(uf="TO", municipio="PALMAS", mes=3, dia=19)
+    # DE-106: a edição é da linha DO ESCRITÓRIO (a da base recusa). Cadastra a linha e a altera.
+    assert (
+        client.post(
+            _url("presumido_feriado_novo", empresa_palmas.pk),
+            {
+                "abrangencia": "municipio",
+                "dia": "7",
+                "mes": "9",
+                "descricao": "Feriado sintético de setembro",
+                "fundamento": "Lei municipal sintética nº 3/2026",
+                "data_leitura": "09/10/2026",
+                "fonte_bancaria": "Febraban (teste sintético)",
+                "vigencia_inicio": "01/01/2026",
+                "vigencia_fim": "",
+            },
+        ).status_code
+        == 302
+    )
+    feriado = FeriadoLocal.objects.get(descricao="Feriado sintético de setembro")
+    assert feriado.escritorio == escritorio_a  # nasce escopada ao escritório que agiu
     resposta = client.post(
         _url("presumido_feriado_editar", empresa_palmas.pk, feriado.pk),
         {
             "abrangencia": "municipio",
-            "dia": "19",
-            "mes": "3",
-            "descricao": "São José, padroeiro de Palmas",
-            "fundamento": "Lei municipal de Palmas nº 577/1996 (conferida)",
+            "dia": "7",
+            "mes": "9",
+            "descricao": "Feriado sintético de setembro",
+            "fundamento": "Lei municipal sintética nº 3/2026 (conferida)",
             "data_leitura": "10/10/2026",
             "fonte_bancaria": "",
-            "vigencia_inicio": "02/04/1996",
+            "vigencia_inicio": "01/01/2026",
             "vigencia_fim": "",
         },
     )
     assert resposta.status_code == 302
     feriado.refresh_from_db()
     # A data normativa NÃO muda; o que mudou foi a fonte, e com ela o aviso (mais fraco agora).
-    assert (feriado.mes, feriado.dia) == (3, 19)
-    assert feriado.fundamento == "Lei municipal de Palmas nº 577/1996 (conferida)"
+    assert (feriado.mes, feriado.dia) == (9, 7)
+    assert feriado.fundamento == "Lei municipal sintética nº 3/2026 (conferida)"
     assert feriado.fonte_bancaria == ""
     html = _html(client.get(_url("presumido_feriados", empresa=empresa_palmas.pk)))
-    assert "19/03" in html
-    linha = _linha_que_contem(html, "São José")
+    assert "07/09" in html
+    linha = _linha_que_contem(html, "Feriado sintético de setembro")
     assert AVISO_CONFIRMAR in linha
     assert AVISO_BANCARIO_PALMAS not in linha
 
@@ -378,11 +397,39 @@ def test_excluir_feriado_pela_tela_com_confirmacao(client, empresa_palmas, usuar
 
 
 def test_feriado_com_excecao_nao_se_exclui_e_manda_excluir_a_excecao(
-    client, empresa_palmas, usuario_gestor_a
+    client, empresa_palmas, usuario_gestor_a, escritorio_a
 ):
     client.force_login(usuario_gestor_a)
-    feriado = FeriadoLocal.objects.get(uf="TO", municipio="PALMAS", mes=10, dia=5)
-    assert feriado.excecoes.exists()  # a exceção real de 2026 (05/10 observado em 09/10)
+    # DE-106: a exclusão é da linha DO ESCRITÓRIO (a da base recusa — ver o teste do escopo). A
+    # linha dela com exceção do escritório segue sem se excluir antes de a exceção sair.
+    client.post(
+        _url("presumido_feriado_novo", empresa_palmas.pk),
+        {
+            "abrangencia": "municipio",
+            "dia": "7",
+            "mes": "9",
+            "descricao": "Feriado sintético com exceção",
+            "fundamento": "Lei municipal sintética nº 4/2026",
+            "data_leitura": "09/10/2026",
+            "fonte_bancaria": "",
+            "vigencia_inicio": "01/01/2026",
+            "vigencia_fim": "",
+        },
+    )
+    feriado = FeriadoLocal.objects.get(descricao="Feriado sintético com exceção")
+    assert (
+        client.post(
+            _url("presumido_feriado_excecao_nova", empresa_palmas.pk, feriado.pk),
+            {
+                "ano": "2027",
+                "data_observada": "08/09/2027",
+                "fundamento": "Decreto sintético nº 2/2027",
+                "data_leitura": "09/10/2026",
+                "fonte_bancaria": "",
+            },
+        ).status_code
+        == 302
+    )
     resposta = client.post(_url("presumido_feriado_excluir", empresa_palmas.pk, feriado.pk), {})
     assert resposta.status_code == 409
     html = _html(resposta)
@@ -392,7 +439,7 @@ def test_feriado_com_excecao_nao_se_exclui_e_manda_excluir_a_excecao(
 
 
 def test_cadastrar_excecao_por_ano_pela_tela_move_o_aviso_e_nao_a_data_normativa(
-    client, empresa_palmas, usuario_gestor_a
+    client, empresa_palmas, usuario_gestor_a, escritorio_a
 ):
     client.force_login(usuario_gestor_a)
     feriado = FeriadoLocal.objects.get(uf="TO", municipio="PALMAS", mes=3, dia=19)
@@ -409,6 +456,8 @@ def test_cadastrar_excecao_por_ano_pela_tela_move_o_aviso_e_nao_a_data_normativa
     assert resposta.status_code == 302
     excecao = ExcecaoFeriadoLocal.objects.get(feriado=feriado, ano=2027)
     assert excecao.data_observada == date(2027, 3, 22)
+    # DE-106: a exceção nasce escopada ao escritório que agiu (a base continua como a carga).
+    assert excecao.escritorio == escritorio_a
     feriado.refresh_from_db()
     # A data normativa do feriado não muda: a exceção registra a data OBSERVADA daquele ano.
     assert (feriado.mes, feriado.dia) == (3, 19)
@@ -419,14 +468,29 @@ def test_cadastrar_excecao_por_ano_pela_tela_move_o_aviso_e_nao_a_data_normativa
 def test_excluir_excecao_pela_tela_com_confirmacao(client, empresa_palmas, usuario_gestor_a):
     client.force_login(usuario_gestor_a)
     feriado = FeriadoLocal.objects.get(uf="TO", municipio="PALMAS", mes=10, dia=5)
-    excecao = feriado.excecoes.get(ano=2026)
+    # DE-106: se exclui a exceção DO ESCRITÓRIO (a da base é somente leitura — ver o teste do
+    # escopo). Cadastra a exceção dele neste feriado carregado e a exclui.
+    assert (
+        client.post(
+            _url("presumido_feriado_excecao_nova", empresa_palmas.pk, feriado.pk),
+            {
+                "ano": "2027",
+                "data_observada": "07/10/2027",
+                "fundamento": "Decreto sintético nº 3/2027",
+                "data_leitura": "09/10/2026",
+                "fonte_bancaria": "",
+            },
+        ).status_code
+        == 302
+    )
+    excecao = feriado.excecoes.get(ano=2027)
     confirmacao = client.get(
         _url("presumido_feriado_excecao_excluir", empresa_palmas.pk, feriado.pk, excecao.pk)
     )
     assert confirmacao.status_code == 200
     html = _html(confirmacao)
     assert 'class="botao botao--perigoso"' in html
-    assert "Excluir exceção de 2026 do feriado de 05/10" in html
+    assert "Excluir exceção de 2027 do feriado de 05/10" in html
     assert (
         client.post(
             _url("presumido_feriado_excecao_excluir", empresa_palmas.pk, feriado.pk, excecao.pk), {}
@@ -879,3 +943,190 @@ def test_sugestao_de_natureza_da_tela_usa_o_padrao_de_combustivel_da_empresa(mon
     assert chamadas == ["posto"]
     assert linha["sugestao"] == NaturezaOperacaoNFe.COMBUSTIVEL
     assert "padrão de combustível" in linha["sugestao_motivo"]
+
+
+# ---------------------------------------------------------------------------
+# 9. Escopo do escritório nos feriados (DE-106, achado A1 da auditoria da DL-084)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def empresa_palmas_b(empresa_b, gestor_b):
+    """Empresa de OUTRO escritório, também com matriz em Palmas: mesma praça, outro escritório."""
+    _matriz(empresa_b, "Palmas", "TO")
+    return empresa_b
+
+
+def _avisos_locais(empresa, dia):
+    praca, feriados = servico._feriados_locais_da_praca(empresa)
+    return calc.avisos_de_feriado_local(dia, feriados, praca) if praca else ()
+
+
+def test_gestor_de_outro_escritorio_nao_edita_nem_exclui_a_linha_da_base_de_palmas(
+    client, empresa_palmas_b, gestor_b
+):
+    """O coração do achado A1: a linha carregada (lei e fonte bancária) que as empresas do
+    escritório A usam não se toca do escritório B — recusa nomeada, com a linguagem de escritório,
+    e o dado intocado. A UI mostra a ação desabilitada com o motivo (§2B da direção de arte)."""
+    base = FeriadoLocal.objects.get(uf="TO", municipio="PALMAS", mes=3, dia=19)
+    antes = (base.fundamento, base.data_leitura, base.fonte_bancaria, base.vigencia_inicio)
+    client.force_login(gestor_b)
+    for nome, args in (
+        ("presumido_feriado_editar", [empresa_palmas_b.pk, base.pk]),
+        ("presumido_feriado_excluir", [empresa_palmas_b.pk, base.pk]),
+    ):
+        for resposta in (client.get(_url(nome, *args)), client.post(_url(nome, *args), {})):
+            assert resposta.status_code == 409, nome
+            html = _html(resposta)
+            assert "linha da base (lei e fonte da carga)" in html
+            assert "cadastre a sua para a sua praça" in html
+    base.refresh_from_db()
+    assert (base.fundamento, base.data_leitura, base.fonte_bancaria, base.vigencia_inicio) == antes
+
+    # A exceção da base também não se exclui (é o decreto carregado).
+    base_outubro = FeriadoLocal.objects.get(uf="TO", municipio="PALMAS", mes=10, dia=5)
+    excecao_base = base_outubro.excecoes.get(ano=2026)
+    endereco = _url(
+        "presumido_feriado_excecao_excluir", empresa_palmas_b.pk, base_outubro.pk, excecao_base.pk
+    )
+    for resposta in (client.get(endereco), client.post(endereco, {})):
+        assert resposta.status_code == 409
+        assert "linha da base (lei e fonte da carga)" in _html(resposta)
+    assert ExcecaoFeriadoLocal.objects.filter(pk=excecao_base.pk).exists()
+
+    # E a UI mostra o motivo com a ação desabilitada, nunca sumindo (§2B).
+    html = _html(client.get(_url("presumido_feriados", empresa=empresa_palmas_b.pk)))
+    assert "Linha da base (carga/lei)" in html
+    assert "cadastre a sua para a sua praça" in html
+    assert 'class="botao botao--perigoso botao--pequeno" disabled' in html
+
+
+def test_a_linha_que_o_escritorio_b_cria_so_aparece_e_afeta_as_empresas_dele(
+    client, empresa_palmas_b, gestor_b, empresa_palmas, usuario_gestor_a, escritorio_b
+):
+    client.force_login(gestor_b)
+    assert (
+        client.post(
+            _url("presumido_feriado_novo", empresa_palmas_b.pk),
+            {
+                "abrangencia": "municipio",
+                "dia": "2",
+                "mes": "1",
+                "descricao": "Feriado sintético do escritório B",
+                "fundamento": "Lei municipal sintética nº B/2026",
+                "data_leitura": "09/10/2026",
+                "fonte_bancaria": "Febraban (teste sintético)",
+                "vigencia_inicio": "01/01/2026",
+                "vigencia_fim": "",
+            },
+        ).status_code
+        == 302
+    )
+    linha = FeriadoLocal.objects.get(descricao="Feriado sintético do escritório B")
+    assert linha.escritorio == escritorio_b  # nasce escopada ao escritório que agiu
+
+    # Só aparece para as empresas do escritório B.
+    html_b = _html(client.get(_url("presumido_feriados", empresa=empresa_palmas_b.pk)))
+    assert "Feriado sintético do escritório B" in html_b
+    client.force_login(usuario_gestor_a)
+    html_a = _html(client.get(_url("presumido_feriados", empresa=empresa_palmas.pk)))
+    assert "Feriado sintético do escritório B" not in html_a
+
+    # E só afeta as empresas dele: o aviso de 02/01 sai para B e não para A.
+    assert _avisos_locais(empresa_palmas_b, date(2027, 1, 2)) == (
+        AVISO_BANCARIO_PALMAS,
+        AVISO_ANTECIPAR,
+    )
+    assert _avisos_locais(empresa_palmas, date(2027, 1, 2)) == ()
+
+
+def test_os_avisos_do_escritorio_a_nao_mudam_quando_b_cadastra_feriado_e_excecao_na_mesma_praca(
+    client, empresa_palmas_b, gestor_b, empresa_palmas
+):
+    """O coração do achado A1: B cadastra feriado e exceção na MESMA praça e nenhum aviso das
+    empresas de A muda. Para as empresas de B, a linha do escritório substitui a da base no mesmo
+    dia e a exceção do escritório substitui a da base no mesmo ano — só para as dele."""
+    # Como as empresas de A veem hoje: 19/03 com a lista bancária, 09/10/2026 observado, 05/10 mudo.
+    assert _avisos_locais(empresa_palmas, date(2027, 3, 19)) == (
+        AVISO_BANCARIO_PALMAS,
+        AVISO_ANTECIPAR,
+    )
+    assert _avisos_locais(empresa_palmas, date(2026, 10, 9)) == (
+        AVISO_BANCARIO_PALMAS,
+        AVISO_ANTECIPAR,
+    )
+    assert _avisos_locais(empresa_palmas, date(2026, 10, 5)) == ()
+
+    client.force_login(gestor_b)
+    # B cadastra o PRÓPRIO feriado de 19/03 (sem fonte bancária) e o PRÓPRIO 05/10 com exceção de
+    # 2026 observada em 08/10 — ambos escopados ao escritório dele.
+    assert (
+        client.post(
+            _url("presumido_feriado_novo", empresa_palmas_b.pk),
+            {
+                "abrangencia": "municipio",
+                "dia": "19",
+                "mes": "3",
+                "descricao": "São José, feriado do escritório B",
+                "fundamento": "Lei municipal sintética nº C/2026",
+                "data_leitura": "09/10/2026",
+                "fonte_bancaria": "",
+                "vigencia_inicio": "01/01/2026",
+                "vigencia_fim": "",
+            },
+        ).status_code
+        == 302
+    )
+    assert (
+        client.post(
+            _url("presumido_feriado_novo", empresa_palmas_b.pk),
+            {
+                "abrangencia": "municipio",
+                "dia": "5",
+                "mes": "10",
+                "descricao": "Criação do Estado, do escritório B",
+                "fundamento": "Lei estadual sintética nº D/2026",
+                "data_leitura": "09/10/2026",
+                "fonte_bancaria": "Febraban (teste sintético)",
+                "vigencia_inicio": "01/01/2026",
+                "vigencia_fim": "",
+            },
+        ).status_code
+        == 302
+    )
+    linha_b = FeriadoLocal.objects.get(descricao="Criação do Estado, do escritório B")
+    assert (
+        client.post(
+            _url("presumido_feriado_excecao_nova", empresa_palmas_b.pk, linha_b.pk),
+            {
+                "ano": "2026",
+                "data_observada": "08/10/2026",
+                "fundamento": "Decreto sintético nº B/2026",
+                "data_leitura": "09/10/2026",
+                "fonte_bancaria": "Febraban (teste sintético)",
+            },
+        ).status_code
+        == 302
+    )
+
+    # Para as empresas de B: a linha dele substitui a da base no mesmo dia (19/03 sem fonte) e a
+    # exceção dele substitui a da base no mesmo ano (08/10 avisa; 09/10 e 05/10 não).
+    assert _avisos_locais(empresa_palmas_b, date(2027, 3, 19)) == (AVISO_CONFIRMAR,)
+    assert _avisos_locais(empresa_palmas_b, date(2026, 10, 8)) == (
+        AVISO_BANCARIO_PALMAS,
+        AVISO_ANTECIPAR,
+    )
+    assert _avisos_locais(empresa_palmas_b, date(2026, 10, 9)) == ()
+    assert _avisos_locais(empresa_palmas_b, date(2026, 10, 5)) == ()
+
+    # E para as empresas de A, NADA mudou.
+    assert _avisos_locais(empresa_palmas, date(2027, 3, 19)) == (
+        AVISO_BANCARIO_PALMAS,
+        AVISO_ANTECIPAR,
+    )
+    assert _avisos_locais(empresa_palmas, date(2026, 10, 9)) == (
+        AVISO_BANCARIO_PALMAS,
+        AVISO_ANTECIPAR,
+    )
+    assert _avisos_locais(empresa_palmas, date(2026, 10, 5)) == ()
+    assert _avisos_locais(empresa_palmas, date(2026, 10, 8)) == ()

@@ -65,9 +65,17 @@ si não muda.
             <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
             {% comment %}
             Direção de arte §8.4: ação sensível em `.botao--perigoso`, com rótulo que nomeia o alvo —
-            a exceção, o ano e o feriado, nunca só "Excluir".
+            a exceção, o ano e o feriado, nunca só "Excluir". Exceção da base (DE-106): a ação
+            aparece desabilitada com o motivo (§2B), com o MESMO texto da recusa do servidor.
             {% endcomment %}
-            <button type="submit" class="botao botao--perigoso">Excluir exceção de {{ excecao.ano }} do feriado de {{ feriado.data }}</button>
+            {% if excecao.da_base %}
+                <button type="button" class="botao botao--perigoso" disabled aria-describedby="ajuda_linha_da_base">Excluir exceção de {{ excecao.ano }} do feriado de {{ feriado.data }}</button>
+            {% else %}
+                <button type="submit" class="botao botao--perigoso">Excluir exceção de {{ excecao.ano }} do feriado de {{ feriado.data }}</button>
+            {% endif %}
         </div>
     </form>
+    {% if excecao.da_base %}
+        <p class="texto-apoio" id="ajuda_linha_da_base">Esta é uma linha da base (lei e fonte da carga) — somente leitura: cadastre a sua para a sua praça.</p>
+    {% endif %}
 {% endblock %}

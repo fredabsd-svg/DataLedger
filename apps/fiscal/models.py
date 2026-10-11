@@ -2715,21 +2715,32 @@ OPCOES_ESFERA_FERIADO = [
 
 
 class FeriadoLocal(models.Model):
-    """Feriado estadual ou municipal, dado DO PRODUTO por UF e município (DL-084, item 2; HI-137).
+    """Feriado estadual ou municipal por UF e município (DL-084, item 2; HI-137; DE-106).
 
-    Não pertence a nenhuma empresa: é a lei do lugar. A empresa herda pelo município do
-    ESTABELECIMENTO MATRIZ (`municipio` e `uf`, normalizados em `chave_municipio`). Feriado estadual
-    com `municipio` vazio vale para todo o estado (só a lei). Quando a lista bancária confirma o
-    fechamento numa praça, há uma linha com o município dela (e `fonte_bancaria`), que substitui a
-    linha do estado no mesmo dia. Cada linha guarda a lei (`fundamento`) e a data em que foi lida
+    O feriado é a lei do lugar, e a carga do produto (lei, data da leitura e fonte bancária) é a
+    BASE: linha com `escritorio` vazio. A escrita das telas nasce escopada ao escritório que agiu
+    (`escritorio` preenchido) e afeta só as empresas dele. A empresa herda a base da praça MAIS as
+    linhas do escritório dela, pelo município do ESTABELECIMENTO MATRIZ (`municipio` e `uf`,
+    normalizados em `chave_municipio`); no mesmo dia, a linha do escritório substitui a da base — e
+    a da praça substitui a do estado — para as empresas dele
+    (`presumido_calculo.linhas_efetivas`). Feriado estadual com `municipio` vazio vale para todo o
+    estado (só a lei). Cada linha guarda a lei (`fundamento`) e a data em que foi lida
     (`data_leitura`); a CHECK e o NOT NULL impedem linha sem uma ou sem outra.
 
     O feriado local NUNCA muda a data de vencimento: só gera aviso (`avisos_de_feriado_local`).
-    `fonte_bancaria` é a lista da Febraban que confirma o fechamento na praça, quando houver.
-    Escrita pela migração de carga (com a fonte) e, desde a frente B da DL-084, pelas telas
-    `presumido_feriados`: todo ato de tela exige `fundamento` e `data_leitura` e grava trilha.
+    `fonte_bancaria` é a lista da Febraban que confirma o fechamento na praça, quando houver. A base
+    é somente leitura nas telas (edição e exclusão recusam); a linha do escritório se grava com
+    trilha no escritório que agiu.
     """
 
+    escritorio = models.ForeignKey(
+        Escritorio,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="feriados_locais",
+        verbose_name="escritório (vazio = linha da base)",
+    )
     uf = models.CharField("UF", max_length=2)
     municipio = models.CharField(
         "município (vazio = estadual)", max_length=100, blank=True, default=""
@@ -2790,13 +2801,26 @@ class FeriadoLocal(models.Model):
 
 
 class ExcecaoFeriadoLocal(models.Model):
-    """Um ano em que o feriado foi movido por decreto (DL-084, item 2; HI-137).
+    """Um ano em que o feriado foi movido por decreto (DL-084, item 2; HI-137; DE-106).
 
     Ex.: em 2026 o feriado estadual de 05/10 foi observado em 09/10 (Decreto estadual 7.238/2026,
     citado no Decreto municipal de Palmas 2.993/2026). A data observada recebe o aviso; a data
     normativa, nesse ano, não avisa. A data de vencimento não muda em nenhum dos dois casos.
+
+    Mesmo escopo da linha de `FeriadoLocal`: `escritorio` vazio é a exceção da BASE (carga/decreto
+    da carga); preenchido, é a exceção do escritório, que nasce nas telas e afeta só as empresas
+    dele. No mesmo ano, a exceção do escritório substitui a da base para as empresas dele
+    (`presumido_calculo.linhas_efetivas`).
     """
 
+    escritorio = models.ForeignKey(
+        Escritorio,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="excecoes_feriado_local",
+        verbose_name="escritório (vazio = linha da base)",
+    )
     feriado = models.ForeignKey(
         FeriadoLocal,
         on_delete=models.PROTECT,

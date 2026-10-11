@@ -93,7 +93,7 @@ lista confirma). A linha da praça substitui a do estado no mesmo dia.
                         <tr>
                             <td class="valor-monetario">{{ feriado.data }}</td>
                             <td>{{ feriado.descricao }}</td>
-                            <td>{{ feriado.abrangencia }}</td>
+                            <td>{{ feriado.abrangencia }}<br><span class="texto-apoio">{% if feriado.da_base %}Linha da base (carga/lei){% else %}Do seu escritório{% endif %}</span></td>
                             <td class="texto-apoio">{{ feriado.fundamento }}<br>Lida em {{ feriado.data_leitura }}<br>Fonte bancária: {{ feriado.fonte_bancaria }}</td>
                             <td>{{ feriado.vigencia }}</td>
                             <td>
@@ -108,6 +108,8 @@ lista confirma). A linha da praça substitui a do estado no mesmo dia.
                                         ({% for aviso in excecao.avisos %}{{ aviso }}{% if not forloop.last %}; {% endif %}{% endfor %})
                                         {% if excecao.url_excluir %}
                                             <a class="botao botao--perigoso botao--pequeno" href="{{ excecao.url_excluir }}">Excluir exceção<span class="visualmente-oculto"> de {{ excecao.ano }} do feriado de {{ feriado.data }}</span></a>
+                                        {% else %}
+                                            <button type="button" class="botao botao--perigoso botao--pequeno" disabled aria-describedby="{% if not pode_escriturar %}ajuda_sem_permissao{% elif excecao.da_base %}ajuda_linha_da_base{% endif %}">Excluir exceção<span class="visualmente-oculto"> de {{ excecao.ano }} do feriado de {{ feriado.data }}</span></button>
                                         {% endif %}
                                         {% if not forloop.last %}<br>{% endif %}
                                     {% endfor %}
@@ -125,8 +127,13 @@ lista confirma). A linha da praça substitui a do estado no mesmo dia.
                                         <a class="botao botao--secundario botao--pequeno" href="{{ feriado.url_editar }}">Alterar<span class="visualmente-oculto"> o feriado de {{ feriado.data }} — {{ feriado.descricao }}</span></a>
                                         <a class="botao botao--perigoso botao--pequeno" href="{{ feriado.url_excluir }}">Excluir<span class="visualmente-oculto"> o feriado de {{ feriado.data }} — {{ feriado.descricao }}</span></a>
                                     {% else %}
-                                        <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Alterar<span class="visualmente-oculto"> o feriado de {{ feriado.data }} — {{ feriado.descricao }}</span></button>
-                                        <button type="button" class="botao botao--perigoso botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Excluir<span class="visualmente-oculto"> o feriado de {{ feriado.data }} — {{ feriado.descricao }}</span></button>
+                                        {% comment %}
+                                        Direção de arte §2B: a ação aparece DESABILITADA com o motivo, nunca some.
+                                        O motivo do feriado da base é o de `presumido_feriado_editar`/`_excluir`
+                                        (DE-106), com o MESMO texto do servidor.
+                                        {% endcomment %}
+                                        <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="{% if not pode_escriturar %}ajuda_sem_permissao{% else %}ajuda_linha_da_base{% endif %}">Alterar<span class="visualmente-oculto"> o feriado de {{ feriado.data }} — {{ feriado.descricao }}</span></button>
+                                        <button type="button" class="botao botao--perigoso botao--pequeno" disabled aria-describedby="{% if not pode_escriturar %}ajuda_sem_permissao{% else %}ajuda_linha_da_base{% endif %}">Excluir<span class="visualmente-oculto"> o feriado de {{ feriado.data }} — {{ feriado.descricao }}</span></button>
                                     {% endif %}
                                 </div>
                             </td>
@@ -137,6 +144,7 @@ lista confirma). A linha da praça substitui a do estado no mesmo dia.
             {% if not pode_escriturar %}
                 <p class="texto-apoio" id="ajuda_sem_permissao">Seu papel consulta os feriados locais, mas não cadastra, altera nem exclui.</p>
             {% endif %}
+            <p class="texto-apoio" id="ajuda_linha_da_base">Linha da base (carga/lei) é somente leitura: alteração e exclusão recusam — cadastre a sua para a sua praça.</p>
         {% else %}
             <div class="estado-vazio">
                 {# DL-086 (A-13): mesma anatomia do cartão acima — ícone decorativo, título e descrição. #}

@@ -13,14 +13,15 @@ a MESMA (status e corpo) para id existente e inexistente, e o B7 da DL-038
 segue preservado (a recusa não revela o modo de escrituração de ninguém).
 
 Como na varredura da DL-038 (`test_dl038_recusa_livro_caixa.py`), as rotas
-são DERIVADAS de `apps.contabilidade.urls_web.urlpatterns` — nenhuma lista
-escrita à mão. Uma rota nova com `empresa_id` entra nesta varredura sem
-ninguém editar este arquivo; os métodos aceitos vêm da sonda TRACE (cabeçalho
-`Allow` do 405), sem executar o handler. O controle de vacuidade é o par de
-testes finais: papel que LÊ com id inexistente continua 404 (isolamento,
-critério 2 da DL-015) — se a guarda virasse "403 para todos", aquele par
-caía junto com o mutante "guarda removida" (CLIENTE com id inexistente
-voltaria a ser 404).
+são DERIVADAS de `apps.contabilidade.urls_web.urlpatterns` e, desde a
+correção da DL-084 (achado A4), também de `apps.fiscal.urls_web.urlpatterns`
+— nenhuma lista escrita à mão. Uma rota nova com `empresa_id` entra nesta
+varredura sem ninguém editar este arquivo; os métodos aceitos vêm da sonda
+TRACE (cabeçalho `Allow` do 405), sem executar o handler. O controle de
+vacuidade é o par de testes finais: papel que LÊ com id inexistente continua
+404 (isolamento, critério 2 da DL-015) — se a guarda virasse "403 para
+todos", aquele par caía junto com o mutante "guarda removida" (CLIENTE com
+id inexistente voltaria a ser 404).
 """
 
 import re
@@ -32,6 +33,7 @@ from django.urls import reverse
 from apps.contabilidade import urls_web as contabilidade_urls_web
 from apps.contabilidade.models import Conta, LancamentoContabil
 from apps.empresas.models import Empresa
+from apps.fiscal import urls_web as fiscal_urls_web
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
 pytestmark = pytest.mark.django_db
@@ -43,12 +45,22 @@ ID_INEXISTENTE = 987_654_321
 
 def _rotas_web_com_empresa_id():
     """Mesma derivação da DL-038: todo padrão de `urls_web` cujo conversor
-    inclui `empresa_id`."""
+    inclui `empresa_id`.
+
+    Desde a correção da DL-084 (achado A4 da auditoria), derivam-se também as
+    rotas do FISCAL: as rotas novas do Presumido nascem sob a mesma regra da
+    BL-584, e sem elas aqui o mutante "empresa resolvida antes da permissão"
+    sobrevivia à suíte inteira (medido: 181 testes passavam). O namespace vem do
+    módulo, para `reverse` acertar cada rota."""
     rotas = []
-    for padrao in contabilidade_urls_web.urlpatterns:
-        nomes_de_parametro = tuple(padrao.pattern.converters)
-        if "empresa_id" in nomes_de_parametro:
-            rotas.append((f"contabilidade_web:{padrao.name}", nomes_de_parametro))
+    for modulo, namespace in (
+        (contabilidade_urls_web, "contabilidade_web"),
+        (fiscal_urls_web, "fiscal_web"),
+    ):
+        for padrao in modulo.urlpatterns:
+            nomes_de_parametro = tuple(padrao.pattern.converters)
+            if "empresa_id" in nomes_de_parametro:
+                rotas.append((f"{namespace}:{padrao.name}", nomes_de_parametro))
     return rotas
 
 
@@ -61,8 +73,12 @@ def test_a_derivacao_nao_esta_vazia():
     # rotas. A contagem exata é fixada pela DL-038
     # (`test_a_derivacao_encontrou_as_vinte_e_quatro_rotas_web_e_as_vinte_da_api`)
     # — de propósito não duplicada aqui, para uma rota nova não exigir dois
-    # arquivos editados.
+    # arquivos editados. O segundo assert prende a PRESENÇA das rotas do
+    # fiscal: sem ele, uma derivação que só enxergasse a contabilidade passaria
+    # silenciosamente e as rotas novas do Presumido ficariam fora (o próprio
+    # achado A4).
     assert len(ROTAS_WEB) >= 41, ROTAS_WEB
+    assert any(nome.startswith("fiscal_web:") for nome, _ in ROTAS_WEB), ROTAS_WEB
 
 
 @pytest.fixture

@@ -2171,7 +2171,11 @@ def _feriados_locais_da_praca(
 ) -> tuple[str | None, tuple[calc.FeriadoLocalDado, ...]]:
     """(nome da praça, feriados locais que valem nela). Estadual (município vazio) e municipal.
 
-    Lê a tabela do produto uma vez por apuração, com as exceções do ano (`prefetch_related`).
+    A empresa herda a base da praça mais as linhas do escritório dela (DE-106): a base (carga/lei) é
+    global e somente leitura, e o que outro escritório gravou jamais entra — nem linha, nem exceção.
+    A substituição do mesmo dia e a fusão das exceções por ano são de
+    `presumido_calculo.linhas_efetivas`; aqui só se lê a tabela uma vez por apuração, com as
+    exceções (`prefetch_related`).
     """
     praca = _praca_da_empresa(empresa)
     if praca is None:
@@ -2180,25 +2184,20 @@ def _feriados_locais_da_praca(
     registros = list(
         FeriadoLocal.objects.filter(uf=uf)
         .filter(Q(municipio="") | Q(municipio=calc.chave_municipio(municipio)))
+        .filter(Q(escritorio__isnull=True) | Q(escritorio=empresa.escritorio))
         .prefetch_related("excecoes")
-        .order_by("mes", "dia", "id")
+        .order_by("mes", "dia", "municipio", "id")
     )
-    # A linha da praça substitui a da UF no mesmo dia: é ela que traz a confirmação bancária dessa
-    # praça (DL-084, item 2). A ordenação põe a da praça primeiro; a estadual só entra se não
-    # houver.
-    registros.sort(key=lambda registro: registro.municipio == "")
-    escolhidos: list[FeriadoLocal] = []
-    dias_ja_escolhidos: set[tuple[int, int]] = set()
-    for registro in registros:
-        if (registro.mes, registro.dia) in dias_ja_escolhidos:
-            continue
-        dias_ja_escolhidos.add((registro.mes, registro.dia))
-        escolhidos.append(registro)
+    # Ordem de preferência dentro do dia: escritório antes da base, praça antes do estado (é a ordem
+    # que `linhas_efetivas` usa para decidir as exceções do mesmo escopo — DL-084, item 2).
+    registros.sort(key=lambda registro: (registro.escritorio_id is None, registro.municipio == ""))
     feriados = tuple(
         calc.FeriadoLocalDado(
             descricao=registro.descricao,
             mes=registro.mes,
             dia=registro.dia,
+            municipio=registro.municipio,
+            do_escritorio=registro.escritorio_id is not None,
             vigencia_inicio=registro.vigencia_inicio,
             vigencia_fim=registro.vigencia_fim,
             fonte_bancaria=registro.fonte_bancaria,
@@ -2207,13 +2206,15 @@ def _feriados_locais_da_praca(
                     ano=excecao.ano,
                     data_observada=excecao.data_observada,
                     fonte_bancaria=excecao.fonte_bancaria,
+                    do_escritorio=excecao.escritorio_id is not None,
                 )
                 for excecao in registro.excecoes.all()
+                if excecao.escritorio_id is None or excecao.escritorio_id == empresa.escritorio_id
             ),
         )
-        for registro in escolhidos
+        for registro in registros
     )
-    return municipio, feriados
+    return municipio, calc.linhas_efetivas(feriados)
 
 
 # ---------------------------------------------------------------------------

@@ -628,11 +628,16 @@ AVISO_LOCAL_ANTECIPAR = "antecipar: sem expediente bancário na praça"
 
 @dataclass(frozen=True)
 class ExcecaoFeriadoDado:
-    """Um ano em que o feriado foi movido por decreto (ex.: 05/10/2026 observado em 09/10/2026)."""
+    """Um ano em que o feriado foi movido por decreto (ex.: 05/10/2026 observado em 09/10/2026).
+
+    `do_escritorio` diz o escopo (DE-106): False é a exceção da base (carga/lei), True é a do
+    escritório, que no mesmo ano substitui a da base para as empresas dele.
+    """
 
     ano: int
     data_observada: date
     fonte_bancaria: str
+    do_escritorio: bool = False
 
 
 @dataclass(frozen=True)
@@ -641,6 +646,9 @@ class FeriadoLocalDado:
 
     `fonte_bancaria` vazia = a lista da Febraban não confirma o fechamento na praça: o aviso fica
     o mais fraco ("confirmar expediente"). Com fonte, o aviso diz que a praça fecha.
+    `do_escritorio` e `municipio` trazem o escopo e a abrangência (DE-106) para a substituição do
+    mesmo dia: a linha do escritório substitui a da base para as empresas dele, e a da praça
+    (município preenchido) substitui a do estado.
     """
 
     descricao: str
@@ -650,6 +658,8 @@ class FeriadoLocalDado:
     vigencia_fim: date | None
     fonte_bancaria: str
     excecoes: tuple[ExcecaoFeriadoDado, ...] = ()
+    do_escritorio: bool = False
+    municipio: str = ""
 
 
 def chave_municipio(nome: str) -> str:
@@ -661,17 +671,59 @@ def chave_municipio(nome: str) -> str:
     return " ".join(sem_acento.upper().split())
 
 
+def _substitui_a_linha(novo: FeriadoLocalDado, atual: FeriadoLocalDado) -> bool:
+    """A linha `novo` substitui a `atual` no mesmo dia, para as empresas do escritório dela?
+
+    Escritório antes da base (DE-106) e, dentro do mesmo escopo, a praça (município preenchido)
+    antes do estado — o princípio que `FeriadoLocal` documenta. A vigência da linha que vale decide.
+    """
+    if novo.do_escritorio != atual.do_escritorio:
+        return novo.do_escritorio
+    return bool(novo.municipio) and not atual.municipio
+
+
+def linhas_efetivas(
+    feriados: tuple[FeriadoLocalDado, ...],
+) -> tuple[FeriadoLocalDado, ...]:
+    """Uma linha por dia (mês, dia), com as exceções do dia fundidas por ano (DE-106).
+
+    A empresa herda a base da praça mais as linhas do escritório dela. No mesmo dia, a linha do
+    escritório substitui a da base para as empresas dele (e a da praça substitui a do estado); no
+    mesmo ano, a exceção do escritório substitui a da base. Entre linhas do MESMO escopo, a exceção
+    que já entrou prevalece. O resultado nunca tem duas linhas para o mesmo dia — nem, portanto,
+    dois avisos para o mesmo vencimento.
+    """
+    vencedores: dict[tuple[int, int], FeriadoLocalDado] = {}
+    excecoes: dict[tuple[int, int], dict[int, ExcecaoFeriadoDado]] = {}
+    for feriado in feriados:
+        chave = (feriado.mes, feriado.dia)
+        atual = vencedores.get(chave)
+        if atual is None or _substitui_a_linha(feriado, atual):
+            vencedores[chave] = feriado
+        do_dia = excecoes.setdefault(chave, {})
+        for excecao in feriado.excecoes:
+            anterior = do_dia.get(excecao.ano)
+            if anterior is None or (excecao.do_escritorio and not anterior.do_escritorio):
+                do_dia[excecao.ano] = excecao
+    return tuple(
+        replace(feriado, excecoes=tuple(excecoes[chave][ano] for ano in sorted(excecoes[chave])))
+        for chave, feriado in vencedores.items()
+    )
+
+
 def avisos_de_feriado_local(
     dia: date, feriados: tuple[FeriadoLocalDado, ...], praca: str
 ) -> tuple[str, ...]:
     """Avisos que um feriado local põe numa data de vencimento. Nunca mudam a data.
 
-    A data observada vale no ano: se houver exceção desse ano (decreto que moveu o feriado), o
-    aviso vai para a data observada, e a data normativa NÃO avisa, porque nesse ano ela não é
-    feriado. Sem exceção, a data normativa é a própria data do feriado.
+    As linhas chegam como a empresa as herda — base da praça mais as do escritório dela — e a
+    substituição do mesmo dia e das exceções é a de `linhas_efetivas`: um aviso por dia, sem
+    duplicata. A data observada vale no ano: se houver exceção desse ano (decreto que moveu o
+    feriado), o aviso vai para a data observada, e a data normativa NÃO avisa, porque nesse ano ela
+    não é feriado. Sem exceção, a data normativa é a própria data do feriado.
     """
     avisos: list[str] = []
-    for feriado in feriados:
+    for feriado in linhas_efetivas(feriados):
         if dia < feriado.vigencia_inicio:
             continue
         if feriado.vigencia_fim is not None and dia > feriado.vigencia_fim:

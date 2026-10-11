@@ -154,6 +154,63 @@ def test_nota_com_1_por_cento_aparece_a_classificar_com_o_aviso_no_banco(
     assert "o tomador reteve só a CSLL?" in linhas[nota.pk].csll_motivo
 
 
+def test_desconto_incondicional_desconta_na_base_da_coerencia_pelo_banco(
+    presumido, escritorio_a, usuario_gestor_a
+):
+    """A base da coerência é `vServ − desconto incondicional` (critério 3) no CAMINHO INTEIRO.
+
+    Nota com vServ 1.000,00, desconto incondicional 200,00 e vRetCSLL 37,20 (4,65% de 800,00):
+    "estimada", CSLL proposta 8,00 (37,20 ÷ 4,65). Mutante M8 da auditoria da DL-084 — trocar a base
+    por `valor` (sem o desconto) em `_ler_nota` — passava em toda a suíte: este caso e o espelho
+    abaixo derrubam ele.
+    """
+    nota = nota_efetivada(
+        escritorio_a,
+        presumido["empresa"],
+        usuario_gestor_a,
+        sufixo=831,
+        v_serv="1000.00",
+        desc_incond="200.00",
+        d_compet="2026-01-10",
+        ret_csll="37.20",
+        tp_ret="3",
+    )
+    linhas = {
+        linha.escrituracao_id: linha
+        for linha in servico.retencoes_do_trimestre(presumido["empresa"], 2026, 1)
+    }
+    assert linhas[nota.pk].csll_situacao == "estimada"
+    assert linhas[nota.pk].csll_proposta == D("8.00")
+
+
+def test_espelho_os_4650_da_base_errada_sem_o_desconto_caem_a_classificar(
+    presumido, escritorio_a, usuario_gestor_a
+):
+    """Espelho do caso acima: vRetCSLL 46,50 é 4,65% da base ERRADA (1.000,00 sem o desconto).
+
+    Com a base certa (800,00) ele não bate com 4,65% (37,20) nem com 1% (8,00): "a classificar".
+    Se o desconto sair do cálculo, 46,50 passaria a confirmar a estimada — e este teste reprova.
+    """
+    nota = nota_efetivada(
+        escritorio_a,
+        presumido["empresa"],
+        usuario_gestor_a,
+        sufixo=832,
+        v_serv="1000.00",
+        desc_incond="200.00",
+        d_compet="2026-01-10",
+        ret_csll="46.50",
+        tp_ret="3",
+    )
+    linhas = {
+        linha.escrituracao_id: linha
+        for linha in servico.retencoes_do_trimestre(presumido["empresa"], 2026, 1)
+    }
+    assert linhas[nota.pk].csll_proposta is None
+    assert linhas[nota.pk].csll_situacao == "a_classificar"
+    assert "não bate com 4,65% nem com 1%" in linhas[nota.pk].csll_motivo
+
+
 # ---------------------------------------------------------------------------
 # Critério 4: retenção confirmada depois do trimestre de origem
 # ---------------------------------------------------------------------------

@@ -7117,6 +7117,15 @@ def presumido_parametros_gravar(request, empresa_id):
 # substitui a do estado no mesmo dia; a municipal vale só para o município.
 _ABRANGENCIAS_FERIADO = ("estado", "praca", "municipio")
 
+# DE-106: a base (carga do produto — lei, data da leitura e fonte bancária) é global e somente
+# leitura; a escrita das telas é do escritório e afeta só as empresas dele. A recusa nomeia o que a
+# linha é e o que fazer, em linguagem de escritório — e a UI mostra a ação desabilitada com este
+# mesmo motivo (§2B da direção de arte).
+_MENSAGEM_LINHA_DA_BASE = (
+    "Esta é uma linha da base (lei e fonte da carga) — somente leitura: "
+    "cadastre a sua para a sua praça."
+)
+
 # As exclusões de feriado e de exceção não levam campo nenhum: o contrato recusa qualquer outro
 # (mesmo padrão dos demais atos do presumido).
 _CONTRATO_PRESUMIDO_EXCLUIR_FERIADO = _contrato_presumido(set(), "na exclusão do feriado local")
@@ -7144,8 +7153,9 @@ def _pres_avisos_do_feriado(fonte_bancaria: str, praca: str) -> list[str]:
 
 
 def _pres_feriados_da_praca(empresa):
-    """`(praca, uf, linhas)` da tabela da praça da empresa. Sem matriz com município e UF, não há
-    praça e não há feriado a mostrar (a tela diz isso)."""
+    """`(praca, uf, linhas)` da tabela da praça da empresa: a base (carga/lei) mais as linhas do
+    escritório dela (DE-106). Linha de outro escritório não aparece. Sem matriz com município e UF,
+    não há praça e não há feriado a mostrar (a tela diz isso)."""
     praca_com_uf = _pres_praca_da_empresa(empresa)
     if praca_com_uf is None:
         return None, None, ()
@@ -7153,6 +7163,7 @@ def _pres_feriados_da_praca(empresa):
     linhas = list(
         FeriadoLocal.objects.filter(uf=uf)
         .filter(Q(municipio="") | Q(municipio=calc_presumido.chave_municipio(municipio)))
+        .filter(Q(escritorio__isnull=True) | Q(escritorio=empresa.escritorio))
         .prefetch_related("excecoes")
         .order_by("mes", "dia", "municipio", "id")
     )
@@ -7168,11 +7179,19 @@ def _pres_abrangencia_na_tela(feriado, praca: str) -> str:
 
 
 def _pres_feriado_na_tela(feriado, empresa, praca: str, pode_escriturar: bool) -> dict:
+    """O feriado como a tela mostra, já com o escopo e as ações que cabem nele (DE-106).
+
+    Linha da base: `da_base` True, e as ações de escrita da LINHA aparecem desabilitadas com o
+    motivo (§2B da direção de arte) — a exclusão de exceção só aparece para a exceção do escritório;
+    a da base é somente leitura. Exceção de outro escritório não aparece (não é visível).
+    """
+    da_base = feriado.escritorio_id is None
     return {
         "id": feriado.pk,
         "data": f"{feriado.dia:02d}/{feriado.mes:02d}",
         "descricao": feriado.descricao,
         "abrangencia": _pres_abrangencia_na_tela(feriado, praca),
+        "da_base": da_base,
         "fundamento": feriado.fundamento,
         "data_leitura": _data_na_tela(feriado.data_leitura),
         "vigencia": (
@@ -7189,25 +7208,28 @@ def _pres_feriado_na_tela(feriado, empresa, praca: str, pode_escriturar: bool) -
                 "fundamento": excecao.fundamento,
                 "fonte_bancaria": excecao.fonte_bancaria or "—",
                 "avisos": _pres_avisos_do_feriado(excecao.fonte_bancaria, praca),
+                "da_base": excecao.escritorio_id is None,
                 "url_excluir": (
                     reverse(
                         "fiscal_web:presumido_feriado_excecao_excluir",
                         args=[empresa.pk, feriado.pk, excecao.pk],
                     )
-                    if pode_escriturar
+                    # Só a exceção DO ESCRITÓRIO se exclui; a da base é a lei carregada.
+                    if pode_escriturar and excecao.escritorio_id == empresa.escritorio_id
                     else None
                 ),
             }
             for excecao in feriado.excecoes.all()
+            if excecao.escritorio_id is None or excecao.escritorio_id == empresa.escritorio_id
         ],
         "url_editar": (
             reverse("fiscal_web:presumido_feriado_editar", args=[empresa.pk, feriado.pk])
-            if pode_escriturar
+            if pode_escriturar and not da_base
             else None
         ),
         "url_excluir": (
             reverse("fiscal_web:presumido_feriado_excluir", args=[empresa.pk, feriado.pk])
-            if pode_escriturar
+            if pode_escriturar and not da_base
             else None
         ),
     }
@@ -7265,14 +7287,16 @@ def presumido_feriados(request):
 
 
 def _pres_feriado_da_praca(empresa, feriado_id):
-    """O feriado pedido, desde que seja da praça ou do estado da empresa. Linha de OUTRA praça ou de
-    outro estado responde 404: não confirma que o ID existe (isolamento das telas de ato).
+    """O feriado pedido, desde que seja da praça ou do estado da empresa E visível a ela: da base ou
+    do escritório dela (DE-106). Linha de OUTRA praça, de outro estado ou de OUTRO escritório
+    responde 404: não confirma que o ID existe (isolamento das telas de ato).
     """
     praca, uf, _linhas = _pres_feriados_da_praca(empresa)
     if praca is None:
         raise Http404("Empresa sem matriz com município e UF: não há praça de feriados.")
     return get_object_or_404(
         FeriadoLocal,
+        Q(escritorio__isnull=True) | Q(escritorio=empresa.escritorio),
         pk=feriado_id,
         uf=uf,
         municipio__in=("", calc_presumido.chave_municipio(praca)),
@@ -7433,14 +7457,24 @@ def _pres_tela_feriado_form(
 
 
 def _pres_gravar_feriado(request, empresa, feriado=None):
-    """POST do cadastro/edição do feriado. Valida campo a campo e grava a linha da praça.
+    """POST do cadastro/edição do feriado. Valida campo a campo e grava a linha DO ESCRITÓRIO.
 
     Não há serviço de escrita de feriado na frente A (a tabela nasceu com a carga da migração 0015);
     a validação de fonte obrigatória é a CHECK do modelo, e a recusa do banco (`IntegrityError`) é
-    reaproveitada aqui como última linha, com o mesmo texto de escritório do campo.
+    reaproveitada aqui como última linha, com o mesmo texto de escritório do campo. Linha da base é
+    somente leitura (DE-106): a alteração recusa com a mensagem nomeada e nada grava.
     """
     valores = _pres_valores_do_feriado_do_formulario(request.POST)
     praca, uf, _linhas = _pres_feriados_da_praca(empresa)
+    if feriado is not None and feriado.escritorio_id is None:
+        return _pres_tela_feriado_form(
+            request,
+            empresa,
+            feriado=feriado,
+            valores=valores,
+            erros={"geral": _MENSAGEM_LINHA_DA_BASE},
+            status=409,
+        )
     # A trilha do feriado sai daqui (e não de um serviço, que a frente A não tem para esta tabela):
     # AGENTS.md §11 registra ator, contexto, operação e resultado do ato do contador.
     antes = (
@@ -7504,7 +7538,9 @@ def _pres_gravar_feriado(request, empresa, feriado=None):
             status=409,
         )
     if feriado is None:
-        feriado = FeriadoLocal(uf=uf)
+        # DE-106: a linha gravada pela tela nasce escopada ao escritório que agiu — só as empresas
+        # dele a herdam, e a trilha sai no mesmo escritório.
+        feriado = FeriadoLocal(uf=uf, escritorio=empresa.escritorio)
     feriado.municipio = dados["municipio"]
     feriado.esfera = dados["esfera"]
     feriado.mes = dados["mes"]
@@ -7578,12 +7614,26 @@ def presumido_feriado_novo(request, empresa_id):
 @login_required
 @require_http_methods(["GET", "POST"])
 def presumido_feriado_editar(request, empresa_id, feriado_id):
-    """Altera um feriado local da praça (data normativa, descrição, fonte e vigência)."""
+    """Altera um feriado local da praça (data normativa, descrição, fonte e vigência).
+
+    Linha da BASE é somente leitura (DE-106): a edição recusa com a mensagem nomeada e nada grava.
+    A tela do feriado continua aparecendo — é de onde se cadastra a exceção por ano do escritório,
+    que substitui a da base só para as empresas dele.
+    """
     recusa = _pres_recusa_de_escrita(request)
     if recusa is not None:
         return recusa
     empresa = _empresa_escopada(request, empresa_id)
     feriado = _pres_feriado_da_praca(empresa, feriado_id)
+    if feriado.escritorio_id is None:
+        return _pres_tela_feriado_form(
+            request,
+            empresa,
+            feriado=feriado,
+            valores=_pres_valores_do_feriado_gravado(feriado),
+            erros={"geral": _MENSAGEM_LINHA_DA_BASE},
+            status=409,
+        )
     if request.method == "GET":
         return _pres_tela_feriado_form(
             request, empresa, feriado=feriado, valores=_pres_valores_do_feriado_gravado(feriado)
@@ -7602,6 +7652,9 @@ def presumido_feriado_excluir(request, empresa_id, feriado_id):
 
     Feriado com exceção por ano NÃO se exclui: a exceção guarda o decreto que moveu a data, e
     apagá-la junto apagaria o histórico. A tela diz qual exceção excluir antes.
+
+    Linha da BASE também não se exclui (DE-106): é a lei carregada, somente leitura — a recusa traz
+    a mensagem nomeada e nada apaga.
     """
     recusa = _pres_recusa_de_escrita(request)
     if recusa is not None:
@@ -7609,6 +7662,20 @@ def presumido_feriado_excluir(request, empresa_id, feriado_id):
     empresa = _empresa_escopada(request, empresa_id)
     feriado = _pres_feriado_da_praca(empresa, feriado_id)
     praca, _uf, _linhas = _pres_feriados_da_praca(empresa)
+    if feriado.escritorio_id is None:
+        contexto = _pres_contexto(
+            request,
+            empresa,
+            pode_escriturar=True,
+            titulo="Excluir feriado local",
+            feriado=_pres_feriado_na_tela(feriado, empresa, praca, False),
+            erro=_MENSAGEM_LINHA_DA_BASE,
+            url_envio=reverse(
+                "fiscal_web:presumido_feriado_excluir", args=[empresa.pk, feriado.pk]
+            ),
+            url_voltar=_pres_url_consulta("fiscal_web:presumido_feriados", empresa),
+        )
+        return render(request, "fiscal/presumido_feriado_excluir.html", contexto, status=409)
     if request.method == "GET":
         contexto = _pres_contexto(
             request,
@@ -7716,7 +7783,8 @@ def presumido_feriado_excecao_nova(request, empresa_id, feriado_id):
     """Cadastra a exceção por ano de um feriado (o decreto que moveu a data naquele ano).
 
     A data normativa do feriado NÃO muda: a exceção registra a data observada e o aviso passa a
-    sair nela (regra do serviço, `presumido_calculo.avisos_de_feriado_local`).
+    sair nela (regra do serviço, `presumido_calculo.avisos_de_feriado_local`). A exceção nasce
+    escopada ao escritório que agiu (DE-106) e substitui a da base só para as empresas dele.
     """
     recusa = _pres_recusa_de_escrita(request)
     if recusa is not None:
@@ -7762,6 +7830,7 @@ def presumido_feriado_excecao_nova(request, empresa_id, feriado_id):
             status=400,
         )
     ExcecaoFeriadoLocal.objects.create(
+        escritorio=empresa.escritorio,
         feriado=feriado,
         ano=dados["ano"],
         data_observada=dados["data_observada"],
@@ -7788,13 +7857,22 @@ def presumido_feriado_excecao_nova(request, empresa_id, feriado_id):
 @login_required
 @require_http_methods(["GET", "POST"])
 def presumido_feriado_excecao_excluir(request, empresa_id, feriado_id, excecao_id):
-    """Exclui a exceção por ano de um feriado, com confirmação. O feriado não muda."""
+    """Exclui a exceção por ano de um feriado, com confirmação. O feriado não muda.
+
+    Só a exceção DO ESCRITÓRIO se exclui (DE-106): a da base (lei carregada) recusa com a mensagem
+    nomeada, e a de outro escritório nem aparece (404, sem confirmar o ID).
+    """
     recusa = _pres_recusa_de_escrita(request)
     if recusa is not None:
         return recusa
     empresa = _empresa_escopada(request, empresa_id)
     feriado = _pres_feriado_da_praca(empresa, feriado_id)
-    excecao = get_object_or_404(ExcecaoFeriadoLocal, pk=excecao_id, feriado=feriado)
+    excecao = get_object_or_404(
+        ExcecaoFeriadoLocal,
+        Q(escritorio__isnull=True) | Q(escritorio=empresa.escritorio),
+        pk=excecao_id,
+        feriado=feriado,
+    )
     praca, _uf, _linhas = _pres_feriados_da_praca(empresa)
 
     def _tela(erro=None, status=200):
@@ -7808,6 +7886,7 @@ def presumido_feriado_excecao_excluir(request, empresa_id, feriado_id, excecao_i
                 "ano": excecao.ano,
                 "data_observada": _data_na_tela(excecao.data_observada),
                 "fundamento": excecao.fundamento,
+                "da_base": excecao.escritorio_id is None,
             },
             erro=erro,
             url_envio=reverse(
@@ -7819,6 +7898,9 @@ def presumido_feriado_excecao_excluir(request, empresa_id, feriado_id, excecao_i
         return render(
             request, "fiscal/presumido_feriado_excecao_excluir.html", contexto, status=status
         )
+
+    if excecao.escritorio_id is None:
+        return _tela(erro=_MENSAGEM_LINHA_DA_BASE, status=409)
 
     if request.method == "GET":
         return _tela()

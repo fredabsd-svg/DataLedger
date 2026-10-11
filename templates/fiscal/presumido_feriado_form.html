@@ -141,8 +141,19 @@ continua a mesma.
         {% endif %}
         <div class="acoes-formulario">
             <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
-            <button type="submit" class="botao botao--primario">{% if feriado %}Gravar feriado local{% else %}Cadastrar feriado local{% endif %}</button>
+            {% if feriado.da_base %}
+                {% comment %}
+                DE-106 + direção de arte §2B: a linha da base é somente leitura e a ação de gravar
+                aparece DESABILITADA com o motivo (o MESMO texto da recusa do servidor), nunca some.
+                {% endcomment %}
+                <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_linha_da_base">Gravar feriado local</button>
+            {% else %}
+                <button type="submit" class="botao botao--primario">{% if feriado %}Gravar feriado local{% else %}Cadastrar feriado local{% endif %}</button>
+            {% endif %}
         </div>
+        {% if feriado.da_base %}
+            <p class="texto-apoio" id="ajuda_linha_da_base">Esta é uma linha da base (lei e fonte da carga) — somente leitura: cadastre a sua para a sua praça.</p>
+        {% endif %}
     </form>
 
     {% if feriado %}
