@@ -85,19 +85,25 @@ componente é informado. O FS12 vem de apps.fiscal.folha_fator_r, pela janela do
                             <td class="valor-monetario">{{ folha.total }}</td>
                             <td>{{ folha.documento }}</td>
                             <td>
+                                {% comment %}
+                                DL-086 (A-06, §8.4): as ações de linha nomeiam a folha alvo em
+                                texto oculto (padrão fechamento_mes.html) — "Confirmar"/"Estornar"
+                                soltos não dizem de que mês é a folha. O estado bloqueado leva o
+                                mesmo alvo no nome acessível.
+                                {% endcomment %}
                                 <div class="acoes-de-linha">
                                     {% if folha.confirmar == "ativo" %}
                                         <form method="post" action="{{ folha.url_confirmar }}">
                                             {% csrf_token %}
-                                            <button type="submit" class="botao botao--secundario botao--pequeno">Confirmar folha</button>
+                                            <button type="submit" class="botao botao--secundario botao--pequeno">Confirmar folha<span class="visualmente-oculto"> de {{ folha.competencia }}</span></button>
                                         </form>
                                     {% elif folha.confirmar == "bloqueado" %}
-                                        <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Confirmar folha</button>
+                                        <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Confirmar folha<span class="visualmente-oculto"> de {{ folha.competencia }}</span></button>
                                     {% endif %}
                                     {% if folha.estornar == "ativo" %}
-                                        <a class="botao botao--perigoso botao--pequeno" href="{{ folha.url_estornar }}">Estornar</a>
+                                        <a class="botao botao--perigoso botao--pequeno" href="{{ folha.url_estornar }}">Estornar<span class="visualmente-oculto"> a folha de {{ folha.competencia }}</span></a>
                                     {% elif folha.estornar == "bloqueado" %}
-                                        <button type="button" class="botao botao--perigoso botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Estornar</button>
+                                        <button type="button" class="botao botao--perigoso botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Estornar<span class="visualmente-oculto"> a folha de {{ folha.competencia }}</span></button>
                                     {% endif %}
                                 </div>
                             </td>

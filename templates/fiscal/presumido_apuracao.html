@@ -29,8 +29,19 @@ devolução de combustível não recusa mais: escolhe-se a natureza (HI-140).
     {% endif %}
 
     {% if not empresa_selecionada %}
+        {% comment %}
+        DL-086 (A-13, direção de arte §8.4c): o estado vazio completa a anatomia de
+        `.estado-vazio` (ícone decorativo + título + descrição), como nas referências
+        iss_aliquotas.html e atividades.html. Sem botão de saída: o caminho é o filtro acima,
+        já visível na tela (mesmo caso de atividades.html).
+        {% endcomment %}
         <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
             <p class="estado-vazio__titulo"><strong>Escolha uma empresa, o ano e o trimestre para ver a apuração.</strong></p>
+            <p class="estado-vazio__descricao">
+                A apuração é a memória de conferência do trimestre: as receitas, as recusas e cada
+                tributo nas três colunas (sem LC 224, com LC 224 e a parcela da LC 224).
+            </p>
         </div>
     {% elif apuracao %}
         <p class="mensagem mensagem-info" role="note"><strong>{{ texto_conferencia }}</strong> Os números abaixo conferem a apuração; a guia é emitida fora deste produto.</p>

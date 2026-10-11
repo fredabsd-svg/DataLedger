@@ -986,7 +986,7 @@ def test_lancamento_caixa_estorno_continua_funcionando(client, cenario):
     url = reverse(
         "livro_caixa_web:lancamento_estornar", args=[cenario["empresa_a"].id, lancamento.id]
     )
-    resposta = client.post(url)
+    resposta = client.post(url, {"motivo": "Estorno sintético do teste."})
     assert resposta.status_code == 302
 
 
@@ -998,9 +998,9 @@ def test_lancamento_caixa_estorno_duplicado_e_erro_de_formulario_nao_500(client,
     url = reverse(
         "livro_caixa_web:lancamento_estornar", args=[cenario["empresa_a"].id, lancamento.id]
     )
-    primeiro = client.post(url)
+    primeiro = client.post(url, {"motivo": "Estorno sintético do teste."})
     assert primeiro.status_code == 302
-    segundo = client.post(url)
+    segundo = client.post(url, {"motivo": "Estorno sintético do teste."})
     assert segundo.status_code == 400
     assert "mensagem-error" in segundo.content.decode()
 

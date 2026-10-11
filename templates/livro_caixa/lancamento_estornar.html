@@ -88,9 +88,35 @@ risco, ação sensível), mesmo padrão de competencia_reabrir.html
         <p>
             Histórico original: {{ lancamento.historico|default:"—" }}
         </p>
+        <p>
+            O motivo do estorno, quem estornou e quando ficam registrados na trilha de
+            auditoria do livro-caixa.
+        </p>
+        {% comment %}
+        A-02 (DL-086): o estorno passa a EXIGIR motivo — mesmo contrato dos
+        cinco estornos fiscais (templates/fiscal/nfe_estornar.html:55-62:
+        textarea `required` com `aria-describedby`, teto no `maxlength` e no
+        texto de apoio). O `required` do navegador é conveniência de quem
+        preenche; quem VALIDA é o servidor (`apps/livro_caixa/services.py`,
+        `_normalizar_motivo_do_estorno`): vazio, só espaços ou acima do teto
+        volta para esta tela com o erro e com o que foi digitado, sem estornar.
+        O motivo é gravado nos `detalhes` da trilha de auditoria do registro
+        `lancamento_caixa.estornado` — e não numa coluna do lançamento, porque
+        `livro_caixa_lancamentocaixa` recusa TODO UPDATE no banco (gatilho da
+        DL-069) e o estorno cria uma linha NOVA sem tocar na original.
+        {% endcomment %}
         <form method="post" action="{% url 'livro_caixa_web:lancamento_estornar' empresa.id lancamento.id %}"
               class="formulario">
             {% csrf_token %}
+            <div class="campo">
+                <label for="id_motivo">Motivo do estorno</label>
+                <textarea id="id_motivo" name="motivo" required rows="3" maxlength="{{ motivo_maximo }}"
+                          aria-describedby="id_motivo_ajuda">{{ motivo }}</textarea>
+                <p class="texto-apoio" id="id_motivo_ajuda">
+                    Obrigatório. Fica na trilha de auditoria deste lançamento, com até
+                    {{ motivo_maximo }} caracteres.
+                </p>
+            </div>
             <button type="submit" class="botao botao--perigoso">
                 Estornar lançamento nº {{ lancamento.id }} ({{ valor_ptbr }})
             </button>

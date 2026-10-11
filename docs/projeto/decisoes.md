@@ -5280,3 +5280,35 @@ que o sinal fosse uma variável explícita, não uma inferência.
   proteger nada além do que a imagem já protege.
 
 **Reversão:** local ao `settings.py`, ao `Dockerfile` e ao `.env.example`.
+
+## DE-101 — Fechar/encerrar período ou vigência é ação sensível: tom `--perigoso`
+
+**Data:** 11/10/2026. **Etapa:** [DL-086](../planos/DL-086-revisao-de-layout-e-acessos.md).
+**Fecha:** o achado A-08 da auditoria de interface (dois tons para o mesmo ato).
+
+**Problema.** "Encerrar" aparecia com dois tons no produto: o fechamento de
+mês do livro-caixa era `.botao--primario` (segundo o molde da contabilidade,
+onde fechar competência era `<button>` nativo), enquanto "encerrar
+atividade/vigência" no fiscal era `.botao--perigoso`. O §8.4 do contrato
+nomeava reabrir/entregar como sensíveis, mas nunca disse o que fazer com
+encerrar — a decisão nunca foi tomada, e cada módulo decidiu por conta
+própria (medido em quatro telas pela auditoria da DL-086).
+
+**Decisão.** Encerrar/fechar período ou vigência é ação SENSÍVEL: ela
+bloqueia o período para escrita (só reabertura autorizada desfaz) e muda o
+estado do livro. Tom `.botao--perigoso` em todo o produto, com rótulo que
+nomeia o alvo ("Encerrar mês 09/2026" — a regra do arquétipo E já exigia o
+alvo; o que muda é o tom). Telas tocadas: `fechamento_mes_encerrar`
+(livro-caixa) e `competencia_fechar` (contabilidade); as três telas de
+encerramento do fiscal já estavam em `--perigoso`. O §8.4 da
+[direção de arte](direcao-de-arte.md) foi atualizado na mesma etapa.
+
+**Alternativas descartadas.**
+- Manter `--primario` nos fechamentos, "seguindo o molde da contabilidade":
+  mantinha o produto com duas respostas para o mesmo ato — exatamente o que
+  o preâmbulo do contrato proíbe ("um sistema contábil que muda de cara a
+  cada módulo obriga o usuário a reaprender a ler").
+- Um quinto tom "atenção": multiplica a escala para um caso que já cabe em
+  "sensível" (§8.4: quatro tons, nunca mais).
+
+**Reversão:** local aos dois templates citados e ao §8.4 do contrato.

@@ -26,8 +26,18 @@ trimestre, o caso I, II ou III e a dedução aparecem. Somente leitura.
     {% endif %}
 
     {% if not empresa_selecionada %}
+        {% comment %}
+        DL-086 (A-13, direção de arte §8.4c): anatomia completa de `.estado-vazio` (ícone
+        decorativo + título + descrição), como em iss_aliquotas.html/atividades.html. Sem botão:
+        a saída é o filtro acima, já visível.
+        {% endcomment %}
         <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
             <p class="estado-vazio__titulo"><strong>Escolha uma empresa e o ano para ver o controle do limite.</strong></p>
+            <p class="estado-vazio__descricao">
+                O limite de R$ 1.250.000,00 por trimestre tem sobra para o trimestre seguinte, por
+                tributo. No 4º trimestre aparecem o caso (I, II ou III) e a dedução do ano.
+            </p>
         </div>
     {% elif controle %}
         <h2>{{ controle.tributo }} em {{ ano_filtro }}</h2>

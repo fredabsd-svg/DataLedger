@@ -16,12 +16,27 @@ ao lado (só quem pode escriturar).
 {% endcomment %}
 {% block titulo_pagina %}<h1>Plano de contas do livro-caixa</h1>{% endblock %}
 {% block acoes_pagina %}
+    {% comment %}
+    A-05 (DL-086): a ação primária SUMIA para quem só lê — "sumir ensina a
+    pessoa a duvidar da própria memória" (direção de arte §2B). Ela fica
+    VISÍVEL e desabilitada, com o motivo em texto (abaixo, id
+    "ajuda_sem_permissao"). A recusa de verdade continua no servidor (403).
+    {% endcomment %}
     {% if pode_escriturar %}
         <a class="botao botao--primario" href="{% url 'livro_caixa_web:conta_nova' empresa.id %}">Nova conta</a>
+    {% else %}
+        <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao">Nova conta</button>
     {% endif %}
 {% endblock %}
 
 {% block content %}
+    {% if not pode_escriturar %}
+        <p class="mensagem mensagem-info" role="status" id="ajuda_sem_permissao">
+            Seu papel permite consultar o plano de contas, mas não cadastrar conta — essa ação
+            exige administrador, gestor, analista ou financeiro. Fale com um deles para cadastrar
+            conta no livro-caixa.
+        </p>
+    {% endif %}
     <p><a class="botao botao--secundario" href="{% url 'empresas:lista' %}">‹ Voltar para empresas</a></p>
 
     {% if contas %}
@@ -58,11 +73,24 @@ ao lado (só quem pode escriturar).
             </table>
         </div>
     {% else %}
-        <p>
-            Esta empresa ainda não tem nenhuma conta do livro-caixa cadastrada.
+        {% comment %}
+        A-12 (DL-086): a prosa solta com link vira `.estado-vazio` completo
+        (direção de arte §8.4c). O vazio NÃO é por filtro — falta CADASTRO, e
+        a saída cria dado, então o botão é primário; para quem só lê ele fica
+        desabilitado COM o motivo (id "ajuda_sem_permissao"), nunca some (§2B).
+        {% endcomment %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-contabilidade"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Esta empresa ainda não tem nenhuma conta do livro-caixa cadastrada.</strong></p>
+            <p class="estado-vazio__descricao">
+                A conta do livro-caixa é onde o lançamento entra — e o código do Carnê-Leão
+                Web dela decide a dedutibilidade (HI-30).
+            </p>
             {% if pode_escriturar %}
-                <a href="{% url 'livro_caixa_web:conta_nova' empresa.id %}">Cadastre a primeira conta</a>.
+                <a class="botao botao--primario" href="{% url 'livro_caixa_web:conta_nova' empresa.id %}">Cadastrar a primeira conta</a>
+            {% else %}
+                <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao">Cadastrar a primeira conta</button>
             {% endif %}
-        </p>
+        </div>
     {% endif %}
 {% endblock %}

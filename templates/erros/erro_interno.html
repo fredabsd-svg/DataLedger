@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% comment %}
+DL-086 (H-01): tela do produto para o 500. Ela estende a moldura (base.html)
+PELA CABEÇA — os tokens, a marca da tag de título e o caminho do CSS vêm de
+lá — mas o handler (config/urls.py::handler500) a renderiza SEM request, e
+por extensão SEM context processor e SEM banco: em 500 a causa costuma ser
+justamente o banco ou o middleware que monta request.escritorio/request.papel,
+e qualquer consulta aqui recairia na mesma falha, trocando esta tela pela
+página técnica do Django. O preço, assumido e registrado: a barra lateral e a
+faixa de contexto não aparecem (dependem de sessão/papel), então a marca e o
+caminho de saída são declarados no próprio bloco de conteúdo.
+{% endcomment %}
+{% block titulo %}Erro interno{% endblock %}
+
+{% block content %}
+    <p><a class="marca" href="{% url 'tenancy:painel' %}">DataLedger<span class="marca__ponto">.</span></a></p>
+    <h1>Erro interno</h1>
+    <p>
+        Algo deu errado do lado do servidor e esta página não pôde ser montada.
+        Nada foi gravado por causa deste erro.
+    </p>
+    <p>
+        <a class="botao botao--secundario" href="{% url 'tenancy:painel' %}">‹ Voltar para o Início</a>
+    </p>
+{% endblock %}

@@ -269,18 +269,32 @@ etapa para os dois números.
             <label for="id_nivel">Nível (opcional)</label>
             <input type="text" inputmode="numeric" id="id_nivel" name="nivel" value="{{ nivel|default:"" }}">
         </div>
-        <div class="campo campo-criterio-de-apuracao">
-            <span class="campo-rotulo">Critério de apuração</span>
-            {% for opcao in criterio_de_apuracao_opcoes %}
-                <label class="campo-criterio-de-apuracao__opcao">
-                    <input type="radio" name="criterio_de_apuracao" value="{{ opcao }}"
-                           {% if opcao == criterio_de_apuracao %}checked{% endif %}>
-                    {% if opcao == "todas" %}Todas as contas
-                    {% elif opcao == "com_movimento" %}Movimento no período ou saldo anterior diferente de zero
-                    {% endif %}
-                </label>
-            {% endfor %}
-        </div>
+        {% comment %}
+        DL-086 (F-05): o grupo "Critério de apuração" era um `span.
+        campo-rotulo` — classe que não existe em CSS nenhum — sem `fieldset`/
+        `legend`, então o leitor de tela não sabia que os dois radios formam
+        UM grupo com este nome. Vira o componente pronto de grupo de radio
+        (`.campo-radio`, molde de empresas/form.html: fieldset+legend), com o
+        nome e os valores GET preservados (`criterio_de_apuracao`, aplicado
+        pelo botão "Consultar período" — não há auto-submit nesta tela).
+        `.campo-criterio-de-apuracao` continua no fieldset: é o ajuste de
+        layout do filtro do Balancete que o base.css registra como específico
+        desta tela (flex-wrap em telas estreitas).
+        {% endcomment %}
+        <fieldset class="campo campo-radio campo-criterio-de-apuracao">
+            <legend>Critério de apuração</legend>
+            <div class="campo-radio__opcoes">
+                {% for opcao in criterio_de_apuracao_opcoes %}
+                    <label class="campo-radio__opcao">
+                        <input type="radio" name="criterio_de_apuracao" value="{{ opcao }}"
+                               {% if opcao == criterio_de_apuracao %}checked{% endif %}>
+                        {% if opcao == "todas" %}Todas as contas
+                        {% elif opcao == "com_movimento" %}Movimento no período ou saldo anterior diferente de zero
+                        {% endif %}
+                    </label>
+                {% endfor %}
+            </div>
+        </fieldset>
         <button type="submit">Consultar período</button>
         <p class="texto-apoio ajuda-formato-data" id="id_periodo_ajuda">
             O formato dos campos de data acima é do seu navegador. Toda data exibida pelo sistema é dd/mm/aaaa.

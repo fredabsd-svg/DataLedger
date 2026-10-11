@@ -188,7 +188,12 @@ nunca um botão que devolveria arquivo parcial ou erro.
                 </tr>
             </thead>
             <tbody>
-                <tr><th scope="colgroup" colspan="2">Arquivo de rendimentos</th></tr>
+                {% comment %}
+                A-10 (DL-086): a linha de SEÇÃO de cada `<tbody>` rotula um grupo
+                de LINHAS, não colunas — `scope="rowgroup"` (o `scope="colgroup"`
+                correto continua no `<thead>`, acima). Vale para as três seções.
+                {% endcomment %}
+                <tr><th scope="rowgroup" colspan="2">Arquivo de rendimentos</th></tr>
                 <tr>
                     <td>Linhas geradas (uma por lançamento)</td>
                     <td class="valor-monetario">{{ conferencia.linhas_rendimentos }}</td>
@@ -228,7 +233,7 @@ nunca um botão que devolveria arquivo parcial ou erro.
             </tbody>
 
             <tbody>
-                <tr><th scope="colgroup" colspan="2">Arquivo de pagamentos</th></tr>
+                <tr><th scope="rowgroup" colspan="2">Arquivo de pagamentos</th></tr>
                 <tr>
                     <td>Linhas geradas (uma por lançamento)</td>
                     <td class="valor-monetario">{{ conferencia.linhas_pagamentos }}</td>
@@ -268,7 +273,7 @@ nunca um botão que devolveria arquivo parcial ou erro.
             </tbody>
 
             <tbody>
-                <tr><th scope="colgroup" colspan="2">Fora dos dois arquivos (por desenho do leiaute)</th></tr>
+                <tr><th scope="rowgroup" colspan="2">Fora dos dois arquivos (por desenho do leiaute)</th></tr>
                 <tr>
                     <td>Lançamentos estornados e estornos omitidos</td>
                     <td class="valor-monetario">{{ conferencia.lancamentos_excluidos_estorno }}</td>

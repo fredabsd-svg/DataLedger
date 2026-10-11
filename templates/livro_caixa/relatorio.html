@@ -241,8 +241,13 @@ escritório que o emite).
             {% endcomment %}
             {% if pagamentos_p20_carne_leao %}
                 <tbody>
+                    {% comment %}
+                    A-10 (DL-086): esta linha rotula o grupo de LINHAS do segundo
+                    `<tbody>`, não colunas — `scope="rowgroup"` (o `scope=
+                    "colgroup"` correto continua na identificação do `<thead>`).
+                    {% endcomment %}
                     <tr>
-                        <th scope="colgroup" colspan="6">
+                        <th scope="rowgroup" colspan="6">
                             Pagamentos que deduzem a base do carnê-leão — não são despesa de custeio
                         </th>
                     </tr>

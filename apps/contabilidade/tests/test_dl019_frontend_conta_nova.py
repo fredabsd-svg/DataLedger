@@ -272,10 +272,15 @@ def test_conta_sem_as_contas_mae_E_CRIADA_quando_confirmada(client, cenario):
 
 
 def test_reenviar_pelo_botao_Salvar_comum_traz_o_aviso_de_novo_em_vez_de_gravar(client, cenario):
-    """O cuidado de risco proporcional que o template documenta: o botão
-    "Salvar" comum continua existindo, mas **sem** o valor de confirmação —
+    """O cuidado de risco proporcional que o template documenta: o botão de
+    submit comum continua existindo, mas **sem** o valor de confirmação —
     reenviar por ele traz o aviso de novo, nunca grava por acidente. Um
     valor diferente de "1" também não confirma.
+
+    DL-086 (achado F-08): o rótulo desse botão mudou de "Salvar" para
+    "Criar conta" (nome do teste preservado como identificador histórico
+    desta etapa); o COMPORTAMENTO testado aqui — submit sem
+    `confirmar_conta_sem_conta_mae="1"` não grava — não mudou.
     """
     _autenticar(client)
     dados = {

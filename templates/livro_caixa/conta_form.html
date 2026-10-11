@@ -43,6 +43,11 @@
                 {% endif %}
             </div>
         {% endfor %}
-        <button type="submit">Salvar</button>
+        {% comment %}
+        A-19 (DL-086): "Salvar" não nomeava a consequência (direção de arte
+        §8.4: o texto do botão já diz o que acontece). Esta tela só CADASTRA
+        conta nova — por isso "Cadastrar conta".
+        {% endcomment %}
+        <button type="submit">Cadastrar conta</button>
     </form>
 {% endblock %}

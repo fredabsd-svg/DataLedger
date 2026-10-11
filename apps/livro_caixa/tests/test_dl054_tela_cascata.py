@@ -653,7 +653,9 @@ def test_estornar_em_janeiro_com_fevereiro_encerrado_explica_e_nao_oferece_o_bot
     url = _url_estornar(cenario["empresa"], original)
 
     pagina = cliente.get(url)
-    forcado = cliente.post(url)
+    # Motivo válido (A-02, DL-086): o POST precisa chegar à recusa de
+    # encadeamento, não à de campo.
+    forcado = cliente.post(url, {"motivo": "Estorno sintético do teste."})
 
     texto = _texto(pagina)
     assert pagina.status_code == 200
@@ -786,7 +788,10 @@ def test_nenhum_estado_novo_mostra_identificador_interno(cenario):
             _url("lancamentos", cenario["empresa"], inicio="2026-01-01", fim="2026-03-31")
         ),
         analista.get(_url_estornar(cenario["empresa"], original)),
-        analista.post(_url_estornar(cenario["empresa"], original)),
+        analista.post(
+            _url_estornar(cenario["empresa"], original),
+            {"motivo": "Estorno sintético do teste."},
+        ),
         analista.post(_url("mes_reabrir", cenario["empresa"]), {"ano": "2026", "mes": "1"}),
     ]
 

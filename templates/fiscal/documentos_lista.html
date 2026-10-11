@@ -85,6 +85,18 @@ removida daqui. Ver DE-083 para o detalhe completo.
     </form>
 
     {% if pagina.object_list %}
+        {% if not pode_escriturar %}
+            {% comment %}
+            DL-086 (A-04, direção de arte §2B): quem só consulta via a coluna "Escrituração"
+            sumir inteira, sem explicação. A coluna continua (a tabela não muda de forma por
+            papel) e o motivo aparece em texto — padrão das irmãs notas_a_escriturar.html e
+            tomadas_lista.html, que explicam a ausência do botão de escriturar.
+            {% endcomment %}
+            <p class="texto-apoio">
+                Seu papel consulta estes documentos, mas não os escritura: por isso não há botão
+                de escriturar nesta tela.
+            </p>
+        {% endif %}
         <table class="tabela-dados">
             <caption class="visualmente-oculto">Documentos fiscais recebidos por este escritório</caption>
             <thead>
@@ -96,9 +108,7 @@ removida daqui. Ver DE-083 para o detalhe completo.
                     <th scope="col">Tomador</th>
                     <th scope="col">Valor do serviço</th>
                     <th scope="col">Situação</th>
-                    {% if pode_escriturar %}
-                        <th scope="col">Escrituração</th>
-                    {% endif %}
+                    <th scope="col">Escrituração</th>
                 </tr>
             </thead>
             <tbody>
@@ -130,20 +140,26 @@ removida daqui. Ver DE-083 para o detalhe completo.
                                 <span class="situacao-documento situacao-documento--valida">Válida</span>
                             {% endif %}
                         </td>
-                        {% if pode_escriturar %}
-                            <td>
-                                {% comment %}
-                                DL-072 (frente B): só quem escritura vê o link. Um
-                                link por empresa PRESTADORA do escritório; nota
-                                tomada e nota cancelada não recebem link aqui.
-                                {% endcomment %}
+                        <td>
+                            {% comment %}
+                            DL-072 (frente B): os links valem só para quem escritura, e só por
+                            empresa PRESTADORA do escritório; nota tomada e nota cancelada não
+                            recebem link aqui.
+                            DL-086 (A-04): para quem só consulta, a célula mantém o "—" com o
+                            motivo para leitor de tela (padrão fechamento_mes.html: "—" visível
+                            + razão oculta) — a coluna existe para todos os papéis.
+                            {% endcomment %}
+                            {% if pode_escriturar %}
                                 {% for item in linha.links_para_escriturar %}
                                     <a class="botao botao--secundario botao--pequeno" href="{{ item.url }}">Escriturar — {{ item.razao_social }}</a>
                                 {% empty %}
                                     —
                                 {% endfor %}
-                            </td>
-                        {% endif %}
+                            {% else %}
+                                <span aria-hidden="true">—</span>
+                                <span class="visualmente-oculto">Sem permissão para escriturar</span>
+                            {% endif %}
+                        </td>
                     </tr>
                 {% endfor %}
             </tbody>

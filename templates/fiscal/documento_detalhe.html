@@ -136,7 +136,8 @@ desta parcial.
                         <td>{{ evento.codigo }}</td>
                         <td>{{ evento.data_evento|date:"d/m/Y H:i" }}</td>
                         <td>{% if evento.codigo in codigos_que_cancelam %}Sim{% else %}Não{% endif %}</td>
-                        <td><a href="{% url 'fiscal_web:evento_xml' evento.id %}">Baixar XML</a></td>
+                        {# DL-086 (A-18, §8.4b): link solto em célula de ação vira botão pequeno. #}
+                        <td><a class="botao botao--secundario botao--pequeno" href="{% url 'fiscal_web:evento_xml' evento.id %}">Baixar XML</a></td>
                     </tr>
                 {% endfor %}
             </tbody>
@@ -145,7 +146,11 @@ desta parcial.
         <p>Nenhum evento fiscal referencia esta nota até o momento.</p>
     {% endif %}
 
-    <p>
-        <a href="{% url 'fiscal_web:documento_xml' documento.id %}">Baixar XML original do documento</a>
+    {% comment %}
+    DL-086 (A-18, direção de arte §8.4/§8.4b): ação nunca é link solto — o download do XML
+    original vira botão secundário no rodapé de ações da tela (padrão iss_apuracao.html:112).
+    {% endcomment %}
+    <p class="acoes-formulario">
+        <a class="botao botao--secundario" href="{% url 'fiscal_web:documento_xml' documento.id %}">Baixar XML original do documento</a>
     </p>
 {% endblock %}

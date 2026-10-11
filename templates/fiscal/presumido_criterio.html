@@ -25,8 +25,18 @@ mostra a recusa nomeada (IN RFB 1.700/2017, art. 223); a apuração não sai com
     {% endif %}
 
     {% if not empresa_selecionada %}
+        {% comment %}
+        DL-086 (A-13, direção de arte §8.4c): anatomia completa de `.estado-vazio` (ícone
+        decorativo + título + descrição), como em iss_aliquotas.html/atividades.html. Sem botão:
+        a saída é o filtro acima, já visível.
+        {% endcomment %}
         <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
             <p class="estado-vazio__titulo"><strong>Escolha uma empresa e o ano para ver o critério.</strong></p>
+            <p class="estado-vazio__descricao">
+                O critério de receita do ano (competência ou caixa) é definido uma vez por ano:
+                trocar depois é conflito.
+            </p>
         </div>
     {% elif ano_filtro %}
         <h2>Critério de {{ ano_filtro }}</h2>

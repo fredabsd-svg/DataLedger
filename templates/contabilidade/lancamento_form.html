@@ -150,7 +150,17 @@ social, na MESMA faixa, ao lado.
                 <tbody>
                     {% for linha in linhas %}
                         <tr>
-                            <th scope="row">Linha {{ linha.indice }}</th>
+                            {% comment %}
+                            DL-086 (achado F-02): `.cabecalho-de-linha` —
+                            "Linha 1/2/3..." é texto de leitura, não rótulo de
+                            coluna; sem a classe, o `<th scope="row">` herdava
+                            a caixa alta, o corpo miúdo e o traço grosso que
+                            `.tabela-dados th` aplica a TODO cabeçalho (regra
+                            pronta em static/css/base.css, uso modelo em
+                            dmpl.html). O `scope="row"` já existia — só o
+                            tratamento visual estava errado.
+                            {% endcomment %}
+                            <th scope="row" class="cabecalho-de-linha">Linha {{ linha.indice }}</th>
                             <td>
                                 <label class="visualmente-oculto" for="id_conta_{{ linha.indice }}">Conta da linha {{ linha.indice }}</label>
                                 <select id="id_conta_{{ linha.indice }}" name="conta_{{ linha.indice }}">

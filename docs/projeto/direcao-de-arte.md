@@ -558,7 +558,12 @@ então apagado pelo `arquiteto-senior` (adendo da DE-084).
 
 Título (`<h1>` único), contexto (quando houver — empresa, competência) e
 a área de ações, numa faixa só: `.cabecalho-pagina` (título +
-`.cabecalho-pagina__acoes`, à direita). Padrão aplicado onde uma tela
+`.cabecalho-pagina__acoes`, à direita). **Histórico (DL-086, achado A-03):
+a família `.cabecalho-pagina` foi EXTINTA** — a migração para os blocos
+`{% block titulo_pagina %}`/`{% block acoes_pagina %}` (abaixo) foi
+completada em todas as telas e as regras mortas saíram do `base.css`;
+o par de blocos é o padrão vigente, e esta menção fica só pelo histórico
+das revisões abaixo. Padrão aplicado onde uma tela
 ativa tem uma ação primária clara (ex.: "Nova empresa" na lista de
 empresas) — não é obrigatório em toda tela: uma tela de documento
 imprimível (Balancete, Diário, Razão, Balanço) não ganha um botão de ação
@@ -574,9 +579,7 @@ CONTEXTO, `.cabecalho-pagina__subtitulo`) para o Início parar de repetir
 "Escritório ativo: ..." como TÍTULO (já aparece na faixa de identificação
 do topo) — o título vira sempre "Início", e o escritório é subtítulo.
 
-**Revisão (DL-044, 4ª iteração).** A moldura acima (`.cabecalho-pagina`,
-DENTRO de `{% block content %}`) continua existindo — é o padrão para
-tela ainda não migrada. Para a tela MIGRADA, o título e a ação principal
+**Revisão (DL-044, 4ª iteração).** Para a tela MIGRADA, o título e a ação principal
 saem de `{% block content %}` e entram em dois blocos novos, DENTRO da
 faixa de identificação do topo (`templates/base.html`, `.cabecalho`):
 `{% block titulo_pagina %}` (esquerda) e `{% block acoes_pagina %}`
@@ -678,8 +681,9 @@ classe de defeito (afirmação que já foi desmentida) se repetir.
 
 `.botao--primario` (ação principal — mesmo visual do `<button>` padrão),
 `.botao--secundario` (ação alternativa — "Voltar", trocar contexto),
-`.botao--perigoso` (ação sensível — reabrir competência, marcar como
-entregue) e `.botao--fantasma` (ação de MENOR ênfase ao lado de uma
+`.botao--perigoso` (ação sensível — fechar/encerrar competência, mês ou
+vigência (DE-101, DL-086), reabrir competência, marcar como entregue) e
+`.botao--fantasma` (ação de MENOR ênfase ao lado de uma
 primária que já domina a tela — "Limpar filtros"). O TOM é reforço; o
 texto do botão já nomeia a consequência ("Reabrir competência 09/2026",
 nunca só "Confirmar") — mesma regra do arquétipo E (§2) aplicada ao

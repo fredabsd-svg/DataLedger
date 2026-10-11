@@ -32,8 +32,18 @@ cadastrada pelo contador. O aviso das ADIs 7936 e 7944 é fixo e tem a data da �
     </section>
 
     {% if not empresa_selecionada %}
+        {% comment %}
+        DL-086 (A-13, direção de arte §8.4c): anatomia completa de `.estado-vazio` (ícone
+        decorativo + título + descrição), como em iss_aliquotas.html/atividades.html. Sem botão:
+        a saída é o filtro acima, já visível.
+        {% endcomment %}
         <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
             <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver as medidas judiciais.</strong></p>
+            <p class="estado-vazio__descricao">
+                Uma medida suspende a parcela da LC 224 do tributo nos trimestres que ela cobre.
+                Sem medida cadastrada, a apuração cobra a parcela normalmente.
+            </p>
         </div>
     {% else %}
         <div class="acoes-formulario">
@@ -83,6 +93,8 @@ cadastrada pelo contador. O aviso das ADIs 7936 e 7944 é fixo e tem a data da �
             </table>
         {% else %}
             <div class="estado-vazio">
+                {# DL-086 (A-13): mesma anatomia do cartão acima — ícone decorativo, título e descrição. #}
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
                 <p class="estado-vazio__titulo"><strong>Nenhuma medida judicial cadastrada para esta empresa.</strong></p>
                 <p class="estado-vazio__descricao">Sem medida ativa, a apuração cobra a parcela da LC 224 normalmente.</p>
             </div>

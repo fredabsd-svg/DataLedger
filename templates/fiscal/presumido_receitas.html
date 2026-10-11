@@ -27,8 +27,18 @@ pede motivo e deixa a receita na trilha.
     {% endif %}
 
     {% if not empresa_selecionada %}
+        {% comment %}
+        DL-086 (A-13, direção de arte §8.4c): a família DL-079 também ficou com a anatomia de
+        `.estado-vazio` incompleta (sem ícone e sem descrição) — completada aqui, como nas
+        referências iss_aliquotas.html e atividades.html. Sem botão: a saída é o filtro acima.
+        {% endcomment %}
         <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
             <p class="estado-vazio__titulo"><strong>Escolha uma empresa, o ano e o trimestre para ver as receitas.</strong></p>
+            <p class="estado-vazio__descricao">
+                Aqui ficam as receitas do trimestre — de presunção e integrais do art. 25, II — e a
+                declaração que torna a apuração completa.
+            </p>
         </div>
     {% elif url_receita %}
         <h2>{{ trimestre_rotulo }}: receitas lançadas</h2>
@@ -60,8 +70,13 @@ pede motivo e deixa a receita na trilha.
                                 {% if receita.motivo_estorno %}<br><span class="texto-apoio">Motivo: {{ receita.motivo_estorno }}</span>{% endif %}
                             </td>
                             <td>
+                                {% comment %}
+                                DL-086 (A-06, §8.4): "Estornar" de linha nomeia o alvo em texto
+                                oculto (padrão fechamento_mes.html) — a descrição e o valor são o
+                                que distingue uma receita lançada da outra.
+                                {% endcomment %}
                                 {% if receita.url_estornar %}
-                                    <a class="botao botao--perigoso botao--pequeno" href="{{ receita.url_estornar }}">Estornar</a>
+                                    <a class="botao botao--perigoso botao--pequeno" href="{{ receita.url_estornar }}">Estornar<span class="visualmente-oculto"> a receita de {{ receita.descricao }} no valor de {{ receita.valor }}</span></a>
                                 {% endif %}
                             </td>
                         </tr>
@@ -70,7 +85,14 @@ pede motivo e deixa a receita na trilha.
             </table>
         {% else %}
             <div class="estado-vazio">
+                {# DL-086 (A-13): mesma anatomia do cartão acima. Sem botão: lançar receita é o #}
+                {# formulário da própria tela, logo abaixo — o cartão não repete o controle. #}
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
                 <p class="estado-vazio__titulo"><strong>Nenhuma receita lançada neste trimestre.</strong></p>
+                <p class="estado-vazio__descricao">
+                    A receita de presunção pede atividade e suporte; a integral do art. 25, II entra
+                    integral na base. Use o formulário abaixo para lançar.
+                </p>
             </div>
         {% endif %}
 

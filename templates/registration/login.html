@@ -21,6 +21,19 @@ literal "Criar ambiente para meu escritório" na página.
                 <div class="campo"><label for="id_password">Senha</label><input type="password" name="password" id="id_password" autocomplete="current-password" required {% if form.non_field_errors or form.password.errors %}aria-invalid="true" aria-describedby="{% if form.non_field_errors %}erro-login{% if form.password.errors %} {% endif %}{% endif %}{% if form.password.errors %}id_password_error{% endif %}"{% endif %}>{% if form.password.errors %}<div id="id_password_error" class="field-error">{{ form.password.errors }}</div>{% endif %}</div>
                 <button type="submit" class="public-button">Entrar no ambiente <span aria-hidden="true">→</span></button>
             </form>
+            {% comment %}
+            DL-086 (E-01): parágrafo honesto sobre a senha. O fluxo de
+            redefinição self-service NÃO existe (BL-640 — segue decisão do
+            Fred), e a tela não pode prometer nem linkar o que não há: sem
+            este texto, quem esquece a senha não sabe o caminho real, que é
+            pedir a um administrador. Por isso NÃO há link de "esqueci a
+            senha" aqui — link morto seria promessa falsa.
+            {% endcomment %}
+            <p class="auth-intro">
+                Esqueceu a senha? Peça a redefinição ao administrador do seu escritório — ou ao
+                administrador da instalação, se este ainda for o seu primeiro acesso. A recuperação
+                automática de senha pelo próprio usuário ainda não existe no produto.
+            </p>
             <div class="auth-switch"><span>Novo por aqui?</span><a href="{% url 'cadastro' %}">Criar ambiente para meu escritório <span aria-hidden="true">↗</span></a></div>
         </div>
     </div>

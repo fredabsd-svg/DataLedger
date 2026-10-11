@@ -72,7 +72,14 @@ aqui, do que evitar uma repetição.
                 {% csrf_token %}
                 <input type="hidden" name="ano" value="{{ ano }}">
                 <input type="hidden" name="mes" value="{{ mes }}">
-                <button type="submit">Fechar competência {{ mes|stringformat:"02d" }}/{{ ano }}</button>
+                {% comment %}
+                DL-086 (A-08, decisão DE-101): encerrar/fechar período é ação
+                SENSÍVEL — tom `.botao--perigoso` em todo o produto (reabrir e
+                marcar como entregue já usavam; fechar era a exceção). O texto
+                do botão já nomeava a consequência (competência com mês/ano);
+                a cor entra como reforço do que o painel acima explica.
+                {% endcomment %}
+                <button type="submit" class="botao botao--perigoso">Fechar competência {{ mes|stringformat:"02d" }}/{{ ano }}</button>
             </form>
         </div>
     {% endif %}

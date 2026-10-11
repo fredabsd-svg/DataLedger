@@ -117,71 +117,115 @@ leitura, que esta tela já exige para renderizar.
                             <td>{% if linha.conta.ativo %}Ativa{% else %}Inativa{% endif %}</td>
                             {% if pode_escriturar %}
                                 <td>
-                                    {# DL-061: até quatro botões por linha — `.acoes-de-linha` (DE-084) em vez de botões soltos que a célula estreita empilharia sem espaço. #}
-                                    <div class="acoes-de-linha acoes-de-linha--sem-quebra">
                                     {% comment %}
-                                    DL-045, correção da rodada 1 de
-                                    auditoria (A7): só conta de RESULTADO
-                                    (Receita ou Despesa) tem linha da DRE
-                                    — nenhuma linha aceita conta
-                                    patrimonial (Lei 6.404/76, art. 187),
-                                    então o botão nem aparece para essas,
-                                    em vez de convidar a um clique que o
-                                    servidor sempre recusaria.
+                                    DL-086 (F-07), atualizando o comentário da
+                                    DL-061: as ações de classificação da linha
+                                    deixam de ser 3-4 botões empilhados na
+                                    célula estreita e seguem a regra POR
+                                    CONTAGEM do §8.4b (DE-084): três ou mais
+                                    ações viram UM menu "Classificar"
+                                    (`.menu-acoes`, details/summary nativo, sem
+                                    JavaScript — o caret "▾" é glifo do CSS,
+                                    não texto do rótulo); linha com EXATAMENTE
+                                    duas ações mantém dois `.botao--secundario.
+                                    botao--pequeno`, porque menu de duas opções
+                                    é mais clique que ajuda. URLs e rótulos dos
+                                    itens são os mesmos de antes.
                                     {% endcomment %}
-                                    {% if linha.conta.tipo == "receita" or linha.conta.tipo == "despesa" %}
-                                        <a class="botao botao--secundario botao--pequeno"
-                                           href="{% url 'contabilidade_web:conta_classificacao_dre' empresa.id linha.conta.id %}">
-                                            Linha da DRE
-                                        </a>
+                                    {% if linha.conta.tipo == "receita" or linha.conta.tipo == "despesa" or linha.conta.tipo == "patrimonio_liquido" %}
+                                        <div class="acoes-de-linha">
+                                            <details class="menu-acoes">
+                                                <summary class="botao botao--secundario botao--pequeno">Classificar</summary>
+                                                <ul class="menu-acoes__lista">
+                                                    {% comment %}
+                                                    DL-045, correção da rodada 1 de
+                                                    auditoria (A7): só conta de RESULTADO
+                                                    (Receita ou Despesa) tem linha da DRE
+                                                    — nenhuma linha aceita conta
+                                                    patrimonial (Lei 6.404/76, art. 187),
+                                                    então o item nem aparece para essas,
+                                                    em vez de convidar a um clique que o
+                                                    servidor sempre recusaria.
+                                                    {% endcomment %}
+                                                    {% if linha.conta.tipo == "receita" or linha.conta.tipo == "despesa" %}
+                                                        <li>
+                                                            <a href="{% url 'contabilidade_web:conta_classificacao_dre' empresa.id linha.conta.id %}">
+                                                                Linha da DRE
+                                                            </a>
+                                                        </li>
+                                                    {% endif %}
+                                                    {% comment %}
+                                                    DL-048/CTB-12: a linha da DLPA não tem
+                                                    condição de TIPO — diferente da DRE,
+                                                    existe linha da DLPA para QUALQUER
+                                                    tipo de conta (o ajuste de exercício
+                                                    anterior aceita qualquer tipo, por
+                                                    decisão registrada em
+                                                    `TIPOS_ACEITOS_DA_CLASSIFICACAO_
+                                                    DLPA`), então recusar o item por tipo
+                                                    aqui excluiria o caso legítimo. Quem
+                                                    escolhe uma linha incompatível recebe
+                                                    a recusa do servidor no formulário.
+                                                    {% endcomment %}
+                                                    <li>
+                                                        <a href="{% url 'contabilidade_web:conta_classificacao_dlpa' empresa.id linha.conta.id %}">
+                                                            Linha da DLPA
+                                                        </a>
+                                                    </li>
+                                                    {% comment %}
+                                                    DL-061/CTB-14: só conta de PATRIMÔNIO
+                                                    LÍQUIDO tem coluna na DMPL (E1; mesma
+                                                    lógica do item da DRE, que só aparece
+                                                    para Receita/Despesa) — o item nem
+                                                    aparece para as demais, em vez de convidar
+                                                    a um clique que o servidor sempre
+                                                    recusaria.
+                                                    {% endcomment %}
+                                                    {% if linha.conta.tipo == "patrimonio_liquido" %}
+                                                        <li>
+                                                            <a href="{% url 'contabilidade_web:conta_classificacao_dmpl' empresa.id linha.conta.id %}">
+                                                                Coluna da DMPL
+                                                            </a>
+                                                        </li>
+                                                    {% endif %}
+                                                    {% comment %}
+                                                    DL-066/CTB-15: a classificação da DFC
+                                                    também não tem condição de TIPO — como
+                                                    na DLPA, os três campos valem para
+                                                    qualquer tipo de conta (caixa e
+                                                    equivalentes aceita até conta de
+                                                    passivo, pelo item 8 do CPC 03 —
+                                                    DE-099). Quem escolher uma combinação
+                                                    inválida recebe a recusa do servidor no
+                                                    formulário.
+                                                    {% endcomment %}
+                                                    <li>
+                                                        <a href="{% url 'contabilidade_web:conta_classificacao_dfc' empresa.id linha.conta.id %}">
+                                                            Classificação da DFC
+                                                        </a>
+                                                    </li>
+                                                </ul>
+                                            </details>
+                                        </div>
+                                    {% else %}
+                                        {% comment %}
+                                        DL-086 (F-07)/§8.4b: conta que não é de
+                                        resultado nem de patrimônio líquido tem
+                                        EXATAMENTE DUAS ações (DLPA e DFC) — duas
+                                        ações ficam em dois botões pequenos, não em
+                                        menu.
+                                        {% endcomment %}
+                                        <div class="acoes-de-linha acoes-de-linha--sem-quebra">
+                                            <a class="botao botao--secundario botao--pequeno"
+                                               href="{% url 'contabilidade_web:conta_classificacao_dlpa' empresa.id linha.conta.id %}">
+                                                Linha da DLPA
+                                            </a>
+                                            <a class="botao botao--secundario botao--pequeno"
+                                               href="{% url 'contabilidade_web:conta_classificacao_dfc' empresa.id linha.conta.id %}">
+                                                Classificação da DFC
+                                            </a>
+                                        </div>
                                     {% endif %}
-                                    {% comment %}
-                                    DL-048/CTB-12: o botão da DLPA não tem
-                                    condição de TIPO — diferente da DRE,
-                                    existe linha da DLPA para QUALQUER
-                                    tipo de conta (o ajuste de exercício
-                                    anterior aceita qualquer tipo, por
-                                    decisão registrada em
-                                    `TIPOS_ACEITOS_DA_CLASSIFICACAO_
-                                    DLPA`), então recusar o link por tipo
-                                    aqui excluiria o caso legítimo. Quem
-                                    escolhe uma linha incompatível recebe
-                                    a recusa do servidor no formulário.
-                                    {% endcomment %}
-                                    <a class="botao botao--secundario botao--pequeno"
-                                       href="{% url 'contabilidade_web:conta_classificacao_dlpa' empresa.id linha.conta.id %}">
-                                        Linha da DLPA
-                                    </a>
-                                    {% comment %}
-                                    DL-061/CTB-14: só conta de PATRIMÔNIO
-                                    LÍQUIDO tem coluna na DMPL (E1; mesma
-                                    lógica do botão da DRE, que só aparece
-                                    para Receita/Despesa) — o botão nem
-                                    aparece para as demais, em vez de convidar
-                                    a um clique que o servidor sempre
-                                    recusaria.
-                                    {% endcomment %}
-                                    {% if linha.conta.tipo == "patrimonio_liquido" %}
-                                        <a class="botao botao--secundario botao--pequeno"
-                                           href="{% url 'contabilidade_web:conta_classificacao_dmpl' empresa.id linha.conta.id %}">
-                                            Coluna da DMPL
-                                        </a>
-                                    {% endif %}
-                                    {% comment %}
-                                    DL-066/CTB-15: o botão da DFC também não
-                                    tem condição de TIPO — como na DLPA, os
-                                    três campos valem para qualquer tipo de
-                                    conta (caixa e equivalentes aceita até
-                                    conta de passivo, pelo item 8 do CPC 03 —
-                                    DE-099). Quem escolher uma combinação
-                                    inválida recebe a recusa do servidor no
-                                    formulário.
-                                    {% endcomment %}
-                                    <a class="botao botao--secundario botao--pequeno"
-                                       href="{% url 'contabilidade_web:conta_classificacao_dfc' empresa.id linha.conta.id %}">
-                                        Classificação da DFC
-                                    </a>
-                                    </div>
                                 </td>
                             {% endif %}
                         </tr>

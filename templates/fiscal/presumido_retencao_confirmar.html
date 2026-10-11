@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block titulo %}Confirmar retenção — {{ empresa_selecionada.razao_social }}{% endblock %}
+{% block titulo %}Confirmar retenção da nota {{ retencao.numero }} — {{ empresa_selecionada.razao_social }}{% endblock %}
 
 {% block contexto_extra %}
     <span class="contexto-item">
@@ -23,8 +23,10 @@
 {% comment %}
 DL-079 (frente B), arquétipo B. A pergunta antes de gravar: o valor confirmado é o que está no
 comprovante de retenção? Confirmar substitui a confirmação ativa anterior e fica na trilha.
+DL-086 (A-01): confirmação sensível — o título nomeia o ALVO (nº da nota), como o arquétipo E
+pede: quem confirma precisa saber qual nota está confirmando antes de gravar.
 {% endcomment %}
-{% block titulo_pagina %}<h1>Confirmar retenção</h1>{% endblock %}
+{% block titulo_pagina %}<h1>Confirmar retenção da nota {{ retencao.numero }}</h1>{% endblock %}
 
 {% block content %}
     <div class="painel-etapa">
@@ -81,7 +83,12 @@ comprovante de retenção? Confirmar substitui a confirmação ativa anterior e 
         {% endif %}
         <div class="acoes-formulario">
             <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
-            <button type="submit" class="botao botao--primario">Confirmar retenção</button>
+            {% comment %}
+            DL-086 (A-01, direção de arte §8.4): confirmar a retenção muda a dedução do IRPJ/CSLL
+            do trimestre e substitui a confirmação anterior — ação sensível, tom `--perigoso`;
+            o rótulo nomeia a consequência E o alvo (a nota), nunca só "Confirmar".
+            {% endcomment %}
+            <button type="submit" class="botao botao--perigoso">Confirmar retenção da nota {{ retencao.numero }}</button>
         </div>
     </form>
 {% endblock %}

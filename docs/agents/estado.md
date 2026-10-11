@@ -151,6 +151,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-083](../planos/DL-083-receita-de-nfe-no-presumido.md) | Fiscal: receita de NF-e no Lucro Presumido e regras de receita da RC-172 | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-084](../planos/DL-084-rotina-do-presumido.md) | Fiscal: rotina do Lucro Presumido (RC-172) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-085](../planos/DL-085-escrituracao-de-nfe-em-volume.md) | Fiscal: escrituração de NF-e e NFC-e em volume (RC-173) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-086](../planos/DL-086-revisao-de-layout-e-acessos.md) | Revisão de layout, botões, páginas e acessos | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -171,7 +172,40 @@ publicação ou exclusão (HI-55). Roteiro de execução no fim do
 [consultas/](../projeto/consultas/2026-10-08-contador-senior-fiscal.md);
 hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 
-**AGORA, em 08/10/2026:**
+**AGORA, em 11/10/2026 (demanda direta do Fred — "revise e melhore o
+layout, botões e páginas do sistema, bem como acessos e demais"):**
+
+**[DL-086](../planos/DL-086-revisao-de-layout-e-acessos.md) — Revisão de
+layout, botões, páginas e acessos: EM REVISÃO.** Três auditorias
+independentes (fiscal/livro-caixa, fundação/contabilidade e acesso ponta a
+ponta) consolidadas pelo arquiteto; implementação particionada por módulo
+com equipe multiagente, na branch `feat/dl-086-revisao-layout-e-acessos`,
+[PR #107](https://github.com/fredabsd-svg/DataLedger/pull/107) para revisão. Nível 2 (§3.1) com UM item nível 1 — motivo obrigatório no
+estorno do livro-caixa, gravado na trilha (A-02) — com testes de
+sucesso/erro/limite em `apps/livro_caixa/tests/test_dl086_estorno_com_motivo.py`
+e auditoria independente no PR. O que entrou: gaveta móvel com controle de
+fechar e sem parada de teclado invisível (C-01/C-02); dropdown "Cadastros"
+com `open` condicional e rótulo de estado no alternador (C-03/C-04);
+`--tinta-media` e os acentos do Início recalculados para o canvas atual
+(A-01/A-02); cartões que deixam de perder a tinta para a regra de link de
+prosa (F-01); ~150 linhas de CSS morto removidas e o contrato corrigido
+(A-03); botão com quatro estados completos, foco não duplicado e altura
+igual entre `<a>` e `<button>` (B-01/E-02); trilha nomeando a tela atual em
+seis telas (D-01); estados vazios, ações de linha com alvo, "Limpar
+filtros" e rótulos que nomeiam a consequência (A-01 a A-24 por módulo);
+motivo obrigatório no estorno do livro-caixa com rótulos de erro em
+linguagem de escritório (A-02/A-09); 403 uniforme para o papel sem leitura
+antes de resolver a empresa, nos dois módulos (BL-584, teste derivado do
+urlconf); enumeração do cadastro tarifada pelo limite da DL-056 (C-01 de
+acesso); chave única `username_hmac` na trilha com teste de correlação
+(BL-593); `SECURE_REFERRER_POLICY = same-origin` (C-07, parcial); handlers
+404/403/500 com a cara do produto (H-01); e portabilidade Windows das
+guardas (controles da varredura + sha256 da tabela CFOP com `.gitattributes`
+byte-exato). Fora do escopo, registrado no backlog: **BL-689 a BL-696**;
+seguem abertos BL-18, BL-35, BL-547, BL-548, BL-552, BL-580/581/642,
+BL-598, BL-599, BL-640, BL-652, BL-653.
+
+**Em 08/10/2026:**
 
 1. **[DL-071](../planos/DL-071-marcacao-da-dmpl-em-periodo-fechado.md) — a
    marcação manual da DMPL respeita o período fechado (BL-655): INTEGRADA**

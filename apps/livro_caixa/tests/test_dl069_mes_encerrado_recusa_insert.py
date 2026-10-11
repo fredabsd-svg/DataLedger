@@ -49,6 +49,13 @@ from apps.livro_caixa.tests.test_dl053_fechamento_do_mes import (  # noqa: F401
     cenario,
 )
 
+# A-02 (DL-086): o estorno do livro-caixa passou a exigir MOTIVO (validado no
+# serviço, gravado nos `detalhes` da trilha de auditoria). Nestes arquivos o
+# motivo é sintético: o que eles medem é outra regra (encadeamento, mês
+# encerrado, imutabilidade, apuração), não o texto do motivo — esse tem teste
+# próprio em test_dl086_estorno_com_motivo.py.
+MOTIVO = "Estorno sintético do teste."
+
 pytestmark = pytest.mark.django_db
 
 so_postgresql = pytest.mark.skipif(
@@ -227,7 +234,7 @@ def test_lancar_estornar_encerrar_reabrir_cascata_e_reencerrar_continuam_funcion
     """O ciclo inteiro de escrita do livro-caixa pelos serviços — a prova de
     que o gatilho não recusa nenhum caminho legítimo."""
     original = _lancar(cenario, date(2026, 1, 10))
-    estorno = estornar_lancamento_caixa(original, criado_por=cenario["gestor"])
+    estorno = estornar_lancamento_caixa(original, criado_por=cenario["gestor"], motivo=MOTIVO)
     assert estorno.estorno_de_id == original.pk
 
     for mes in (1, 2, 3):
@@ -251,7 +258,7 @@ def test_lancar_estornar_encerrar_reabrir_cascata_e_reencerrar_continuam_funcion
 
     # Mês reaberto aceita lançamento e estorno de novo (RC-103).
     novo = _lancar(cenario, date(2026, 1, 20), valor="30.00")
-    estornar_lancamento_caixa(novo, criado_por=cenario["gestor"])
+    estornar_lancamento_caixa(novo, criado_por=cenario["gestor"], motivo=MOTIVO)
 
     _encerrar(cenario, ano=2026, mes=1)
     assert LancamentoCaixa.objects.filter(empresa=cenario["empresa"]).count() == 4
