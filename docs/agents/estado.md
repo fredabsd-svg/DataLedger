@@ -180,7 +180,7 @@ layout, botões, páginas e acessos: EM REVISÃO.** Três auditorias
 independentes (fiscal/livro-caixa, fundação/contabilidade e acesso ponta a
 ponta) consolidadas pelo arquiteto; implementação particionada por módulo
 com equipe multiagente, na branch `feat/dl-086-revisao-layout-e-acessos`,
-PR para revisão. Nível 2 (§3.1) com UM item nível 1 — motivo obrigatório no
+[PR #107](https://github.com/fredabsd-svg/DataLedger/pull/107) para revisão. Nível 2 (§3.1) com UM item nível 1 — motivo obrigatório no
 estorno do livro-caixa, gravado na trilha (A-02) — com testes de
 sucesso/erro/limite em `apps/livro_caixa/tests/test_dl086_estorno_com_motivo.py`
 e auditoria independente no PR. O que entrou: gaveta móvel com controle de
