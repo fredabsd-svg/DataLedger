@@ -5408,3 +5408,40 @@ significados não é identificador.
 
 **Reversão:** os planos renumerados guardam o número antigo na abertura; a
 volta é renomear de volta os arquivos e as referências desta decisão.
+
+## DE-106 — Feriado local: a lei da praça é base somente leitura; a escrita é do escritório
+
+**Data:** 11/10/2026. **Etapa:** [DL-084](../planos/DL-084-rotina-do-presumido.md),
+correção do achado A1 da [rodada 1](../auditorias/2026-10-11-dl-084-rodada-1.md).
+
+**Problema.** O escopo 2 do plano diz "cada empresa tem uma tabela opcional de
+feriados estaduais e municipais"; a frente A desenhou a tabela como a lei do
+lugar (por praça, sem dono) e a frente B abriu escrita por ela. Medido pelo
+auditor: o gestor de qualquer escritório edita ou apaga a linha carregada —
+lei, data da leitura e a confirmação bancária da Febraban — que gera o aviso
+da empresa de OUTRO escritório, e a trilha fica no escritório que agiu, que é
+o único a não sofrer nada.
+
+**Decisão.** A base (carga do produto: lei, data da leitura, fonte bancária) é
+global e **somente leitura** para as telas. A escrita vira **do escritório**:
+`FeriadoLocal` e `ExcecaoFeriadoLocal` ganham `escritorio`; o que o usuário
+cadastra nasce escopado ao escritório que agiu e vale só para as empresas
+dele. No mesmo dia, a linha do escritório substitui a da base para as empresas
+dele — o mesmo princípio que o modelo já documenta (a linha do município
+substitui a do estado no mesmo dia). A empresa herda a base da praça da matriz
+mais as linhas do escritório: é a "tabela opcional" do escopo 2.
+
+**Motivo.** O feriado é a lei do lugar: copiar a lei por empresa — a letra
+fria do escopo — faria cinquenta cópias da mesma data numa carteira de
+Palmas e não protegeria ninguém. O que precisa de dono é a **escrita**, não a
+lei.
+
+**Alternativas descartadas.** Tabela por empresa: duplica o dado público e
+multiplica a manutenção sem ganho. Manter global com trava de papel só: o
+ADMINISTRADOR de um escritório ainda alteraria o aviso de outro — a recusa do
+A1 continuaria valendo. Trilha visível nos dois escritórios sem escopo: mostra
+o estrago, não o impede.
+
+**Reversão:** a migração nova tem guarda; voltar ao arranjo global é reverter
+a migração do `escritorio` e o trecho da reversão da 0015, e tirar o escopo
+das views — nada de dado do contador se perde.
