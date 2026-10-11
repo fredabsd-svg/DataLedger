@@ -164,10 +164,15 @@ CONTRATO_POST_LANCAMENTO_CAIXA = ContratoDeRequisicao(
     contexto="no lançamento de caixa",
 )
 
-# Estorno é rota de AÇÃO: o que estornar vem da URL, sem corpo — mesmo
-# desenho de `CONTRATO_POST_ESTORNO` (contabilidade).
+# Estorno é rota de AÇÃO: o que estornar vem da URL. Desde a DL-086 (A-02) o
+# corpo carrega o MOTIVO obrigatório — mesmo contrato dos estornos fiscais
+# (`_CONTRATO_ESTORNAR_NFE`, apps/fiscal/views_web.py) e da reabertura de
+# competência (`CONTRATO_POST_REABRIR`, apps/contabilidade/views.py). A regra
+# de negócio (motivo não vazio, teto de caracteres) mora no SERVIÇO
+# (`services._normalizar_motivo_do_estorno`), nunca duplicada aqui — a API e a
+# tela chamam a mesma função (AGENTS.md §8/§11).
 CONTRATO_POST_ESTORNO_CAIXA = ContratoDeRequisicao(
-    campos=frozenset(),
+    campos=frozenset({"motivo"}),
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="no estorno de caixa",
 )
@@ -434,14 +439,20 @@ class EstornarLancamentoCaixaView(EmpresaEscopadaLivroCaixaMixin, APIView):
         # A data do estorno é decidida pelo SERVIDOR (mesmo RC-78 aplicado
         # por analogia, ver `services.estornar_lancamento_caixa`) — corpo
         # com `data` sugeriria ao cliente ter escolhido o que o servidor
-        # decide.
+        # decide. O MOTIVO (A-02, DL-086) é o único campo do corpo, e a
+        # validação dele é do serviço: aqui só a forma (texto), para o
+        # cliente da API receber o erro no campo, não uma frase genérica.
         _recusar_dado_nao_contratado(request, CONTRATO_POST_ESTORNO_CAIXA)
         empresa = self.get_empresa()
         lancamento = get_object_or_404(LancamentoCaixa, pk=lancamento_id, empresa=empresa)
 
+        motivo = request.data.get("motivo") if isinstance(request.data, dict) else None
+        if motivo is not None and not isinstance(motivo, str):
+            raise DRFValidationError({"motivo": ["O campo 'motivo' deve ser texto."]})
+
         try:
             estorno = estornar_lancamento_caixa(
-                lancamento, criado_por=request.user, request=request
+                lancamento, motivo=motivo, criado_por=request.user, request=request
             )
         except MesCaixaEncerrado as exc:
             # DL-053, critério 2: estornar lançamento de mês encerrado exige

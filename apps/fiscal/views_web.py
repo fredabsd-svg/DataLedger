@@ -351,6 +351,48 @@ def _querystring_sem_pagina(request):
 
 
 # ---------------------------------------------------------------------------
+# DL-086 (A-14): o par do botão "Limpar filtros" das parciais de filtro
+# ---------------------------------------------------------------------------
+
+
+def _competencia_padrao() -> tuple[int, int]:
+    """(ano, mês) correntes em Brasília: a ENTRADA PADRÃO das telas de competência.
+
+    Quem não filtra nada vê o mês corrente; o mesmo par serve para o `algum_filtro_ativo`
+    (DL-086, A-14) comparar o filtro efetivo com o padrão, em vez de só checar se o parâmetro
+    veio na querystring.
+    """
+    hoje = timezone.localdate()
+    return hoje.year, hoje.month
+
+
+def _ano_padrao() -> int:
+    """Ano corrente em Brasília: a entrada padrão das telas que filtram só o ano (DL-086, A-14)."""
+    return _competencia_padrao()[0]
+
+
+def _limpar_filtros_da_consulta(request, empresa, *, ativo: bool) -> dict:
+    """As duas chaves do `.botao--fantasma` "Limpar filtros" das parciais de filtro (DL-086, A-14).
+
+    `ativo` é decidido por cada tela — que é quem conhece o seu padrão: o botão aparece SÓ
+    quando a consulta difere da entrada padrão (ou quando o filtro digitado foi recusado, a
+    saída da tela de erro, como em `documentos_lista`). Comparar o valor EFETIVO com o padrão,
+    e não a mera presença do parâmetro na querystring, evita o botão SEM filtro real: as telas
+    de competência preenchem o formulário com o mês corrente e o "Consultar" sobre esse valor
+    repete exatamente a consulta padrão — não há o que limpar.
+
+    O destino limpa a querystring e preserva a empresa escolhida: empresa é o CONTEXTO da tela
+    (o recorte obrigatório, como em `nfe_lista.html`), não um filtro além do padrão — limpar
+    tudo mandaria quem consulta de volta à tela "Escolha uma empresa" sem necessidade.
+    """
+    if empresa is None:
+        destino = request.path
+    else:
+        destino = f"{request.path}?{urlencode({'empresa': empresa.pk})}"
+    return {"algum_filtro_ativo": ativo, "url_limpar_filtros": destino}
+
+
+# ---------------------------------------------------------------------------
 # Tela 1: envio (recepção) — arquétipo C (caixa de entrada e conferência)
 # ---------------------------------------------------------------------------
 
@@ -834,10 +876,15 @@ def _filtros_de_escrituracao(request):
     return empresa, competencia, erro_empresa or erro_competencia
 
 
-def _contexto_do_filtro(request, competencia):
+def _contexto_do_filtro(request, empresa, competencia, *, algum_filtro_ativo):
     """Valores do formulário de filtro. Sem competência digitada, o formulário
     mostra a competência que a tela usou (o mês corrente), para a pessoa ver
-    o que está consultando."""
+    o que está consultando.
+
+    DL-086 (A-14): entra aqui também o par do botão "Limpar filtros" da parcial
+    (`_limpar_filtros_da_consulta`); quem chama diz o `algum_filtro_ativo`
+    comparando a competência efetiva ao mês corrente.
+    """
     ano = request.GET.get("ano", "").strip()
     mes = request.GET.get("mes", "").strip()
     if not ano and not mes and competencia is not None:
@@ -849,6 +896,7 @@ def _contexto_do_filtro(request, competencia):
         "empresa_filtro_bruto": request.GET.get("empresa", ""),
         "ano_filtro": ano,
         "mes_filtro": mes,
+        **_limpar_filtros_da_consulta(request, empresa, ativo=algum_filtro_ativo),
     }
 
 
@@ -941,7 +989,14 @@ def notas_a_escriturar(request):
     empresa, competencia, erro = _filtros_de_escrituracao(request)
     pode_escriturar = _pode_escriturar(request)
     contexto = {
-        **_contexto_do_filtro(request, competencia),
+        **_contexto_do_filtro(
+            request,
+            empresa,
+            competencia,
+            # DL-086 (A-14): filtro ativo além do padrão é a competência que NÃO é o mês
+            # corrente (ou o filtro recusado) — nunca a empresa, que é contexto da tela.
+            algum_filtro_ativo=bool(erro) or competencia != _competencia_padrao(),
+        ),
         "pode_escriturar": pode_escriturar,
         "pagina": None,
     }
@@ -1263,7 +1318,13 @@ def conferencia_escrituracao(request):
     empresa, competencia, erro = _filtros_de_escrituracao(request)
     pode_escriturar = _pode_escriturar(request)
     contexto = {
-        **_contexto_do_filtro(request, competencia),
+        **_contexto_do_filtro(
+            request,
+            empresa,
+            competencia,
+            # DL-086 (A-14): ver o comentário em notas_a_escriturar — o padrão é o mês corrente.
+            algum_filtro_ativo=bool(erro) or competencia != _competencia_padrao(),
+        ),
         "pode_escriturar": pode_escriturar,
     }
     if erro:
@@ -1708,7 +1769,13 @@ def receita_do_mes(request):
     empresa, competencia, erro = _filtros_de_escrituracao(request)
     pode_escriturar = _pode_escriturar(request)
     contexto = {
-        **_contexto_do_filtro(request, competencia),
+        **_contexto_do_filtro(
+            request,
+            empresa,
+            competencia,
+            # DL-086 (A-14): ver o comentário em notas_a_escriturar — o padrão é o mês corrente.
+            algum_filtro_ativo=bool(erro) or competencia != _competencia_padrao(),
+        ),
         "pode_escriturar": pode_escriturar,
         "empresa_selecionada": None,
     }
@@ -2275,9 +2342,14 @@ def _url_folhas(empresa, ano):
     )
 
 
-def _contexto_do_filtro_de_empresa(request, empresa, competencia=None):
+def _contexto_do_filtro_de_empresa(request, empresa, competencia=None, *, algum_filtro_ativo=False):
     """Valores do filtro das telas do Simples. A lista de empresas só existe SEM empresa
-    escolhida; com uma escolhida, o filtro mostra só ela (direção de arte §8.1)."""
+    escolhida; com uma escolhida, o filtro mostra só ela (direção de arte §8.1).
+
+    DL-086 (A-14): o par do botão "Limpar filtros" da parcial vem de
+    `_limpar_filtros_da_consulta`; quem chama diz o `algum_filtro_ativo` contra o padrão da
+    própria tela (mês corrente, ano corrente, ou nenhum filtro além da empresa).
+    """
     ano = request.GET.get("ano", "").strip()
     mes = request.GET.get("mes", "").strip()
     if competencia is not None and not ano and not mes:
@@ -2292,6 +2364,7 @@ def _contexto_do_filtro_de_empresa(request, empresa, competencia=None):
         "ano_filtro": ano,
         "mes_filtro": mes,
         "url_trocar_empresa": reverse("empresas:lista"),
+        **_limpar_filtros_da_consulta(request, empresa, ativo=algum_filtro_ativo),
     }
 
 
@@ -2481,7 +2554,14 @@ def pre_das(request):
 
     empresa, competencia, erro = _filtros_de_escrituracao(request)
     contexto = {
-        **_contexto_do_filtro_de_empresa(request, empresa, competencia),
+        **_contexto_do_filtro_de_empresa(
+            request,
+            empresa,
+            competencia,
+            # DL-086 (A-14): o padrão da tela é o mês corrente — só o filtro efetivo ALÉM dele
+            # (ou o filtro recusado) ativa o "Limpar filtros"; empresa é contexto e não conta.
+            algum_filtro_ativo=bool(erro) or competencia != _competencia_padrao(),
+        ),
         "mostrar_ano": True,
         "mostrar_mes": True,
         "aviso_do_pre_das": _AVISO_DO_PRE_DAS,
@@ -2544,7 +2624,13 @@ def atividades(request):
     empresa, erro = _empresa_da_escrituracao(request)
     pode_escriturar = _pode_escriturar(request)
     contexto = {
-        **_contexto_do_filtro_de_empresa(request, empresa),
+        **_contexto_do_filtro_de_empresa(
+            request,
+            empresa,
+            # DL-086 (A-14): esta tela não tem filtro além da empresa (contexto) — o "Limpar
+            # filtros" só pode aparecer para sair de um filtro recusado.
+            algum_filtro_ativo=bool(erro),
+        ),
         "pode_escriturar": pode_escriturar,
         "mensagem_sem_permissao": _MENSAGEM_SEM_PERMISSAO_DO_SIMPLES,
         "catalogo": _ENQUADRAMENTOS_NA_TELA,
@@ -2842,14 +2928,19 @@ def folhas_fator_r(request):
 
     empresa, erro = _empresa_da_escrituracao(request)
     ano_bruto = request.GET.get("ano", "").strip()
-    hoje = timezone.localdate()
-    ano = _inteiro_de_filtro(ano_bruto) if ano_bruto else hoje.year
+    ano = _inteiro_de_filtro(ano_bruto) if ano_bruto else _ano_padrao()
     if ano is None or not (2000 <= ano <= 2100):
         erro = erro or "Ano inválido: informe o ano com quatro dígitos (AAAA)."
-        ano = hoje.year
+        ano = _ano_padrao()
     pode_escriturar = _pode_escriturar(request)
     contexto = {
-        **_contexto_do_filtro_de_empresa(request, empresa),
+        **_contexto_do_filtro_de_empresa(
+            request,
+            empresa,
+            # DL-086 (A-14): aqui o padrão é o ANO corrente (a tela filtra só o ano) — o
+            # "Limpar filtros" aparece com o ano efetivo fora do padrão ou filtro recusado.
+            algum_filtro_ativo=bool(erro) or ano != _ano_padrao(),
+        ),
         "ano": ano,
         "ano_filtro": str(ano),
         "mostrar_ano": True,
@@ -3446,7 +3537,13 @@ def iss_apuracao(request):
 
     empresa, competencia, erro = _filtros_de_escrituracao(request)
     contexto = {
-        **_contexto_do_filtro_de_empresa(request, empresa, competencia),
+        **_contexto_do_filtro_de_empresa(
+            request,
+            empresa,
+            competencia,
+            # DL-086 (A-14): mesmo critério de pre_das — o padrão é o mês corrente.
+            algum_filtro_ativo=bool(erro) or competencia != _competencia_padrao(),
+        ),
         "mostrar_ano": True,
         "mostrar_mes": True,
         "pode_escriturar": _pode_escriturar(request),
@@ -3485,7 +3582,13 @@ def _relatorio_municipal(request, tipo: str):
 
     empresa, competencia, erro = _filtros_de_escrituracao(request)
     contexto = {
-        **_contexto_do_filtro_de_empresa(request, empresa, competencia),
+        **_contexto_do_filtro_de_empresa(
+            request,
+            empresa,
+            competencia,
+            # DL-086 (A-14): mesmo critério de pre_das — o padrão é o mês corrente.
+            algum_filtro_ativo=bool(erro) or competencia != _competencia_padrao(),
+        ),
         **_TEXTOS_DO_RELATORIO_MUNICIPAL[tipo],
         "mostrar_ano": True,
         "mostrar_mes": True,
@@ -3835,7 +3938,12 @@ def iss_regimes(request):
     empresa, erro = _empresa_da_escrituracao(request)
     pode_escriturar = _pode_escriturar(request)
     contexto = {
-        **_contexto_do_filtro_de_empresa(request, empresa),
+        **_contexto_do_filtro_de_empresa(
+            request,
+            empresa,
+            # DL-086 (A-14): sem filtro além da empresa (contexto) — como em atividades.
+            algum_filtro_ativo=bool(erro),
+        ),
         "mostrar_ano": False,
         "mostrar_mes": False,
         "pode_escriturar": pode_escriturar,
@@ -4146,7 +4254,13 @@ def tomadas_lista(request):
     empresa, competencia, erro = _filtros_de_escrituracao(request)
     pode_escriturar = _pode_escriturar(request)
     contexto = {
-        **_contexto_do_filtro_de_empresa(request, empresa, competencia),
+        **_contexto_do_filtro_de_empresa(
+            request,
+            empresa,
+            competencia,
+            # DL-086 (A-14): mesmo critério de pre_das — o padrão é o mês corrente.
+            algum_filtro_ativo=bool(erro) or competencia != _competencia_padrao(),
+        ),
         "mostrar_ano": True,
         "mostrar_mes": True,
         "pode_escriturar": pode_escriturar,
@@ -4658,7 +4772,13 @@ def iss_retido_a_recolher(request):
 
     empresa, competencia, erro = _filtros_de_escrituracao(request)
     contexto = {
-        **_contexto_do_filtro_de_empresa(request, empresa, competencia),
+        **_contexto_do_filtro_de_empresa(
+            request,
+            empresa,
+            competencia,
+            # DL-086 (A-14): mesmo critério de pre_das — o padrão é o mês corrente.
+            algum_filtro_ativo=bool(erro) or competencia != _competencia_padrao(),
+        ),
         "mostrar_ano": True,
         "mostrar_mes": True,
         "pode_escriturar": _pode_escriturar(request),
@@ -4720,7 +4840,13 @@ def retencoes_federais(request):
     empresa, competencia, erro = _filtros_de_escrituracao(request)
     pode_escriturar = _pode_escriturar(request)
     contexto = {
-        **_contexto_do_filtro_de_empresa(request, empresa, competencia),
+        **_contexto_do_filtro_de_empresa(
+            request,
+            empresa,
+            competencia,
+            # DL-086 (A-14): mesmo critério de pre_das — o padrão é o mês corrente.
+            algum_filtro_ativo=bool(erro) or competencia != _competencia_padrao(),
+        ),
         "mostrar_ano": True,
         "mostrar_mes": True,
         "pode_escriturar": pode_escriturar,
@@ -4881,14 +5007,24 @@ def _pres_trimestre(ano: int, trimestre: int) -> str:
     return f"{trimestre}º trimestre de {ano}"
 
 
+def _pres_periodo_padrao_atual() -> tuple[int, int]:
+    """(ano, trimestre) correntes em Brasília: a ENTRADA PADRÃO das telas de período do presumido.
+
+    Mesma fonte do padrão que `_pres_periodo_padrao` aplica quando nada é digitado (DL-086,
+    A-14): quem compara o filtro efetivo a este par não erra o que é filtro além do padrão.
+    """
+    ano, mes = _competencia_padrao()
+    return ano, (mes - 1) // 3 + 1
+
+
 def _pres_periodo_padrao(request):
     """(ano, trimestre, erro) da consulta. Ausente: o trimestre corrente (Brasília). Malformado ou
     fora do presumido: erro de formulário na tela, nunca 500 e nunca um número de outro período."""
     ano_bruto = request.GET.get("ano", "").strip()
     tri_bruto = request.GET.get("trimestre", "").strip()
     if not ano_bruto and not tri_bruto:
-        hoje = timezone.localdate()
-        return hoje.year, (hoje.month - 1) // 3 + 1, None
+        ano, trimestre = _pres_periodo_padrao_atual()
+        return ano, trimestre, None
     ano = _inteiro_de_filtro(ano_bruto)
     trimestre = _inteiro_de_filtro(tri_bruto)
     if ano is None or trimestre is None:
@@ -4904,7 +5040,7 @@ def _pres_ano_padrao(request):
     """(ano, erro) das telas que só pedem o ano (critério do ano, limite do ano)."""
     bruto = request.GET.get("ano", "").strip()
     if not bruto:
-        return timezone.localdate().year, None
+        return _ano_padrao(), None
     ano = _inteiro_de_filtro(bruto)
     if ano is None:
         return None, "Informe o ano (AAAA)."
@@ -4915,10 +5051,15 @@ def _pres_ano_padrao(request):
     return ano, None
 
 
-def _pres_contexto(request, empresa, *, pode_escriturar, titulo, **extra):
+def _pres_contexto(request, empresa, *, pode_escriturar, titulo, algum_filtro_ativo=False, **extra):
     """Contexto comum: a empresa escolhida (ou a escolha, sem empresa), o aviso das ADIs e o
     texto de conferência. Nenhum dado de outra empresa entra aqui (a escolha só aparece sem
-    empresa)."""
+    empresa).
+
+    DL-086 (A-14): `algum_filtro_ativo` (padrão `False`, para as telas de formulário) alimenta o
+    botão "Limpar filtros" da parcial `fiscal/_filtro_presumido.html`; cada tela de consulta diz
+    o seu valor comparando o período efetivo ao padrão — ver `_limpar_filtros_da_consulta`.
+    """
     return {
         "titulo": titulo,
         "empresa_selecionada": empresa,
@@ -4932,6 +5073,7 @@ def _pres_contexto(request, empresa, *, pode_escriturar, titulo, **extra):
         "texto_conferencia": _TEXTO_CONFERENCIA_PRESUMIDO,
         "aviso_adi": tab_presumido.AVISO_ADI,
         "data_conferencia_adi": _data_na_tela(tab_presumido.DATA_CONFERENCIA_ADI),
+        **_limpar_filtros_da_consulta(request, empresa, ativo=algum_filtro_ativo),
         **extra,
     }
 
@@ -4995,6 +5137,8 @@ def presumido_atividades(request):
         empresa,
         pode_escriturar=pode,
         titulo="Atividades de presunção",
+        # DL-086 (A-14): sem período nesta tela — o "Limpar filtros" só sai de filtro recusado.
+        algum_filtro_ativo=bool(erro),
         catalogo=_pres_catalogo_na_tela(),
         # A10: a ESC (38,4%) fica fora do catálogo; é nomeada aqui para não ser lida como serviços.
         fora_do_corte=tab_presumido.ESC_FORA_DO_PRIMEIRO_CORTE,
@@ -5171,6 +5315,8 @@ def _pres_tela_criterio(request, empresa, *, ano, erro=None, status=200):
         empresa,
         pode_escriturar=_pode_escriturar(request),
         titulo="Critério de receita do ano",
+        # DL-086 (A-14): o padrão é o ANO corrente (a tela filtra só o ano).
+        algum_filtro_ativo=bool(erro) or ano != _ano_padrao(),
         ano_filtro=ano,
         erro=erro,
         criterio=criterio,
@@ -5199,6 +5345,8 @@ def presumido_criterio(request):
             empresa,
             pode_escriturar=_pode_escriturar(request),
             titulo="Critério de receita",
+            # DL-086 (A-14): mesmo critério de _pres_tela_criterio — o padrão é o ano corrente.
+            algum_filtro_ativo=bool(erro) or ano != _ano_padrao(),
             erro=erro,
         )
         return render(request, "fiscal/presumido_criterio.html", contexto, status=400)
@@ -5208,6 +5356,8 @@ def presumido_criterio(request):
             empresa,
             pode_escriturar=_pode_escriturar(request),
             titulo="Critério de receita",
+            # DL-086 (A-14): mesmo critério de _pres_tela_criterio — o padrão é o ano corrente.
+            algum_filtro_ativo=bool(erro) or ano != _ano_padrao(),
         )
         return render(request, "fiscal/presumido_criterio.html", contexto)
     return _pres_tela_criterio(request, empresa, ano=ano)
@@ -5326,6 +5476,8 @@ def _pres_tela_receitas(request, empresa, ano, trimestre, *, status=200, erro=No
         empresa,
         pode_escriturar=pode,
         titulo="Receitas do trimestre",
+        # DL-086 (A-14): o padrão é o trimestre corrente (ano + trimestre) da tela.
+        algum_filtro_ativo=bool(erro) or (ano, trimestre) != _pres_periodo_padrao_atual(),
         ano_filtro=ano,
         trimestre_filtro=trimestre,
         trimestre_rotulo=_pres_trimestre(ano, trimestre),
@@ -5373,6 +5525,9 @@ def presumido_receitas(request):
             empresa,
             pode_escriturar=_pode_escriturar(request),
             titulo="Receitas do trimestre",
+            # DL-086 (A-14): mesmo critério de _pres_tela_receitas — o padrão é o trimestre
+            # corrente.
+            algum_filtro_ativo=bool(erro) or (ano, trimestre) != _pres_periodo_padrao_atual(),
             erro=erro,
         )
         return render(
@@ -5589,6 +5744,8 @@ def presumido_retencoes(request):
         empresa,
         pode_escriturar=pode,
         titulo="Retenções do trimestre",
+        # DL-086 (A-14): o padrão é o trimestre corrente (ano + trimestre) da tela.
+        algum_filtro_ativo=bool(erro) or (ano, trimestre) != _pres_periodo_padrao_atual(),
         ano_filtro=ano,
         trimestre_filtro=trimestre,
         erro=erro,
@@ -5656,6 +5813,8 @@ def _pres_tela_retencoes_com_erro(request, empresa, ano, trimestre, erro, status
         empresa,
         pode_escriturar=True,
         titulo="Retenções do trimestre",
+        # DL-086 (A-14): mesmo critério da lista — o padrão é o trimestre corrente.
+        algum_filtro_ativo=bool(erro) or (ano, trimestre) != _pres_periodo_padrao_atual(),
         ano_filtro=ano,
         trimestre_filtro=trimestre,
         trimestre_rotulo=_pres_trimestre(ano, trimestre),
@@ -5797,6 +5956,9 @@ def _pres_tela_medidas(request, empresa, *, status=200, erro=None):
         empresa,
         pode_escriturar=pode,
         titulo="Medidas judiciais contra a LC 224",
+        # DL-086 (A-14): sem período efetivo nesta tela — o "Limpar filtros" só sai de filtro
+        # recusado.
+        algum_filtro_ativo=bool(erro),
         erro=erro,
         medidas=[
             _pres_linha_da_medida(m, empresa, pode)
@@ -5825,6 +5987,8 @@ def presumido_medidas(request):
                 empresa,
                 pode_escriturar=_pode_escriturar(request),
                 titulo="Medidas judiciais contra a LC 224",
+                # DL-086 (A-14): mesmo critério de _pres_tela_medidas — filtro recusado.
+                algum_filtro_ativo=bool(erro),
                 erro=erro,
             ),
             status=400,
@@ -5838,6 +6002,8 @@ def presumido_medidas(request):
                 empresa,
                 pode_escriturar=_pode_escriturar(request),
                 titulo="Medidas judiciais contra a LC 224",
+                # DL-086 (A-14): mesmo critério de _pres_tela_medidas — filtro recusado.
+                algum_filtro_ativo=bool(erro),
             ),
         )
     return _pres_tela_medidas(request, empresa)
@@ -6299,6 +6465,8 @@ def presumido_apuracao(request):
         empresa,
         pode_escriturar=_pode_escriturar(request),
         titulo="Apuração do trimestre",
+        # DL-086 (A-14): o padrão é o trimestre corrente (ano + trimestre) da tela.
+        algum_filtro_ativo=bool(erro) or (ano, trimestre) != _pres_periodo_padrao_atual(),
         ano_filtro=ano,
         trimestre_filtro=trimestre,
         erro=erro,
@@ -6338,6 +6506,9 @@ def presumido_limite(request):
         empresa,
         pode_escriturar=_pode_escriturar(request),
         titulo="Controle do limite do ano",
+        # DL-086 (A-14): o padrão é o ano corrente no tributo IRPJ — filtro além do padrão é o
+        # ano diferente, o tributo CSLL ou um filtro recusado.
+        algum_filtro_ativo=bool(erro) or ano != _ano_padrao() or tributo != "irpj",
         ano_filtro=ano,
         tributo_filtro=tributo,
         opcoes_tributo=[("irpj", "IRPJ"), ("csll", "CSLL")],

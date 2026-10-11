@@ -1,6 +1,14 @@
 /* DL-049: promoted Compacta direction. Shared production tokens remain
  * authoritative; this stylesheet affects module homes and their switcher.
- * There are no dashboard entrances, animated counters or page transitions. */
+ * There are no dashboard entrances, animated counters or page transitions.
+ *
+ * DL-086 (achado A-04, governança): os tokens `--mh-*` abaixo são
+ * DECISÕES LOCAIS desta superfície (alvos de toque, durações, frações de
+ * grid) declaradas fora do `:root` único de base.css de propósito — a
+ * varredura isenta custom property fora do `:root`, e promovê-los sem
+ * medição/registro de contraste seria criar uma segunda escala sem
+ * governança. BL-696 acompanha quais deles merecem promoção; até lá, o
+ * registro é este comentário. */
 .module-home, .module-home-switcher {
     --mh-border: var(--app-fundo);
     --mh-card-min-height: 10rem;
@@ -25,7 +33,10 @@
 .module-home-switcher__label { flex: 1; min-width: 0; }
 .module-home-switcher__state { display: block; color: var(--bl-texto-suave); font-size: var(--tipo-2xs); font-weight: normal; }
 .module-home-switcher__badge { font-family: var(--fonte-numerica); background: var(--bl-texto); color: var(--app-acento-escuro); padding: var(--esp-1) var(--esp-2); border-radius: var(--raio-pilula); font-size: var(--tipo-2xs); }
-.module-home-switcher a:focus-visible { outline: var(--traco-grossa) solid var(--bl-texto); outline-offset: var(--desloc-foco); }
+/* DL-086 (achado B-01): foco do componente REMOVIDO — §8.4 ("foco...
+   nunca duplicada por componente"). A regra global de foco (base.css) já
+   desenha o anel, e `.barra-lateral a:focus` já troca a cor para
+   `--bl-texto` dentro da barra escura; esta regra só duplicava o efeito. */
 .module-home { min-width: 0; }
 .module-home * { min-width: 0; }
 .mh-header { display: flex; align-items: start; justify-content: space-between; gap: var(--esp-5); margin-bottom: var(--esp-2); }
@@ -126,7 +137,11 @@
 .module-home input, .module-home select, .module-home summary, .module-home .botao { touch-action: manipulation; }
 .module-home summary, .module-home button { user-select: none; -webkit-user-select: none; }
 .module-home .botao, .module-home button { transition: none; }
-.module-home .botao:active, .module-home button:active { transform: none; }
+/* DL-086 (achado B-01): `transform: none` no `:active` foi REMOVIDO — ele
+   anulava o achatamento global do botão e o substituía por `scale(.97)`
+   que só existe com JS (`data-input="pointer"`), então sem JS o estado
+   pressionado perdia o movimento. Com a remoção, o `:active` global vale
+   sempre; o `scale(.97)` do pointer continua como refinamento por cima. */
 .module-home[data-input="pointer"] .botao { transition: transform var(--mh-release-duration) var(--mh-ease-out); }
 .module-home[data-input="pointer"] .botao:active { transform: scale(.97); transition-duration: var(--mh-press-duration); }
 .pagina-home-modulo { --mh-viewport-height: 100dvh; --mh-safe-area-zero: 0px; min-height: var(--mh-viewport-height); -webkit-text-size-adjust: 100%; overscroll-behavior: none; }

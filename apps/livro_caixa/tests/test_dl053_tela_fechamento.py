@@ -703,9 +703,11 @@ def test_lista_de_lancamentos_nao_oferece_estornar_em_mes_encerrado_e_diz_por_qu
     assert "Mês encerrado</span>" in html
     assert f"/lancamentos/{em_janeiro.id}/estornar/" not in html
     assert f"/lancamentos/{em_fevereiro.id}/estornar/" in html  # mês aberto continua oferecendo
-    # O servidor continua recusando o estorno forçado.
+    # O servidor continua recusando o estorno forçado (motivo válido para o
+    # fluxo chegar à recusa de mês encerrado — A-02, DL-086).
     forcado = cliente.post(
-        reverse("livro_caixa_web:lancamento_estornar", args=[cenario["empresa"].id, em_janeiro.id])
+        reverse("livro_caixa_web:lancamento_estornar", args=[cenario["empresa"].id, em_janeiro.id]),
+        {"motivo": "Estorno sintético do teste."},
     )
     assert forcado.status_code == 409
 
@@ -789,7 +791,9 @@ def test_tela_de_estornar_em_mes_encerrado_nao_oferece_o_botao_e_o_post_segue_re
     url = reverse("livro_caixa_web:lancamento_estornar", args=[cenario["empresa"].id, original.id])
 
     pagina = cliente.get(url)
-    forcado = cliente.post(url)
+    # Motivo válido (A-02, DL-086): sem ele o POST cairia na recusa de campo,
+    # não na de mês encerrado que este teste mede.
+    forcado = cliente.post(url, {"motivo": "Estorno sintético do teste."})
 
     html = pagina.content.decode()
     assert pagina.status_code == 200
@@ -857,10 +861,13 @@ def test_nenhuma_tela_do_fechamento_mostra_identificador_interno(cenario):
             )
         ),
         # A mensagem de estorno recusado (o texto do serviço cita um código).
+        # Motivo válido (A-02, DL-086): a varredura precisa da mensagem do
+        # SERVIÇO, não da recusa de campo.
         analista.post(
             reverse(
                 "livro_caixa_web:lancamento_estornar", args=[cenario["empresa"].id, original.id]
-            )
+            ),
+            {"motivo": "Estorno sintético do teste."},
         ),
         analista.post(
             _url("mes_encerrar", cenario["empresa"]), {"ano": "2026", "mes": "1"}

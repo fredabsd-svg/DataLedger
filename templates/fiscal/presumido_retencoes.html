@@ -26,8 +26,18 @@ estimada por 1/4,65 e vem marcada; código ambíguo fica "a classificar", sem va
     {% endif %}
 
     {% if not empresa_selecionada %}
+        {% comment %}
+        DL-086 (A-13, direção de arte §8.4c): a família DL-079 também ficou com a anatomia de
+        `.estado-vazio` incompleta (sem ícone e sem descrição) — completada aqui, como nas
+        referências iss_aliquotas.html e atividades.html. Sem botão: a saída é o filtro acima.
+        {% endcomment %}
         <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
             <p class="estado-vazio__titulo"><strong>Escolha uma empresa, o ano e o trimestre para ver as retenções.</strong></p>
+            <p class="estado-vazio__descricao">
+                A proposta de IRRF e CSLL vem da nota; só o valor que você confirma entra na dedução
+                do trimestre.
+            </p>
         </div>
     {% elif trimestre_rotulo %}
         <h2>{{ trimestre_rotulo }}: retenções por nota</h2>
@@ -61,10 +71,16 @@ estimada por 1/4,65 e vem marcada; código ambíguo fica "a classificar", sem va
                             <td class="valor-monetario">{{ linha.irrf_confirmado }}</td>
                             <td class="valor-monetario">{{ linha.csll_confirmada }}</td>
                             <td>
+                                {% comment %}
+                                DL-086 (A-06, direção de arte §8.4): ação de linha carrega o alvo
+                                em texto oculto — "Confirmar" solto não diz o que confirma (padrão
+                                livro_caixa/fechamento_mes.html). O botão desabilitado leva o mesmo
+                                alvo: o nome acessível importa para quem não pode agir também.
+                                {% endcomment %}
                                 {% if linha.url_confirmar %}
-                                    <a class="botao botao--secundario botao--pequeno" href="{{ linha.url_confirmar }}">Confirmar</a>
+                                    <a class="botao botao--secundario botao--pequeno" href="{{ linha.url_confirmar }}">Confirmar<span class="visualmente-oculto"> a retenção da nota {{ linha.numero }}</span></a>
                                 {% else %}
-                                    <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Confirmar</button>
+                                    <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Confirmar<span class="visualmente-oculto"> a retenção da nota {{ linha.numero }}</span></button>
                                 {% endif %}
                             </td>
                         </tr>
@@ -76,7 +92,13 @@ estimada por 1/4,65 e vem marcada; código ambíguo fica "a classificar", sem va
             {% endif %}
         {% else %}
             <div class="estado-vazio">
+                {# DL-086 (A-13): mesma anatomia do cartão acima — ícone decorativo, título e descrição. #}
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
                 <p class="estado-vazio__titulo"><strong>Nenhuma nota prestada efetivada neste trimestre.</strong></p>
+                <p class="estado-vazio__descricao">
+                    A retenção nasce da nota prestada EFETIVADA no trimestre: sem nota efetivada, não
+                    há proposta de IRRF ou CSLL a confirmar.
+                </p>
             </div>
         {% endif %}
     {% endif %}

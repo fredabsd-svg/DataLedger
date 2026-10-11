@@ -71,6 +71,13 @@ from apps.livro_caixa.services import (
 )
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
+# A-02 (DL-086): o estorno do livro-caixa passou a exigir MOTIVO (validado no
+# serviço, gravado nos `detalhes` da trilha de auditoria). Nestes arquivos o
+# motivo é sintético: o que eles medem é outra regra (encadeamento, mês
+# encerrado, imutabilidade, apuração), não o texto do motivo — esse tem teste
+# próprio em test_dl086_estorno_com_motivo.py.
+MOTIVO = "Estorno sintético do teste."
+
 pytestmark = pytest.mark.django_db
 
 
@@ -793,7 +800,7 @@ def test_estorno_no_mes_original_reflete_no_encadeamento(cenario):
 
     # Correção rastreável: o mês original (janeiro) é REABERTO por
     # ESTORNO — nunca edição silenciosa (RC-130/AGENTS.md §10).
-    estornar_lancamento_caixa(despesa, data=date(2026, 1, 20))
+    estornar_lancamento_caixa(despesa, data=date(2026, 1, 20), motivo=MOTIVO)
 
     resultado_depois = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=3)
     assert resultado_depois["excesso_livro_caixa_anterior"] == Decimal("0.00")
@@ -1301,7 +1308,7 @@ def test_rec_r_m1_sem_alerta_com_rendimento_de_500(cenario):
 def test_rec_r_m1_sem_alerta_com_estorno_no_mesmo_mes(cenario):
     empresa = cenario["empresa_a"]
     original = _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 6, 10), "1000.00")
-    estornar_lancamento_caixa(original)
+    estornar_lancamento_caixa(original, motivo=MOTIVO)
     resultado = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=6)
     assert resultado["rendimento_total_sujeito"] == Decimal("0.00")
     assert resultado["alertas"] == []
@@ -1841,9 +1848,9 @@ def test_rec_n9_estorno_em_outro_mes_recusado(cenario):
     original = _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 1, 10), "6000.00")
 
     with pytest.raises(LancamentoCaixaInvalido):
-        estornar_lancamento_caixa(original, data=date(2026, 3, 10))
+        estornar_lancamento_caixa(original, data=date(2026, 3, 10), motivo=MOTIVO)
 
-    estorno = estornar_lancamento_caixa(original)
+    estorno = estornar_lancamento_caixa(original, motivo=MOTIVO)
     assert estorno.data == date(2026, 1, 10)
 
     resultado_janeiro = apurar_carne_leao_mensal(empresa=empresa, ano=2026, mes=1)
@@ -1998,17 +2005,17 @@ def test_rec_r_m2_sem_identificador_interno_nas_mensagens(cenario):
     # services.py — estorno de outro mês, já estornado, data anterior.
     original = _lancar_trabalho(empresa, cenario["conta_trabalho"], date(2026, 4, 10), "1000.00")
     with pytest.raises(LancamentoCaixaInvalido) as excinfo:
-        estornar_lancamento_caixa(original, data=date(2026, 5, 10))
+        estornar_lancamento_caixa(original, data=date(2026, 5, 10), motivo=MOTIVO)
     mensagens.append(str(excinfo.value))
     with pytest.raises(LancamentoCaixaInvalido) as excinfo:
-        estornar_lancamento_caixa(original, data=date(2026, 3, 10))
+        estornar_lancamento_caixa(original, data=date(2026, 3, 10), motivo=MOTIVO)
     mensagens.append(str(excinfo.value))
-    estorno = estornar_lancamento_caixa(original)
+    estorno = estornar_lancamento_caixa(original, motivo=MOTIVO)
     with pytest.raises(LancamentoCaixaInvalido) as excinfo:
-        estornar_lancamento_caixa(estorno)
+        estornar_lancamento_caixa(estorno, motivo=MOTIVO)
     mensagens.append(str(excinfo.value))
     with pytest.raises(LancamentoCaixaInvalido) as excinfo:
-        estornar_lancamento_caixa(original)
+        estornar_lancamento_caixa(original, motivo=MOTIVO)
     mensagens.append(str(excinfo.value))
 
     # carne_leao.py — critério de escolha da forma e os dois alertas

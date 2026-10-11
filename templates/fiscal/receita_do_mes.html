@@ -155,14 +155,20 @@ de apps.fiscal.rbt12, com o dispositivo que os motiva.
                                 {% endif %}
                             </td>
                             <td>
+                                {% comment %}
+                                DL-086 (A-06, §8.4): "Confirmar"/"Estornar" de linha ganham o alvo
+                                oculto (padrão fechamento_mes.html). O alvo nomeia mercado, origem
+                                e mês — o valor fica de fora porque a varredura de interface exige
+                                a classe .valor-monetario para valor `_ptbr` dentro de célula.
+                                {% endcomment %}
                                 {% if r.pode_confirmar %}
                                     <form method="post" action="{{ r.url_confirmar }}">
                                         {% csrf_token %}
-                                        <button type="submit" class="botao botao--secundario botao--pequeno">Confirmar</button>
+                                        <button type="submit" class="botao botao--secundario botao--pequeno">Confirmar<span class="visualmente-oculto"> a receita informada de {{ r.mercado }} ({{ r.origem }}) de {{ mes_rotulo }}</span></button>
                                     </form>
                                 {% endif %}
                                 {% if r.pode_estornar %}
-                                    <a class="botao botao--perigoso botao--pequeno" href="{{ r.url_estornar }}">Estornar</a>
+                                    <a class="botao botao--perigoso botao--pequeno" href="{{ r.url_estornar }}">Estornar<span class="visualmente-oculto"> a receita informada de {{ r.mercado }} ({{ r.origem }}) de {{ mes_rotulo }}</span></a>
                                 {% endif %}
                             </td>
                         </tr>

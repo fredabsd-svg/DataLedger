@@ -1,5 +1,8 @@
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
+from django.http import HttpResponseServerError
+from django.shortcuts import render
+from django.template import loader
 from django.urls import include, path
 
 from apps.accounts.forms import LoginForm
@@ -54,3 +57,43 @@ urlpatterns = [
     path("fiscal/", include("apps.fiscal.urls_web")),
     path("", include("apps.tenancy.urls")),
 ]
+
+# DL-086 (H-01): handlers de erro do produto, no lugar da página técnica do
+# Django. O Django só os enxerga porque são atributos DESTE módulo — o
+# `resolve_error_handler` procura `handler<status>` no módulo do urlconf ativo
+# (raiz), e este é o ROOT_URLCONF. Cada um renderiza a cara do produto, e o
+# 403 devolve ao usuário a mensagem ESPECÍFICA que a view levantou (a mudança
+# BL-584 passou a levantar `PermissionDenied` com a frase do papel): sem isto,
+# a recusa caía no "403 Forbidden" técnico e a pessoa ficava sem saber o que
+# fazer depois.
+
+
+def handler403(request, exception):
+    """403 — recusa de permissão, com a mensagem da view e o próximo passo.
+
+    `mensagem` só entra no contexto quando a exceção TEM texto: exceção sem
+    frase deixa o template aplicar o default ("Seu papel não permite realizar
+    esta ação."), em vez de renderizar um parágrafo vazio.
+    """
+    mensagem = str(exception) if exception is not None and str(exception) else None
+    return render(request, "erros/sem_permissao.html", {"mensagem": mensagem}, status=403)
+
+
+def handler404(request, exception):
+    """404 — endereço inexistente, na mesma moldura da recusa de permissão."""
+    return render(
+        request, "erros/pagina_nao_encontrada.html", {"caminho": request.path}, status=404
+    )
+
+
+def handler500(request):
+    """500 — erro interno, renderizado SEM banco e SEM context processor.
+
+    Em 500 a causa costuma ser justamente o banco (ou o middleware que monta
+    `request.escritorio`/`request.papel`): qualquer consulta aqui recairia na
+    mesma falha e trocaria a tela do produto pela página técnica. Por isso a
+    renderização abaixo NÃO recebe `request` — sem request não há
+    `RequestContext`, e sem `RequestContext` nenhum context processor roda.
+    """
+    corpo = loader.get_template("erros/erro_interno.html").render()
+    return HttpResponseServerError(corpo)

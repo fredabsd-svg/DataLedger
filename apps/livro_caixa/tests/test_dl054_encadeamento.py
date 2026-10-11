@@ -78,6 +78,13 @@ from apps.tenancy.models import Papel
 pytestmark = pytest.mark.django_db
 
 _MOTIVO = "Corrigir despesa de janeiro lançada a menos"
+# A-02 (DL-086): o estorno do livro-caixa passou a exigir MOTIVO próprio,
+# validado no serviço e gravado nos `detalhes` da trilha. É OUTRO texto do
+# `_MOTIVO` acima (aquele é o da REABERTURA do mês) — regras diferentes, ainda
+# que ambas obrigatórias. Sintético aqui: estes testes medem o encadeamento do
+# carnê-leão, não o motivo (esse tem teste próprio em
+# test_dl086_estorno_com_motivo.py).
+MOTIVO = "Estorno sintético do teste."
 # Identificadores internos (requisito, decisão, backlog, demanda) não podem
 # aparecer em mensagem ao contador.
 _IDENTIFICADOR_INTERNO = re.compile(r"\b(RC|DE|BL|DL|PE|DT)-\d+")
@@ -249,7 +256,7 @@ def test_so_meses_anteriores_encerrados_aceita_lancamento_e_estorno(cenario):
     # Março e agosto estão abertos e nenhum mês encerrado vem depois deles.
     assert _lancar(cenario, date(2026, 3, 20)).pk
     assert _lancar(cenario, date(2026, 8, 31)).pk
-    assert estornar_lancamento_caixa(original, criado_por=cenario["gestor"]).pk
+    assert estornar_lancamento_caixa(original, criado_por=cenario["gestor"], motivo=MOTIVO).pk
 
 
 def test_mes_encerrado_de_outro_ano_nao_recusa_nem_posterior_nem_anterior(cenario):
@@ -261,7 +268,7 @@ def test_mes_encerrado_de_outro_ano_nao_recusa_nem_posterior_nem_anterior(cenari
 
     assert _lancar(cenario, date(2026, 6, 10)).pk
     assert _lancar(cenario, date(2026, 8, 31)).pk
-    assert estornar_lancamento_caixa(original, criado_por=cenario["gestor"]).pk
+    assert estornar_lancamento_caixa(original, criado_por=cenario["gestor"], motivo=MOTIVO).pk
 
 
 def test_estorno_em_mes_aberto_com_posterior_encerrado_e_recusado_sem_efeito(cenario):
@@ -270,7 +277,7 @@ def test_estorno_em_mes_aberto_com_posterior_encerrado_e_recusado_sem_efeito(cen
     fotografia = _fotografia(cenario["empresa"])
 
     with pytest.raises(MesCaixaEncerrado) as erro:
-        estornar_lancamento_caixa(original, criado_por=cenario["gestor"])
+        estornar_lancamento_caixa(original, criado_por=cenario["gestor"], motivo=MOTIVO)
 
     assert "02/2026" in str(erro.value)
     assert "estornar" in str(erro.value)
@@ -280,7 +287,7 @@ def test_estorno_em_mes_aberto_com_posterior_encerrado_e_recusado_sem_efeito(cen
     reabrir_mes_caixa(
         empresa=cenario["empresa"], ano=2026, mes=2, usuario=cenario["gestor"], motivo=_MOTIVO
     )
-    assert estornar_lancamento_caixa(original, criado_por=cenario["gestor"]).pk
+    assert estornar_lancamento_caixa(original, criado_por=cenario["gestor"], motivo=MOTIVO).pk
 
 
 def test_a_mensagem_do_proprio_mes_encerrado_continua_a_da_regra_anterior(cenario):
@@ -324,7 +331,11 @@ def test_api_estorno_em_janeiro_com_fevereiro_encerrado_da_409_e_nao_grava(cenar
     fotografia = _fotografia(cenario["empresa"])
     cliente = _cliente_logado(_usuario(Papel.FINANCEIRO, cenario["escritorio_a"]))
 
-    resposta = cliente.post(_url("estornar", cenario["empresa"].id, original.id))
+    resposta = cliente.post(
+        _url("estornar", cenario["empresa"].id, original.id),
+        data=json.dumps({"motivo": MOTIVO}),
+        content_type="application/json",
+    )
 
     assert resposta.status_code == 409
     assert "02/2026" in resposta.json()["detail"]

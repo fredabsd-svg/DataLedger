@@ -215,10 +215,14 @@ def confirmar_sucesso_de_login(reserva: Reserva) -> None:
 def reservar_cadastro(request) -> bool:
     """Reserva um cadastro de escritório para o IP; `False` se já no limite.
 
-    Chamada SÓ depois de o formulário ser válido, imediatamente antes de criar:
-    conta o que cria usuário e escritório (cadastro em massa), não a digitação
-    errada de CNPJ. Não cobre a enumeração de e-mail/CNPJ pelas mensagens de
-    validação do formulário — fora do escopo da DL-056.
+    Chamada em TODO POST do cadastro, ANTES da validação (DL-086, achado
+    C-01 — até então era "só depois de o formulário ser válido", e a
+    enumeração de e-mail/CNPJ pelas mensagens de validação, justamente as
+    respostas de formulário INVÁLIDO, não tinha taxa nenhuma). O contrato
+    passa a ser o mesmo do login: a tentativa é reservada antes de verificar;
+    acima do limite, a resposta não revela qual campo colidiu. O custo
+    declarado: digitação errada também consome cota — quem erra 5 vezes na
+    mesma janela espera, e é a mesma política que o login já cobra.
     """
     ip = ip_do_cliente(request)
     if ip is None:

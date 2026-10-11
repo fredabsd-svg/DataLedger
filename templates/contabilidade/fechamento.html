@@ -160,11 +160,33 @@ contabilidade migradas nesta etapa.
             </tbody>
         </table>
     {% else %}
-        <p>Nenhuma competência registrada ainda para esta empresa.</p>
+        {% comment %}
+        DL-086 (achado F-04, §8.4c): o texto solto vira o cartão
+        `.estado-vazio`. O vazio NÃO é por filtro (a empresa ainda não tem
+        competência nenhuma), então o CTA é o primário da ação que tira a
+        tela do vazio — preparar o fechamento do primeiro mês — e aponta
+        para o formulário desta MESMA tela (`#fechar-um-mes-sem-lancamento`,
+        id acrescentado no `<h2>` abaixo), sem JavaScript e sem rota nova.
+        O botão só existe para o papel que fecha (`pode_fechar`, a MESMA
+        flag que já governa a coluna de ações e o formulário): para quem só
+        consulta, o cartão fica sem CTA, nunca convidando a um clique que
+        o servidor recusaria (RC-102).
+        {% endcomment %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-contabilidade"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Nenhuma competência registrada ainda para esta empresa.</strong></p>
+            <p class="estado-vazio__descricao">
+                Cada mês aparece aqui assim que é preparado para fechamento —
+                inclusive um mês ainda sem lançamento.
+            </p>
+            {% if pode_fechar %}
+                <a class="botao botao--primario" href="#fechar-um-mes-sem-lancamento">Preparar o fechamento de um mês</a>
+            {% endif %}
+        </div>
     {% endif %}
 
     {% if pode_fechar %}
-        <h2>Fechar um mês ainda sem lançamento</h2>
+        <h2 id="fechar-um-mes-sem-lancamento">Fechar um mês ainda sem lançamento</h2>
         <p>
             Implantar uma empresa costuma declarar fechado um período inteiro sem
             nenhum lançamento ainda (RC-53). Escolha o mês e o ano para começar o

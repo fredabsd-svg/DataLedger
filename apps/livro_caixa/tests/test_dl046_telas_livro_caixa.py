@@ -28,6 +28,11 @@ from apps.livro_caixa.models import ContaLivroCaixa, LancamentoCaixa, NaturezaCa
 from apps.livro_caixa.services import criar_lancamento_caixa
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
+# A-02 (DL-086): o estorno exige MOTIVO desde esta etapa (validado no serviço,
+# gravado na trilha). Nos testes deste arquivo o motivo é INCIDENTAL — o que
+# se mede é o reverso, o relatório, o isolamento — por que um texto fixo.
+MOTIVO_ESTORNO = "Estorno sintético do teste."
+
 pytestmark = pytest.mark.django_db
 
 _CONTADOR_DE_DOCUMENTO = itertools.count(1)
@@ -116,13 +121,25 @@ def cenario_com_lancamento(cenario):
 # ---------------------------------------------------------------------------
 
 
-def test_paralegal_le_mas_nao_ve_botao_de_escrever(client, cenario):
+def test_paralegal_ve_o_botao_de_escrever_desabilitado_com_o_motivo(client, cenario):
+    """A-05 (DL-086): a ação primária não SOME mais para quem só lê (§2B do
+    contrato: "desabilitado COM o motivo, nunca sumindo — sumir ensina a
+    pessoa a duvidar da própria memória"). A recusa de verdade continua no
+    servidor (ver o teste vizinho, de 403). Renomeado de
+    `test_paralegal_le_mas_nao_ve_botao_de_escrever`, que afirmava o
+    contrato antigo (ação invisível)."""
     _autenticar(client, cenario["escritorio"], papel=Papel.PARALEGAL, username="paralegal-dl046t")
     url = reverse("livro_caixa_web:plano_de_contas", args=[cenario["empresa"].id])
     resposta = client.get(url)
     assert resposta.status_code == 200
     conteudo = resposta.content.decode()
-    assert "Nova conta" not in conteudo
+    assert 'disabled aria-describedby="ajuda_sem_permissao">Nova conta</button>' in conteudo
+    assert 'id="ajuda_sem_permissao"' in conteudo
+    # Nenhum link de escrita navegável — o que existe é o botão desabilitado.
+    assert (
+        f'href="{reverse("livro_caixa_web:conta_nova", args=[cenario["empresa"].id])}"'
+        not in conteudo
+    )
 
 
 def test_paralegal_recebe_403_ao_tentar_criar_conta(client, cenario):
@@ -401,7 +418,7 @@ def test_estornar_post_cria_o_lancamento_reverso_e_nao_apaga_o_original(
     empresa = cenario_com_lancamento["empresa"]
     lancamento = cenario_com_lancamento["lancamento"]
     url = reverse("livro_caixa_web:lancamento_estornar", args=[empresa.id, lancamento.id])
-    resposta = client.post(url)
+    resposta = client.post(url, {"motivo": MOTIVO_ESTORNO})
     assert resposta.status_code == 302
     lancamento.refresh_from_db()
     assert lancamento.estorno_de_id is None  # original intacto
@@ -415,9 +432,9 @@ def test_estornar_um_lancamento_ja_estornado_recusa_com_mensagem(client, cenario
     empresa = cenario_com_lancamento["empresa"]
     lancamento = cenario_com_lancamento["lancamento"]
     url = reverse("livro_caixa_web:lancamento_estornar", args=[empresa.id, lancamento.id])
-    primeira = client.post(url)
+    primeira = client.post(url, {"motivo": MOTIVO_ESTORNO})
     assert primeira.status_code == 302
-    segunda = client.post(url)
+    segunda = client.post(url, {"motivo": MOTIVO_ESTORNO})
     assert segunda.status_code == 400
     assert "já foi estornado" in segunda.content.decode()
     assert LancamentoCaixa.objects.filter(estorno_de=lancamento).count() == 1
@@ -430,7 +447,7 @@ def test_lista_nao_oferece_estornar_para_lancamento_ja_estornado_ou_para_um_esto
     empresa = cenario_com_lancamento["empresa"]
     lancamento = cenario_com_lancamento["lancamento"]
     url_estornar = reverse("livro_caixa_web:lancamento_estornar", args=[empresa.id, lancamento.id])
-    client.post(url_estornar)
+    client.post(url_estornar, {"motivo": MOTIVO_ESTORNO})
 
     url_lista = reverse("livro_caixa_web:lancamentos", args=[empresa.id])
     conteudo = client.get(f"{url_lista}?inicio=2026-03-01&fim=2026-03-31").content.decode()
@@ -464,7 +481,7 @@ def test_relatorio_mostra_estorno_visivel(client, cenario_com_lancamento):
     empresa = cenario_com_lancamento["empresa"]
     lancamento = cenario_com_lancamento["lancamento"]
     url_estornar = reverse("livro_caixa_web:lancamento_estornar", args=[empresa.id, lancamento.id])
-    client.post(url_estornar)
+    client.post(url_estornar, {"motivo": MOTIVO_ESTORNO})
 
     # M-4 (correção da rodada 1 da auditoria da fatia 2, RC-130): a data do
     # estorno é, por padrão, a data do lançamento ORIGINAL (não mais
@@ -917,7 +934,10 @@ def test_relatorio_imprime_numero_do_lancamento_e_referencia_do_estorno(
     _autenticar(client, cenario_com_lancamento["escritorio"])
     empresa = cenario_com_lancamento["empresa"]
     lancamento = cenario_com_lancamento["lancamento"]
-    client.post(reverse("livro_caixa_web:lancamento_estornar", args=[empresa.id, lancamento.id]))
+    client.post(
+        reverse("livro_caixa_web:lancamento_estornar", args=[empresa.id, lancamento.id]),
+        {"motivo": MOTIVO_ESTORNO},
+    )
 
     url = reverse("livro_caixa_web:relatorio", args=[empresa.id])
     hoje_iso = timezone.localdate().isoformat()
@@ -1187,7 +1207,8 @@ def test_relatorio_tabela_p20_mostra_estorno_com_parenteses_e_referencia(client,
         historico="INSS de março",
     )
     resposta_estorno = client.post(
-        reverse("livro_caixa_web:lancamento_estornar", args=[empresa.id, lancamento_p20.id])
+        reverse("livro_caixa_web:lancamento_estornar", args=[empresa.id, lancamento_p20.id]),
+        {"motivo": MOTIVO_ESTORNO},
     )
     assert resposta_estorno.status_code == 302
 

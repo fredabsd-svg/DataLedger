@@ -32,6 +32,17 @@ Variáveis: `empresas_do_escritorio`, `empresa_filtro_bruto`, `ano_filtro`,
                maxlength="2" aria-describedby="id_competencia_ajuda">
     </div>
     <button type="submit">Consultar</button>
+    {% if algum_filtro_ativo %}
+        {% comment %}
+        DL-086 (A-14, §8.4): "Limpar filtros" em `.botao--fantasma` (menor ênfase ao lado do
+        "Consultar" primário) só aparece quando há filtro ativo ALÉM do padrão. A decisão é da
+        VIEW — `algum_filtro_ativo` compara o filtro efetivo ao padrão da tela e `url_limpar_
+        filtros` preserva a empresa de contexto (padrão nfe_lista.html) — nunca derivada da
+        querystring aqui: o formulário é preenchido com o mês padrão e o "Consultar" sobre ele
+        repete a consulta padrão, sem nada a limpar.
+        {% endcomment %}
+        <a class="botao botao--fantasma" href="{{ url_limpar_filtros }}">Limpar filtros</a>
+    {% endif %}
     <p class="texto-apoio" id="id_competencia_ajuda">
         Competência pela data de competência (dCompet) da nota. Informe ano (AAAA) e mês (1 a 12)
         juntos; sem eles, a tela usa o mês corrente.

@@ -976,7 +976,17 @@ def test_classificacao_sem_permissao_de_escriturar_recebe_403_no_get_e_no_post(c
     assert client.get(url).status_code == 403
     resposta = client.post(url, {"classificacao_dmpl": ""})
     assert resposta.status_code == 403
-    assert "Seu papel não permite classificar a coluna da DMPL" in resposta.content.decode()
+    # DL-086 (BL-584): cada papel é recusado num ponto diferente, e a frase
+    # do 403 é a do ponto que recusou — PARALEGAL lê a contabilidade e cai na
+    # recusa de ESCRITURA da própria view; CLIENTE nem lê, e é recusado antes
+    # de a view rodar, com a frase uniforme do papel (o 403 idêntico para
+    # empresa existente e inexistente que a BL-584 fecha). A asserção continua
+    # exigindo a mensagem no corpo — só o contrato da frase mudou.
+    esperado = {
+        Papel.PARALEGAL: "Seu papel não permite classificar a coluna da DMPL",
+        Papel.CLIENTE: "Seu papel não permite ler a contabilidade desta empresa",
+    }[papel]
+    assert esperado in resposta.content.decode()
     contas["capital"].refresh_from_db()
     assert contas["capital"].classificacao_dmpl == COL.CAPITAL_SOCIAL
 

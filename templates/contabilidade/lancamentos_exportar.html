@@ -67,67 +67,88 @@ O aviso do leiaute da ECD diz que o arquivo NÃO é a ECD, e ele aparece em qual
             Toda data exibida pelo sistema é dd/mm/aaaa.
         </p>
 
-        <div class="campo campo-checkbox">
-            <label class="campo-checkbox__opcao">
+        {% comment %}
+        DL-086 (F-06): as caixas de confirmação usam `.campo--caixa` (o
+        componente pronto de confirmação), não `.campo-checkbox` — classe que
+        não existe em CSS nenhum, e sem ela o texto da frase de confirmação
+        caía no negrito de `.campo label`, competindo com o próprio controle.
+        O texto de apoio sai de dentro do `.campo` porque `.campo--caixa` é
+        linha (caixa e frase lado a lado); ele continua ligado ao controle
+        pelo `aria-describedby`.
+        {% endcomment %}
+        <div class="campo campo--caixa">
+            <label>
                 <input type="checkbox" name="incluir_saldos" value="true"{% if valores.incluir_saldos %} checked{% endif %} aria-describedby="id_saldos_ajuda">
                 Incluir saldos mensais (I150 e I155)
             </label>
-            <p class="texto-apoio" id="id_saldos_ajuda">
-                Só no leiaute da ECD, e só com meses inteiros: a data inicial é o dia 1 e a final é o último dia do mês.
-            </p>
         </div>
+        <p class="texto-apoio" id="id_saldos_ajuda">
+            Só no leiaute da ECD, e só com meses inteiros: a data inicial é o dia 1 e a final é o último dia do mês.
+        </p>
 
-        <div class="campo campo-checkbox">
-            <label class="campo-checkbox__opcao">
+        <div class="campo campo--caixa">
+            <label>
                 <input type="checkbox" name="omitir_nao_representaveis" value="true"{% if valores.omitir_nao_representaveis %} checked{% endif %} aria-describedby="id_omitir_ajuda">
                 Omitir os lançamentos que o sistema de referência não representa
             </label>
-            <p class="texto-apoio" id="id_omitir_ajuda">
-                Só no sistema de referência: lançamento com mais de um débito e mais de um crédito.
-                Sem marcar, a exportação é recusada se existir algum; com a marca, eles saem do arquivo
-                e aparecem na conferência.
-            </p>
         </div>
+        <p class="texto-apoio" id="id_omitir_ajuda">
+            Só no sistema de referência: lançamento com mais de um débito e mais de um crédito.
+            Sem marcar, a exportação é recusada se existir algum; com a marca, eles saem do arquivo
+            e aparecem na conferência.
+        </p>
 
-        <div class="campo campo-checkbox">
-            <label class="campo-checkbox__opcao">
+        <div class="campo campo--caixa">
+            <label>
                 <input type="checkbox" name="normalizar_texto" value="true"{% if valores.normalizar_texto %} checked{% endif %} aria-describedby="id_normalizar_ajuda">
                 Normalizar o texto que o leiaute não aceita (ECD e sistema de referência)
             </label>
-            <p class="texto-apoio" id="id_normalizar_ajuda">
-                Sem marcar, um histórico com caractere de controle, travessão, aspas curvas ou letra fora de ISO-8859-1
-                recusa a exportação. Marcado, o arquivo recebe um equivalente (travessão vira hífen, aspas curvas viram
-                aspas retas, o que não tem equivalente vira ?). O lançamento no Diário não muda, e cada lançamento
-                trocado aparece na conferência, com o texto antes e depois.
-            </p>
         </div>
+        <p class="texto-apoio" id="id_normalizar_ajuda">
+            Sem marcar, um histórico com caractere de controle, travessão, aspas curvas ou letra fora de ISO-8859-1
+            recusa a exportação. Marcado, o arquivo recebe um equivalente (travessão vira hífen, aspas curvas viram
+            aspas retas, o que não tem equivalente vira ?). O lançamento no Diário não muda, e cada lançamento
+            trocado aparece na conferência, com o texto antes e depois.
+        </p>
 
         <button type="submit">Conferir o arquivo</button>
     </form>
 
     {% if relatorio %}
-        <section class="relatorio-conferencia" aria-labelledby="id_conferencia_titulo">
+        {% comment %}
+        DL-086 (F-03): a conferência usava `.relatorio-conferencia` e
+        `.__dados` — classes que não existem em CSS nenhum — e três tabelas
+        nuas. Migração para os componentes PRONTOS: `.lista-de-definicao`
+        (pares rótulo/valor, cada par numa linha própria), `.tabela-dados`
+        nas três tabelas e `.cartao-tabela` onde o texto de apoio pertence à
+        tabela (§8.4c — o texto vai no cabeçalho do MESMO cartão, não solto
+        acima). Regra das classes de valor (F-03): `.valor-monetario` só onde
+        o dado É dinheiro (as duas somas); contagens ficam à esquerda, sem a
+        classe — a tabulação de algarismos é do valor monetário, não de
+        contagem.
+        {% endcomment %}
+        <section aria-labelledby="id_conferencia_titulo">
             <h2 id="id_conferencia_titulo">Conferência do arquivo</h2>
 
-            <dl class="relatorio-conferencia__dados">
-                <dt>Formato</dt><dd>{{ relatorio.formato_rotulo }}</dd>
-                <dt>Período</dt><dd>{{ relatorio.inicio|date:"d/m/Y" }} a {{ relatorio.fim|date:"d/m/Y" }}</dd>
-                <dt>Lançamentos no arquivo</dt><dd>{{ relatorio.quantidade_lancamentos }}</dd>
-                <dt>Partidas no arquivo</dt><dd>{{ relatorio.quantidade_partidas }}</dd>
-                <dt>Lançamentos de zeramento</dt><dd>{{ relatorio.quantidade_zeramentos }}</dd>
-                <dt>Lançamentos de estorno</dt><dd>{{ relatorio.quantidade_estornos }}</dd>
-                <dt>Soma dos débitos</dt><dd class="valor-monetario">{{ relatorio.soma_debitos }}</dd>
-                <dt>Soma dos créditos</dt><dd class="valor-monetario">{{ relatorio.soma_creditos }}</dd>
-                <dt>Débitos e créditos conferem</dt><dd>{% if relatorio.conferem %}Sim{% else %}Não{% endif %}</dd>
+            <dl class="lista-de-definicao">
+                <div><dt>Formato</dt><dd>{{ relatorio.formato_rotulo }}</dd></div>
+                <div><dt>Período</dt><dd>{{ relatorio.inicio|date:"d/m/Y" }} a {{ relatorio.fim|date:"d/m/Y" }}</dd></div>
+                <div><dt>Lançamentos no arquivo</dt><dd>{{ relatorio.quantidade_lancamentos }}</dd></div>
+                <div><dt>Partidas no arquivo</dt><dd>{{ relatorio.quantidade_partidas }}</dd></div>
+                <div><dt>Lançamentos de zeramento</dt><dd>{{ relatorio.quantidade_zeramentos }}</dd></div>
+                <div><dt>Lançamentos de estorno</dt><dd>{{ relatorio.quantidade_estornos }}</dd></div>
+                <div><dt>Soma dos débitos</dt><dd class="valor-monetario">{{ relatorio.soma_debitos }}</dd></div>
+                <div><dt>Soma dos créditos</dt><dd class="valor-monetario">{{ relatorio.soma_creditos }}</dd></div>
+                <div><dt>Débitos e créditos conferem</dt><dd>{% if relatorio.conferem %}Sim{% else %}Não{% endif %}</dd></div>
                 {% if relatorio.incluir_saldos %}
-                    <dt>Meses com saldo (I150)</dt><dd>{{ relatorio.quantidade_meses }}</dd>
+                    <div><dt>Meses com saldo (I150)</dt><dd>{{ relatorio.quantidade_meses }}</dd></div>
                 {% endif %}
-                <dt>Contas usadas</dt><dd>{{ relatorio.contas_usadas|length }}</dd>
-                <dt>Lançamentos omitidos</dt><dd>{{ relatorio.omitidos|length }}</dd>
-                <dt>SHA-256 do arquivo</dt><dd><code>{{ relatorio.sha256 }}</code></dd>
-                <dt>Nome do arquivo</dt><dd><code>{{ relatorio.nome_do_arquivo }}</code></dd>
-                <dt>Gerado por</dt><dd>{{ relatorio.autor }}</dd>
-                <dt>Gerado em</dt><dd>{{ relatorio.gerado_em|date:"d/m/Y H:i" }}</dd>
+                <div><dt>Contas usadas</dt><dd>{{ relatorio.contas_usadas|length }}</dd></div>
+                <div><dt>Lançamentos omitidos</dt><dd>{{ relatorio.omitidos|length }}</dd></div>
+                <div><dt>SHA-256 do arquivo</dt><dd><code>{{ relatorio.sha256 }}</code></dd></div>
+                <div><dt>Nome do arquivo</dt><dd><code>{{ relatorio.nome_do_arquivo }}</code></dd></div>
+                <div><dt>Gerado por</dt><dd>{{ relatorio.autor }}</dd></div>
+                <div><dt>Gerado em</dt><dd>{{ relatorio.gerado_em|date:"d/m/Y H:i" }}</dd></div>
             </dl>
 
             {% for aviso in relatorio.avisos %}
@@ -137,84 +158,97 @@ O aviso do leiaute da ECD diz que o arquivo NÃO é a ECD, e ele aparece em qual
             {% endfor %}
 
             {% if relatorio.normalizar_texto %}
-                <p class="texto-apoio">
-                    Opção de normalizar o texto marcada: {{ relatorio.quantidade_textos_normalizados }}
-                    lançamento(s) do arquivo tiveram o histórico trocado. O Diário não muda.
-                </p>
-                {% if relatorio.textos_normalizados %}
-                    <h3>Históricos trocados no arquivo</h3>
-                    <table>
-                        <caption>Lançamentos cujo histórico foi trocado no arquivo</caption>
-                        <thead>
-                            <tr>
-                                <th scope="col">Número</th>
-                                <th scope="col">Histórico no Diário</th>
-                                <th scope="col">Histórico no arquivo</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for trocado in relatorio.textos_normalizados %}
+                <h3>Históricos trocados no arquivo</h3>
+                <div class="cartao-tabela">
+                    <div class="cartao-tabela__cabecalho">
+                        <p class="texto-apoio">
+                            Opção de normalizar o texto marcada: {{ relatorio.quantidade_textos_normalizados }}
+                            lançamento(s) do arquivo tiveram o histórico trocado. O Diário não muda.
+                        </p>
+                    </div>
+                    {% if relatorio.textos_normalizados %}
+                        <table class="tabela-dados">
+                            <caption class="visualmente-oculto">Lançamentos cujo histórico foi trocado no arquivo</caption>
+                            <thead>
                                 <tr>
-                                    <td>{{ trocado.numero }}</td>
-                                    <td>{{ trocado.antes }}</td>
-                                    <td>{{ trocado.depois }}</td>
+                                    <th scope="col">Número</th>
+                                    <th scope="col">Histórico no Diário</th>
+                                    <th scope="col">Histórico no arquivo</th>
                                 </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                {% endif %}
+                            </thead>
+                            <tbody>
+                                {% for trocado in relatorio.textos_normalizados %}
+                                    <tr>
+                                        <td>{{ trocado.numero }}</td>
+                                        <td>{{ trocado.antes }}</td>
+                                        <td>{{ trocado.depois }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    {% endif %}
+                </div>
             {% endif %}
 
             {% if relatorio.omitidos %}
                 <h3>Lançamentos omitidos</h3>
-                <p class="texto-apoio">Eles não estão no arquivo, porque o leiaute do sistema de referência não os representa sem ambiguidade.</p>
-                <table>
-                    <caption>Lançamentos fora do arquivo</caption>
-                    <thead>
-                        <tr>
-                            <th scope="col">Número</th>
-                            <th scope="col">Data</th>
-                            <th scope="col">Histórico</th>
-                            <th scope="col">Débitos</th>
-                            <th scope="col">Créditos</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for omitido in relatorio.omitidos %}
+                <div class="cartao-tabela">
+                    <div class="cartao-tabela__cabecalho">
+                        <p class="texto-apoio">
+                            Eles não estão no arquivo, porque o leiaute do sistema de referência não os
+                            representa sem ambiguidade.
+                        </p>
+                    </div>
+                    <table class="tabela-dados">
+                        <caption class="visualmente-oculto">Lançamentos fora do arquivo</caption>
+                        <thead>
                             <tr>
-                                <td>{{ omitido.numero }}</td>
-                                <td>{{ omitido.data|date:"d/m/Y" }}</td>
-                                <td>{{ omitido.historico }}</td>
-                                <td>{{ omitido.quantidade_debitos }}</td>
-                                <td>{{ omitido.quantidade_creditos }}</td>
+                                <th scope="col">Número</th>
+                                <th scope="col">Data</th>
+                                <th scope="col">Histórico</th>
+                                <th scope="col">Débitos</th>
+                                <th scope="col">Créditos</th>
                             </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            {% for omitido in relatorio.omitidos %}
+                                <tr>
+                                    <td>{{ omitido.numero }}</td>
+                                    <td>{{ omitido.data|date:"d/m/Y" }}</td>
+                                    <td>{{ omitido.historico }}</td>
+                                    <td>{{ omitido.quantidade_debitos }}</td>
+                                    <td>{{ omitido.quantidade_creditos }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             {% endif %}
 
             {% if relatorio.contas_usadas %}
                 <details>
                     <summary>Contas usadas ({{ relatorio.contas_usadas|length }})</summary>
-                    <table>
-                        <caption>Contas com partida no arquivo</caption>
-                        <thead>
-                            <tr>
-                                <th scope="col">Código</th>
-                                <th scope="col">Nome</th>
-                                <th scope="col">Código reduzido</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for conta in relatorio.contas_usadas %}
+                    <div class="cartao-tabela">
+                        <table class="tabela-dados">
+                            <caption class="visualmente-oculto">Contas com partida no arquivo</caption>
+                            <thead>
                                 <tr>
-                                    <td>{{ conta.codigo }}</td>
-                                    <td>{{ conta.nome }}</td>
-                                    <td>{% if conta.codigo_reduzido %}{{ conta.codigo_reduzido }}{% else %}—{% endif %}</td>
+                                    <th scope="col">Código</th>
+                                    <th scope="col">Nome</th>
+                                    <th scope="col">Código reduzido</th>
                                 </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {% for conta in relatorio.contas_usadas %}
+                                    <tr>
+                                        <td>{{ conta.codigo }}</td>
+                                        <td>{{ conta.nome }}</td>
+                                        <td>{% if conta.codigo_reduzido %}{{ conta.codigo_reduzido }}{% else %}—{% endif %}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
                 </details>
             {% endif %}
 

@@ -19,12 +19,27 @@
 {% block acoes_pagina %}
     {# DL-053: caminho para o fechamento de mês — qualquer papel que lê o livro-caixa pode consultá-lo. #}
     <a class="botao botao--secundario" href="{% url 'livro_caixa_web:fechamento_mes' empresa.id %}{% if inicio %}?ano={{ inicio.year }}{% endif %}">Fechamento de mês</a>
+    {% comment %}
+    A-05 (DL-086): a ação primária SUMIA para quem só lê — "sumir ensina a
+    pessoa a duvidar da própria memória" (direção de arte §2B). Ela fica
+    VISÍVEL e desabilitada, com o motivo em texto (abaixo, id
+    "ajuda_sem_permissao"). A recusa de verdade continua no servidor (403).
+    {% endcomment %}
     {% if pode_escriturar %}
         <a class="botao botao--primario" href="{% url 'livro_caixa_web:lancamento_novo' empresa.id %}">Novo lançamento</a>
+    {% else %}
+        <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao">Novo lançamento</button>
     {% endif %}
 {% endblock %}
 
 {% block content %}
+    {% if not pode_escriturar %}
+        <p class="mensagem mensagem-info" role="status" id="ajuda_sem_permissao">
+            Seu papel permite consultar os lançamentos, mas não lançar nem estornar — essa ação
+            exige administrador, gestor, analista ou financeiro. Fale com um deles para lançar no
+            livro-caixa.
+        </p>
+    {% endif %}
     {% if not inicio or not fim %}
         <p>
             O período informado não pôde ser usado, por isso nenhum dado foi carregado.
@@ -145,13 +160,47 @@
                 </tbody>
             </table>
         </div>
+        {% comment %}
+        A-15 (DL-086): a lista aceita período arbitrário e não tinha paginação —
+        o `Paginator` é o do servidor (views_web.py, 25 por página como o
+        fiscal). O parcial `fiscal/_paginacao.html` é GENÉRICO (só `pagina` e
+        `querystring_sem_pagina`, sem nada do domínio fiscal) e já é reaproveitado
+        por `contabilidade/lancamentos_importacao.html` — incluído direto, sem
+        duplicar o arquivo.
+        {% endcomment %}
+        {% include "fiscal/_paginacao.html" %}
     {% elif inicio and fim %}
-        <p class="mensagem mensagem-info" role="status">
-            <strong>Nenhum lançamento neste período</strong>
-            ({{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}).
-            {% if pode_escriturar %}
-                <a href="{% url 'livro_caixa_web:lancamento_novo' empresa.id %}">Lance o primeiro</a>.
-            {% endif %}
-        </p>
+        {% comment %}
+        A-12 (DL-086): a prosa solta com link vira `.estado-vazio` completo
+        (direção de arte §8.4c). O botão de saída segue a regra do componente:
+        secundário quando o vazio é por FILTRO (a informação pode existir fora
+        dele), primário quando o vazio é de DADO (a saída cria dado).
+        {% endcomment %}
+        {% if periodo_filtrado %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-contabilidade"></use></svg>
+                <p class="estado-vazio__titulo"><strong>Nenhum lançamento encontrado com este período.</strong></p>
+                <p class="estado-vazio__descricao">
+                    O período filtrado ({{ inicio|date:"d/m/Y" }} a {{ fim|date:"d/m/Y" }}) não tem
+                    lançamento de caixa — pode haver lançamento fora dele.
+                </p>
+                <a class="botao botao--secundario" href="{% url 'livro_caixa_web:lancamentos' empresa.id %}">Ver o mês atual</a>
+            </div>
+        {% else %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-contabilidade"></use></svg>
+                <p class="estado-vazio__titulo"><strong>Nenhum lançamento de caixa em {{ inicio|date:"m/Y" }}.</strong></p>
+                <p class="estado-vazio__descricao">
+                    O mês atual ainda não tem lançamento de caixa nesta empresa. Um mês encerrado
+                    depois dele também bloqueia lançamento (o carnê-leão se encadeia) — a tela de
+                    fechamento diz quais meses estão assim.
+                </p>
+                {% if pode_escriturar %}
+                    <a class="botao botao--primario" href="{% url 'livro_caixa_web:lancamento_novo' empresa.id %}">Novo lançamento</a>
+                {% else %}
+                    <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao">Novo lançamento</button>
+                {% endif %}
+            </div>
+        {% endif %}
     {% endif %}
 {% endblock %}

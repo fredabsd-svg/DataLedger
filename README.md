@@ -265,6 +265,7 @@ A lista abaixo diz **o que cada etapa é**, nunca em que pé está. O estado de 
 - **DL-083** — Fiscal: receita de NF-e no Lucro Presumido — atividade de presunção pela natureza do item, devolução no trimestre dela, item fora do total e ICMS desonerado pela regra do MOC, combustível em duas naturezas, receita de 2027 bloqueada (RC-172). Situação em [estado.md](docs/agents/estado.md).
 - **DL-084** — Fiscal: rotina do Lucro Presumido — dias sem expediente bancário antecipam o vencimento, feriados locais com aviso, coerência da CSLL retida, retenção tardia reabre o trimestre, competência na receita informada, parâmetros por empresa, encerramento de medida judicial (RC-172 e RC-173). Situação em [estado.md](docs/agents/estado.md).
 - **DL-085** — Fiscal: escrituração de NF-e e NFC-e em volume — prévia por grupo, confirmação em bloco com assinatura, efetivação em partes idempotente, medida com 10.000 NFC-e (RC-173). Situação em [estado.md](docs/agents/estado.md).
+- **DL-086** — Revisão de layout, botões, páginas e acessos: a gaveta móvel ganhou controle de fechar, contraste e acentos recalculados para o canvas atual, a trilha volta a nomear a tela atual, estados vazios e ações de linha no padrão do contrato, estorno do livro-caixa com motivo obrigatório na trilha, e o papel sem leitura recebe 403 uniforme (sem oráculo de existência). Situação em [estado.md](docs/agents/estado.md).
 
 Ainda não existem:
 

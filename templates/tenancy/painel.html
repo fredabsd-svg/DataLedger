@@ -193,7 +193,29 @@ faixa, ao lado — repeti-lo como subtítulo seria a mesma duplicação que a
                     </tbody>
                 </table>
             {% else %}
-                <p>Nenhuma empresa cadastrada neste escritório ainda.</p>
+                {% comment %}
+                DL-086 (achado F-04, §8.4c): o texto solto vira o cartão
+                `.estado-vazio` (mesma anatomia do primeiro uso,
+                fiscal/documentos_lista.html: ícone decorativo, título,
+                descrição e o botão primário da ação que tira a tela do
+                vazio). O CTA "Cadastrar empresa" só aparece para o papel
+                que pode cadastrar — a MESMA flag que o Início do módulo já
+                usa (`pode_cadastrar_empresa_no_menu`, do context processor
+                `navegacao_do_menu`, que reaproveita a permissão DRF
+                `PodeGerenciarEmpresa`); para quem não pode, o cartão fica
+                sem botão, nunca com um convite que o servidor recusaria.
+                {% endcomment %}
+                <div class="estado-vazio">
+                    <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-empresas"></use></svg>
+                    <p class="estado-vazio__titulo"><strong>Nenhuma empresa cadastrada neste escritório ainda.</strong></p>
+                    <p class="estado-vazio__descricao">
+                        A carteira é o ponto de partida: cada empresa cadastrada ganha
+                        escrituração, relatórios e acompanhamento de pendências aqui no Início.
+                    </p>
+                    {% if pode_cadastrar_empresa_no_menu %}
+                        <a class="botao botao--primario" href="{% url 'empresas:criar' %}">Cadastrar empresa</a>
+                    {% endif %}
+                </div>
             {% endif %}
         </section>
     {% endif %}

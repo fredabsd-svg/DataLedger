@@ -483,6 +483,16 @@ REST_FRAMEWORK = {
 X_FRAME_OPTIONS = "DENY"
 SECURE_CONTENT_TYPE_NOSNIFF = True
 
+# DL-086 (parte do achado C-07 da auditoria de acesso): Referrer-Policy não
+# depende de HTTPS, então vive no bloco sempre-ativo. "same-origin" mantém o
+# Referer dentro do próprio sistema e o SUPRIME em navegação para fora — o
+# token do convite mora no path da URL (BL-547) e, sem esta política, um link
+# externo clicado a partir de /convite/<token>/ entregaria o token no
+# cabeçalho Referer ao site de destino. A CSP inteira (default-src 'self')
+# exige mapear os estilos embutidos dos templates primeiro e está registrada
+# no BL-689 — não entra de carona aqui.
+SECURE_REFERRER_POLICY = "same-origin"
+
 
 # Segurança adicional quando fora de desenvolvimento (BL-51, DE-014: acesso
 # pela internet, com proxy reverso na frente).

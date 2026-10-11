@@ -14,6 +14,20 @@ topo — mesmo padrão das demais telas ativas.
 {% endblock %}
 
 {% block content %}
+    {% comment %}
+    DL-086 (achado F-04, §8.4c): o estado vazio sai de dentro da tabela
+    (linha solta de `colspan`) e vira o cartão `.estado-vazio` FORA dela —
+    mesma estrutura do uso modelo (fiscal/documentos_lista.html: a tabela
+    inteira só existe quando há dados). Um cartão de "nada aqui ainda"
+    dentro de um `<td>` herdaria a leitura de tabela de dados sem dado
+    nenhum; fora, ele é o que a direção de arte manda: cartão branco,
+    ícone decorativo, título, descrição e o botão primário da ação que
+    tira a tela do vazio. O texto literal "Nenhuma empresa cadastrada
+    neste escritório." é contrato de teste
+    (apps/empresas/tests/test_views.py::test_lista_empresas_vazia_mostra_
+    mensagem_de_estado_vazio) e permanece.
+    {% endcomment %}
+    {% if empresas %}
     <table class="tabela-dados">
         <caption class="visualmente-oculto">Empresas cadastradas no escritório ativo</caption>
         <thead>
@@ -153,11 +167,30 @@ topo — mesmo padrão das demais telas ativas.
                         {% endif %}
                     </td>
                 </tr>
-            {% empty %}
-                <tr>
-                    <td colspan="6">Nenhuma empresa cadastrada neste escritório.</td>
-                </tr>
             {% endfor %}
         </tbody>
     </table>
+    {% else %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-empresas"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Nenhuma empresa cadastrada neste escritório.</strong></p>
+            <p class="estado-vazio__descricao">
+                Cadastre a primeira empresa para abrir a escrituração dela
+                (plano de contas, lançamentos e relatórios).
+            </p>
+            {% comment %}
+            DL-086 (F-04): CTA permitida pelo papel — `pode_cadastrar` é a
+            MESMA flag que a view (`lista_empresas`, apps/empresas/views.py)
+            já calcula para o botão "Nova empresa" da faixa do topo
+            (ADMINISTRADOR ou GESTOR; a autorização de verdade continua no
+            servidor em `criar_empresa`). Papel que só lê a carteira
+            (ex.: ANALISTA) vê o cartão sem botão, nunca um convite que o
+            servidor recusaria (§2B: estado sem permissão é desenhado, não
+            sumindo).
+            {% endcomment %}
+            {% if pode_cadastrar %}
+                <a class="botao botao--primario" href="{% url 'empresas:criar' %}">Cadastrar empresa</a>
+            {% endif %}
+        </div>
+    {% endif %}
 {% endblock %}

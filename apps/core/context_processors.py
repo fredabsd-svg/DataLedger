@@ -87,6 +87,20 @@ ROTULOS_DE_TELA = {
     ("contabilidade_web", "razao"): "Razão",
     ("contabilidade_web", "balancete"): "Balancete",
     ("contabilidade_web", "balanco"): "Balanço",
+    # DL-086 (achado D-01): as seis telas abaixo não tinham entrada aqui — a
+    # trilha padrão delas terminava no degrau da EMPRESA linkando para o Plano
+    # de contas, sem `aria-current="page"` em nenhum item: violação do §8.2 da
+    # direção de arte ("o último item da trilha é a própria tela, em texto,
+    # nunca um link para outra página"). Os rótulos são os MESMOS do submenu
+    # "Contabilidade" (templates/base.html), para menu e trilha nomearem a
+    # tela igual — o nome extenso continua no `{% block titulo %}`/h1 de cada
+    # tela, nunca repetido na trilha.
+    ("contabilidade_web", "dre"): "DRE",
+    ("contabilidade_web", "dlpa"): "DLPA",
+    ("contabilidade_web", "dmpl"): "DMPL",
+    ("contabilidade_web", "dfc"): "DFC",
+    ("contabilidade_web", "relatorios"): "Relatórios",
+    ("contabilidade_web", "parametros_contabeis"): "Parâmetros contábeis",
     ("contabilidade_web", "conferencia"): "Conferência",
     ("contabilidade_web", "fechamento"): "Fechamento",
     ("contabilidade_web", "competencia_fechar"): "Fechar competência",

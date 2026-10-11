@@ -31,10 +31,19 @@
    .public-button é só o ajuste de TAMANHO (alvo maior, alturas de campo de
    formulário de marketing) que a densidade do app não usa; a cor e o
    estado de hover são os MESMOS tokens, para não nascer uma terceira
-   variante de botão no produto (direção de arte §8.4, "três tons, nunca
-   mais"). */
+   variante de botão no produto (direção de arte §8.4).
+
+   DL-086 (achado E-02): os estados `:active`/`:disabled`/`[aria-disabled]`
+   faltavam — §8.4 exige os quatro estados sempre visíveis. Duas diferenças
+   em relação ao `.botao` do app continuam DELIBERADAS (identidade
+   editorial da landing, DE-080): sem sombra em repouso e raio `--raio`
+   (mais fino que `--raio-superficie`). O que não podia faltar é o feedback
+   de pressão e o estado desabilitado. */
 .public-button { display: inline-flex; align-items: center; justify-content: center; gap: var(--esp-4); min-height: var(--public-campo); padding: var(--esp-3) var(--esp-6); border: var(--traco-fina) solid var(--acento); border-radius: var(--raio); background: var(--acento); color: var(--acento-texto); font: 700 var(--tipo-md)/var(--lh-normal) var(--public-fonte-ui); text-decoration: none; cursor: pointer; }
 .public-button:hover { background: var(--acento-escuro); border-color: var(--acento-escuro); color: var(--acento-texto); }
+.public-button:active { transform: translateY(var(--traco-fina)); }
+.public-button:disabled,
+.public-button[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
 .public-button--small { min-height: 0; padding: var(--esp-3) var(--esp-5); font-size: var(--tipo-base); }
 .public-button span { font-size: var(--tipo-lg); line-height: 1; }
 /* Ação SECUNDÁRIA da entrada pública — mesmo papel que .botao--secundario

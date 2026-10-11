@@ -2131,7 +2131,11 @@ def test_controle_positivo_detector_de_css_em_qualquer_subpasta(tmp_path):
     (tmp_path / "static" / "css" / "base.css").write_text(
         ":root { --a: #fff; }\n.z { color: var(--a); }", encoding="utf-8"
     )
-    achadas = {str(p.relative_to(tmp_path)) for p in _folhas_de_estilo_do_projeto(tmp_path)}
+    # `as_posix()`, nunca `str()`: no Windows `str()` devolve separador
+    # invertido (`static\css\...`) e o literal POSIX da asserção nunca casa —
+    # o detector achava o arquivo, mas o controle positivo reprova só no
+    # Windows (DL-086; a varredura oficial roda em Linux na CI).
+    achadas = {p.relative_to(tmp_path).as_posix() for p in _folhas_de_estilo_do_projeto(tmp_path)}
     assert "static/css/modulos/fiscal.css" in achadas, "CSS em subpasta de static/css/ escapou"
     assert "static/tema.css" in achadas, "CSS fora de static/css/ escapou"
     assert "static/css/base.css" in achadas
@@ -2176,7 +2180,8 @@ def test_controle_positivo_detector_de_templates_em_apps_do_projeto(tmp_path):
         encoding="utf-8",
     )
 
-    achados = {str(p.relative_to(tmp_path)) for p in _templates(tmp_path)}
+    # `as_posix()`, nunca `str()` — separador invertido no Windows (DL-086).
+    achados = {p.relative_to(tmp_path).as_posix() for p in _templates(tmp_path)}
     caminho_relativo = "apps/fiscal/templates/fiscal/apuracao.html"
     assert caminho_relativo in achados, (
         "a varredura de templates continua cega para apps/<app>/templates/"
@@ -2204,7 +2209,9 @@ def test_controle_positivo_detector_de_templates_em_apps_do_projeto(tmp_path):
     # o arquivo — mesmo formato que `test_controle_involucro_nao_afrouxa_o_
     # relato_por_arquivo` já prova para o detector de valor sem classe.
     ofensores_valor = [
-        f"{arquivo.relative_to(tmp_path)}: {valor} em {celula}"
+        # `as_posix()`: o relato compara com literal POSIX; `str()` implícito
+        # do f-string devolve separador invertido no Windows (DL-086).
+        f"{arquivo.relative_to(tmp_path).as_posix()}: {valor} em {celula}"
         for celula, valor in _valores_sem_classe(texto)
     ]
     assert ofensores_valor and caminho_relativo in ofensores_valor[0]
@@ -2411,7 +2418,8 @@ def test_controle_negativo_detector_de_css_nao_exclui_por_substring_venv_no_cami
     (pasta / "venv-tema.css").write_text(
         ":root { --a: #fff; }\n.z { color: red; }", encoding="utf-8"
     )
-    achadas = {str(p.relative_to(tmp_path)) for p in _folhas_de_estilo_do_projeto(tmp_path)}
+    # `as_posix()`, nunca `str()` — separador invertido no Windows (DL-086).
+    achadas = {p.relative_to(tmp_path).as_posix() for p in _folhas_de_estilo_do_projeto(tmp_path)}
     assert "static/css/venv-tema.css" in achadas, (
         "CSS do produto foi excluído só por ter 'venv' no nome do arquivo, sem pyvenv.cfg"
     )

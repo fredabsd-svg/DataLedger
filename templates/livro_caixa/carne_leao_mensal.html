@@ -149,7 +149,13 @@ documento`, dentro da tabela).
                 </tr>
             </thead>
             <tbody>
-                <tr><th scope="colgroup" colspan="2">Rendimentos sujeitos ao carnê-leão</th></tr>
+                {% comment %}
+                A-10 (DL-086): as linhas de SEÇÃO de cada `<tbody>` rotulam um
+                grupo de LINHAS, não colunas — `scope="rowgroup"` (e não
+                "colgroup", que é o da linha de identificação do `<thead>`,
+                acima). Vale para as seis seções desta tabela.
+                {% endcomment %}
+                <tr><th scope="rowgroup" colspan="2">Rendimentos sujeitos ao carnê-leão</th></tr>
                 <tr>
                     <td>Rendimento total sujeito ao carnê-leão no mês</td>
                     <td class="valor-monetario">{{ rendimento_total_sujeito_ptbr }}</td>
@@ -179,7 +185,7 @@ documento`, dentro da tabela).
             </tbody>
 
             <tbody>
-                <tr><th scope="colgroup" colspan="2">Deduções reais (art. 68, RIR/2018)</th></tr>
+                <tr><th scope="rowgroup" colspan="2">Deduções reais (art. 68, RIR/2018)</th></tr>
                 <tr>
                     <td>Previdência oficial paga (P20.01.00001)</td>
                     <td class="valor-monetario">{{ previdencia_oficial_ptbr }}</td>
@@ -236,7 +242,7 @@ documento`, dentro da tabela).
             </tbody>
 
             <tbody>
-                <tr><th scope="colgroup" colspan="2">Desconto simplificado (alternativa às deduções reais)</th></tr>
+                <tr><th scope="rowgroup" colspan="2">Desconto simplificado (alternativa às deduções reais)</th></tr>
                 <tr>
                     <td>Desconto simplificado mensal (percentual do limite da faixa de alíquota zero)</td>
                     <td class="valor-monetario">{{ desconto_simplificado_ptbr }}</td>
@@ -316,7 +322,7 @@ documento`, dentro da tabela).
             </tbody>
 
             <tbody>
-                <tr><th scope="colgroup" colspan="2">Apuração do imposto</th></tr>
+                <tr><th scope="rowgroup" colspan="2">Apuração do imposto</th></tr>
                 <tr>
                     <td>Base de cálculo (rendimento sujeito menos a dedução da forma aplicada)</td>
                     <td class="valor-monetario">{{ base_de_calculo_ptbr }}</td>
@@ -350,7 +356,7 @@ documento`, dentro da tabela).
             </tbody>
 
             <tbody>
-                <tr><th scope="colgroup" colspan="2">Compensação do imposto pago no exterior</th></tr>
+                <tr><th scope="rowgroup" colspan="2">Compensação do imposto pago no exterior</th></tr>
                 {% if ha_rendimento_exterior %}
                     <tr>
                         <td>Imposto após a redução, COM o rendimento do exterior incluído na base</td>
@@ -395,7 +401,7 @@ documento`, dentro da tabela).
             </tbody>
 
             <tbody>
-                <tr><th scope="colgroup" colspan="2">Resultado do mês</th></tr>
+                <tr><th scope="rowgroup" colspan="2">Resultado do mês</th></tr>
                 <tr>
                     <td>Imposto devido no mês (após redução e compensação do exterior)</td>
                     <td class="valor-monetario">{{ imposto_devido_no_mes_ptbr }}</td>

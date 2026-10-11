@@ -297,7 +297,8 @@ def test_bloqueio_no_admin_grava_login_bloqueado_sem_usuario_nem_senha(relogio, 
     registro = RegistroAuditoria.objects.get(acao="login.bloqueado")
     assert registro.endereco_ip == IP_A
     assert registro.detalhes["motivo"] == "usuario"
-    assert registro.detalhes["usuario_hash"]
+    # BL-593 (DL-086): chave unificada com o `login.falha` (username_hmac).
+    assert registro.detalhes["username_hmac"]
     # O registro INTEIRO serializado (todas as colunas, não só `detalhes`).
     todo_o_registro = json.dumps(
         json.loads(serializers.serialize("json", [registro])), ensure_ascii=False
@@ -305,7 +306,7 @@ def test_bloqueio_no_admin_grava_login_bloqueado_sem_usuario_nem_senha(relogio, 
     for proibido in (usuario_marcador, senha_certa, senha_errada):
         assert proibido not in todo_o_registro
     # O resumo é o mesmo valor que o limitador usa para correlacionar a tentativa.
-    assert registro.detalhes["usuario_hash"] == limite_tentativas.resumo_do_usuario(
+    assert registro.detalhes["username_hmac"] == limite_tentativas.resumo_do_usuario(
         usuario_marcador
     )
     # Nem o contador guarda o texto digitado.

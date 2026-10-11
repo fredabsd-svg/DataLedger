@@ -120,7 +120,12 @@ class LoginForm(AuthenticationForm):
                     request=self.request,
                     detalhes={
                         "motivo": motivo,
-                        "usuario_hash": limite_tentativas.resumo_do_usuario(username),
+                        # BL-593 (DL-086): a MESMA chave de detalhes do
+                        # `login.falha` (apps/accounts/signals.py) — antes eram
+                        # `usuario_hash` aqui e `username_hmac` lá, e a
+                        # correlação prometida pelo docstring de
+                        # `resumo_do_usuario` não existia na prática.
+                        "username_hmac": limite_tentativas.resumo_do_usuario(username),
                     },
                 )
                 raise self.get_invalid_login_error()

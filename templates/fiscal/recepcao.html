@@ -78,6 +78,22 @@ removida daqui. Ver DE-083 para o detalhe completo.
         </table>
         {% include "fiscal/_paginacao.html" %}
     {% else %}
-        <p>Nenhum envio de documentos fiscais foi feito ainda neste escritório.</p>
+        {% comment %}
+        DL-086 (A-12, direção de arte §8.4c): "Nenhum envio..." era prosa solta — vira
+        `.estado-vazio` com a anatomia completa (ícone decorativo, título, descrição). Sem botão
+        de saída de propósito: a ação que tira a tela do vazio (enviar o primeiro arquivo) é o
+        formulário logo acima, já visível — o cartão aponta para ele em vez de repetir o controle
+        (mesmo caso de atividades.html, que também tem a ação primária na própria tela).
+        O texto do título continua literal: é o que apps/fiscal/tests/test_telas_dl010_f1.py
+        (`test_recepcao_estado_vazio`) verifica.
+        {% endcomment %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Nenhum envio de documentos fiscais foi feito ainda neste escritório.</strong></p>
+            <p class="estado-vazio__descricao">
+                Use o formulário acima para enviar o primeiro XML de NFS-e (ou um ZIP com vários):
+                o resultado do envio passa a aparecer nesta lista.
+            </p>
+        </div>
     {% endif %}
 {% endblock %}

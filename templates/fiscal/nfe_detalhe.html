@@ -37,7 +37,9 @@ conteúdo. A situação vem de `services.situacao_da_nfe`; a direção, de `api_
 
 {% block content %}
     {% if aviso_cancelada %}
-        <p class="mensagem mensagem-error"><strong>{{ aviso_cancelada }}</strong></p>
+        {# DL-086 (A-20): `role="alert"` como nas ~30 irmãs `mensagem-error` — sem ele, quem usa #}
+        {# leitor de tela não é avisado de que a nota foi cancelada depois da entrada. #}
+        <p class="mensagem mensagem-error" role="alert"><strong>{{ aviso_cancelada }}</strong></p>
     {% endif %}
 
     <h2>Identificação</h2>
