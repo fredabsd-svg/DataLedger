@@ -421,10 +421,11 @@ def sugerir_natureza_com_padrao(
 ) -> Sugestao:
     """`sugerir_natureza_item` com o padrão de combustível da empresa, como último recurso (DL-084).
 
-    Isolada numa função nova de propósito: o lote, a API e a tela chamam `sugerir_natureza_item` e
-    ainda não passam o padrão (são outros arquivos, fora da DL-084). Ligar os chamadores é pendência
-    registrada na entrega. Qualquer outro caso devolve o resultado de `sugerir_natureza_item`, sem
-    mudança.
+    Os caminhos reais de sugestão passam o padrão: a conferência do mês
+    (`_itens_sem_sugestao_do_mes`), o lote (`_calcular` e `_desvio_desde_a_confirmacao`) e a API de
+    escrituração. Cada um lê o padrão da empresa UMA vez por chamada e o repassa aos itens — a
+    consulta por item estoura o orçamento do lote (BL-698). Qualquer caso fora da regra devolve o
+    resultado de `sugerir_natureza_item`, sem mudança.
     """
     base = sugerir_natureza_item(documento, item, tipo)
     if base.natureza is not None or padrao_combustivel not in _PADROES_QUE_SUGEREM_CONSUMO:
@@ -1583,7 +1584,7 @@ def conferencia_do_mes(empresa, ano: int, mes: int) -> ConferenciaDoMes:
     resultado = ConferenciaDoMes(ano=ano, mes=mes)
     # `notas_do_mes` é lida UMA vez, e os itens sem sugestão saem de uma consulta só (DL-081, A6).
     notas = notas_do_mes(empresa, ano, mes)
-    sem_sugestao = _itens_sem_sugestao_do_mes(notas)
+    sem_sugestao = _itens_sem_sugestao_do_mes(notas, empresa)
     for nota in notas:
         if nota.tipo is None:
             resultado.nao_elegiveis += 1
@@ -1604,11 +1605,15 @@ def conferencia_do_mes(empresa, ano: int, mes: int) -> ConferenciaDoMes:
     return resultado
 
 
-def _itens_sem_sugestao_do_mes(notas: list[NotaDoMes]) -> dict[int, int]:
+def _itens_sem_sugestao_do_mes(notas: list[NotaDoMes], empresa) -> dict[int, int]:
     """Itens sem sugestão de natureza, por documento, só nas notas lidas e ainda não efetivadas.
 
     Uma consulta para todas as notas do mês: a conferência não repete a consulta por nota (A6). A
     sugestão lê só campos do item e do documento, já carregados, e a tabela de CFOP é em memória.
+
+    DL-084 (RC-173, item 3): a sugestão passa pelo padrão de combustível da empresa, que decide o
+    que o CFOP não decidiu. O padrão é lido UMA vez por chamada e repassado aos itens: a conferência
+    percorre o mês inteiro, e consulta por item estoura o orçamento (BL-698).
     """
     candidatas = {
         nota.documento.pk: nota
@@ -1619,10 +1624,16 @@ def _itens_sem_sugestao_do_mes(notas: list[NotaDoMes]) -> dict[int, int]:
     }
     if not candidatas:
         return {}
+    # `presumido` importa este módulo (a apuração do Presumido lê a escrituração): o import fica
+    # aqui para o carregamento dos módulos não fechar ciclo.
+    from apps.fiscal import presumido
+
+    padrao_combustivel = presumido.parametros_da_empresa(empresa).padrao_combustivel
     contagem: dict[int, int] = {}
     for item in ItemNFe.objects.filter(documento_id__in=list(candidatas)):
         nota = candidatas[item.documento_id]
-        if sugerir_natureza_item(nota.documento, item, nota.tipo).natureza is None:
+        sugestao = sugerir_natureza_com_padrao(nota.documento, item, padrao_combustivel, nota.tipo)
+        if sugestao.natureza is None:
             contagem[item.documento_id] = contagem.get(item.documento_id, 0) + 1
     return contagem
 

@@ -839,7 +839,9 @@ def test_rotas_do_presumido_estao_no_inventario_do_dl024():
         for nome in namespace.reverse_dict.keys()
         if isinstance(nome, str) and nome.startswith("presumido_")
     }
-    assert len(reais) == 16
+    # 16 da DL-079 + 10 da DL-084 (frente B2: parâmetros, feriados locais, exceção por ano,
+    # encerramento de medida e pendências do mês).
+    assert len(reais) == 26
     assert reais == set(NOMES_DE_TELA_DO_LUCRO_PRESUMIDO)
 
 

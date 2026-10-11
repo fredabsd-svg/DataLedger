@@ -82,8 +82,20 @@ cadastrada pelo contador. O aviso das ADIs 7936 e 7944 é fixo e tem a data da �
                             <td>{{ medida.situacao }}</td>
                             <td>
                                 <div class="acoes-de-linha">
+                                    {% comment %}
+                                    DL-084, item 7 (direção de arte §8.4 e §8.4b): ação de linha
+                                    nunca é link solto, e a ação sensível nomeia o alvo — "Encerrar
+                                    medida no 3º trimestre de 2026", nunca só "Encerrar". O alvo
+                                    visível é o trimestre corrente (a proposta da ação); a tela de
+                                    confirmação ainda deixa ajustar o (ano, trimestre) antes de
+                                    gravar. Revogar continua como estava, com o alvo no nome
+                                    acessível (DL-086, A-06).
+                                    {% endcomment %}
+                                    {% if medida.url_encerrar %}
+                                        <a class="botao botao--perigoso botao--pequeno" href="{{ medida.url_encerrar }}">Encerrar medida no {{ medida.alvo_encerramento }}<span class="visualmente-oculto"> — {{ medida.tributo }}, processo {{ medida.processo }}</span></a>
+                                    {% endif %}
                                     {% if medida.url_revogar %}
-                                        <a class="botao botao--perigoso botao--pequeno" href="{{ medida.url_revogar }}">Revogar</a>
+                                        <a class="botao botao--perigoso botao--pequeno" href="{{ medida.url_revogar }}">Revogar<span class="visualmente-oculto"> a medida de {{ medida.tributo }}, processo {{ medida.processo }}</span></a>
                                     {% endif %}
                                 </div>
                             </td>

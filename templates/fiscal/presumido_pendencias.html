@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block titulo %}Pendências de cadastro do mês{% endblock %}
+
+{% comment %}
+DL-084, item 8 (HI-136), arquétipo C (caixa de entrada e conferência — direção de arte §2C): a
+lista de pendências do mês do Lucro Presumido. Cada linha diz a empresa, o que falta (texto do
+serviço `presumido.pendencias_de_cadastro`) e leva ao cadastro que resolve. A lista é do escritório
+ativo: empresa de outro escritório nunca aparece. Quem só consulta lê tudo e vê a ação de cadastrar
+desabilitada, com o motivo (§2B) — a ação nunca some.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Pendências de cadastro do mês</h1>{% endblock %}
+
+{% block content %}
+    <form method="get" action="{{ request.path }}" class="formulario-periodo formulario-periodo--rotulo-acima">
+        <div class="campo">
+            <label for="id_ano">Ano</label>
+            <input type="text" id="id_ano" name="ano" value="{{ ano_filtro }}" inputmode="numeric" maxlength="4" aria-describedby="id_mes_ajuda">
+        </div>
+        <div class="campo">
+            <label for="id_mes">Mês</label>
+            <select id="id_mes" name="mes" aria-describedby="id_mes_ajuda">
+                <option value="1"{% if mes_filtro == 1 or mes_filtro == "1" %} selected{% endif %}>Janeiro</option>
+                <option value="2"{% if mes_filtro == 2 or mes_filtro == "2" %} selected{% endif %}>Fevereiro</option>
+                <option value="3"{% if mes_filtro == 3 or mes_filtro == "3" %} selected{% endif %}>Março</option>
+                <option value="4"{% if mes_filtro == 4 or mes_filtro == "4" %} selected{% endif %}>Abril</option>
+                <option value="5"{% if mes_filtro == 5 or mes_filtro == "5" %} selected{% endif %}>Maio</option>
+                <option value="6"{% if mes_filtro == 6 or mes_filtro == "6" %} selected{% endif %}>Junho</option>
+                <option value="7"{% if mes_filtro == 7 or mes_filtro == "7" %} selected{% endif %}>Julho</option>
+                <option value="8"{% if mes_filtro == 8 or mes_filtro == "8" %} selected{% endif %}>Agosto</option>
+                <option value="9"{% if mes_filtro == 9 or mes_filtro == "9" %} selected{% endif %}>Setembro</option>
+                <option value="10"{% if mes_filtro == 10 or mes_filtro == "10" %} selected{% endif %}>Outubro</option>
+                <option value="11"{% if mes_filtro == 11 or mes_filtro == "11" %} selected{% endif %}>Novembro</option>
+                <option value="12"{% if mes_filtro == 12 or mes_filtro == "12" %} selected{% endif %}>Dezembro</option>
+            </select>
+        </div>
+        <button type="submit">Consultar</button>
+        {% if algum_filtro_ativo %}
+            <a class="botao botao--fantasma" href="{{ url_limpar_filtros }}">Limpar filtros</a>
+        {% endif %}
+        <p class="texto-apoio" id="id_mes_ajuda">Ano com quatro dígitos e mês de 1 a 12. Sem período, a tela usa o mês corrente.</p>
+    </form>
+
+    {% if erro %}
+        <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+    {% else %}
+        <h2>{{ mes_rotulo }}: pendências de cadastro</h2>
+        <p class="texto-apoio">
+            Empresa do Lucro Presumido sem atividade de presunção padrão vigente no mês: as notas do
+            mês não têm atividade e a apuração sai parcial. O cadastro da atividade resolve a pendência.
+        </p>
+
+        {% if pendencias %}
+            <table class="tabela-dados">
+                <caption>Empresas do escritório com pendência de cadastro no mês, com o que falta e a ação que resolve</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Empresa</th>
+                        <th scope="col">O que falta</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pendencia in pendencias %}
+                        <tr>
+                            <td>{{ pendencia.empresa }}</td>
+                            <td>{{ pendencia.mensagem }}</td>
+                            <td>
+                                <div class="acoes-de-linha">
+                                    {% comment %}
+                                    Direção de arte §8.4b: ação de linha nunca é link solto, e o
+                                    nome acessível carrega o alvo (DL-086, A-06). Quem só consulta
+                                    vê o botão desabilitado com o motivo (§2B).
+                                    {% endcomment %}
+                                    {% if pendencia.url_cadastrar %}
+                                        <a class="botao botao--secundario botao--pequeno" href="{{ pendencia.url_cadastrar }}">Cadastrar atividade de presunção<span class="visualmente-oculto"> de {{ pendencia.empresa }}</span></a>
+                                    {% else %}
+                                        <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Cadastrar atividade de presunção<span class="visualmente-oculto"> de {{ pendencia.empresa }}</span></button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if not pode_escriturar %}
+                <p class="texto-apoio" id="ajuda_sem_permissao">Seu papel consulta as pendências, mas não cadastra a atividade de presunção.</p>
+            {% endif %}
+        {% else %}
+            {% comment %}
+            DL-086 (A-13, direção de arte §8.4c): anatomia completa de `.estado-vazio` — ícone
+            decorativo, título e descrição. Sem botão: o vazio é a boa notícia desta tela.
+            {% endcomment %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo"><strong>Nenhuma pendência de cadastro em {{ mes_rotulo }}.</strong></p>
+                <p class="estado-vazio__descricao">
+                    Toda empresa do Presumido do escritório tem atividade de presunção padrão vigente
+                    no mês, ou ainda não começou a operar.
+                </p>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}

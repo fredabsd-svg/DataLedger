@@ -110,6 +110,45 @@ próprio: 9.302/1/55 (a falha é a de ambiente, Python 3.13 local).
 Próximo: frente B (telas, ligação do padrão de combustível, retirada do
 aviso "calendário a conferir" em `views_web.py`), depois a auditoria.
 
+## Entrega da frente B (11/10/2026)
+
+Implementada por dois desenvolvedores em paralelo (serviços/API e telas) e
+integrada pelo arquiteto. Medida da suíte completa numa única invocação, já
+com as duas frentes juntas: **9.645 aprovados, 24 reprovados, 78 pulados**.
+As 24 reprovações são de ambiente Windows (`signal.SIGALRM`, bits de
+permissão Unix no NTFS, binários `pdfinfo`/`pdftotext`), medido antes e
+depois da entrega, sem mudança no conjunto.
+
+- **Ligação do padrão de combustível (item 6):** a conferência do mês, a
+  prévia e a confirmação do lote e a API de escrituração passam a sugerir por
+  `sugerir_natureza_com_padrao`, com o padrão lido **uma vez por chamada** e
+  repassado aos itens — nunca por item, prendido por teste de contagem de
+  consultas (BL-698). O desvio da confirmação do lote usa o MESMO padrão da
+  prévia que fixou os itens; sem isso, todo item decidido pelo padrão viraria
+  "desvio" e o lote não efetivaria nota nenhuma.
+- **Telas (itens 2, 3, 5, 6, 7 e 8):** parâmetros da empresa (forma de
+  recolhimento e padrão de combustível, com a trilha antes/depois do
+  serviço); feriados locais da praça com exceção por ano, fonte obrigatória e
+  os dois avisos ("feriado bancário em Palmas (Febraban)" / "feriado local:
+  confirmar expediente bancário na praça"); coerência da CSLL retida na lista
+  e na confirmação, **sem dedução sem o contador**; encerramento da medida
+  judicial em (ano, trimestre) com confirmação nomeando o alvo, trilha e
+  histórico preservado; pendências de cadastro do mês na apuração do
+  trimestre e em lista própria; antecipação do vencimento com o aviso
+  "antecipar: sem expediente bancário na praça".
+- **Item 1 (resto):** a chave morta `"aviso": "calendário a conferir"` saiu
+  de `views_web.py`, e os docstrings desatualizados de `FeriadoLocal` e de
+  `Parcela.aviso_calendario` foram corrigidos.
+- **Testes novos:** `test_dl084_frente_b_ligacao.py` (13) e
+  `test_dl084_frente_b_telas.py` (27). Mutação verificada na execução: os
+  quatro caminhos de sugestão (conferência, prévia, confirmação do lote e
+  API) e duas permissões de tela derrubam teste quando anulados.
+- O item 4 (retenção tardia → "a retificar"/PER/DCOMP) segue **bloqueado**
+  no estado de trimestre (BL-701), como na frente A.
+
+Próximo: auditoria independente — rodada 1, correção única, reconferência
+(§3.1).
+
 ## Critérios de aceite
 
 1. O vencimento é antecipado nas quatro datas, em anos com Páscoa em março e

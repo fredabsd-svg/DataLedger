@@ -2726,7 +2726,8 @@ class FeriadoLocal(models.Model):
 
     O feriado local NUNCA muda a data de vencimento: só gera aviso (`avisos_de_feriado_local`).
     `fonte_bancaria` é a lista da Febraban que confirma o fechamento na praça, quando houver.
-    Escrita só pela migração de carga, com a fonte; não há caminho de cliente.
+    Escrita pela migração de carga (com a fonte) e, desde a frente B da DL-084, pelas telas
+    `presumido_feriados`: todo ato de tela exige `fundamento` e `data_leitura` e grava trilha.
     """
 
     uf = models.CharField("UF", max_length=2)

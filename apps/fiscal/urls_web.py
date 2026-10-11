@@ -63,11 +63,21 @@ from apps.fiscal.views_web import (
     presumido_atividades,
     presumido_criterio,
     presumido_criterio_gravar,
+    presumido_feriado_editar,
+    presumido_feriado_excecao_excluir,
+    presumido_feriado_excecao_nova,
+    presumido_feriado_excluir,
+    presumido_feriado_novo,
+    presumido_feriados,
     presumido_integrais_declarar,
     presumido_limite,
+    presumido_medida_encerrar,
     presumido_medida_nova,
     presumido_medida_revogar,
     presumido_medidas,
+    presumido_parametros,
+    presumido_parametros_gravar,
+    presumido_pendencias,
     presumido_receita_estornar,
     presumido_receita_nova,
     presumido_receitas,
@@ -295,6 +305,10 @@ urlpatterns = [
     path("presumido/medidas/", presumido_medidas, name="presumido_medidas"),
     path("presumido/apuracao/", presumido_apuracao, name="presumido_apuracao"),
     path("presumido/limite/", presumido_limite, name="presumido_limite"),
+    # DL-084 (frente B2): parâmetros da empresa, feriados locais da praça e pendências do mês.
+    path("presumido/parametros/", presumido_parametros, name="presumido_parametros"),
+    path("presumido/feriados/", presumido_feriados, name="presumido_feriados"),
+    path("presumido/pendencias/", presumido_pendencias, name="presumido_pendencias"),
     path(
         "presumido/empresas/<int:empresa_id>/atividades/nova/",
         presumido_atividade_nova,
@@ -335,9 +349,50 @@ urlpatterns = [
         presumido_medida_nova,
         name="presumido_medida_nova",
     ),
+    # DL-084, item 7: encerrar a medida em (ano, trimestre), com confirmação e trilha.
+    path(
+        "presumido/empresas/<int:empresa_id>/medidas/<int:medida_id>/encerrar/",
+        presumido_medida_encerrar,
+        name="presumido_medida_encerrar",
+    ),
     path(
         "presumido/empresas/<int:empresa_id>/medidas/<int:medida_id>/revogar/",
         presumido_medida_revogar,
         name="presumido_medida_revogar",
+    ),
+    # DL-084, item 6: parâmetros do Presumido da empresa (leitura na tela de consulta; gravação
+    # aqui, com a empresa no caminho, como os demais atos).
+    path(
+        "presumido/empresas/<int:empresa_id>/parametros/",
+        presumido_parametros_gravar,
+        name="presumido_parametros_gravar",
+    ),
+    # DL-084, item 2: feriados locais da praça da empresa (data normativa, descrição, fonte,
+    # vigência e exceção por ano). A tabela é da praça: duas empresas da mesma praça veem as linhas.
+    path(
+        "presumido/empresas/<int:empresa_id>/feriados/novo/",
+        presumido_feriado_novo,
+        name="presumido_feriado_novo",
+    ),
+    path(
+        "presumido/empresas/<int:empresa_id>/feriados/<int:feriado_id>/",
+        presumido_feriado_editar,
+        name="presumido_feriado_editar",
+    ),
+    path(
+        "presumido/empresas/<int:empresa_id>/feriados/<int:feriado_id>/excluir/",
+        presumido_feriado_excluir,
+        name="presumido_feriado_excluir",
+    ),
+    path(
+        "presumido/empresas/<int:empresa_id>/feriados/<int:feriado_id>/excecoes/nova/",
+        presumido_feriado_excecao_nova,
+        name="presumido_feriado_excecao_nova",
+    ),
+    path(
+        "presumido/empresas/<int:empresa_id>/feriados/<int:feriado_id>/excecoes/"
+        "<int:excecao_id>/excluir/",
+        presumido_feriado_excecao_excluir,
+        name="presumido_feriado_excecao_excluir",
     ),
 ]

@@ -52,6 +52,31 @@ devolução de combustível não recusa mais: escolhe-se a natureza (HI-140).
         </p>
         <p>Critério de receita do ano: {{ apuracao.criterio }}</p>
 
+        {% if pendencias_cadastro %}
+            {% comment %}
+            DL-084, item 8 (HI-136): a empresa do Presumido sem atividade de presunção padrão
+            vigente aparece como pendência do mês, com o link do cadastro que resolve. A pendência é
+            mensal e a apuração é trimestral: lista-se cada mês do trimestre com pendência. A tela
+            não cadastro sozinha — o cadastro é ato do contador.
+            {% endcomment %}
+            <section class="painel-etapa painel-etapa--risco" aria-labelledby="titulo_pendencias_cadastro">
+                <h2 id="titulo_pendencias_cadastro">Pendências de cadastro do mês</h2>
+                {% for pendencia in pendencias_cadastro %}
+                    <p>
+                        <strong>{{ pendencia.mes_rotulo }}:</strong> {{ pendencia.mensagem }}
+                        {% if pendencia.url_cadastrar %}
+                            <a class="botao botao--secundario botao--pequeno" href="{{ pendencia.url_cadastrar }}">Cadastrar atividade de presunção<span class="visualmente-oculto"> de {{ pendencia.empresa }}</span></a>
+                        {% else %}
+                            <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="ajuda_sem_permissao_pendencia">Cadastrar atividade de presunção</button>
+                        {% endif %}
+                    </p>
+                {% endfor %}
+                {% if not pode_escriturar %}
+                    <p class="texto-apoio" id="ajuda_sem_permissao_pendencia">Seu papel consulta o Lucro Presumido, mas não cadastra a atividade de presunção.</p>
+                {% endif %}
+            </section>
+        {% endif %}
+
         {% if apuracao.recusas %}
             <h3>Recusas</h3>
             <table class="tabela-dados">
@@ -341,7 +366,14 @@ devolução de combustível não recusa mais: escolhe-se a natureza (HI-140).
                                 <td>Quota única</td>
                                 <td>{{ parcela.numero }}ª</td>
                                 <td class="valor-monetario">{{ parcela.valor }}</td>
-                                <td class="valor-monetario">{{ parcela.vencimento }}{% if parcela.aviso %} — {{ parcela.aviso }}{% endif %}</td>
+                                {% comment %}
+                                DL-084, itens 1 e 2: o vencimento sai com a explicação da
+                                antecipação por dia sem expediente bancário e com os avisos do
+                                feriado local da praça (que nunca muda a data). A chave morta
+                                "aviso" ("calendário a conferir") foi removida: o serviço não a
+                                preenche mais.
+                                {% endcomment %}
+                                <td class="valor-monetario">{{ parcela.vencimento }}{% if parcela.antecipacao %} — {{ parcela.antecipacao }}{% endif %}{% for aviso in parcela.avisos_locais %} — {{ aviso }}{% endfor %}</td>
                                 <td>{{ parcela.juros }}</td>
                             </tr>
                         {% endfor %}
@@ -351,7 +383,7 @@ devolução de combustível não recusa mais: escolhe-se a natureza (HI-140).
                                     <td>Duas quotas</td>
                                     <td>{{ parcela.numero }}ª</td>
                                     <td class="valor-monetario">{{ parcela.valor }}</td>
-                                    <td class="valor-monetario">{{ parcela.vencimento }}{% if parcela.aviso %} — {{ parcela.aviso }}{% endif %}</td>
+                                    <td class="valor-monetario">{{ parcela.vencimento }}{% if parcela.antecipacao %} — {{ parcela.antecipacao }}{% endif %}{% for aviso in parcela.avisos_locais %} — {{ aviso }}{% endfor %}</td>
                                     <td>{{ parcela.juros }}</td>
                                 </tr>
                             {% endfor %}
@@ -362,7 +394,7 @@ devolução de combustível não recusa mais: escolhe-se a natureza (HI-140).
                                     <td>Três quotas</td>
                                     <td>{{ parcela.numero }}ª</td>
                                     <td class="valor-monetario">{{ parcela.valor }}</td>
-                                    <td class="valor-monetario">{{ parcela.vencimento }}{% if parcela.aviso %} — {{ parcela.aviso }}{% endif %}</td>
+                                    <td class="valor-monetario">{{ parcela.vencimento }}{% if parcela.antecipacao %} — {{ parcela.antecipacao }}{% endif %}{% for aviso in parcela.avisos_locais %} — {{ aviso }}{% endfor %}</td>
                                     <td>{{ parcela.juros }}</td>
                                 </tr>
                             {% endfor %}

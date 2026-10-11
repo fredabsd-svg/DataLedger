@@ -1275,9 +1275,45 @@ NOMES_DE_TELA_DO_LUCRO_PRESUMIDO = {
     "fiscal_web:presumido_retencao_confirmar": "test_recusas_nao_gravam_nada",
     "fiscal_web:presumido_medidas": "test_medida_cadastrada_e_revogada_pela_tela",
     "fiscal_web:presumido_medida_nova": "test_medida_cadastrada_e_revogada_pela_tela",
+    # DL-084, item 7 (frente B2, apps/fiscal/tests/test_dl084_frente_b_telas.py): encerrar a medida
+    # em (ano, trimestre), com confirmação, trilha e histórico preservado.
+    "fiscal_web:presumido_medida_encerrar": "test_encerrar_medida_pela_tela_nao_apaga_o_historico",
     "fiscal_web:presumido_medida_revogar": "test_medida_cadastrada_e_revogada_pela_tela",
     "fiscal_web:presumido_apuracao": "test_fluxo_completo_pela_tela_bate_com_o_exemplo_da_consulta",
     "fiscal_web:presumido_limite": "test_controle_do_limite_pela_tela_mostra_o_caso_e_a_sobra",
+    # DL-084, itens 2, 6 e 8 (frente B2, apps/fiscal/tests/test_dl084_frente_b_telas.py):
+    # parâmetros da empresa, feriados locais da praça e pendências de cadastro do mês.
+    "fiscal_web:presumido_parametros": (
+        "test_parametros_da_empresa_mostram_o_padrao_do_escritorio, "
+        "test_tela_de_parametros_e_acessivel"
+    ),
+    "fiscal_web:presumido_parametros_gravar": (
+        "test_gravar_parametros_pela_tela_grava_e_trilha_o_antes_e_o_depois, "
+        "test_parametro_fora_do_catalogo_e_recusado_campo_a_campo"
+    ),
+    "fiscal_web:presumido_feriados": (
+        "test_feriados_da_praca_mostram_os_avisos_do_servico, test_tela_de_feriados_e_acessivel"
+    ),
+    "fiscal_web:presumido_feriado_novo": (
+        "test_cadastrar_feriado_pela_tela_exige_a_fonte, "
+        "test_cadastrar_feriado_pela_tela_grava_com_fonte_e_leitura"
+    ),
+    "fiscal_web:presumido_feriado_editar": (
+        "test_alterar_feriado_pela_tela_edita_sem_mudar_a_data_normativa"
+    ),
+    "fiscal_web:presumido_feriado_excluir": (
+        "test_excluir_feriado_pela_tela_com_confirmacao, "
+        "test_feriado_com_excecao_nao_se_exclui_e_manda_excluir_a_excecao"
+    ),
+    "fiscal_web:presumido_feriado_excecao_nova": (
+        "test_cadastrar_excecao_por_ano_pela_tela_move_o_aviso_e_nao_a_data_normativa"
+    ),
+    "fiscal_web:presumido_feriado_excecao_excluir": (
+        "test_excluir_excecao_pela_tela_com_confirmacao"
+    ),
+    "fiscal_web:presumido_pendencias": (
+        "test_pendencias_do_mes_listam_a_empresa_certa_e_so_a_do_escritorio"
+    ),
 }
 
 # DL-046, fatia 1 (especialista-frontend): as SEIS telas HTML de

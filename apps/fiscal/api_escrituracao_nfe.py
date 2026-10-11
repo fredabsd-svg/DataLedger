@@ -35,6 +35,7 @@ from apps.core.requisicao import (
 from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.fiscal import escrituracao_nfe as servico
 from apps.fiscal import escrituracao_nfe_lote as lote_servico
+from apps.fiscal import presumido
 from apps.fiscal.api import PodeConsultarFiscal, PodeEscriturarFiscal, _ano_e_mes_da_consulta
 from apps.fiscal.cfop import cfop as consultar_cfop
 from apps.fiscal.itens_nfe import receita_do_item
@@ -447,9 +448,12 @@ class EscrituracaoNFeDetalheView(_EmpresaComIdValido, APIView):
             pares = [(n.item, n.natureza) for n in naturezas]
             avisos_por_item = servico.avisos_da_nota(pares)
             receitas = servico.receitas_atribuidas(pares)
+            # DL-084 (RC-173, item 3): o padrão de combustível da empresa é o último recurso da
+            # sugestão. Uma consulta por requisição, repassada a todos os itens (BL-698).
+            padrao_combustivel = presumido.parametros_da_empresa(empresa).padrao_combustivel
             for natureza in naturezas:
-                sugestao = servico.sugerir_natureza_item(
-                    documento, natureza.item, escrituracao.tipo
+                sugestao = servico.sugerir_natureza_com_padrao(
+                    documento, natureza.item, padrao_combustivel, escrituracao.tipo
                 )
                 itens.append(
                     _item_payload(

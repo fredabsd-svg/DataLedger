@@ -102,6 +102,7 @@ from django.utils import timezone
 from apps.auditoria.services import registrar
 from apps.core.restricoes import RestricaoViolada, mensagens_de, restricao_como_400
 from apps.fiscal import escrituracao_nfe as servico
+from apps.fiscal import presumido
 from apps.fiscal import receita as receita_servico
 from apps.fiscal.itens_nfe import (
     VERSAO_LEITOR_ITENS,
@@ -560,6 +561,10 @@ def previa_do_lote(empresa, ano: int, mes: int) -> PreviaDoLote:
 
 
 def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
+    # DL-084 (RC-173, item 3): o padrão de combustível da empresa é o último recurso da sugestão.
+    # UMA consulta por chamada, repassada a todos os itens: a prévia percorre meses com 10.000
+    # notas, e a consulta por item estoura o orçamento do lote (BL-698).
+    padrao_combustivel = presumido.parametros_da_empresa(empresa).padrao_combustivel
     notas = servico.notas_do_mes(empresa, ano, mes)
     ja_efetivadas = canceladas = nao_elegiveis = 0
     pendentes: list[servico.NotaDoMes] = []
@@ -628,7 +633,9 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
         pares: list[tuple[ItemNFe, str | None]] = []
         sem_sugestao: list[tuple[ItemNFe, str]] = []
         for item in itens_das_notas.get(documento.pk, ()):
-            sugestao = servico.sugerir_natureza_item(documento, item, nota.tipo)
+            sugestao = servico.sugerir_natureza_com_padrao(
+                documento, item, padrao_combustivel, nota.tipo
+            )
             pares.append((item, sugestao.natureza))
             if sugestao.natureza is None:
                 sem_sugestao.append((item, sugestao.motivo))
@@ -1072,12 +1079,21 @@ def _itens_do_documento(documento) -> list[ItemNFe]:
     )
 
 
-def _desvio_desde_a_confirmacao(linha: LoteEscrituracaoNFeNota) -> str | None:
-    """Compara itens e sugestões de HOJE com os fixados. Diferente: a nota não é efetivada."""
+def _desvio_desde_a_confirmacao(
+    linha: LoteEscrituracaoNFeNota, padrao_combustivel: str
+) -> str | None:
+    """Compara itens e sugestões de HOJE com os fixados. Diferente: a nota não é efetivada.
+
+    A sugestão usa o MESMO padrão de combustível da prévia que fixou `linha.itens` (DL-084): sem
+    ele, todo item decidido pelo padrão viraria "desvio" e o lote não efetivaria nota nenhuma.
+    """
     documento = linha.vinculo.documento
     tipo = servico.tipo_da_nota(documento, linha.vinculo.papel)
     atuais = [
-        (item.pk, servico.sugerir_natureza_item(documento, item, tipo).natureza)
+        (
+            item.pk,
+            servico.sugerir_natureza_com_padrao(documento, item, padrao_combustivel, tipo).natureza,
+        )
         for item in _itens_do_documento(documento)
     ]
     gravados = [(int(item_id), sugerida) for item_id, sugerida, _final in linha.itens]
@@ -1179,7 +1195,11 @@ def _processar_nota_uma_vez(
                 return EstadoNotaDoLoteNFe.JA_EFETIVADA, ""
             if linha.vinculo_id in estornadas:
                 raise servico.EscrituracaoNFeErro(MENSAGEM_ESTORNADA_DEPOIS)
-            desvio = _desvio_desde_a_confirmacao(linha)
+            # DL-084: o padrão de combustível da empresa alimenta a sugestão revalidada aqui. Uma
+            # consulta por nota, fora do laço de itens (BL-698), e a mesma fonte da prévia que
+            # fixou `linha.itens` — o padrão lido por item estouraria o orçamento da parte.
+            padrao_combustivel = presumido.parametros_da_empresa(lote.empresa).padrao_combustivel
+            desvio = _desvio_desde_a_confirmacao(linha, padrao_combustivel)
             if desvio is not None:
                 raise servico.EscrituracaoNFeErro(desvio)
             if ativa is not None:

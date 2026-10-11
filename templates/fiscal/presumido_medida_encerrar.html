@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block titulo %}Encerrar medida judicial — {{ empresa_selecionada.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa_selecionada.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Medidas judiciais</a></li>
+            <li aria-current="page">Encerrar medida</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para as medidas</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-084, item 7 (BL-680), arquétipo E (ação sensível), no padrão de presumido_medida_revogar.html.
+O encerramento em (ano, trimestre) NÃO apaga a medida: ela continua valendo nos trimestres
+anteriores, deixa de valer nos seguintes, e o ato (trimestre, motivo, data, autor) fica na trilha.
+Revogação continua existindo e continua sendo outro ato, com outro efeito.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Encerrar medida judicial</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa painel-etapa--risco">
+        <h2>O que vai acontecer</h2>
+        <p>
+            A medida deixa de valer a partir do trimestre informado abaixo, inclusive. Os trimestres
+            anteriores continuam com a medida, e nada do que já foi apurado é refeito por este ato.
+            A linha não é apagada: o encerramento, o trimestre, o motivo e a data ficam na trilha.
+            Para tirar a medida de todos os trimestres, use a revogação.
+        </p>
+    </div>
+
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Tributo</dt>
+            <dd>{{ medida.tributo }}</dd>
+        </div>
+        <div>
+            <dt>Período</dt>
+            <dd>{{ medida.periodo }}</dd>
+        </div>
+        <div>
+            <dt>Processo</dt>
+            <dd>{{ medida.processo }}</dd>
+        </div>
+        <div>
+            <dt>Depósito</dt>
+            <dd>{{ medida.deposito }}</dd>
+        </div>
+    </dl>
+
+    <form method="post" action="{{ url_envio }}" class="formulario">
+        {% csrf_token %}
+        <div class="campo">
+            <label for="id_ano">Ano do último trimestre coberto (AAAA)</label>
+            <input type="text" id="id_ano" name="ano" value="{{ valores.ano }}" inputmode="numeric" maxlength="4"
+                   aria-describedby="ajuda_ano{% if erro %} erro_do_formulario{% endif %}">
+            <p class="texto-apoio" id="ajuda_ano">A medida cobre até o trimestre informado e deixa de valer nos seguintes.</p>
+        </div>
+        <div class="campo">
+            <label for="id_trimestre">Trimestre do último trimestre coberto</label>
+            <select id="id_trimestre" name="trimestre" aria-describedby="ajuda_ano{% if erro %} erro_do_formulario{% endif %}">
+                {% for valor, rotulo in opcoes_trimestre %}
+                    <option value="{{ valor }}" {% if valores.trimestre == valor|stringformat:"s" or valores.trimestre == valor %} selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_motivo">Motivo do encerramento (obrigatório)</label>
+            <textarea id="id_motivo" name="motivo" rows="3" maxlength="500" required aria-describedby="ajuda_motivo{% if erro %} erro_do_formulario{% endif %}">{{ valores.motivo }}</textarea>
+            <p class="texto-apoio" id="ajuda_motivo">Por exemplo: decisão que encerrou a suspensão neste trimestre, acordo homologado.</p>
+        </div>
+        {% if erro %}
+            <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+        {% endif %}
+        <div class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+            {% comment %}
+            Direção de arte §8.4: ação sensível em `.botao--perigoso`, com rótulo que nomeia a
+            consequência e o alvo (a medida e o processo) — nunca só "Confirmar".
+            {% endcomment %}
+            <button type="submit" class="botao botao--perigoso">Encerrar medida judicial<span class="visualmente-oculto"> de {{ medida.tributo }}, processo {{ medida.processo }}, a partir do trimestre informado</span></button>
+        </div>
+    </form>
+{% endblock %}

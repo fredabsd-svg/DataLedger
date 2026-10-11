@@ -1139,6 +1139,33 @@
                                                             <a href="{% url 'fiscal_web:presumido_limite' %}">Controle do limite</a>
                                                         {% endif %}
                                                     </li>
+                                                    {% comment %}
+                                                    DL-084 (frente B2): parâmetros da empresa, feriados
+                                                    locais da praça e pendências de cadastro do mês.
+                                                    Mesma permissão de consulta; cada ação é decidida
+                                                    pelo servidor na própria tela.
+                                                    {% endcomment %}
+                                                    <li>
+                                                        {% if pagina_atual == "presumido_parametros" %}
+                                                            <span class="item-atual" aria-current="page">Parâmetros do Presumido</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:presumido_parametros' %}">Parâmetros do Presumido</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "presumido_feriados" %}
+                                                            <span class="item-atual" aria-current="page">Feriados locais</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:presumido_feriados' %}">Feriados locais</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "presumido_pendencias" %}
+                                                            <span class="item-atual" aria-current="page">Pendências do mês</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:presumido_pendencias' %}">Pendências do mês</a>
+                                                        {% endif %}
+                                                    </li>
                                                 </ul>
                                             </div>
                                         {% endwith %}

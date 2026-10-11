@@ -67,7 +67,18 @@ estimada por 1/4,65 e vem marcada; código ambíguo fica "a classificar", sem va
                             <td class="valor-monetario">{{ linha.competencia }}</td>
                             <td class="valor-monetario">{{ linha.valor }}</td>
                             <td class="valor-monetario">{{ linha.irrf_proposto }}</td>
-                            <td>{{ linha.csll_proposta }}</td>
+                            <td>
+                                {{ linha.csll_proposta }}
+                                {% comment %}
+                                DL-084, item 3: a coerência da CSLL retida (faixa de 4,65%
+                                confirma; 1% ou fora das faixas fica "a classificar") aparece com
+                                o aviso do serviço. A tela não deduz nem confirma sozinha.
+                                {% endcomment %}
+                                <br><span class="texto-apoio">Classificação: {{ linha.csll_classificacao }}</span>
+                                {% if linha.csll_aviso %}
+                                    <br><span class="texto-apoio">Aviso: {{ linha.csll_aviso }} Nenhuma dedução acontece sem a sua confirmação.</span>
+                                {% endif %}
+                            </td>
                             <td class="valor-monetario">{{ linha.irrf_confirmado }}</td>
                             <td class="valor-monetario">{{ linha.csll_confirmada }}</td>
                             <td>

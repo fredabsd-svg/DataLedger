@@ -185,9 +185,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
   DL-085/082/089/084 a `BL-698` a `BL-701`, e as decisões do Razão e do
   estorno a `DE-103` e `DE-104`; a revisão de layout mantém `DL-086`,
   `DE-101` e `BL-689` a `BL-697`.
-- Trabalho em curso: **[DL-084](../planos/DL-084-rotina-do-presumido.md)
-  frente B** — telas e ligação do padrão de combustível — e depois a
-  auditoria dela (rodada 1, correção única, reconferência; §3.1).
+- Trabalho em curso: a **auditoria da DL-084** (frentes A e B entregues —
+  telas, ligação do padrão de combustível e remoção do aviso "calendário a
+  conferir" —; rodada 1, correção única e reconferência; §3.1).
 - A ordem de retomada segue a do fechamento de 10/10, abaixo: DL-088 frentes
   A2 e B com auditoria; PR com tudo o que estiver auditado e merge com os
   quatro checks verdes (RC-171); depois DL-087.

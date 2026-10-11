@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block titulo %}Excluir exceção de feriado — {{ empresa_selecionada.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa_selecionada.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Feriados locais</a></li>
+            <li aria-current="page">Excluir exceção de feriado</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para os feriados</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-084, item 2, arquétipo E (ação sensível): a exceção por ano é o decreto que moveu a data do
+feriado naquele ano. Excluí-la faz o aviso voltar a sair na data normativa daquele ano. O feriado em
+si não muda.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Excluir exceção de feriado</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa painel-etapa--risco">
+        <h2>O que vai acontecer</h2>
+        <p>
+            A exceção de {{ excecao.ano }} é apagada e o aviso volta a sair na data normativa do
+            feriado naquele ano. O feriado em si não muda, e a data de vencimento nunca muda por
+            causa disto.
+        </p>
+    </div>
+
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Feriado</dt>
+            <dd>{{ feriado.data }} — {{ feriado.descricao }}</dd>
+        </div>
+        <div>
+            <dt>Ano da exceção</dt>
+            <dd>{{ excecao.ano }}</dd>
+        </div>
+        <div>
+            <dt>Data observada</dt>
+            <dd>{{ excecao.data_observada }}</dd>
+        </div>
+        <div>
+            <dt>Ato que moveu o feriado</dt>
+            <dd>{{ excecao.fundamento }}</dd>
+        </div>
+    </dl>
+
+    <form method="post" action="{{ url_envio }}" class="formulario">
+        {% csrf_token %}
+        {% if erro %}
+            <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+        {% endif %}
+        <div class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+            {% comment %}
+            Direção de arte §8.4: ação sensível em `.botao--perigoso`, com rótulo que nomeia o alvo —
+            a exceção, o ano e o feriado, nunca só "Excluir".
+            {% endcomment %}
+            <button type="submit" class="botao botao--perigoso">Excluir exceção de {{ excecao.ano }} do feriado de {{ feriado.data }}</button>
+        </div>
+    </form>
+{% endblock %}

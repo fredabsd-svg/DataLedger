@@ -547,7 +547,8 @@ class Parcela:
     """Uma quota (ou o imposto em quota única) com a data de vencimento e os avisos da data.
 
     `aviso_calendario` NÃO é mais preenchido (DL-084, item 1): o aviso "calendário a conferir" saiu
-    com a HI-105 substituída. O campo fica só porque a tela da frente B o lê; sempre é falso.
+    com a HI-105 substituída. O campo fica só porque a API ainda o expõe (`_parcela_payload`);
+    sempre é falso — quem mostra data é `antecipada_de` e `avisos_locais`.
     `antecipada_de` é a data civil (sábado, domingo e feriado fixo) quando o vencimento recuou por
     dia sem expediente bancário nacional; None quando não recuou. `avisos_locais` vêm do feriado
     local da praça (DL-084, item 2): não mudam a data, só avisam.
