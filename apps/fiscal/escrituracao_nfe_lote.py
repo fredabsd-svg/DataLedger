@@ -103,8 +103,8 @@ from django.utils import timezone
 
 from apps.auditoria.services import registrar
 from apps.core.restricoes import RestricaoViolada, mensagens_de, restricao_como_400
+from apps.fiscal import classificacao
 from apps.fiscal import escrituracao_nfe as servico
-from apps.fiscal import presumido
 from apps.fiscal import receita as receita_servico
 from apps.fiscal.itens_nfe import (
     VERSAO_LEITOR_ITENS,
@@ -247,19 +247,27 @@ class ItemDoLote:
     cfop: str
     cst_csosn: str
     natureza_sugerida: str
+    # DL-087: a regra que produziu a sugestão ("regra:<id>"), ou vazio (produto e padrão). Vazio
+    # mantém a assinatura de antes da DL-087; com regra, criar ou desativar regra muda a prévia.
+    fonte: str = ""
 
 
 @dataclass(frozen=True)
 class AssinaturaDoItem:
-    """Par (CFOP, CST ou CSOSN, natureza sugerida) de um grupo. A troca de natureza é por ele."""
+    """Par (CFOP, CST ou CSOSN, natureza sugerida) de um grupo. A troca de natureza é por ele.
+
+    `fonte` (DL-087) é a regra que produziu a natureza, quando houver: duas assinaturas com a mesma
+    natureza, uma vinda de regra e outra do produto, são grupos distintos.
+    """
 
     cfop: str
     cst_csosn: str
     natureza: str
+    fonte: str = ""
 
     @property
     def id(self) -> str:
-        return _id_da_assinatura(self.cfop, self.cst_csosn, self.natureza)
+        return _id_da_assinatura(self.cfop, self.cst_csosn, self.natureza, self.fonte)
 
 
 @dataclass(frozen=True)
@@ -388,9 +396,19 @@ def _cst_csosn(item) -> str:
     return item.csosn or item.cst or ""
 
 
-def _id_da_assinatura(cfop: str, cst_csosn: str, natureza: str) -> str:
-    """Identificador estável de um par de grupo. Vai na API e nas escolhas."""
-    return f"{cfop}|{cst_csosn}|{natureza}"
+def _id_da_assinatura(cfop: str, cst_csosn: str, natureza: str, fonte: str = "") -> str:
+    """Identificador estável de um par de grupo. Vai na API e nas escolhas.
+
+    A natureza sugerida é o TERCEIRO campo, e a fonte (DL-087) só entra quando há regra.
+    """
+    base = f"{cfop}|{cst_csosn}|{natureza}"
+    return f"{base}|{fonte}" if fonte else base
+
+
+def _tupla_da_assinatura(cfop: str, cst_csosn: str, natureza: str, fonte: str) -> tuple:
+    """(CFOP, CST/CSOSN, natureza[, fonte]). Sem regra, a tupla é a de antes da DL-087: a chave do
+    grupo (hash) não muda para as notas que não têm regra."""
+    return (cfop, cst_csosn, natureza, fonte) if fonte else (cfop, cst_csosn, natureza)
 
 
 def _chave_do_grupo(tipo: str, assinaturas: tuple[tuple[str, str, str], ...]) -> str:
@@ -411,7 +429,12 @@ def _assinatura_da_previa(empresa_id: int, ano: int, mes: int, grupos, a_ler) ->
                 [
                     [
                         nota.vinculo_id,
-                        [[item.item_id, item.natureza_sugerida] for item in nota.itens],
+                        [
+                            [item.item_id, item.natureza_sugerida, item.fonte]
+                            if item.fonte
+                            else [item.item_id, item.natureza_sugerida]
+                            for item in nota.itens
+                        ],
                     ]
                     for nota in grupo.notas
                 ],
@@ -575,10 +598,10 @@ def previa_do_lote(empresa, ano: int, mes: int) -> PreviaDoLote:
 
 
 def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
-    # DL-084 (RC-173, item 3): o padrão de combustível da empresa é o último recurso da sugestão.
-    # UMA consulta por chamada, repassada a todos os itens: a prévia percorre meses com 10.000
-    # notas, e a consulta por item estoura o orçamento do lote (BL-698).
-    padrao_combustivel = presumido.parametros_da_empresa(empresa).padrao_combustivel
+    # DL-084 (RC-173, item 3) e DL-087: as regras do escritório e da empresa, e o padrão de
+    # combustível, são carregados UMA vez por chamada e repassados a todos os itens: a prévia
+    # percorre meses com 10.000 notas, e a consulta por item estoura o orçamento (BL-698).
+    contexto = classificacao.contexto_da_empresa(empresa)
     notas = servico.notas_do_mes(empresa, ano, mes)
     ja_efetivadas = canceladas = nao_elegiveis = 0
     pendentes: list[servico.NotaDoMes] = []
@@ -645,12 +668,14 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
     for nota, leitura in lidas:
         documento = nota.documento
         pares: list[tuple[ItemNFe, str | None]] = []
+        fontes: list[str] = []
         sem_sugestao: list[tuple[ItemNFe, str]] = []
         for item in itens_das_notas.get(documento.pk, ()):
-            sugestao = servico.sugerir_natureza_com_padrao(
-                documento, item, padrao_combustivel, nota.tipo
+            sugestao = classificacao.sugerir_natureza_com_regras(
+                contexto, documento, item, nota.tipo
             )
             pares.append((item, sugestao.natureza))
+            fontes.append(classificacao.fonte_da_sugestao(sugestao))
             if sugestao.natureza is None:
                 sem_sugestao.append((item, sugestao.motivo))
         if sem_sugestao:
@@ -677,11 +702,16 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
             continue
 
         itens_da_nota = tuple(
-            ItemDoLote(item.pk, item.n_item, item.cfop, _cst_csosn(item), natureza)
-            for item, natureza in pares
+            ItemDoLote(item.pk, item.n_item, item.cfop, _cst_csosn(item), natureza, fonte)
+            for (item, natureza), fonte in zip(pares, fontes, strict=True)
         )
         assinaturas = tuple(
-            sorted({(i.cfop, i.cst_csosn, i.natureza_sugerida) for i in itens_da_nota})
+            sorted(
+                {
+                    _tupla_da_assinatura(i.cfop, i.cst_csosn, i.natureza_sugerida, i.fonte)
+                    for i in itens_da_nota
+                }
+            )
         )
         candidatas[nota.vinculo.pk] = _Candidata(
             documento, leitura, nota.tipo, tuple((item, natureza) for item, natureza in pares)
@@ -842,9 +872,12 @@ def ler_notas_do_mes(
 # ---------------------------------------------------------------------------
 
 
-def _natureza_final(escolhas: dict, chave_grupo: str, cfop: str, cst_csosn: str, sugerida: str):
+def _natureza_final(
+    escolhas: dict, chave_grupo: str, cfop: str, cst_csosn: str, sugerida: str, fonte: str = ""
+):
     """A natureza que a nota recebe: a escolhida para a assinatura do grupo, ou a sugerida."""
-    return escolhas.get(chave_grupo, {}).get(_id_da_assinatura(cfop, cst_csosn, sugerida), sugerida)
+    id_da_assinatura = _id_da_assinatura(cfop, cst_csosn, sugerida, fonte)
+    return escolhas.get(chave_grupo, {}).get(id_da_assinatura, sugerida)
 
 
 def _normalizar_escolhas(escolhas: dict | None) -> dict[str, dict[str, str]]:
@@ -855,7 +888,8 @@ def _normalizar_escolhas(escolhas: dict | None) -> dict[str, dict[str, str]]:
     normalizadas: dict[str, dict[str, str]] = {}
     for chave_grupo, trocas in (escolhas or {}).items():
         for id_da_assinatura, natureza in trocas.items():
-            if natureza != id_da_assinatura.rsplit("|", 1)[-1]:
+            # A natureza sugerida é o terceiro campo do id (a fonte, se houver, vem depois).
+            if natureza != id_da_assinatura.split("|")[2]:
                 normalizadas.setdefault(chave_grupo, {})[id_da_assinatura] = natureza
     return normalizadas
 
@@ -895,8 +929,9 @@ def _escolhas_validas(previa: PreviaDoLote, escolhas: dict) -> dict[str, dict[st
 def _fixar_naturezas(empresa, previa: PreviaDoLote, escolhas: dict) -> dict[int, list]:
     """Naturezas finais de cada nota, com a W16 simulada para as notas que a escolha mudou.
 
-    Devolve {vinculo_id: [[item_id, sugerida, final], ...]}. Recusa (400) antes de gravar nada,
-    se alguma escolha deixa uma nota sem fechar a atribuição ou a W16.
+    Devolve {vinculo_id: [[item_id, sugerida, final(, fonte)], ...]}. A fonte (DL-087) só aparece
+    quando a sugestão veio de uma regra. Recusa (400) antes de gravar nada, se alguma escolha deixa
+    uma nota sem fechar a atribuição ou a W16.
     """
     fixados: dict[int, list] = {}
     for grupo in previa.grupos:
@@ -907,9 +942,18 @@ def _fixar_naturezas(empresa, previa: PreviaDoLote, escolhas: dict) -> dict[int,
             mudou = False
             for item_do_lote, (item, sugerida) in zip(nota.itens, candidata.pares, strict=True):
                 final = _natureza_final(
-                    escolhas, grupo.chave, item_do_lote.cfop, item_do_lote.cst_csosn, sugerida
+                    escolhas,
+                    grupo.chave,
+                    item_do_lote.cfop,
+                    item_do_lote.cst_csosn,
+                    sugerida,
+                    item_do_lote.fonte,
                 )
-                itens.append([item.pk, sugerida, final])
+                itens.append(
+                    [item.pk, sugerida, final, item_do_lote.fonte]
+                    if item_do_lote.fonte
+                    else [item.pk, sugerida, final]
+                )
                 finais.append((item, final))
                 mudou = mudou or final != sugerida
             if mudou:
@@ -943,7 +987,9 @@ def _detalhes_dos_grupos(previa: PreviaDoLote, escolhas: dict) -> list[dict]:
                 "receita_bruta": format(grupo.receita_bruta, "f"),
                 "devolucao": format(grupo.devolucao, "f"),
                 "naturezas": {
-                    a.id: _natureza_final(escolhas, grupo.chave, a.cfop, a.cst_csosn, a.natureza)
+                    a.id: _natureza_final(
+                        escolhas, grupo.chave, a.cfop, a.cst_csosn, a.natureza, a.fonte
+                    )
                     for a in grupo.assinaturas
                 },
             }
@@ -1095,31 +1141,40 @@ def _itens_do_documento(documento) -> list[ItemNFe]:
     )
 
 
-def _desvio_desde_a_confirmacao(
-    linha: LoteEscrituracaoNFeNota, padrao_combustivel: str
-) -> str | None:
-    """Compara itens e sugestões de HOJE com os fixados. Diferente: a nota não é efetivada.
+def _entradas_de_itens(linha: LoteEscrituracaoNFeNota) -> list[tuple[int, str, str, str]]:
+    """(item, sugerida, final, fonte) de cada item fixado. A fonte só existe quando há regra: a
+    linha antiga, de três campos, vale com fonte vazia."""
+    return [
+        (int(entrada[0]), entrada[1], entrada[2], entrada[3] if len(entrada) > 3 else "")
+        for entrada in linha.itens
+    ]
 
-    A sugestão usa o MESMO padrão de combustível da prévia que fixou `linha.itens` (DL-084): sem
-    ele, todo item decidido pelo padrão viraria "desvio" e o lote não efetivaria nota nenhuma.
+
+def _desvio_desde_a_confirmacao(linha: LoteEscrituracaoNFeNota, contexto) -> str | None:
+    """Compara itens, sugestões e REGRAS de HOJE com as fixadas. Diferente: a nota não é efetivada.
+
+    A sugestão usa o MESMO contexto (regras e padrão de combustível) da prévia que fixou
+    `linha.itens` (DL-084, DL-087): sem o padrão, todo item decidido pelo padrão viraria "desvio".
+    Com regra, a comparação inclui a fonte: uma regra criada ou desativada depois da confirmação
+    faz a nota falhar com o motivo, e a prévia é refeita.
     """
     documento = linha.vinculo.documento
     tipo = servico.tipo_da_nota(documento, linha.vinculo.papel)
-    atuais = [
-        (
-            item.pk,
-            servico.sugerir_natureza_com_padrao(documento, item, padrao_combustivel, tipo).natureza,
-        )
-        for item in _itens_do_documento(documento)
+    atuais = []
+    for item in _itens_do_documento(documento):
+        sugestao = classificacao.sugerir_natureza_com_regras(contexto, documento, item, tipo)
+        atuais.append((item.pk, sugestao.natureza, classificacao.fonte_da_sugestao(sugestao)))
+    gravados = [
+        (item_id, sugerida, fonte) for item_id, sugerida, _final, fonte in _entradas_de_itens(linha)
     ]
-    gravados = [(int(item_id), sugerida) for item_id, sugerida, _final in linha.itens]
     return None if atuais == gravados else MENSAGEM_DESVIO
 
 
 def _por_natureza(itens) -> list[tuple[str, list[int]]]:
     """Itens por natureza final, na ordem da natureza. Um `definir_natureza` por natureza."""
     agrupado: dict[str, list[int]] = {}
-    for item_id, _sugerida, natureza in itens:
+    for entrada in itens:
+        item_id, natureza = entrada[0], entrada[2]
         agrupado.setdefault(natureza, []).append(int(item_id))
     return sorted(agrupado.items())
 
@@ -1214,22 +1269,32 @@ def _processar_nota_uma_vez(
             # DL-084: o padrão de combustível da empresa alimenta a sugestão revalidada aqui. Uma
             # consulta por nota, fora do laço de itens (BL-698), e a mesma fonte da prévia que
             # fixou `linha.itens` — o padrão lido por item estouraria o orçamento da parte.
-            padrao_combustivel = presumido.parametros_da_empresa(lote.empresa).padrao_combustivel
-            desvio = _desvio_desde_a_confirmacao(linha, padrao_combustivel)
+            # DL-087: regras e padrão lidos DEPOIS da trava da empresa, para que o desvio veja as
+            # regras que existem na hora de efetivar (uma regra nova entre a prévia e a efetivação
+            # faz a nota falhar, e a prévia é refeita).
+            contexto = classificacao.contexto_da_empresa(lote.empresa)
+            desvio = _desvio_desde_a_confirmacao(linha, contexto)
             if desvio is not None:
                 raise servico.EscrituracaoNFeErro(desvio)
             if ativa is not None:
                 # Rascunho com natureza escolhida que difere da sugestão gravada: a nota não é
                 # sobrescrita. É a mesma regra da prévia, revalidada no momento da efetivação.
                 gravadas = _naturezas_dos_rascunhos([ativa.pk]).get(ativa.pk, {})
-                sugeridas = [(int(item_id), sugerida) for item_id, sugerida, _final in linha.itens]
+                sugeridas = [
+                    (item_id, sugerida) for item_id, sugerida, _f, _o in _entradas_de_itens(linha)
+                ]
                 if _diverge_do_rascunho(gravadas, sugeridas):
                     raise servico.EscrituracaoNFeErro(MENSAGEM_NATUREZA_ESCOLHIDA)
 
             escrituracao = servico.criar_rascunho(linha.vinculo, usuario=usuario, request=request)
             for natureza, ids in _por_natureza(linha.itens):
                 servico.definir_natureza(
-                    escrituracao, natureza, ids, usuario=usuario, request=request
+                    escrituracao,
+                    natureza,
+                    ids,
+                    usuario=usuario,
+                    request=request,
+                    contexto=contexto,
                 )
             escrituracao = servico.efetivar(escrituracao, usuario=usuario, request=request)
             _marcar_sob_trava(linha.pk, EstadoNotaDoLoteNFe.EFETIVADA, escrituracao=escrituracao)

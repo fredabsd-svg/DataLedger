@@ -85,6 +85,7 @@ from apps.core.requisicao import (
     recusar_dado_nao_contratado,
 )
 from apps.empresas.models import Empresa
+from apps.fiscal import classificacao
 from apps.fiscal import escrituracao as servico_escrituracao
 from apps.fiscal import escrituracao_nfe as servico_nfe
 from apps.fiscal import escrituracao_nfe_lote as servico_lote
@@ -8799,6 +8800,7 @@ def _linha_do_item_nfe(
     receita_atribuida=None,
     registro=None,
     padrao_combustivel="",
+    contexto=None,
 ):
     """Uma linha de item. CFOP (texto da tabela oficial), CST/CSOSN, NCM, valor, receita, natureza
     gravada e sugestão com o motivo que o serviço deu. Sem sugestão, a tela diz "escolha".
@@ -8810,9 +8812,20 @@ def _linha_do_item_nfe(
     escrituração do item). A sugestão do segmento vem do serviço, nunca daqui.
 
     DL-084, item 6 (HI-136): a sugestão de natureza leva o padrão de combustível da empresa
-    (`sugerir_natureza_com_padrao`), que só decide quando o CFOP não decide. O padrão é buscado
-    UMA vez por requisição, na tela que chama."""
-    sugestao = servico_nfe.sugerir_natureza_com_padrao(documento, item, padrao_combustivel, tipo)
+    (`sugerir_natureza_com_regras`, DL-087, com a sugestão embutida e o padrão), que só decide
+    quando o CFOP não decide. O contexto é buscado UMA vez por requisição, na tela que chama."""
+    # DL-087: regras do escritório e da empresa, e padrão de combustível (DL-084), no MESMO
+    # contexto, carregado uma vez por requisição na tela que chama.
+    if contexto is None:
+        # Chamada sem contexto (o caminho antigo de DL-084): nenhuma regra, só o padrão informado.
+        # A tela da escrituração sempre passa o contexto da empresa, com as regras dela.
+        contexto = classificacao.ContextoDeClassificacao(
+            escritorio_id=0,
+            empresa_id=0,
+            padrao_combustivel=padrao_combustivel,
+            regras=(),
+        )
+    sugestao = classificacao.sugerir_natureza_com_regras(contexto, documento, item, tipo)
     info = consultar_cfop(item.cfop)
     if item.csosn:
         cst_csosn = f"CSOSN {item.csosn}"
@@ -8997,9 +9010,9 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
             if escrituracao is not None
             else {}
         )
-        # DL-084, item 6: o padrão de combustível da empresa entra na sugestão de natureza. Buscado
-        # UMA vez por requisição, para não repetir a consulta em cada item.
-        padrao_combustivel = servico_presumido.parametros_da_empresa(empresa).padrao_combustivel
+        # DL-084, item 6 e DL-087: regras e padrão de combustível entram na sugestão de natureza.
+        # Carregados UMA vez por requisição, para não repetir a consulta em cada item.
+        contexto = classificacao.contexto_da_empresa(empresa)
         linhas = [
             _linha_do_item_nfe(
                 item,
@@ -9009,7 +9022,7 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
                 avisos_por_item.get(item.pk, ()),
                 None if receitas is None else receitas.get(item.pk),
                 registro=registros.get(item.pk),
-                padrao_combustivel=padrao_combustivel,
+                contexto=contexto,
             )
             for item, natureza in pares
         ]
@@ -9102,27 +9115,28 @@ def _redirecionar_escriturar_nfe(empresa, vinculo):
     return redirect("fiscal_web:nfe_escriturar", empresa_id=empresa.pk, vinculo_id=vinculo.pk)
 
 
-def _itens_com_sugestao_pendente(documento, escrituracao, sinal, padrao_combustivel):
+def _itens_com_sugestao_pendente(documento, escrituracao, sinal, contexto):
     """Itens SEM natureza confirmada cuja sugestão é `sinal`: o alvo do bloco é escolhido aqui,
-    no servidor, pelo mesmo serviço de sugestão (DL-084, item 6: `sugerir_natureza_com_padrao`, com
-    o padrão de combustível da empresa). O cliente não envia lista de itens."""
+    no servidor, pelo mesmo serviço de sugestão (DL-084, item 6; DL-087:
+    `sugerir_natureza_com_regras`, com o padrão de combustível). O cliente não envia lista
+    de itens."""
     registros = NaturezaItemNFe.objects.select_related("item").filter(
         escrituracao=escrituracao, natureza=""
     )
     return [
         registro.item_id
         for registro in registros
-        if servico_nfe.sugerir_natureza_com_padrao(
-            documento, registro.item, padrao_combustivel, escrituracao.tipo
+        if classificacao.sugerir_natureza_com_regras(
+            contexto, documento, registro.item, escrituracao.tipo
         ).natureza
         == sinal
     ]
 
 
 def _escriturar_nfe_post(request, empresa, vinculo):
-    # DL-084, item 6: o padrão de combustível da empresa entra na sugestão de natureza dos itens
-    # confirmados em bloco. Buscado UMA vez por requisição.
-    padrao_combustivel = servico_presumido.parametros_da_empresa(empresa).padrao_combustivel
+    # DL-084, item 6 e DL-087: regras e padrão de combustível entram na sugestão dos itens
+    # confirmados em bloco. Carregados UMA vez por requisição.
+    contexto = classificacao.contexto_da_empresa(empresa)
     try:
         recusar_dado_nao_contratado(request, _CONTRATO_ESCRITURAR_NFE)
     except DadoNaoContratado as exc:
@@ -9199,9 +9213,7 @@ def _escriturar_nfe_post(request, empresa, vinculo):
             )
         else:  # bloco
             sinal = _texto_nfe(request.POST.get("sinal"), "Sinal", _TAMANHO_NATUREZA_NFE)
-            ids = _itens_com_sugestao_pendente(
-                vinculo.documento, escrituracao, sinal, padrao_combustivel
-            )
+            ids = _itens_com_sugestao_pendente(vinculo.documento, escrituracao, sinal, contexto)
             if not ids:
                 raise servico_nfe.EntradaInvalidaNFe(
                     "Nenhum item sem natureza confirmada tem esta sugestão."

@@ -33,9 +33,9 @@ from apps.core.requisicao import (
     recusar_dado_nao_contratado,
 )
 from apps.empresas.mixins import EmpresaEscopadaMixin
+from apps.fiscal import classificacao
 from apps.fiscal import escrituracao_nfe as servico
 from apps.fiscal import escrituracao_nfe_lote as lote_servico
-from apps.fiscal import presumido
 from apps.fiscal.api import PodeConsultarFiscal, PodeEscriturarFiscal, _ano_e_mes_da_consulta
 from apps.fiscal.cfop import cfop as consultar_cfop
 from apps.fiscal.itens_nfe import receita_do_item
@@ -340,7 +340,14 @@ def _item_payload(
         "receita_atribuida": _decimal(receita_atribuida),
         "avisos": list(avisos),
         "natureza": natureza.natureza or None,
-        "sugestao": {"natureza": sugestao.natureza, "motivo": sugestao.motivo},
+        "sugestao": {
+            "natureza": sugestao.natureza,
+            "motivo": sugestao.motivo,
+            # DL-087: de onde veio a sugestão (produto, padrão, regra ou conflito de regras).
+            "origem": sugestao.origem,
+            "regra_ids": list(sugestao.regra_ids),
+            "escopo_regra": sugestao.escopo_regra,
+        },
         # DL-082 (HI-128, HI-129): marca de monofásico e segmento confirmado da devolução. A
         # sugestão do segmento só aparece para CFOP de devolução (indDevol 1).
         "monofasico": natureza.monofasico,
@@ -448,12 +455,13 @@ class EscrituracaoNFeDetalheView(_EmpresaComIdValido, APIView):
             pares = [(n.item, n.natureza) for n in naturezas]
             avisos_por_item = servico.avisos_da_nota(pares)
             receitas = servico.receitas_atribuidas(pares)
-            # DL-084 (RC-173, item 3): o padrão de combustível da empresa é o último recurso da
-            # sugestão. Uma consulta por requisição, repassada a todos os itens (BL-698).
-            padrao_combustivel = presumido.parametros_da_empresa(empresa).padrao_combustivel
+            # DL-084 (RC-173, item 3) e DL-087: regras e padrão de combustível, carregados UMA vez
+            # por
+            # requisição e repassados a todos os itens (BL-698).
+            contexto = classificacao.contexto_da_empresa(empresa)
             for natureza in naturezas:
-                sugestao = servico.sugerir_natureza_com_padrao(
-                    documento, natureza.item, padrao_combustivel, escrituracao.tipo
+                sugestao = classificacao.sugerir_natureza_com_regras(
+                    contexto, documento, natureza.item, escrituracao.tipo
                 )
                 itens.append(
                     _item_payload(

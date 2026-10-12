@@ -49,6 +49,13 @@ from apps.fiscal.api import (
     RetencoesFederaisTomadoView,
     RetidoSofridoIssView,
 )
+from apps.fiscal.api_classificacao import (
+    FilaAClassificarView,
+    PrevisaoDeImpactoView,
+    RegraDesativarView,
+    RegrasDaEmpresaView,
+    RegrasDoProdutoView,
+)
 from apps.fiscal.api_escrituracao_nfe import (
     ConferenciaNFeView,
     ConfirmarLoteNFeView,
@@ -141,6 +148,32 @@ urlpatterns = [
         "empresas/<int:empresa_id>/nfe/conferencia/",
         ConferenciaNFeView.as_view(),
         name="nfe_conferencia",
+    ),
+    # DL-087 (frente A): regras de classificação de NF-e, fila "a classificar" e regras do produto.
+    path(
+        "empresas/<int:empresa_id>/nfe/classificacao/regras/",
+        RegrasDaEmpresaView.as_view(),
+        name="nfe_classificacao_regras",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/classificacao/regras/previa/",
+        PrevisaoDeImpactoView.as_view(),
+        name="nfe_classificacao_previa",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/classificacao/regras/<int:regra_id>/desativar/",
+        RegraDesativarView.as_view(),
+        name="nfe_classificacao_regra_desativar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/classificacao/fila/",
+        FilaAClassificarView.as_view(),
+        name="nfe_classificacao_fila",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/classificacao/produto/",
+        RegrasDoProdutoView.as_view(),
+        name="nfe_classificacao_produto",
     ),
     # DL-085 (frente A): prévia do mês em lote (leitura) e confirmação em bloco (escrita).
     path(

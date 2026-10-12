@@ -3950,6 +3950,15 @@ class LeituraItensNFe(models.Model):
         return f"Leitura de itens da NF-e {self.documento_id} ({self.get_estado_display()})"
 
 
+class OrigemNaturezaConfirmada(models.TextChoices):
+    """De onde veio a natureza confirmada de um item (DL-087, item 6)."""
+
+    REGRA = "regra", "Regra de classificação do escritório ou da empresa"
+    PRODUTO = "produto", "Sugestão embutida do produto"
+    PADRAO_EMPRESA = "padrao_empresa", "Padrão de combustível da empresa"
+    MANUAL = "manual", "Escolha do contador (diferente da sugestão, ou sem sugestão)"
+
+
 class NaturezaItemNFe(models.Model):
     """Natureza confirmada de UM item de uma escrituração (DL-081, item 3).
 
@@ -3998,6 +4007,56 @@ class NaturezaItemNFe(models.Model):
 
     def __str__(self):
         return f"Natureza do item {self.item_id} na escrituração {self.escrituracao_id}"
+
+
+class OrigemNaturezaItemNFe(models.Model):
+    """De onde veio a natureza CONFIRMADA de um item (DL-087, item 6). Uma linha por natureza item.
+
+    Tabela própria, e não colunas em `NaturezaItemNFe`, de propósito: a tabela de naturezas tem
+    gatilhos e é a que a escrituração e as reversões de outras migrações (DL-082) lêem. Sem linha,
+    a natureza é anterior à DL-087 e a origem é desconhecida (nula). A regra é PROTECT: a regra que
+    produziu uma natureza confirmada não se apaga.
+    """
+
+    # FK com UniqueConstraint (e não OneToOneField): o índice único implícito do OneToOne não está
+    # na
+    # lista conhecida da varredura de restrições (apps/core), e a unicidade declarada aqui é
+    # explícita.
+    natureza_item = models.ForeignKey(
+        NaturezaItemNFe,
+        on_delete=models.CASCADE,
+        related_name="origem_da_natureza",
+        verbose_name="natureza do item",
+    )
+    origem = models.CharField(
+        "origem da natureza confirmada", max_length=16, choices=OrigemNaturezaConfirmada.choices
+    )
+    regra_classificacao = models.ForeignKey(
+        "RegraClassificacaoNFe",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="itens_confirmados",
+        verbose_name="regra que produziu a natureza",
+    )
+    gravada_em = models.DateTimeField("gravada em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "origem da natureza de item de NF-e"
+        verbose_name_plural = "origens das naturezas de itens de NF-e"
+        constraints = [
+            models.UniqueConstraint(fields=["natureza_item"], name="origem_natureza_item_unica"),
+            models.CheckConstraint(
+                condition=(
+                    Q(origem="regra", regra_classificacao__isnull=False)
+                    | (~Q(origem="regra") & Q(regra_classificacao__isnull=True))
+                ),
+                name="origem_natureza_item_regra_coerente",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Origem {self.origem} da natureza do item {self.natureza_item_id}"
 
 
 class EstadoLoteEscrituracaoNFe(models.TextChoices):
@@ -4144,3 +4203,180 @@ class LoteEscrituracaoNFeNota(models.Model):
 
     def __str__(self):
         return f"Nota {self.vinculo_id} do lote {self.lote_id} ({self.get_estado_display()})"
+
+
+class RegraImutavel(Exception):
+    """Regra de classificação de NF-e não se altera por `save()`: para mudar, desativa-se (fim da
+    vigência, com motivo) e cria-se outra. O serviço (`apps.fiscal.classificacao`) é quem desativa;
+    o banco também recusa (gatilho da migração 0019)."""
+
+    mensagem_padrao = (
+        "Regra de classificação não pode ser alterada: desative-a com motivo e crie outra."
+    )
+
+    def __init__(self, mensagem=None):
+        super().__init__(mensagem or self.mensagem_padrao)
+        self.mensagem = mensagem or self.mensagem_padrao
+
+
+class TipoRegraClassificacaoNFe(models.TextChoices):
+    """Tipo de nota que a regra classifica. Ajuste (finNFe 2, 3, 5 ou 6) NÃO recebe regra (DL-087,
+    corte 1): a nota de ajuste tem natureza própria, fixa na sugestão embutida."""
+
+    SAIDA_PROPRIA = "saida_propria", "Saída própria (finNFe 1)"
+    DEVOLUCAO = "devolucao", "Devolução de venda recebida (finNFe 4)"
+
+
+class ModoNcmRegraNFe(models.TextChoices):
+    """NCM exato (8 dígitos) ou por prefixo (2 a 7 dígitos). Vazio quando a regra não usa NCM."""
+
+    EXATO = "exato", "NCM exato (8 dígitos)"
+    PREFIXO = "prefixo", "NCM por prefixo (2 a 7 dígitos)"
+
+
+class RegraClassificacaoNFe(models.Model):
+    """Regra do escritório ou da empresa que sugere a natureza de um item de NF-e (DL-087, corte 1).
+
+    Escopo: `empresa` vazia = regra do ESCRITÓRIO, que vale para todas as empresas dele; `empresa`
+    preenchida = regra da EMPRESA. A regra só muda a SUGESTÃO: nunca uma escrituração efetivada nem
+    a natureza já escolhida num rascunho (quem decide é o serviço de escrituração).
+
+    Critérios: CFOP (obrigatório, da tabela oficial), NCM (opcional, exato ou por prefixo), CST ou
+    CSOSN do ICMS (opcional, comparado como está na nota) e `idDest` (opcional). O resultado é uma
+    natureza de `NaturezaOperacaoNFe` permitida para o tipo.
+
+    Vigência: `vigencia_inicio` obrigatória e `vigencia_fim` opcional, comparadas com a DATA DE
+    EMISSÃO da nota (dia no fuso de São Paulo). A vigência encerrada pela desativação é a última
+    data
+    em que a regra valia (`vigencia_fim`); `vigencia_fim` anterior ao início é vigência vazia, que
+    nenhuma nota casa. Por isso o banco não tem CHECK entre início e fim.
+
+    Imutável depois de criada. Única exceção: a desativação, que fixa o fim da vigência e o motivo,
+    e grava quem e quando. Três camadas: `save()` recusa atualização; o serviço muda só os campos
+    da desativação; o gatilho do banco (migração 0019) recusa alterar critério ou apagar.
+    """
+
+    escritorio = models.ForeignKey(
+        Escritorio,
+        on_delete=models.PROTECT,
+        related_name="regras_de_classificacao_nfe",
+        verbose_name="escritório",
+    )
+    # Vazio = regra do escritório (vale para todas as empresas dele). Preenchido = escopo empresa.
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="regras_de_classificacao_nfe",
+        verbose_name="empresa (vazio = regra do escritório)",
+    )
+    tipo = models.CharField(
+        "tipo da nota", max_length=16, choices=TipoRegraClassificacaoNFe.choices
+    )
+    cfop = models.CharField("CFOP", max_length=4)
+    ncm = models.CharField("NCM", max_length=8, blank=True, default="")
+    ncm_modo = models.CharField(
+        "modo do NCM", max_length=8, choices=ModoNcmRegraNFe.choices, blank=True, default=""
+    )
+    cst_csosn = models.CharField("CST ou CSOSN do ICMS", max_length=3, blank=True, default="")
+    id_dest = models.CharField(
+        "local de destino (idDest)",
+        max_length=1,
+        blank=True,
+        default="",
+        choices=[("1", "1 (operação interna)"), ("2", "2 (interestadual)"), ("3", "3 (exterior)")],
+    )
+    # Valor de `NaturezaOperacaoNFe`, permitido para o tipo. A checagem por tipo é do serviço (o
+    # catálogo é de código); o banco só recusa vazio e ajuste.
+    natureza = models.CharField(
+        "natureza resultante", max_length=29, choices=NaturezaOperacaoNFe.choices
+    )
+    vigencia_inicio = models.DateField("início da vigência")
+    vigencia_fim = models.DateField("fim da vigência", null=True, blank=True)
+    criada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="criada por",
+    )
+    criada_em = models.DateTimeField("criada em", auto_now_add=True)
+    desativada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="desativada por",
+    )
+    desativada_em = models.DateTimeField("desativada em", null=True, blank=True)
+    motivo_desativacao = models.TextField("motivo da desativação", blank=True, default="")
+
+    class Meta:
+        verbose_name = "regra de classificação de NF-e"
+        verbose_name_plural = "regras de classificação de NF-e"
+        ordering = ["id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(tipo__in=["saida_propria", "devolucao"]),
+                name="regra_classificacao_nfe_tipo_valido",
+            ),
+            models.CheckConstraint(
+                condition=Q(cfop__regex=r"^[0-9]{4}$"),
+                name="regra_classificacao_nfe_cfop_de_4_digitos",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(ncm="", ncm_modo="")
+                    | (Q(ncm_modo="exato") & Q(ncm__regex=r"^[0-9]{8}$"))
+                    | (Q(ncm_modo="prefixo") & Q(ncm__regex=r"^[0-9]{2,7}$"))
+                ),
+                name="regra_classificacao_nfe_ncm_coerente",
+            ),
+            models.CheckConstraint(
+                condition=Q(cst_csosn="") | Q(cst_csosn__regex=r"^[0-9]{2,3}$"),
+                name="regra_classificacao_nfe_cst_csosn_valido",
+            ),
+            models.CheckConstraint(
+                condition=Q(id_dest__in=["", "1", "2", "3"]),
+                name="regra_classificacao_nfe_id_dest_valido",
+            ),
+            models.CheckConstraint(
+                condition=~Q(natureza="") & ~Q(natureza="ajuste"),
+                name="regra_classificacao_nfe_natureza_sem_ajuste",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        desativada_em__isnull=True,
+                        desativada_por__isnull=True,
+                        motivo_desativacao="",
+                    )
+                    | (
+                        Q(
+                            desativada_em__isnull=False,
+                            desativada_por__isnull=False,
+                            vigencia_fim__isnull=False,
+                        )
+                        & ~Q(motivo_desativacao="")
+                    )
+                ),
+                name="regra_classificacao_nfe_desativacao_completa",
+            ),
+        ]
+
+    def __str__(self):
+        escopo = "empresa" if self.empresa_id else "escritório"
+        return f"Regra {self.pk} ({escopo}): CFOP {self.cfop} → {self.natureza}"
+
+    @property
+    def ativa(self) -> bool:
+        """Não desativada. A vigência é outra coisa: uma regra ativa pode ainda não ter começado."""
+        return self.desativada_em is None
+
+    def save(self, *args, **kwargs):
+        # Imutável: só o INSERT cria. A desativação passa por `update()` no serviço, com o gatilho
+        # do banco como segunda defesa.
+        if not self._state.adding:
+            raise RegraImutavel()
+        super().save(*args, **kwargs)

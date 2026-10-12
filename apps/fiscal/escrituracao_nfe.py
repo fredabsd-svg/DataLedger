@@ -92,6 +92,7 @@ from apps.fiscal.models import (
     LeituraItensNFe,
     NaturezaItemNFe,
     NaturezaOperacaoNFe,
+    OrigemNaturezaItemNFe,
     PapelNFe,
     SegmentoDevolucao,
     TipoEscrituracaoNFe,
@@ -244,10 +245,25 @@ def naturezas_permitidas(tipo: str) -> frozenset[str]:
 # ---------------------------------------------------------------------------
 
 
+# DL-087: de onde veio a sugestão, para a tela e a API dizerem. `produto` são os sinais da tabela
+# oficial e do item (`sugerir_natureza_item`); `padrao_combustivel` é o padrão da empresa (DL-084);
+# `regra` é uma regra do escritório ou da empresa (`apps.fiscal.classificacao`);
+# `conflito_de_regras` é o caso em que regras de mesma precedência apontam naturezas diferentes.
+ORIGEM_DA_SUGESTAO_PRODUTO = "produto"
+ORIGEM_DA_SUGESTAO_PADRAO = "padrao_combustivel"
+ORIGEM_DA_SUGESTAO_REGRA = "regra"
+ORIGEM_DA_SUGESTAO_CONFLITO_DE_REGRAS = "conflito_de_regras"
+
+
 @dataclass(frozen=True)
 class Sugestao:
     natureza: str | None
     motivo: str
+    origem: str = ORIGEM_DA_SUGESTAO_PRODUTO
+    # Ids das regras que produziram a sugestão (uma, se venceu; várias, se houve conflito).
+    regra_ids: tuple[int, ...] = ()
+    # "escritorio" ou "empresa" quando a sugestão veio de uma regra.
+    escopo_regra: str | None = None
 
 
 # Venda de combustível pela DESCRIÇÃO oficial da tabela de `cfop.py` (PE-85.1; HI-118). Só o que a
@@ -432,11 +448,10 @@ def sugerir_natureza_com_padrao(
 ) -> Sugestao:
     """`sugerir_natureza_item` com o padrão de combustível da empresa, como último recurso (DL-084).
 
-    Os caminhos reais de sugestão passam o padrão: a conferência do mês
-    (`_itens_sem_sugestao_do_mes`), o lote (`_calcular` e `_desvio_desde_a_confirmacao`) e a API de
-    escrituração. Cada um lê o padrão da empresa UMA vez por chamada e o repassa aos itens — a
-    consulta por item estoura o orçamento do lote (BL-698). Qualquer caso fora da regra devolve o
-    resultado de `sugerir_natureza_item`, sem mudança.
+    DL-087: os caminhos reais de sugestão NÃO chamam esta função diretamente. Eles chamam
+    `apps.fiscal.classificacao.sugerir_natureza_com_regras`, que tenta as regras do escritório e da
+    empresa e, quando nenhuma casa, cai AQUI com o padrão já carregado no contexto. Esta função
+    continua sendo a sugestão embutida e o caminho sem regra: não muda de comportamento.
     """
     base = sugerir_natureza_item(documento, item, tipo)
     if base.natureza is not None or padrao_combustivel not in _PADROES_QUE_SUGEREM_CONSUMO:
@@ -449,6 +464,7 @@ def sugerir_natureza_com_padrao(
         NaturezaOperacaoNFe.COMBUSTIVEL,
         "sugerida pelo padrão de combustível da empresa (posto ou TRR): o NCM é de combustível "
         "e o CFOP não diz se é consumo ou revenda",
+        origem=ORIGEM_DA_SUGESTAO_PADRAO,
     )
 
 
@@ -787,14 +803,42 @@ def natureza_incompativel_com_marca(
     return bool(segmento_devolucao) and natureza != NaturezaOperacaoNFe.DEVOLUCAO_VENDA
 
 
+def _gravar_origem(natureza_item_ids, origem: str, regra_id: int | None) -> None:
+    """Grava a origem de um grupo de naturezas confirmadas (DL-087, item 6), uma consulta por grupo.
+
+    Atualiza se a linha já existe (o rascunho pode trocar a natureza confirmada); cria se não
+    existe.
+    """
+    OrigemNaturezaItemNFe.objects.bulk_create(
+        [
+            OrigemNaturezaItemNFe(
+                natureza_item_id=pk, origem=origem, regra_classificacao_id=regra_id
+            )
+            for pk in natureza_item_ids
+        ],
+        update_conflicts=True,
+        unique_fields=["natureza_item"],
+        update_fields=["origem", "regra_classificacao"],
+    )
+
+
 @transaction.atomic
 def definir_natureza(
-    escrituracao: EscrituracaoNFe, natureza: str, item_ids, usuario, request=None
+    escrituracao: EscrituracaoNFe,
+    natureza: str,
+    item_ids,
+    usuario,
+    request=None,
+    contexto=None,
 ) -> EscrituracaoNFe:
     """Confirma a natureza de UM ou de VÁRIOS itens da mesma nota (em bloco, HI-118).
 
     Só rascunho: efetivada ou estornada não muda (o banco também recusa). Itens de outra nota são
     recusados sem gravar nada.
+
+    DL-087, item 6: grava também a ORIGEM da natureza confirmada (regra, produto, padrão ou manual),
+    calculada com a mesma sugestão da tela e da prévia. `contexto` (regras e padrão, de
+    `classificacao.contexto_da_empresa`) é opcional: o lote o passa, para não recarregar por nota.
     """
     ids = sorted({int(i) for i in item_ids})
     if not ids:
@@ -813,9 +857,9 @@ def definir_natureza(
     _validar_natureza_para_o_tipo(natureza, travada.tipo)
 
     alvos = list(
-        NaturezaItemNFe.objects.select_for_update(of=("self",)).filter(
-            escrituracao=travada, item_id__in=ids
-        )
+        NaturezaItemNFe.objects.select_for_update(of=("self",))
+        .select_related("item")
+        .filter(escrituracao=travada, item_id__in=ids)
     )
     if len(alvos) != len(ids):
         raise EntradaInvalidaNFe("Algum item informado não pertence a esta nota.")
@@ -824,7 +868,23 @@ def definir_natureza(
         if natureza_incompativel_com_marca(natureza, alvo.monofasico, alvo.segmento_devolucao):
             raise EntradaInvalidaNFe(MENSAGEM_NATUREZA_COM_MARCA)
     antes = {a.item_id: a.natureza for a in alvos}
-    NaturezaItemNFe.objects.filter(pk__in=[a.pk for a in alvos]).update(natureza=natureza)
+    # Origem: a sugestão de HOJE, com as regras de agora. Agrupa os itens por origem para gravar
+    # com um UPDATE por grupo, e não um por item.
+    from apps.fiscal import classificacao
+
+    if contexto is None:
+        contexto = classificacao.contexto_da_empresa(travada.empresa)
+    documento = travada.vinculo.documento
+    por_origem: dict[tuple, list[int]] = {}
+    for alvo in alvos:
+        sugestao = classificacao.sugerir_natureza_com_regras(
+            contexto, documento, alvo.item, travada.tipo
+        )
+        origem = classificacao.origem_da_confirmacao(sugestao, natureza)
+        por_origem.setdefault(origem, []).append(alvo.pk)
+    for (origem, regra_id), pks in por_origem.items():
+        NaturezaItemNFe.objects.filter(pk__in=pks).update(natureza=natureza)
+        _gravar_origem(pks, origem, regra_id)
 
     registrar(
         acao="escrituracao_nfe.natureza_definida",
@@ -1584,13 +1644,36 @@ def reclassificar_em_massa(
     afetadas = 0
     itens_alterados = 0
     pares: list[tuple[int, int]] = []
+    contexto_reclass = None
     for escrituracao_id, registros in sorted(por_escrituracao.items()):
         alterar = [r for r in registros if r.natureza != natureza]
         if not alterar:
             continue
         pares.extend((escrituracao_id, r.item_id) for r in alterar)
         antes = {r.item_id: r.natureza for r in alterar}
-        NaturezaItemNFe.objects.filter(pk__in=[r.pk for r in alterar]).update(natureza=natureza)
+        # DL-087, item 6: a origem de cada item, pela mesma sugestão da confirmação individual.
+        from apps.fiscal import classificacao
+
+        if contexto_reclass is None:
+            contexto_reclass = classificacao.contexto_da_empresa(
+                travadas_por_id[escrituracao_id].empresa
+            )
+        documento_reclass = travadas_por_id[escrituracao_id].vinculo.documento
+        itens_reclass = ItemNFe.objects.in_bulk([r.item_id for r in alterar])
+        por_origem: dict[tuple, list[int]] = {}
+        for r in alterar:
+            sugestao = classificacao.sugerir_natureza_com_regras(
+                contexto_reclass,
+                documento_reclass,
+                itens_reclass[r.item_id],
+                travadas_por_id[escrituracao_id].tipo,
+            )
+            por_origem.setdefault(
+                classificacao.origem_da_confirmacao(sugestao, natureza), []
+            ).append(r.pk)
+        for (origem, regra_id), pks in por_origem.items():
+            NaturezaItemNFe.objects.filter(pk__in=pks).update(natureza=natureza)
+            _gravar_origem(pks, origem, regra_id)
         afetadas += 1
         itens_alterados += len(alterar)
         escrituracao = travadas_por_id[escrituracao_id]
@@ -1758,15 +1841,19 @@ def _itens_sem_sugestao_do_mes(notas: list[NotaDoMes], empresa) -> dict[int, int
     }
     if not candidatas:
         return {}
-    # `presumido` importa este módulo (a apuração do Presumido lê a escrituração): o import fica
-    # aqui para o carregamento dos módulos não fechar ciclo.
-    from apps.fiscal import presumido
+    # DL-087: a sugestão passa pelas regras do escritório e da empresa antes da embutida. O contexto
+    # (regras e padrão) é carregado UMA vez aqui, e não por item. `classificacao` importa o
+    # Presumido,
+    # que importa este módulo: o import fica dentro da função para não fechar o ciclo.
+    from apps.fiscal import classificacao
 
-    padrao_combustivel = presumido.parametros_da_empresa(empresa).padrao_combustivel
+    contexto = classificacao.contexto_da_empresa(empresa)
     contagem: dict[int, int] = {}
     for item in ItemNFe.objects.filter(documento_id__in=list(candidatas)):
         nota = candidatas[item.documento_id]
-        sugestao = sugerir_natureza_com_padrao(nota.documento, item, padrao_combustivel, nota.tipo)
+        sugestao = classificacao.sugerir_natureza_com_regras(
+            contexto, nota.documento, item, nota.tipo
+        )
         if sugestao.natureza is None:
             contagem[item.documento_id] = contagem.get(item.documento_id, 0) + 1
     return contagem

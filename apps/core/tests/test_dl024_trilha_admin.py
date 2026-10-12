@@ -133,10 +133,12 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         NaturezaItemNFe,
         OpcaoRegimeCaixaSimples,
         OpcaoRegimeIbsCbsSimples,
+        OrigemNaturezaItemNFe,
         ParametrosPresumidoEmpresa,
         ReceitaInformada,
         ReceitaTrimestralPresumido,
         RegimeIssEmpresa,
+        RegraClassificacaoNFe,
         RegraIssMunicipio,
         ResultadoDoArquivo,
         VinculoDocumentoEmpresa,
@@ -314,6 +316,15 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         FeriadoLocal,
         ExcecaoFeriadoLocal,
         EncerramentoMedidaJudicialLC224,
+        # DL-087 (frente A, 12/10/2026): regra de classificação de NF-e. Entra na cobertura "por
+        # padrão" e NÃO tem ModelAdmin: a regra só é criada e desativada por `apps.fiscal.
+        # classificacao`, que grava a trilha por `registrar()` na mesma transação. Sem exclusão.
+        RegraClassificacaoNFe,
+        # DL-087, ajuste 6: origem da natureza confirmada (1:1 com a natureza do item). Por padrão,
+        # sem
+        # ModelAdmin; só `_gravar_origem` (apps.fiscal.escrituracao_nfe) grava, na transação da
+        # natureza.
+        OrigemNaturezaItemNFe,
     }
     assert cobertos == esperados_cobertos, (
         f"DL-030: cobertura da trilha divergente.\n"
