@@ -131,7 +131,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) | Fecha a leva da DL-061: coluna da DMPL nas duas portas, teste do snapshot e dica condicionada (BL-606, BL-607, BL-625) | **Integrada (PR #84, squash `c32cfe6`)** — o conteúdo **não tinha chegado à `main`** (o PR #82 foi mesclado na branch intermediária `fix/dl-062-…`); recuperado com a `base` reapontada para o destino real |
 | [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md) | Reclassificar conta com movimento em competência encerrada ou entregue não pode reescrever DLPA nem DMPL já apuradas (BL-550) | **Integrada (PR #85, squash `012a759`)** — ciclo de auditoria encerrado no veredito **REPROVADO** da reconferência; N1, N2 e N3 corrigidos depois, sem terceira rodada |
 | [DL-066](../planos/DL-066-dfc.md) | DFC — Demonstração dos Fluxos de Caixa, direto e indireto (CTB-15 da DL-048) | Situação em **[Próximo passo](#próximo-passo)** — **fatia 1 integrada pelo PR #89** (núcleo da apuração; auditoria e reconferência aprovadas com ressalvas, N1 e N2 corrigidos) e **fechada pelo PR #90** (porta de classificação, telas, API e método indireto); a fatia 2, método direto, está na fila |
-| [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md) | Plano do módulo fiscal de out/2026 a 2028, com a reforma tributária, conciliado com a paridade fiscal | Plano integrado; o roteiro está em execução desde 08/10/2026 (RC-164), DL-072 em diante |
+| [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md) | Plano do módulo fiscal de out/2026 a 2028, com a reforma tributária, conciliado com a paridade fiscal | Integrada (plano; o roteiro está em execução desde 08/10/2026, RC-164, DL-072 em diante) |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 tratada na DL-068 |
 | [DL-068](../planos/DL-068-prontidao-para-implantacao.md) | Prontidão para implantação: Django 6.1.2, limite no login do admin, `.dockerignore`, `DJANGO_AMBIENTE` (BL-82) e proxies `/0` (BL-577) | **Integrada (PR #91, squash `7c23894`, merge feito pelo Fred em 07/10/2026)** — auditoria e reconferência aprovadas com ressalvas; R1 com o Fred (BL-642) |
 | [DL-069](../planos/DL-069-travas-no-banco.md) | Travas no banco: livro-caixa imutável, período encerrado recusa INSERT, trilha imutável | Situação em **[Próximo passo](#próximo-passo)** — fatias 1 e 2 integradas (PR #92 e #93); fatia 3 bloqueada na PE-77 |
@@ -147,15 +147,15 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-079](../planos/DL-079-lucro-presumido-irpj-csll.md) | Fiscal: Lucro Presumido, IRPJ e CSLL trimestrais com o acréscimo da LC 224 | Integrada (PR #103, squash `6eb922e`) — rodada 1 e reconferência aprovadas com ressalvas |
 | [DL-080](../planos/DL-080-recepcao-de-nfe.md) | Fiscal: recepção de NF-e (modelo 55) e NFC-e (modelo 65), fatia 2 da DL-010 | Integrada (PR #104, squash `c01b451`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 | [DL-081](../planos/DL-081-escrituracao-das-nfe-de-saida.md) | Fiscal: escrituração das NF-e de saída e da devolução de venda | Integrada (PR #105, squash `2911eb6`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
-| [DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md) | Fiscal: pré-DAS de comércio e indústria (Anexos I e II) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md) | Fiscal: pré-DAS de comércio e indústria (Anexos I e II) | Integrada (PR #108, squash `7474b12`) — rodada 1 e reconferência aprovadas com ressalvas; resíduos em BL-699 |
 | [DL-083](../planos/DL-083-receita-de-nfe-no-presumido.md) | Fiscal: receita de NF-e no Lucro Presumido e regras de receita da RC-172 | Integrada (PR #106, squash `3f3206c`) — rodada 1 e reconferência reprovadas; ajustes do arquiteto (§3.1) |
-| [DL-084](../planos/DL-084-rotina-do-presumido.md) | Fiscal: rotina do Lucro Presumido (RC-172) | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-085](../planos/DL-085-escrituracao-de-nfe-em-volume.md) | Fiscal: escrituração de NF-e e NFC-e em volume (RC-173) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-084](../planos/DL-084-rotina-do-presumido.md) | Fiscal: rotina do Lucro Presumido (RC-172) | Integrada (PR #108, squash `7474b12`) — rodada 1 aprovada com ressalvas, correção com a DE-106 e reconferência APROVADA; item 4 bloqueado no BL-701 |
+| [DL-085](../planos/DL-085-escrituracao-de-nfe-em-volume.md) | Fiscal: escrituração de NF-e e NFC-e em volume (RC-173) | Integrada (PR #108, squash `7474b12`) — rodada 1 e reconferência aprovadas com ressalvas; resíduos em BL-698 |
 | [DL-086](../planos/DL-086-revisao-de-layout-e-acessos.md) | Revisão de layout, botões, páginas e acessos | Integrada (PR #107, squash `451a25f`) — resíduos em BL-689 a BL-697 |
 | [DL-087](../planos/DL-087-classificacao-fiscal-versionada.md) | Fiscal: classificação fiscal versionada e regras de importação (RC-175) | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-088](../planos/DL-088-virada-de-2027-no-simples.md) | Fiscal: virada de 2027 no Simples Nacional (RC-175) | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-089](../planos/DL-089-origem-do-lancamento-contabil.md) | Contabilidade: origem e documento de origem do lançamento (BL-72, BL-73) | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-090](../planos/DL-090-documentacao-e-painel-do-fiscal.md) | Fiscal: documentação e painel alinhados ao código (RC-175; nasceu como DL-086 e foi renumerada na junção com a `main`, DE-105) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-088](../planos/DL-088-virada-de-2027-no-simples.md) | Fiscal: virada de 2027 no Simples Nacional (RC-175) | Integrada (PR #108, squash `7474b12`) — rodada 1 aprovada com ressalvas, correção única e reconferência APROVADA; BL-703 e BL-704 abertos |
+| [DL-089](../planos/DL-089-origem-do-lancamento-contabil.md) | Contabilidade: origem e documento de origem do lançamento (BL-72, BL-73) | Integrada (PR #108, squash `7474b12`) — rodada 1 e reconferência aprovadas com ressalvas; resíduos em BL-700 |
+| [DL-090](../planos/DL-090-documentacao-e-painel-do-fiscal.md) | Fiscal: documentação e painel alinhados ao código (RC-175; nasceu como DL-086 e foi renumerada na junção com a `main`, DE-105) | Integrada (PR #108, squash `7474b12`) — parecer aprovado com ressalvas (nível 3); resíduos em BL-698 |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -176,24 +176,29 @@ publicação ou exclusão (HI-55). Roteiro de execução no fim do
 [consultas/](../projeto/consultas/2026-10-08-contador-senior-fiscal.md);
 hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 
-**AGORA, em 11/10/2026 (retomada do fiscal, na branch
-`ccr-bf4b4a55-hpqgbp`):**
+**AGORA, em 11/10/2026 (após o merge do PR #108):**
 
-- A `main` foi integrada na branch, e as colisões de identificador da junção
-  estão resolvidas pela [DE-105](../projeto/decisoes.md): a documentação e o
-  painel do fiscal passaram a **DL-090** (eram DL-086), os resíduos da
-  DL-085/082/089/084 a `BL-698` a `BL-701`, e as decisões do Razão e do
-  estorno a `DE-103` e `DE-104`; a revisão de layout mantém `DL-086`,
-  `DE-101` e `BL-689` a `BL-697`.
-- A DL-084 e a DL-088 (frentes A2 e B) têm **ciclo de auditoria encerrado**
-  — rodada 1, correção única e reconferência APROVADA nas duas. Trabalho em
-  curso: o **PR com tudo o que estiver auditado** (DL-082, DL-084, DL-085,
-  DL-088, DL-089 e a DL-090 de documentação, mais a integração da `main`
-  pela DE-105) e o merge com os quatro checks verdes (RC-171).
-- A ordem de retomada segue a do fechamento de 10/10, abaixo: DL-088 frentes
-  A2 e B com auditoria; PR com tudo o que estiver auditado e merge com os
-  quatro checks verdes (RC-171); depois DL-087.
-- Seguem com o Fred: PE-90, PE-91 e PE-92; HI-150 e DE-104; HI-151; HI-152.
+- **Integrado na `main` (PR #108, squash `7474b12`)**: DL-082, DL-084, DL-085,
+  DL-088, DL-089 e DL-090, mais a integração da revisão de layout e a
+  reconciliação de identificadores da junção pela
+  [DE-105](../projeto/decisoes.md). Os ciclos de auditoria (§3.1) das duas
+  etapas de nível 1 desta leva — DL-084 e DL-088 — terminaram com
+  **reconferência APROVADA**. Os quatro checks da CI verdes antes do merge
+  (RC-171).
+- **Próximo do roteiro fiscal** (fim do
+  [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md)): DL-087
+  (classificação fiscal versionada — o "acumulador"); depois entradas e
+  compras, ICMS-TO em fatias, integração fiscal → contábil (a DL-089 é a
+  base), livros e obrigações acessórias. Dúvidas de domínio vão ao
+  `contador-senior` antes do Fred (RC-164).
+- **Para o Fred decidir ou validar:** PE-90, PE-91 e PE-92 (calendário da
+  virada); HI-150 e DE-104 (importação e zeramento contam como automáticos
+  no estorno?); HI-151 (encerramento da medida cobre o trimestre?); HI-152
+  (monofasia em 2027; algum cliente na Zona Franca?); P15 (frete na receita
+  de 2027).
+- **Aberto no produto:** BL-701 (estado do trimestre no Presumido), BL-702,
+  BL-703 (testes de concorrência flutuantes), BL-704 (fórmulas do sublimite),
+  os resíduos BL-698 a BL-700 e os BL-689 a BL-697 da revisão de layout.
 
 **[DL-086](../planos/DL-086-revisao-de-layout-e-acessos.md) — Revisão de
 layout, botões, páginas e acessos: INTEGRADA** pelo
