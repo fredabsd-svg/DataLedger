@@ -142,6 +142,37 @@ das DL-081 e DL-085). NFS-e prestada e tomada ficam como estão.
 - NFS-e prestada e tomada;
 - reprocessamento de efetivadas por mudança de regra.
 
+## Ajustes pela consulta ao contador-senior (12/10/2026)
+
+[Consulta](../projeto/consultas/2026-10-12-contador-senior-dl087-regras.md)
+feita por ordem do Fred (RC-178). A resposta é decisão delegada, reversível
+pelo Fred. Ela **substitui** o escopo acima nestes pontos, e os ajustes foram
+repassados à frente A em desenvolvimento:
+
+1. **Precedência por pesos fixos, não por ordem manual** (PE-91, item 1). Os
+   pesos passam a ser potências de dois, para que conjuntos diferentes de
+   critérios nunca empatem: CFOP 16, NCM exato 8, NCM por prefixo 4,
+   CST/CSOSN 2, `idDest` 1. Os pesos não são configuráveis por escritório.
+2. Entre prefixos de NCM, vence o **mais longo**.
+3. **Conflito é só natureza diferente.** Empate de regras que apontam a mesma
+   natureza dá a sugestão, e o motivo nomeia as regras.
+4. **Regra com resultado de combustível exige NCM** (exato ou prefixo). Se o
+   NCM alcança lubrificante, a criação vem com aviso. É a HI-139 em forma de
+   dado.
+5. Regra de escritório com CST de regime normal vem com o aviso de que não
+   alcança clientes do Simples, que emitem CSOSN.
+6. **A origem da sugestão aceita fica gravada** na natureza confirmada:
+   regra, produto, padrão da empresa ou escolha manual. A lista de regras
+   mostra quantos itens cada uma alcançou.
+7. **Prévia de impacto** antes de salvar a regra, sem gravar nada.
+8. A fila e a regra respeitam o mês que não aceita mais escrituração.
+9. Sem aprovação prévia de regra: a natureza já é confirmada pelo contador.
+   A revisão posterior é feita pela lista, pela trilha e pela origem gravada.
+   Sem "duplicar regra".
+
+Mutantes acrescentados ao critério 8: pesos que empatam conjuntos distintos;
+conflito com a mesma natureza; combustível sem NCM aceito.
+
 ## Critérios de aceite
 
 1. **Sem regra cadastrada, nada muda.**
