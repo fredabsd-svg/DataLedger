@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block titulo %}Regras do produto{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_escrituracao }}">NF-e a escriturar</a></li>
+            <li aria-current="page">Regras do produto</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_escrituracao }}">‹ Voltar para as NF-e a escriturar</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-087 (frente B), tela de consulta (arquétipo A), SÓ LEITURA. Descreve, em palavras, a sugestão embutida
+do produto, linha por linha, com a fonte que o código cita. A fonte é a documentação citada no código e no
+plano; NÃO é norma relida nesta tela. O escritório não altera estas linhas: ensina regra nova pelas regras
+de classificação, que vêm por cima delas.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Regras do produto</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Esta é a sugestão de natureza que o produto já traz, em palavras. Ela vale quando nenhuma regra do
+        escritório ou da empresa casa com o item. Só leitura: as linhas vêm do código do produto e não mudam
+        por esta tela. A coluna "Fonte" diz de onde cada linha vem; não é norma relida aqui.
+    </p>
+
+    <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0" aria-label="Sugestão embutida do produto, em palavras, com o resultado e a fonte de cada linha">
+        <table class="tabela-dados">
+            <caption>Sugestão embutida do produto: sinal que o item tem, natureza que a sugestão dá e fonte citada pelo código</caption>
+            <thead>
+                <tr>
+                    <th scope="col">Sinal no item ou na nota</th>
+                    <th scope="col">Resultado</th>
+                    <th scope="col">Fonte</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for linha in regras %}
+                    <tr>
+                        <td>{{ linha.sinal }}</td>
+                        <td>{{ linha.resultado }}</td>
+                        <td class="texto-apoio">{{ linha.fonte }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}

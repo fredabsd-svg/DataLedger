@@ -22,6 +22,11 @@ from apps.fiscal.views_web import (
     atividade_encerrar,
     atividade_nova,
     atividades,
+    classificacao_fila,
+    classificacao_produto,
+    classificacao_regra_desativar,
+    classificacao_regra_nova,
+    classificacao_regras,
     conferencia_escrituracao,
     documento_detalhe,
     documento_xml,
@@ -142,6 +147,30 @@ urlpatterns = [
     path("nfe/escrituracao/", nfe_a_escriturar, name="nfe_a_escriturar"),
     path("nfe/escrituracao/conferencia/", nfe_conferencia, name="nfe_conferencia"),
     path("nfe/escrituracao/reclassificar/", nfe_reclassificar, name="nfe_reclassificar"),
+    # DL-087 (frente B): regras de classificação de NF-e, prévia de impacto, fila "a classificar"
+    # e regras do produto (só leitura). A empresa vai no caminho; a regra e o grupo são buscados
+    # DENTRO dela (404 fora). Quem pode criar regra do escritório é decidido no servidor, na view.
+    path(
+        "nfe/classificacao/empresas/<int:empresa_id>/regras/",
+        classificacao_regras,
+        name="classificacao_regras",
+    ),
+    path(
+        "nfe/classificacao/empresas/<int:empresa_id>/regras/nova/",
+        classificacao_regra_nova,
+        name="classificacao_regra_nova",
+    ),
+    path(
+        "nfe/classificacao/empresas/<int:empresa_id>/regras/<int:regra_id>/desativar/",
+        classificacao_regra_desativar,
+        name="classificacao_regra_desativar",
+    ),
+    path(
+        "nfe/classificacao/empresas/<int:empresa_id>/fila/",
+        classificacao_fila,
+        name="classificacao_fila",
+    ),
+    path("nfe/classificacao/produto/", classificacao_produto, name="classificacao_produto"),
     # DL-085 (frente B): escrituração do mês em lote. A empresa vai no caminho; o mês, na
     # querystring (GET) ou no formulário (POST). A prévia, o lote e as notas são buscados DENTRO
     # da empresa, e lote de outra empresa é 404.

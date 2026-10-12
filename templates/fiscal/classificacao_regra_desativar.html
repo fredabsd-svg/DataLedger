@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block titulo %}Desativar regra n.º {{ regra.id }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_regras }}">Regras de classificação</a></li>
+            <li aria-current="page">Desativar regra</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_regras }}">‹ Voltar para as regras</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-087 (frente B), arquétipo E (confirmação de ação sensível): diz o que vai acontecer e o que NÃO
+muda. Desativar não apaga a regra e não altera nota efetivada; o motivo é obrigatório e fica na
+trilha de auditoria, com quem desativou e quando.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Desativar regra n.º {{ regra.id }}</h1>{% endblock %}
+
+{% block content %}
+    <section class="painel-etapa painel-etapa--risco" aria-labelledby="id_o_que_vai_acontecer">
+        <h2 id="id_o_que_vai_acontecer">O que vai acontecer</h2>
+        {% if regra.ativa %}
+            <p>{{ efeito }}</p>
+            <p>A regra não é apagada: critérios, alcance, autor e motivo ficam registrados. Para mudar um critério, desative esta e crie outra.</p>
+        {% endif %}
+    </section>
+
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Alcance</dt>
+            <dd>{{ regra.escopo_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Critérios</dt>
+            <dd>{{ regra.criterios }}</dd>
+        </div>
+        <div>
+            <dt>Natureza resultante</dt>
+            <dd>{{ regra.natureza_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Vigência</dt>
+            <dd>{{ regra.vigencia }}</dd>
+        </div>
+        <div>
+            <dt>Itens confirmados a partir desta regra</dt>
+            <dd class="valor-monetario">{{ regra.itens_confirmados }}</dd>
+        </div>
+    </dl>
+
+    {% if regra.ativa %}
+        <form method="post" action="{{ url_post }}" class="formulario">
+            {% csrf_token %}
+            <div class="campo">
+                <label for="id_motivo">Motivo da desativação (obrigatório)</label>
+                <textarea id="id_motivo" name="motivo" required rows="3" maxlength="{{ motivo_maximo }}"
+                          aria-describedby="ajuda_motivo{% if erro %} erro_motivo{% endif %}">{{ motivo }}</textarea>
+                <p class="texto-apoio" id="ajuda_motivo">
+                    Fica na trilha de auditoria desta regra, com quem desativou e quando. Até {{ motivo_maximo }} caracteres.
+                </p>
+                {% if erro %}
+                    <p class="mensagem mensagem-error" role="alert" id="erro_motivo"><strong>Erro:</strong> {{ erro }}</p>
+                {% endif %}
+            </div>
+            <div class="acoes-formulario">
+                <a class="botao botao--secundario" href="{{ url_regras }}">Cancelar</a>
+                <button type="submit" class="botao botao--perigoso">Desativar a regra n.º {{ regra.id }}</button>
+            </div>
+        </form>
+    {% else %}
+        <p class="mensagem mensagem-info" role="status">
+            Esta regra já está desativada{% if regra.desativacao %}: desativada {{ regra.desativacao }}{% endif %}. Nada a fazer.
+        </p>
+        <p><a class="botao botao--secundario" href="{{ url_regras }}">Voltar para as regras</a></p>
+    {% endif %}
+{% endblock %}

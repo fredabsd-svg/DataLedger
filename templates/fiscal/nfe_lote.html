@@ -37,6 +37,11 @@ conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do
         Agrupa as NF-e e NFC-e do mês que ainda não estão efetivadas, por tipo, CFOP, CST ou CSOSN e natureza
         sugerida. Cada nota é efetivada pela mesma regra da escrituração individual: o lote não tem atalho.
     </p>
+    {% if url_fila %}
+        <p class="texto-apoio">
+            <a href="{{ url_fila }}">Ver as notas a classificar do mês (sem sugestão ou em conflito)</a>
+        </p>
+    {% endif %}
     {% if not pode_escriturar %}
         <p id="id_motivo_sem_escrita" class="texto-apoio">Seu papel só consulta: ler e confirmar o lote é de quem escritura.</p>
     {% endif %}
@@ -200,7 +205,7 @@ conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do
                                         <td>{{ grupo.tipo_rotulo }}</td>
                                         <td>{% for combinacao in grupo.combinacoes %}{{ combinacao.cfop }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
                                         <td>{% for combinacao in grupo.combinacoes %}{{ combinacao.cst_csosn }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
-                                        <td>{% for combinacao in grupo.combinacoes %}{{ combinacao.natureza_rotulo }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
+                                        <td>{% for combinacao in grupo.combinacoes %}{{ combinacao.natureza_rotulo }}<br><span class="texto-apoio">Origem: {% if combinacao.origem_url %}<a href="{{ combinacao.origem_url }}">{{ combinacao.origem_texto }}</a>{% else %}{{ combinacao.origem_texto }}{% endif %}</span>{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
                                         <td class="valor-monetario">{{ grupo.notas }}</td>
                                         <td class="valor-monetario">{{ grupo.itens }}</td>
                                         <td class="valor-monetario">{{ grupo.receita_ptbr }}</td>
