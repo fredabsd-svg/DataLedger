@@ -189,8 +189,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
   [DL-087](../planos/DL-087-classificacao-fiscal-versionada.md), corte 1
   reordenado (DE-107): regras de classificação do escritório e da empresa por
   cima da sugestão embutida, fila "a classificar" e telas. Consulta ao
-  `contador-senior` aplicada (pesos fixos, HI-153). **Frente A integrada**
-  (migrações `fiscal 0019` e `0020`); frente B (telas) em desenvolvimento. Outra sessão não deve mexer nos mesmos arquivos ao mesmo
+  `contador-senior` aplicada (pesos fixos, HI-153). **Frentes A e B integradas**
+  (migrações `fiscal 0019` e `0020`; telas de regras, fila, regras do produto
+  e origem da sugestão). Auditoria, rodada 1, em andamento. Outra sessão não deve mexer nos mesmos arquivos ao mesmo
   tempo.
 - **Próximo do roteiro fiscal** (fim do
   [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md)): DL-087

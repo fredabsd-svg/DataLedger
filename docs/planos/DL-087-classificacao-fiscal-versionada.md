@@ -199,6 +199,29 @@ testes novos; nove mutantes derrubam testes.
 
 Próximo: frente B (telas), depois a auditoria.
 
+## Entrega da frente B (12/10/2026)
+
+Integrada na branch. São cinco telas:
+- regras da empresa, com a ordem de decisão e os pesos publicados;
+- nova regra, com prévia de alcance com e sem cada critério opcional;
+- desativar, com motivo obrigatório;
+- fila "a classificar" do mês;
+- regras do produto.
+
+A origem da sugestão aparece na escrituração e no lote, e a lista "NF-e a
+escriturar" e o lote ganharam link para a fila. Medido pelo desenvolvedor:
+78 testes novos.
+
+Ajustes de integração do arquiteto:
+- as cinco rotas entraram no teste de cobertura de telas;
+- "Regras do produto" entrou no menu. As regras de cada empresa e a fila
+  pedem a empresa e são abertas a partir da lista.
+
+Limitações declaradas:
+- a origem no lote não separa sugestão do produto de padrão da empresa;
+- a prévia chama o serviço até quatro vezes;
+- sem verificação em navegador real.
+
 ## Critérios de aceite
 
 1. **Sem regra cadastrada, nada muda.**
