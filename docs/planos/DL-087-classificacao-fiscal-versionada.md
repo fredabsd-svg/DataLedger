@@ -222,6 +222,59 @@ Limitações declaradas:
 - a prévia chama o serviço até quatro vezes;
 - sem verificação em navegador real.
 
+## Decisões para a correção (rodada 1)
+
+A [rodada 1](../auditorias/2026-10-12-dl-087-rodada-1.md) foi **reprovada**:
+A1 é alto, A2 a A8 são médios e A9 a A13 são baixos. O que se sustenta:
+- sem regra, a sugestão é idêntica à anterior em 2.852.352 combinações;
+- precedência, vigência, isolamento, permissões e imutabilidade no banco;
+- 30 de 35 mutantes morrem.
+
+Decisões do arquiteto para a correção única (§3.1), reversíveis pelo Fred:
+
+- **A1 (alta): desativar passa a ser revogar.** A regra desativada deixa de
+  casar com **qualquer** nota, pendente ou futura. A escrituração efetivada
+  guarda a origem que teve, e nada nela muda. Não há "encerrar vigência" no
+  corte 1: quem quer uma regra com fim cria-a já com o fim. A assinatura do
+  lote muda, e a confirmação com a prévia antiga recebe 409. Os rótulos de
+  origem marcam "desativada", e os textos da tela de desativação dizem o
+  novo efeito. Isso substitui a frase do escopo 4 sobre o histórico.
+- **A2:** a prévia verifica a duplicidade antes de calcular e responde 409
+  com a mensagem; a ordenação tolera regra ainda sem número.
+- **A3:** a contagem de itens confirmados é filtrada pela empresa da URL, na
+  API, na lista e na desativação.
+- **A4:** identificador de assinatura malformado responde 400.
+- **A5:** NCM só com dígitos ASCII (e pontos); qualquer outro caractere é
+  recusado com 400 e mensagem.
+- **A6:** o índice das regras passa a separar NCM exato, prefixos e regras
+  sem NCM, para que 50 regras no **mesmo** CFOP das notas não custem 50
+  comparações por item. A prévia da tela calcula todas as variantes numa
+  passada só. A medida de volume é refeita com as regras nos CFOP reais das
+  notas, e o número vai para o plano. Se os 10% do critério 7 não forem
+  alcançáveis, o desenvolvedor informa a medida, e o arquiteto decide.
+- **A7:** fica a decisão de **avisar** e não bloquear o mês confirmado,
+  registrada na DE-108. O aviso passa a aparecer também na prévia do lote e
+  na prévia de impacto.
+- **A8:**
+  - a nota efetivada mostra a **origem gravada**, com a regra e a marca de
+    desativada, e não a sugestão de hoje;
+  - a lista de regras ganha "ver notas", com as notas e os itens confirmados
+    a partir de cada regra, filtrados pela empresa;
+  - a tabela de origem ganha gatilho de imutabilidade para escrituração
+    efetivada.
+- **A9:** a reversão da 0020 também recusa quando houver origem gravada.
+- **A10:** o teste de equivalência usa CFOP sem ponto e inclui regras que não
+  casam.
+- **A11:** testes da origem na reclassificação em massa e da natureza
+  escolhida que continua selecionada na tela.
+- **A12:** o texto das regras do produto é corrigido (sufixos x.501, x.502,
+  x.910, x.911) e a referência ao teste inexistente sai.
+- **A13:**
+  - Enter no formulário não dispara "atualizar";
+  - "Criar regra" na fila vira botão secundário pequeno;
+  - a lista de regras pagina;
+  - o gatilho recusa TRUNCATE e desativação por SQL que não seja revogação.
+
 ## Critérios de aceite
 
 1. **Sem regra cadastrada, nada muda.**
