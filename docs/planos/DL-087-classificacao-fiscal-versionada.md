@@ -300,6 +300,28 @@ pelo arquiteto (item abaixo). Os 19 mutantes da correção morrem.
   - a API da lista de regras não pagina; a tela e "ver notas" paginam;
   - o aviso do mês está no serviço e nas telas, mas não na API do lote.
 
+## Decisões tomadas na reconferência
+
+[Reconferência](../auditorias/2026-10-12-dl-087-reconferencia.md): **aprovada
+com ressalvas**. A1 está resolvido em todos os pontos testados, e não houve
+achado alto novo. Medido pela auditoria: suíte completa 10.114/1/56 (a falha
+é a de ambiente); 25 de 28 mutantes morrem.
+
+A medida de volume da auditoria não reproduziu os ±5% do desenvolvedor: deu
+de +5% a +17%, dentro do ruído de 16% entre repetições. A confirmação ficou
+em +7,6%, dentro dos 10% do critério 7.
+
+Era a última rodada. Os ajustes abaixo são do arquiteto (§3.1):
+
+- **R1:** a página de "ver notas" na API tem teto; página enorme responde
+  400, e não mais 500.
+- **R3:** a migração 0019 documenta que um teste transacional que grava
+  regra precisa apagá-la antes de terminar.
+- **R4:** testes da guarda da DL-082 com nota efetivada sem origem gravada e
+  do 404 de "ver notas" para regra de outro escritório e da empresa
+  vizinha.
+- **R2, R5, R6** e os limites declarados foram para o BL-705.
+
 ## Critérios de aceite
 
 1. **Sem regra cadastrada, nada muda.**

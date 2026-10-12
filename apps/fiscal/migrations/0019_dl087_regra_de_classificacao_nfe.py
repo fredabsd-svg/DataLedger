@@ -14,6 +14,9 @@
 # - TRUNCATE de tabela COM regra é recusado. Tabela vazia pode ser truncada: é o que o `flush` dos
 #   testes transacionais faz em todas as tabelas, e não apaga dado de ninguém. Limite declarado: quem
 #   é dono da tabela pode removê-la com DROP, e isso o banco não impede sozinho.
+#   Reconferência, R3: por isso um teste `django_db(transaction=True)` que GRAVA regra falha no
+#   `flush` do fim. Esse teste precisa revogar e apagar as regras antes de terminar, ou usar o
+#   `django_db` comum (transação desfeita, sem flush). O `manage.py flush` também recusa com regra.
 
 import django.db.models.deletion
 from django.conf import settings

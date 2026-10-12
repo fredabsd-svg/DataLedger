@@ -422,3 +422,46 @@ def test_lista_de_regras_informa_pesos_e_contagem_de_itens_confirmados(client, g
     assert corpo["pesos"]["cfop"] == 16
     assert corpo["regras"][0]["itens_confirmados"] == 0
     assert date(2026, 3, 1).isoformat() == corpo["regras"][0]["vigencia_inicio"]
+
+
+# ---------------------------------------------------------------------------
+# Reconferência (ajustes do arquiteto): R1 e R4(b)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("pagina", ["99999999999999999999", "9223372036854775807", "1000001"])
+def test_r1_ver_notas_com_pagina_enorme_responde_400_e_nao_500(client, gestor, empresa, pagina):
+    client.force_login(gestor)
+    criada = _post(client, _url("nfe_classificacao_regras", empresa.pk), _corpo(escopo="empresa"))
+    regra = criada.json()["regra"]["id"]
+
+    resposta = client.get(
+        _url("nfe_classificacao_regra_notas", empresa.pk, regra), {"pagina": pagina}
+    )
+
+    assert resposta.status_code == 400
+
+
+def test_r4b_ver_notas_de_regra_de_outro_escritorio_responde_404(
+    client, gestor, gestor_b, empresa, empresa_b
+):
+    client.force_login(gestor_b)
+    criada = _post(
+        client, _url("nfe_classificacao_regras", empresa_b.pk), _corpo(escopo="escritorio")
+    )
+    regra_b = criada.json()["regra"]["id"]
+    client.force_login(gestor)
+
+    resposta = client.get(_url("nfe_classificacao_regra_notas", empresa.pk, regra_b))
+
+    assert resposta.status_code == 404
+
+
+def test_r4b_ver_notas_de_regra_da_empresa_vizinha_responde_404(client, gestor, empresa, vizinha):
+    client.force_login(gestor)
+    criada = _post(client, _url("nfe_classificacao_regras", vizinha.pk), _corpo(escopo="empresa"))
+    regra_vizinha = criada.json()["regra"]["id"]
+
+    resposta = client.get(_url("nfe_classificacao_regra_notas", empresa.pk, regra_vizinha))
+
+    assert resposta.status_code == 404

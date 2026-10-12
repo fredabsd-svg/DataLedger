@@ -308,6 +308,9 @@ class RegrasDaEmpresaView(_EmpresaComIdValido, APIView):
         )
 
 
+_PAGINA_MAXIMA = 1_000_000
+
+
 def _paginacao(request) -> tuple[int, int]:
     """(página, tamanho) da consulta. Fora da faixa ou não inteiro: 400, nunca 500."""
     try:
@@ -315,9 +318,12 @@ def _paginacao(request) -> tuple[int, int]:
         tamanho = int(request.query_params.get("tamanho") or _TAMANHO_PADRAO_DA_PAGINA)
     except ValueError as exc:
         raise DRFValidationError("'pagina' e 'tamanho' devem ser números inteiros.") from exc
-    if pagina < 1 or not 1 <= tamanho <= _TAMANHO_MAXIMO_DA_PAGINA:
+    # Reconferência da DL-087, R1 (ajuste do arquiteto): página enorme estourava o `bigint` do
+    # OFFSET no banco (500). Um teto bem acima de qualquer volume real responde 400.
+    if not 1 <= pagina <= _PAGINA_MAXIMA or not 1 <= tamanho <= _TAMANHO_MAXIMO_DA_PAGINA:
         raise DRFValidationError(
-            f"'pagina' deve ser 1 ou mais, e 'tamanho' de 1 a {_TAMANHO_MAXIMO_DA_PAGINA}."
+            f"'pagina' deve ser de 1 a {_PAGINA_MAXIMA}, e 'tamanho' de 1 a "
+            f"{_TAMANHO_MAXIMO_DA_PAGINA}."
         )
     return pagina, tamanho
 

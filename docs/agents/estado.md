@@ -194,7 +194,10 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
   e origem da sugestão).
   [Rodada 1](../auditorias/2026-10-12-dl-087-rodada-1.md) **reprovada** (A1
   alta: desativar não desfazia a regra nas notas pendentes); correção única
-  integrada (desativar passa a revogar; DE-108). Reconferência em andamento. Outra sessão não deve mexer nos mesmos arquivos ao mesmo
+  integrada (desativar passa a revogar; DE-108);
+  [reconferência](../auditorias/2026-10-12-dl-087-reconferencia.md) **aprovada
+  com ressalvas**, com os ajustes do arquiteto R1, R3 e R4 e os resíduos no
+  BL-705. **Ciclo de auditoria encerrado.** Próximo: PR e merge (RC-171). Outra sessão não deve mexer nos mesmos arquivos ao mesmo
   tempo.
 - **Próximo do roteiro fiscal** (fim do
   [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md)): DL-087
