@@ -185,6 +185,12 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
   etapas de nível 1 desta leva — DL-084 e DL-088 — terminaram com
   **reconferência APROVADA**. Os quatro checks da CI verdes antes do merge
   (RC-171).
+- **Em andamento, nesta sessão (RC-177, 12/10/2026):**
+  [DL-087](../planos/DL-087-classificacao-fiscal-versionada.md), corte 1
+  reordenado (DE-107): regras de classificação do escritório e da empresa por
+  cima da sugestão embutida, fila "a classificar" e telas. Frente A em
+  desenvolvimento. Outra sessão não deve mexer nos mesmos arquivos ao mesmo
+  tempo.
 - **Próximo do roteiro fiscal** (fim do
   [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md)): DL-087
   (classificação fiscal versionada — o "acumulador"); depois entradas e

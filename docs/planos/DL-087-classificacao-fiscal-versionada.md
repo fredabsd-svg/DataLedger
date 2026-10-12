@@ -5,8 +5,7 @@ sistema de referência e codar o que falta. **Estado:**
 [fonte única](../agents/estado.md). **Branch:** `ccr-bf4b4a55-hpqgbp` →
 `main`. **Risco:** nível 1 (§3.1), porque a classificação dirige a receita, o
 pré-DAS e o Presumido. A auditoria faz uma rodada, uma correção e uma
-reconferência. **Executa depois de a DL-085 e a DL-082 serem integradas**,
-porque as três mexem na escrituração de NF-e.
+reconferência. As DL-085 e DL-082 já estão na `main` (PR #108).
 
 ## Base
 
@@ -28,96 +27,171 @@ sugestão também está no código, como `if` em Python.
 - O escritório não consegue ensinar ao produto uma regra nova, como "este
   CFOP com este NCM é combustível para consumo".
 
-## Escopo do corte 1: migrar sem mudar comportamento
+## Revisão do plano (12/10/2026, arquiteto)
 
-1. **Naturezas como dado.**
-   - Tabela de naturezas com código, nome, tipo de movimento, papel na
-     receita, mercado, documentos admitidos, situação e vigência.
-   - Tabela de **regras tributárias** por natureza × regime × tributo ×
-     vigência, com fonte e situação (confirmada, hipótese, desativada).
-   - No corte 1, os tributos são só os que já existem:
-     - receita: papel, mercado e segregação do Simples;
-     - anexo do Simples;
-     - atividade de presunção do Presumido;
-     - situação do ISS.
-   - Migração de dados que carrega o catálogo atual como **pacote global**,
-     com a fonte de cada valor citada no código de hoje.
-   - Os `TextChoices` continuam como chave estável, para não reescrever
-     linhas efetivadas. O `CATALOGO_NATUREZA_NFE` passa a **ler** da tabela,
-     com uma função única de consulta.
-2. **Regras de importação como dado.**
-   - Tabela de regras com critérios: CFOP (código ou faixa), CST/CSOSN do
-     ICMS com equivalência, CST do PIS, NCM (código, prefixo ou lista
-     nomeada), papel da empresa, `idDest`, CRT do emitente e finalidade.
-   - Cada regra tem escopo (global, escritório, empresa), vigência e
-     especificidade calculada.
-   - As regras da sugestão de hoje (`escrituracao_nfe.sugerir_natureza_item`,
-     `tomadas.py`) viram regras **globais**. A sugestão passa a resolver pela
-     tabela, com a mesma resposta nos testes de hoje.
-3. **Precedência explícita:**
-   1. maior especificidade;
-   2. empate: escopo mais próximo da empresa;
-   3. empate: conflito, e o item fica sem sugestão, com as duas regras
-      nomeadas.
+O Fred passou a DL-087 a esta sessão (RC-177). O plano foi relido contra a
+`main` depois do PR #108, e o corte 1 foi **reordenado**. É decisão do
+arquiteto, reversível.
 
-   Os pesos são publicados no código e na tela (HI-142; a escolha entre
-   pesos e ordem manual é a PE-91).
-4. **A sugestão grava a regra que a produziu.** O lote da DL-085 passa a
-   incluir a regra na assinatura do grupo.
-5. **Regra do escritório:**
-   - o escritório cria regra (por exemplo, "CFOP 5.656 com NCM 2710.12.59 →
-     combustível para consumo") e escolhe o escopo, escritório ou empresa;
-   - a regra nunca altera efetivada: ela reaplica só a rascunhos e às notas a
-     escriturar;
-   - a regra global é imutável pelo escritório, que só pode derivar.
-6. **Fila "a classificar"** por empresa e mês. Cada item sem regra ou em
-   conflito aparece com o motivo, os sinais lidos e uma sugestão de regra
-   pré-preenchida. A ação "criar regra e reaplicar aos pendentes" a acompanha.
+- **O que mudou no código desde o plano:** a DL-084 criou o padrão de
+  combustível por empresa (`sugerir_natureza_com_padrao`), já ligado à
+  conferência, ao lote e à API. A DL-088 trouxe o anexo do Simples por
+  vigência no `pre_das.py`.
+- **Por que reordenar:** a sugestão embutida
+  (`escrituracao_nfe.sugerir_natureza_item`) é lógica fina:
+  - combustível pela descrição oficial do CFOP e pelo NCM;
+  - lubrificante fora do 1,6%;
+  - devolução pela coluna indDevol;
+  - conflito entre sinais;
+  - ajuste do CSOSN 500 do posto.
+
+  Convertê-la em linhas de tabela com "a mesma resposta" é o maior risco da
+  etapa e não muda nada que o escritório veja: a camada global é imutável
+  para ele de qualquer jeito (HI-141). O que o escritório precisa já é
+  **ensinar regra nova** e **ver o que ficou sem classificação**.
+- **Novo corte 1:** regras do escritório e da empresa como dado, por cima da
+  sugestão embutida, mais a fila "a classificar" e as telas.
+- **Corte 2:** a sugestão embutida vira linhas do pacote global, as naturezas
+  viram tabela e entram as regras tributárias por natureza × regime × tributo
+  × vigência.
+
+## Escopo do corte 1
+
+Só **NF-e e NFC-e de saída própria e de devolução de venda** (a escrituração
+das DL-081 e DL-085). NFS-e prestada e tomada ficam como estão.
+
+1. **Regra de classificação** (modelo novo, `RegraClassificacaoNFe`).
+   - **Escopo:** escritório (vale para todas as empresas dele) ou empresa.
+   - **Tipo de nota:** saída ou devolução. Ajuste (`finNFe` 2, 3, 5 ou 6)
+     nunca recebe regra.
+   - **Critérios:**
+     - CFOP de 4 dígitos, **obrigatório** e existente na tabela oficial;
+     - NCM opcional, exato ou por prefixo de 2 a 7 dígitos;
+     - CST ou CSOSN do ICMS, opcional, comparado como está na nota;
+     - `idDest` opcional (1, 2 ou 3).
+   - **Resultado:** uma natureza de `NaturezaOperacaoNFe` permitida para o
+     tipo (`naturezas_permitidas`).
+   - **Vigência:** início obrigatório e fim opcional, comparados com a data
+     de emissão da nota.
+   - **Imutável depois de criada.** Para mudar, desativa-se (fim da vigência,
+     com motivo) e cria-se outra. Criar e desativar vão para a trilha.
+   - Duas regras ativas com o mesmo escopo, os mesmos critérios e vigências
+     que se cruzam: a segunda é recusada (409), sem duplicidade silenciosa.
+2. **Resolução da sugestão** (módulo novo `apps/fiscal/classificacao.py`,
+   função única). Para cada item:
+   1. a nota de ajuste, o CFOP fora da tabela e o item sem leitura seguem a
+      sugestão embutida, sem consultar regra;
+   2. as regras **vigentes** do escritório e da empresa que casam com o item;
+   3. entre elas, vence a de **maior especificidade**. Os pesos são publicados
+      no código e na tela: CFOP 8 (sempre), NCM exato 4, NCM por prefixo 2,
+      CST/CSOSN 2, `idDest` 1;
+   4. empate de especificidade: vence o escopo **empresa** sobre o escritório;
+   5. empate de escopo: **conflito**. O item fica sem sugestão, e o motivo
+      nomeia as regras;
+   6. nenhuma regra casa: a sugestão embutida de hoje, **inalterada**, e depois
+      o padrão de combustível da DL-084, como hoje.
+
+   A precedência por pesos é a proposta da HI-142; a escolha entre pesos e
+   ordem manual continua com o Fred (PE-91). A sugestão passa a dizer **de
+   onde veio**: regra n.º X (escopo), sugestão do produto ou padrão da
+   empresa.
+3. **Sem consulta por item.** As regras vigentes são carregadas **uma vez por
+   chamada**, no mesmo ponto em que hoje se lê o padrão de combustível
+   (conferência, lote, API de escrituração, tela). O orçamento de tempo do
+   lote da DL-085 continua valendo (BL-698).
+4. **A regra só muda sugestão.**
+   - Nunca altera escrituração efetivada.
+   - Nunca altera a natureza já escolhida num rascunho.
+   - Muda o que é sugerido nas notas a escriturar, nos itens ainda sem
+     natureza dos rascunhos e na prévia do lote.
+   - A assinatura do grupo do lote inclui a regra que produziu a sugestão:
+     criar ou desativar uma regra muda a prévia, e uma confirmação baseada na
+     prévia antiga recebe 409, como já acontece hoje.
+5. **Fila "a classificar"** por empresa e mês.
+   - Contém os itens das notas a escriturar (lidas e não efetivadas) **sem
+     sugestão** ou **em conflito**.
+   - Os itens são **agrupados** por tipo, CFOP, NCM, CST/CSOSN, `idDest` e
+     motivo, com quantidade de notas, de itens e valor. Um posto com
+     milhares de NFC-e vê grupos, não milhares de linhas.
+   - Cada grupo traz a ação "criar regra" pré-preenchida com os critérios do
+     grupo. A regra criada reaplica sozinha, porque a sugestão é calculada na
+     hora.
+6. **Permissões no servidor:**
+   - regra de **empresa**: quem escritura no fiscal
+     (`PAPEIS_QUE_ESCRITURAM_FISCAL`);
+   - regra de **escritório**: só ADMINISTRADOR e GESTOR, porque vale para
+     todos os clientes;
+   - leitura: quem lê o fiscal;
+   - isolamento: a regra de um escritório nunca casa com a nota de outro.
 7. **API e telas:**
-   - cadastro de regras do escritório;
-   - fila "a classificar";
-   - consulta do pacote global, só leitura.
+   - lista e cadastro de regras, com filtro por escopo e situação, e ação de
+     desativar;
+   - a fila "a classificar";
+   - a página "regras do produto", só leitura: descreve em palavras a
+     sugestão embutida, com a fonte de cada linha;
+   - a sugestão mostrada na escrituração e no lote diz a origem.
 
 **Fica fora do corte 1:**
-- regras de ICMS, IPI, PIS/Cofins, IBS/CBS e retenções (cortes seguintes);
-- modelo contábil (DL-088 e integração);
-- forma de pagamento como critério;
-- reprocessamento de efetivadas por mudança de regra;
-- cadastro de produto e de participante.
+- conversão da sugestão embutida em linhas do pacote global;
+- naturezas como tabela;
+- regras tributárias por tributo e vigência (ICMS, IPI, PIS/Cofins,
+  IBS/CBS, retenções);
+- CST do PIS, lista nomeada de NCM, equivalência CST × CSOSN, CRT e
+  participante como critério;
+- modelo contábil (integração fiscal → contábil);
+- NFS-e prestada e tomada;
+- reprocessamento de efetivadas por mudança de regra.
 
 ## Critérios de aceite
 
-1. **Sem mudança de comportamento.**
-   - A suíte inteira passa sem mudar expectativa. As únicas exceções são os
-     testes que olhavam a implementação do catálogo, listados e justificados.
-   - Um teste de equivalência compara a sugestão antiga com a nova sobre o
-     corpus de notas dos testes e sobre todos os CFOP da tabela oficial.
-2. O pacote global carrega cada natureza atual com os mesmos atributos e cita
-   a fonte.
-3. A precedência segue a ordem declarada; o empate dá conflito com as duas
-   regras nomeadas.
-4. Uma regra do escritório:
-   - muda a sugestão de rascunhos e notas a escriturar;
-   - nunca altera efetivada;
-   - tem trilha, vigência, isolamento por escritório e empresa e permissão
-     no servidor.
-5. A fila "a classificar" lista cada item sem regra ou em conflito, com o
-   motivo. Criar a regra pela fila reaplica aos pendentes do mês.
-6. O lote da DL-085 continua equivalente ao individual.
-7. **Mutação:** cada um destes defeitos derruba teste:
+1. **Sem regra cadastrada, nada muda.**
+   - A suíte inteira passa sem mudar expectativa.
+   - Um teste de equivalência compara, sem regra, a sugestão nova com a de
+     `sugerir_natureza_com_padrao` sobre todos os CFOP da tabela oficial (com
+     NCM de combustível, de lubrificante e comum; CST/CSOSN de ST e comum;
+     `idDest` 1 e 3; saída e devolução).
+2. A precedência segue a ordem declarada, com testes escritos à mão para
+   cada degrau: especificidade, escopo e conflito com as duas regras
+   nomeadas.
+3. A vigência é respeitada nas duas pontas, contra a data de emissão da nota.
+4. Uma regra:
+   - muda a sugestão das notas a escriturar e da prévia do lote;
+   - não muda efetivada nem natureza já escolhida em rascunho;
+   - tem trilha de criação e de desativação;
+   - respeita o isolamento por escritório e empresa e a permissão no servidor
+     (403 e 404 testados).
+5. Regra com natureza incompatível com o tipo, CFOP fora da tabela, ajuste
+   ou duplicada é recusada com mensagem.
+6. A fila agrupa e lista cada item sem sugestão ou em conflito, com o motivo.
+   Criar a regra pela fila esvazia o grupo.
+7. O lote da DL-085 continua equivalente ao individual, e a medida de volume
+   (10.000 NFC-e) não piora mais que 10% com 50 regras cadastradas.
+8. **Mutação:** cada um destes defeitos derruba teste:
    - inverter a precedência de escopo;
    - ignorar a vigência;
-   - regra do escritório que altera efetivada;
-   - padrão silencioso quando nada casa.
-8. Regressão completa numa única invocação. Migração aditiva e reversível.
+   - regra que altera efetivada ou natureza escolhida em rascunho;
+   - padrão silencioso quando há conflito;
+   - regra de outro escritório que casa.
+9. Regressão completa numa única invocação, em banco próprio. Migração
+   aditiva e reversível; a reversão recusa se houver regra.
 
 ## Divisão
 
 | Frente | Quem | Arquivos |
 | --- | --- | --- |
-| A — modelos, migração de dados, resolução, sugestão pela tabela, regra do escritório, fila, API | `auxiliar-implementacao` (Haiku), em cópia isolada | `apps/fiscal/models.py`, migrações, módulo novo `classificacao.py`, `escrituracao_nfe.py`, `tomadas.py`, `escrituracao_nfe_lote.py`, APIs; testes `test_dl087_*` |
-| B — telas: regras, fila, pacote global | `auxiliar-implementacao` (Haiku), depois da frente A | `views_web.py`, `templates/fiscal/` |
+| A — modelo, migração, `classificacao.py`, ligação nos pontos de sugestão, fila (serviço), API | `auxiliar-implementacao` (Haiku), em cópia isolada | `apps/fiscal/models.py`, migração nova, `apps/fiscal/classificacao.py`, `escrituracao_nfe.py`, `escrituracao_nfe_lote.py`, API e `urls_api.py`, `apps/core/restricoes.py`; testes `test_dl087_*` |
+| B — telas: regras, fila, regras do produto, origem da sugestão | `auxiliar-implementacao` (Haiku), depois da frente A | `views_web.py`, `urls_web.py`, `templates/fiscal/`; testes `test_dl087_telas*` |
 | Auditoria | `auditor-qa` (Sonnet) | sem escrita |
+
+## Corte 2 (adiado)
+
+O que o plano original punha no corte 1 e saiu na revisão de 12/10/2026:
+
+- naturezas como tabela com vigência;
+- regras tributárias por natureza × regime × tributo × vigência;
+- conversão da sugestão embutida em pacote global de regras, com o teste de
+  equivalência sobre o corpus;
+- critérios adicionais da HI-142.
 
 ## Reversão
 
