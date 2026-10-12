@@ -146,15 +146,18 @@ from apps.fiscal.models import (
     NaturezaOperacaoNFe,
     NaturezaTomada,
     OpcaoRegimeCaixaSimples,
+    OpcaoRegimeIbsCbsSimples,
     OrigemReceitaInformada,
     PapelDocumento,
     PapelNFe,
     ReceitaInformada,
     ReceitaTrimestralPresumido,
+    RegimeIbsCbsSimples,
     RegimeIss,
     RegimeIssEmpresa,
     RegraIssMunicipio,
     SegmentoDevolucao,
+    SituacaoIpiMantido,
     SituacaoIssReceitaInformada,
     TipoEscrituracaoNFe,
     VinculoDocumentoEmpresa,
@@ -1591,6 +1594,19 @@ def _celula_de_valor(valor, texto_se_nulo):
     return {"texto": _valor_ptbr(valor), "monetario": True}
 
 
+def _texto_do_rbt12_ausente(resultado) -> str:
+    """Por que o RBT12 apurado não tem número, em linguagem de escritório (DL-088, frente B).
+
+    São dois motivos distintos que a tela dizia como um só ("há meses da janela sem confirmação"):
+    o mês pendente e a 1ª faixa (1º e 2º mês de atividade), em que não há RBT12 numérico por regra
+    (`Rbt12.primeira_faixa`, HI-147). A pendência da frente A1 era exatamente esta: a tela dizia o
+    motivo errado quando o real era o início de atividade.
+    """
+    if resultado.primeira_faixa:
+        return "Não apurado: 1ª faixa (1º e 2º mês de atividade), sem RBT12 numérico"
+    return "Não apurável: há meses da janela sem confirmação (lista acima)"
+
+
 def _linhas_do_mercado_no_rbt12(resultado, mercado):
     """Linhas de UM mercado do RBT12. O valor é exato no cálculo; aqui é só exibição."""
     r = resultado.de(mercado)
@@ -1605,9 +1621,7 @@ def _linhas_do_mercado_no_rbt12(resultado, mercado):
         },
         {
             "rotulo": "RBT12 apurado",
-            "celula": _celula_de_valor(
-                r.apurado, "Não apurável: há meses da janela sem confirmação (lista acima)"
-            ),
+            "celula": _celula_de_valor(r.apurado, _texto_do_rbt12_ausente(resultado)),
         },
         {
             "rotulo": "Acumulado no ano (até o período)",
@@ -1656,6 +1670,10 @@ def _bloco_do_rbt12(resultado):
     return {
         "regra": _REGRA_POR_EXTENSO.get(resultado.regra, resultado.regra),
         "apuravel": resultado.apuravel,
+        # DL-088 (frente B): o estado "1ª faixa" tem aviso próprio na tela — sem ele, "não
+        # apurável" aparecia com o motivo de mês pendente mesmo quando o real era o início de
+        # atividade (pendência da frente A1).
+        "primeira_faixa": resultado.primeira_faixa,
         "data_abertura_ptbr": resultado.data_abertura.strftime("%d/%m/%Y"),
         "ano_opcao": resultado.ano_opcao,
         "modo_limite": resultado.modo_limite,
@@ -2187,20 +2205,26 @@ _TRIBUTOS_NA_ORDEM = (
     tabelas.CSLL,
     tabelas.COFINS,
     tabelas.PIS,
+    tabelas.CBS,
     tabelas.CPP,
     tabelas.ISS,
     tabelas.ICMS,
     tabelas.IPI,
+    tabelas.IBS,
 )
+# DL-088 (frente B): CBS e IBS são os tributos do DAS de 2027 no lugar de PIS e Cofins
+# (Res. CGSN 190/2026, art. 4º, IX e X). O rótulo é o do próprio nome oficial.
 _ROTULO_DO_TRIBUTO = {
     tabelas.IRPJ: "IRPJ",
     tabelas.CSLL: "CSLL",
     tabelas.COFINS: "Cofins",
     tabelas.PIS: "PIS/Pasep",
+    tabelas.CBS: "CBS",
     tabelas.CPP: "CPP",
     tabelas.ISS: "ISS",
     tabelas.ICMS: "ICMS",
     tabelas.IPI: "IPI",
+    tabelas.IBS: "IBS",
 }
 _ROTULO_DO_SEGMENTO = {
     servico_pre_das.SEG_NORMAL: "Receita normal (ISS devido pelo prestador)",
@@ -2490,6 +2514,14 @@ def _acao_do_bloqueio(bloqueio, empresa, ano, mes):
             "Não há ação nesta tela: a nota já está efetivada. Se a natureza ou o CFOP estiver "
             "errado, estorne a nota na escrituração e escriture de novo.",
         )
+    # DL-088 (frente B): a recusa de 2027 por falta da opção do semestre leva à tela dela — o dado
+    # que falta se registra ali (art. 22-A da Res. CGSN 190/2026).
+    if codigo == "opcao_regime_regular_nao_informada":
+        return (
+            "Registrar a opção de regime de IBS/CBS",
+            reverse("fiscal_web:opcao_regime_ibs_cbs") + "?" + urlencode({"empresa": empresa.pk}),
+            "",
+        )
     return (
         None,
         None,
@@ -2548,6 +2580,19 @@ def _linha_na_tela(linha, segmento, mercadoria: bool) -> dict:
             "percentual": "—",
             "valor": "desconsiderado",
             "situacao": _situacao_do_desconsiderado(linha.tributo, segmento.segmento),
+        }
+    if linha.deduzido:
+        # DL-088 (art. 22-A): no regime regular as parcelas de CBS e IBS são DEDUZIDAS do DAS. O
+        # valor que entra no DAS é zero, e a coluna nunca mostra um zero digitado: ela diz o que foi
+        # deduzido, com o dispositivo — mesma regra do tributo desconsiderado, acima.
+        return {
+            "tributo": rotulo,
+            "percentual": _percentual_ptbr(linha.percentual),
+            "valor": f"deduzido ({_dinheiro_ptbr(linha.deduzido)})",
+            "situacao": (
+                f"Deduzido do DAS, art. 22-A (regime regular do semestre): {rotulo} não entra no "
+                "DAS deste período."
+            ),
         }
     return {
         "tributo": rotulo,
@@ -2676,6 +2721,37 @@ def _bloco_do_pre_das(resultado) -> dict:
     }
 
 
+def _opcao_do_semestre_na_tela(empresa, ano, mes) -> dict | None:
+    """A opção de regime de IBS/CBS do semestre que valeu para o período, ou `None` (DL-088).
+
+    É o MESMO dado que o motor do pré-DAS consumiu (`receita.opcao_regime_ibs_cbs_registrada`): a
+    tela mostra a opção com a consequência em linguagem de escritório ("CBS e IBS ficam no DAS" ×
+    "CBS e IBS são deduzidos do DAS, art. 22-A"), nunca o código do banco.
+    """
+    semestre = 1 if mes <= 6 else 2
+    linha = servico_receita.opcao_regime_ibs_cbs_registrada(empresa, ano, semestre)
+    if linha is None:
+        return None
+    return {
+        "semestre": f"{semestre}º semestre de {ano}",
+        "rotulo": _ROTULO_DO_REGIME_IBS_CBS.get(linha.regime, linha.regime),
+        "consequencia": _CONSEQUENCIA_DO_REGIME_IBS_CBS.get(linha.regime, ""),
+    }
+
+
+def _primeira_faixa_do_pre_das(empresa, ano, mes) -> bool:
+    """O RBT12 do período está no estado "1ª faixa" (1º e 2º mês de atividade; DL-088, HI-147)?
+
+    O resultado do pré-DAS não carrega o estado; ele vem de `apps.fiscal.rbt12`, a mesma fonte que o
+    motor consumiu — a tela e a API "devem ler `primeira_faixa` para dizer o motivo" (docstring de
+    `Rbt12.apuravel`). Só existe este estado a partir de 2027, então a leitura extra é só ali.
+    """
+    try:
+        return apuracao.rbt12(empresa, ano, mes).primeira_faixa
+    except apuracao.ApuracaoRecusada:
+        return False
+
+
 def _contexto_do_pre_das(empresa, ano, mes) -> dict:
     """Pré-DAS do mês: calcula pelo serviço e traduz a recusa em lista de bloqueios."""
     contexto = {
@@ -2696,6 +2772,13 @@ def _contexto_do_pre_das(empresa, ano, mes) -> dict:
         contexto.update(recusado=False, erro_competencia=exc.mensagem)
         return contexto
     contexto.update(recusado=False, erro_competencia="", **_bloco_do_pre_das(resultado))
+    if ano >= 2027:
+        # DL-088 (frente B, escopo 6): em 2027 em diante a tela mostra a opção do semestre que valeu
+        # e o estado "1ª faixa" do RBT12, quando for o caso.
+        contexto.update(
+            opcao_do_semestre=_opcao_do_semestre_na_tela(empresa, ano, mes),
+            primeira_faixa=_primeira_faixa_do_pre_das(empresa, ano, mes),
+        )
     return contexto
 
 
@@ -8806,7 +8889,7 @@ def _pares_da_escrituracao(documento, escrituracao):
     return [(registro.item, registro.natureza or "") for registro in registros]
 
 
-def _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada):
+def _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada, empresa):
     """(pode, motivo, conferência, divergiu). Efetivar só se habilita quando o serviço aceitaria: a
     checagem é a do próprio serviço (`conferir_valores`, função pura, sem gravar). O servidor
     recusa de novo no POST, por mais que o botão esteja habilitado."""
@@ -8816,7 +8899,10 @@ def _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada):
         return False, "Nota cancelada não pode ser efetivada.", None, False
     # A8: regra de data (receita de 2027) desabilita o botão com o motivo, antes de qualquer conta.
     # O servidor recusa de novo no POST, com a mesma mensagem.
-    motivo_de_data = servico_nfe.motivo_bloqueio_efetivacao(documento)
+    # DL-088 (frente B): a EMPRESA vai junto para o portão de 2027 dizer o motivo REAL (regime
+    # único libera; regime regular, Presumido e opção não informada recusam, cada um nomeado) —
+    # sem ela o motivo é o genérico da data, que era a pendência registrada pela frente A2.
+    motivo_de_data = servico_nfe.motivo_bloqueio_efetivacao(documento, empresa)
     if motivo_de_data is not None:
         return False, motivo_de_data, None, False
     if leitura is None or leitura.estado != LeituraItensNFe.ESTADO_LIDA:
@@ -8842,7 +8928,7 @@ def _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada):
     return True, "", conferencia, False
 
 
-def _recusa_previa_da_efetivacao(vinculo, escrituracao):
+def _recusa_previa_da_efetivacao(vinculo, escrituracao, empresa):
     """Motivo da recusa ANTES de chamar o serviço, em pt-BR, ou `None` se a checagem passa. O
     serviço continua sendo a autoridade: ele confere tudo de novo, dentro da transação."""
     documento = vinculo.documento
@@ -8853,6 +8939,7 @@ def _recusa_previa_da_efetivacao(vinculo, escrituracao):
         escrituracao,
         _pares_da_escrituracao(documento, escrituracao),
         situacao_da_nfe(documento) == "cancelada",
+        empresa,
     )
     return None if pode else motivo
 
@@ -8928,7 +9015,7 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
         ]
 
     pode_efetivar, motivo_efetivar, conferencia, divergiu = (
-        _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada)
+        _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada, empresa)
         if pares
         else (False, "", None, False)
     )
@@ -9064,7 +9151,7 @@ def _escriturar_nfe_post(request, empresa, vinculo):
             )
         if acao == "efetivar":
             # Recusa em pt-BR antes do serviço, que continua a autoridade (ver `_recusa_previa`).
-            recusa = _recusa_previa_da_efetivacao(vinculo, escrituracao)
+            recusa = _recusa_previa_da_efetivacao(vinculo, escrituracao, empresa)
             if recusa:
                 messages.error(request, recusa)
                 return _tela_de_escriturar_nfe(request, empresa, vinculo, status=409)
@@ -9938,3 +10025,413 @@ def nfe_lote(request, empresa_id):
     if progresso is not None:
         return _tela_do_progresso_nfe(request, empresa, progresso)
     return _tela_do_lote_nfe(request, empresa, ano, mes)
+
+
+# ---------------------------------------------------------------------------
+# DL-088, frente B (escopos 3 e 6): a opção de regime de IBS/CBS por semestre e o IPI mantido
+# (Zona Franca) na tela do Simples.
+#
+# São dados do ESCRITÓRIO sobre a empresa (o Fred confirma quais clientes optaram e quais estão na
+# Zona Franca), registrados com trilha pelo SERVIÇO (`apps.fiscal.receita`): a tela lê, mostra e
+# traduz a recusa em linguagem de escritório — nunca grava por conta própria nem transmite
+# obrigação alguma (é cadastro, não declaração). A permissão é a do servidor:
+# `papel_pode_escriturar_fiscal` para registrar e `papel_pode_consultar_documentos` para ler; quem
+# só consulta vê a ação desabilitada com o motivo (direção de arte §2B), nunca sumindo. Telas de
+# UMA empresa não listam as outras (§8.1).
+#
+# Fontes citadas na tela, e só o que elas dizem (AGENTS.md §10): consulta ao contador-senior sobre
+# a virada de 2027, leitura de 09/10/2026 (docs/projeto/consultas/
+# 2026-10-09-contador-senior-virada-2027-simples.md) — Res. CGSN 190/2026, art. 22-A (opção do
+# semestre) e art. 25, § 1º, II (IPI mantido, Zona Franca; HI-148 e HI-152).
+# ---------------------------------------------------------------------------
+
+# As duas opções do semestre, com a consequência dita em linguagem de escritório. O texto é o que o
+# contador lê na tela e na confirmação, e bate com o contrato do motor em
+# `receita.opcao_regime_ibs_cbs_do_semestre` (True/False/None).
+_ROTULO_DO_REGIME_IBS_CBS = {
+    RegimeIbsCbsSimples.REGIME_UNICO: "Regime único",
+    RegimeIbsCbsSimples.REGIME_REGULAR: "Regime regular",
+}
+_CONSEQUENCIA_DO_REGIME_IBS_CBS = {
+    RegimeIbsCbsSimples.REGIME_UNICO: "CBS e IBS ficam no DAS",
+    RegimeIbsCbsSimples.REGIME_REGULAR: "CBS e IBS são deduzidos do DAS, art. 22-A",
+}
+_ROTULO_DA_SITUACAO_IPI_MANTIDO = {
+    SituacaoIpiMantido.IPI_MANTIDO: "IPI mantido (indústria da Zona Franca)",
+    SituacaoIpiMantido.SEM_IPI_MANTIDO: "Sem IPI mantido (produção própria fora da ZFM)",
+}
+
+# O efeito do dado de IPI mantido, dito na tela (Res. CGSN 190/2026, art. 25, § 1º, II; HI-152):
+# produção própria em 2027 vai ao Anexo I; com IPI mantido, ao Anexo II. Enquanto o dado não
+# estiver informado, ele NÃO é presumido: o produto não presume Zona Franca.
+_EFEITO_IPI_MANTIDO = (
+    "O efeito é sobre o Anexo da produção própria em 2027: produção própria vai ao Anexo I; com "
+    "IPI mantido, vai ao Anexo II. Enquanto o dado não estiver informado, ele aparece como não "
+    "informado e nada se presume."
+)
+_SEM_DADO_IPI_MANTIDO = "Não informado (o produto não presume Zona Franca)"
+
+_CONTRATO_OPCAO_REGIME_IBS_CBS = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "ano", "semestre", "regime", "acao"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no registro da opção de regime de IBS/CBS",
+)
+_CONTRATO_IPI_MANTIDO = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "situacao", "fonte"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na definição do IPI mantido",
+)
+
+# Erros campo a campo, em linguagem de escritório (AGENTS.md §7: erro é texto, com o que fazer a
+# seguir). A regra mora no serviço (`receita.registrar_opcao_regime_ibs_cbs`/`definir_ipi_mantido`):
+# a tela só aponta o campo que causou a recusa, como nos parâmetros do Presumido (DL-084, item 6).
+_ERRO_ANO_OPCAO = "Ano da opção: informe o ano com quatro dígitos (AAAA)."
+_ERRO_ANO_OPCAO_FAIXA = (
+    "Ano da opção: a opção de regime de IBS/CBS só existe a partir de 2027 (Res. CGSN 190/2026)."
+)
+_ERRO_SEMESTRE_OPCAO = (
+    "Semestre: escolha o 1º semestre (janeiro a junho) ou o 2º semestre (julho a dezembro)."
+)
+_ERRO_REGIME_OPCAO = (
+    "Regime: escolha regime único (CBS e IBS ficam no DAS) ou regime regular "
+    "(CBS e IBS são deduzidos do DAS, art. 22-A)."
+)
+_ERRO_SITUACAO_IPI = "Situação: escolha IPI mantido (indústria da Zona Franca) ou sem IPI mantido."
+_TEXTO_SEM_PERMISSAO_DA_OPCAO = (
+    "Seu papel consulta a opção de regime de IBS/CBS, mas não a registra: "
+    "peça a um administrador ou gestor do escritório."
+)
+_TEXTO_SEM_PERMISSAO_DO_IPI = (
+    "Seu papel consulta o dado de IPI mantido, mas não o cadastra nem corrige: "
+    "peça a um administrador ou gestor do escritório."
+)
+
+
+def _erros_da_opcao(exc) -> dict:
+    """Recusa do serviço da opção, campo a campo. O resto é recusa geral — a do insert-only, por
+    exemplo, que é a recusa nomeada do serviço em linguagem de escritório, mostrada como está."""
+    mensagem = exc.mensagem
+    if "só existe a partir de 2027" in mensagem:
+        return {"ano": _ERRO_ANO_OPCAO_FAIXA}
+    if mensagem.startswith("'ano'"):
+        return {"ano": _ERRO_ANO_OPCAO}
+    if mensagem.startswith("'semestre'"):
+        return {"semestre": _ERRO_SEMESTRE_OPCAO}
+    if mensagem.startswith("Regime inválido"):
+        return {"regime": _ERRO_REGIME_OPCAO}
+    return {"geral": mensagem}
+
+
+def _erros_do_ipi_mantido(exc) -> dict:
+    """Recusa do serviço do IPI mantido, campo a campo (a `fonte` traz a própria mensagem do
+    serviço, que já é em linguagem de escritório e diz o que fazer)."""
+    mensagem = exc.mensagem
+    if mensagem.startswith("Situação inválida"):
+        return {"situacao": _ERRO_SITUACAO_IPI}
+    if mensagem.startswith("A fonte"):
+        return {"fonte": mensagem}
+    return {"geral": mensagem}
+
+
+def _opcoes_de_regime_na_tela() -> list[dict]:
+    return [
+        {
+            "valor": valor,
+            "rotulo": _ROTULO_DO_REGIME_IBS_CBS[valor],
+            "consequencia": _CONSEQUENCIA_DO_REGIME_IBS_CBS[valor],
+        }
+        for valor, _rotulo in RegimeIbsCbsSimples.choices
+    ]
+
+
+def _validar_opcao_do_formulario(valores) -> dict:
+    """Erros de FORMULÁRIO, campo a campo, antes do serviço (que continua sendo a autoridade)."""
+    erros = {}
+    ano = _inteiro_de_filtro(valores["ano"])
+    if ano is None or len(valores["ano"]) != 4:
+        erros["ano"] = _ERRO_ANO_OPCAO
+    elif ano < 2027:
+        erros["ano"] = _ERRO_ANO_OPCAO_FAIXA
+    if valores["semestre"] not in ("1", "2"):
+        erros["semestre"] = _ERRO_SEMESTRE_OPCAO
+    if valores["regime"] not in RegimeIbsCbsSimples.values:
+        erros["regime"] = _ERRO_REGIME_OPCAO
+    return erros
+
+
+def _opcoes_registradas_na_tela(empresa) -> list[dict]:
+    """As opções já registradas, com o carimbo — o insert-only faz da lista o histórico."""
+    return [
+        {
+            "ano": linha.ano,
+            "semestre": f"{linha.semestre}º semestre",
+            "rotulo": _ROTULO_DO_REGIME_IBS_CBS.get(linha.regime, linha.regime),
+            "consequencia": _CONSEQUENCIA_DO_REGIME_IBS_CBS.get(linha.regime, ""),
+            "registrada_em": linha.registrada_em,
+            "registrada_por": _nome_de_usuario(linha.registrada_por),
+        }
+        for linha in OpcaoRegimeIbsCbsSimples.objects.filter(empresa=empresa)
+        .select_related("registrada_por")
+        .order_by("ano", "semestre")
+    ]
+
+
+def _confirmacao_da_opcao(empresa, valores) -> dict:
+    """A última etapa do registro, nomeando o alvo e o que será gravado (arquétipo E, §2 da direção
+    de arte). A opção do semestre é registrada uma única vez: a tela mostra isso ANTES de gravar."""
+    ano, semestre, regime = int(valores["ano"]), int(valores["semestre"]), valores["regime"]
+    rotulo = _ROTULO_DO_REGIME_IBS_CBS[regime]
+    consequencia = _CONSEQUENCIA_DO_REGIME_IBS_CBS[regime]
+    return {
+        "ano": ano,
+        "semestre": semestre,
+        "regime": regime,
+        "empresa": empresa.razao_social,
+        "texto": (
+            f"Registrar {rotulo.lower()} para o {semestre}º semestre de {ano} de "
+            f"{empresa.razao_social}: {consequencia}. A opção do semestre é registrada uma única "
+            "vez e não pode ser alterada nesta tela."
+        ),
+    }
+
+
+def _tela_da_opcao_regime_ibs_cbs(
+    request, empresa, *, valores=None, erros=None, confirmacao=None, status=200
+):
+    if valores is None:
+        valores = {"ano": "", "semestre": "1", "regime": ""}
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, empresa, algum_filtro_ativo=bool(erros)),
+        "titulo": "Opção de regime de IBS/CBS",
+        "opcoes": _opcoes_registradas_na_tela(empresa),
+        "opcoes_regime": _opcoes_de_regime_na_tela(),
+        "valores": valores,
+        "erros": erros or {},
+        "confirmacao": confirmacao,
+        "pode_registrar": _pode_escriturar(request),
+        "mensagem_sem_permissao": _TEXTO_SEM_PERMISSAO_DA_OPCAO,
+        "url_registrar": reverse("fiscal_web:opcao_regime_ibs_cbs_registrar", args=[empresa.pk]),
+        "url_consulta": (
+            reverse("fiscal_web:opcao_regime_ibs_cbs") + "?" + urlencode({"empresa": empresa.pk})
+        ),
+    }
+    return render(request, "fiscal/opcao_regime_ibs_cbs.html", contexto, status=status)
+
+
+def _tela_de_opcao_sem_empresa(request, *, erros=None, status=200):
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, None, algum_filtro_ativo=bool(erros)),
+        "titulo": "Opção de regime de IBS/CBS",
+        "opcoes": [],
+        "opcoes_regime": _opcoes_de_regime_na_tela(),
+        "erros": erros or {},
+        "pode_registrar": _pode_escriturar(request),
+        "mensagem_sem_permissao": _TEXTO_SEM_PERMISSAO_DA_OPCAO,
+    }
+    return render(request, "fiscal/opcao_regime_ibs_cbs.html", contexto, status=status)
+
+
+@login_required
+@require_safe
+def opcao_regime_ibs_cbs(request):
+    """Opção de regime de IBS/CBS do Simples, por (ano, semestre) — DL-088, escopo 6.
+
+    Consulta por `?empresa=` (como as demais telas do Simples); o registro é POST em
+    `opcao_regime_ibs_cbs_registrar`, com a empresa no caminho. Sem empresa escolhida, a tela pede
+    a escolha; com uma escolhida, nunca lista as outras (direção de arte §8.1).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite consultar a opção de regime de IBS/CBS do Simples."
+        )
+    empresa, erro = _empresa_da_escrituracao(request)
+    if erro:
+        return _tela_de_opcao_sem_empresa(request, erros={"geral": erro}, status=400)
+    if empresa is None:
+        return _tela_de_opcao_sem_empresa(request)
+    return _tela_da_opcao_regime_ibs_cbs(request, empresa)
+
+
+@login_required
+@require_http_methods(["POST"])
+def opcao_regime_ibs_cbs_registrar(request, empresa_id):
+    """Registra a opção de regime de IBS/CBS do semestre (DL-088, escopo 6).
+
+    Insert-only: a opção do semestre é registrada uma única vez, e a segunda tentativa mostra a
+    recusa nomeada do SERVIÇO (`receita.registrar_opcao_regime_ibs_cbs`), em linguagem de
+    escritório. A trilha vem do serviço; esta tela não grava nada por conta própria. Antes de
+    gravar, a última etapa mostra o que será registrado, nomeando o alvo (direção de arte §2,
+    arquétipo E).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite registrar a opção de regime de IBS/CBS do Simples."
+        )
+    empresa = _empresa_escopada(request, empresa_id)
+    valores = {
+        "ano": request.POST.get("ano", "").strip(),
+        "semestre": request.POST.get("semestre", "").strip(),
+        "regime": request.POST.get("regime", "").strip(),
+    }
+    acao = request.POST.get("acao", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_OPCAO_REGIME_IBS_CBS)
+    except DadoNaoContratado as exc:
+        return _tela_da_opcao_regime_ibs_cbs(
+            request, empresa, valores=valores, erros={"geral": exc.mensagem}, status=400
+        )
+    erros = _validar_opcao_do_formulario(valores)
+    if erros:
+        return _tela_da_opcao_regime_ibs_cbs(
+            request, empresa, valores=valores, erros=erros, status=400
+        )
+    if acao != "confirmar":
+        return _tela_da_opcao_regime_ibs_cbs(
+            request, empresa, valores=valores, confirmacao=_confirmacao_da_opcao(empresa, valores)
+        )
+    try:
+        servico_receita.registrar_opcao_regime_ibs_cbs(
+            empresa,
+            int(valores["ano"]),
+            int(valores["semestre"]),
+            valores["regime"],
+            usuario=request.user,
+            request=request,
+        )
+    except servico_receita.EntradaInvalidaReceita as exc:
+        return _tela_da_opcao_regime_ibs_cbs(
+            request, empresa, valores=valores, erros=_erros_da_opcao(exc), status=400
+        )
+    except servico_receita.ReceitaErro as exc:
+        # Recusa nomeada do insert-only (e a de empresa sem Simples no ano): nada foi gravado.
+        return _tela_da_opcao_regime_ibs_cbs(
+            request, empresa, valores=valores, erros={"geral": exc.mensagem}, status=409
+        )
+    messages.success(
+        request,
+        f"Opção registrada: {_ROTULO_DO_REGIME_IBS_CBS[valores['regime']].lower()} para o "
+        f"{valores['semestre']}º semestre de {valores['ano']} de {empresa.razao_social} — "
+        f"{_CONSEQUENCIA_DO_REGIME_IBS_CBS[valores['regime']]}. "
+        "A opção do semestre é registrada uma única vez.",
+    )
+    return redirect(
+        reverse("fiscal_web:opcao_regime_ibs_cbs") + "?" + urlencode({"empresa": empresa.pk})
+    )
+
+
+def _situacao_do_ipi_mantido_na_tela(linha) -> dict:
+    if linha is None:
+        return {
+            "informado": False,
+            "rotulo": _SEM_DADO_IPI_MANTIDO,
+            "fonte": "",
+            "registrada_em": None,
+            "registrada_por": "",
+        }
+    return {
+        "informado": True,
+        "rotulo": _ROTULO_DA_SITUACAO_IPI_MANTIDO.get(linha.situacao, linha.situacao),
+        "fonte": linha.fonte,
+        "registrada_em": linha.registrada_em,
+        "registrada_por": _nome_de_usuario(linha.registrada_por),
+    }
+
+
+def _tela_do_ipi_mantido(request, empresa, *, valores=None, erros=None, status=200):
+    situacao = _situacao_do_ipi_mantido_na_tela(servico_receita.ipi_mantido_registrado(empresa))
+    if valores is None:
+        valores = {"situacao": "", "fonte": ""}
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, empresa, algum_filtro_ativo=bool(erros)),
+        "titulo": "IPI mantido (Zona Franca)",
+        "situacao": situacao,
+        "efeito": _EFEITO_IPI_MANTIDO,
+        "opcoes_situacao": list(SituacaoIpiMantido.choices),
+        "valores": valores,
+        "erros": erros or {},
+        "pode_cadastrar": _pode_escriturar(request),
+        "mensagem_sem_permissao": _TEXTO_SEM_PERMISSAO_DO_IPI,
+        "url_gravar": reverse("fiscal_web:ipi_mantido_gravar", args=[empresa.pk]),
+    }
+    return render(request, "fiscal/ipi_mantido.html", contexto, status=status)
+
+
+def _tela_do_ipi_sem_empresa(request, *, erros=None, status=200):
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, None, algum_filtro_ativo=bool(erros)),
+        "titulo": "IPI mantido (Zona Franca)",
+        "efeito": _EFEITO_IPI_MANTIDO,
+        "opcoes_situacao": list(SituacaoIpiMantido.choices),
+        "erros": erros or {},
+        "pode_cadastrar": _pode_escriturar(request),
+        "mensagem_sem_permissao": _TEXTO_SEM_PERMISSAO_DO_IPI,
+    }
+    return render(request, "fiscal/ipi_mantido.html", contexto, status=status)
+
+
+@login_required
+@require_safe
+def ipi_mantido(request):
+    """IPI mantido (Zona Franca) da empresa — DL-088, escopos 3 e 6.
+
+    Consulta por `?empresa=`; a gravação é POST em `ipi_mantido_gravar`. Sem linha gravada, a tela
+    diz "não informado" — o produto NÃO presume Zona Franca — e explica o efeito do dado.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite consultar o dado de IPI mantido da empresa."
+        )
+    empresa, erro = _empresa_da_escrituracao(request)
+    if erro:
+        return _tela_do_ipi_sem_empresa(request, erros={"geral": erro}, status=400)
+    if empresa is None:
+        return _tela_do_ipi_sem_empresa(request)
+    return _tela_do_ipi_mantido(request, empresa)
+
+
+@login_required
+@require_http_methods(["POST"])
+def ipi_mantido_gravar(request, empresa_id):
+    """Grava (ou corrige) o dado de IPI mantido da empresa (DL-088, escopos 3 e 6).
+
+    Cadastro CORRIGÍVEL, com a `fonte` obrigatória: registrar de novo com outro valor atualiza a
+    linha, e a trilha do serviço guarda antes e depois. A validação é a do serviço
+    (`receita.definir_ipi_mantido`); a tela só aponta o campo que causou a recusa.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite cadastrar o dado de IPI mantido da empresa."
+        )
+    empresa = _empresa_escopada(request, empresa_id)
+    valores = {
+        "situacao": request.POST.get("situacao", "").strip(),
+        "fonte": request.POST.get("fonte", "").strip(),
+    }
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_IPI_MANTIDO)
+    except DadoNaoContratado as exc:
+        return _tela_do_ipi_mantido(
+            request, empresa, valores=valores, erros={"geral": exc.mensagem}, status=400
+        )
+    try:
+        servico_receita.definir_ipi_mantido(
+            empresa, valores["situacao"], valores["fonte"], usuario=request.user, request=request
+        )
+    except servico_receita.EntradaInvalidaReceita as exc:
+        return _tela_do_ipi_mantido(
+            request, empresa, valores=valores, erros=_erros_do_ipi_mantido(exc), status=400
+        )
+    except servico_receita.ReceitaErro as exc:
+        return _tela_do_ipi_mantido(
+            request, empresa, valores=valores, erros={"geral": exc.mensagem}, status=409
+        )
+    messages.success(request, "Dado de IPI mantido registrado para esta empresa.")
+    return redirect(reverse("fiscal_web:ipi_mantido") + "?" + urlencode({"empresa": empresa.pk}))

@@ -166,3 +166,72 @@ Pendências para a A2 e a frente B:
 Reverter o merge volta a recusar 2027. A opção pelo regime regular, se for
 coluna ou tabela nova, sai com a reversão da migração, que recusa se houver
 dado.
+
+## Entrega da frente A2 (11/10/2026)
+
+Commit `849d06d`. O dado que libera 2027 existe de ponta a ponta:
+
+- **Opção de regime de IBS/CBS por semestre** (`OpcaoRegimeIbsCbsSimples`,
+  chave empresa/ano/semestre, migração `0017`): `regime_unico` deixa CBS e
+  IBS no DAS; `regime_regular` deduz as parcelas (art. 22-A); **sem linha =
+  opção não informada**, e a recusa `opcao_regime_regular_nao_informada`
+  continua exatamente como estava. Insert-only, com trilha.
+- **IPI mantido (Zona Franca; HI-152)** (`IpiMantidoZfmEmpresa`, com fonte
+  obrigatória): em 2027 o Anexo II vale só para a indústria com IPI mantido;
+  **ausente não presume ZFM** — produção própria vai ao Anexo I com aviso
+  nomeado na memória (é pré-apuração para conferência; a validação do Fred
+  segue na HI-152).
+- **Receita de NF-e de 2027 (HI-149):** aceita no regime único, com receita
+  igual ao `vProd` e `vProdLiq` guardado como memória quando o leitor o
+  trouxer (BL-687); regime regular e Presumido continuam recusados, com o
+  motivo nomeado. **W16 não se aplica em 2027** — a composição do `vNF` não
+  está publicada (PE-84.4); aplicá-la seria presumir leiaute.
+- **API** de leitura e gravação dos dois dados, com o pré-DAS liberado nas
+  mesmas condições do serviço.
+- 41 testes novos; mutantes mortos: ignorar o IPI mantido, aceitar sem
+  checar o regime e usar a receita do MOC no lugar do `vProd`. Guardas
+  transversais cobertas na integração (arquiteto): as quatro restrições
+  novas registradas em `apps/core/restricoes.py` e os dois modelos na
+  cobertura da trilha (DL-030).
+
+## Entrega da frente B (11/10/2026)
+
+Telas e calendário, pelo padrão das telas irmãs da DL-084 (papel checado
+antes de resolver a empresa, erros campo a campo, §2B):
+
+- **Opção pelo regime regular** (insert-only em duas etapas, nomeando o alvo
+  antes de gravar; a segunda tentativa mostra a recusa nomeada do serviço) e
+  **IPI mantido (Zona Franca)** (cadastro corrigível, fonte obrigatória,
+  "não informado" dito como não informado).
+- **Pré-DAS de 2027 na tela:** CBS e IBS por segmento e no total por
+  tributo, a dedução do art. 22-A por linha ("deduzido (valor)"), a opção do
+  semestre que valeu e o estado "primeira faixa" (lido de
+  `Rbt12.primeira_faixa`).
+- **Pendência da A1 corrigida:** a tela do RBT12 passa a dizer "Não
+  apurado: 1ª faixa (1º e 2º mês de atividade), sem RBT12 numérico" quando o
+  motivo é início de atividade — o texto de mês pendente continua só no caso
+  dele.
+- **Calendário da virada** (parcial única, no fim das telas de receita do
+  mês e do pré-DAS): os quatro prazos do escopo, cada um com o dispositivo
+  (Res. CGSN 194/2026; Res. CGSN 190/2026, arts. 144-D, 144-E e 38-B) e a
+  fonte com a data da leitura (consulta de 09/10/2026). Informativo: nada é
+  registrado nem transmitido (PE-92).
+- **Portão de efetivação de NF-e de 2027:** as telas de escrituração passam
+  a empresa a `motivo_bloqueio_efetivacao` — o botão fica desabilitado com o
+  motivo real (sem opção / regime regular / Presumido) e habilitado no
+  regime único.
+- 25 testes novos; mutantes mortos: inverter a checagem de permissão de uma
+  tela nova e ignorar o regime no botão de efetivar.
+- Inventários vivos atualizados (rotas do DL-024, `ROTULOS_DE_TELA` da
+  trilha). O `mapa-de-telas.md` é levantamento datado da DL-040 (os totais
+  dele já trazem aviso de não recontagem) e não foi recontado.
+- **Flutuante pré-existente registrado:** `test_concorrencia.py::
+  test_corrida_real_de_documento_produz_um_unico_documento` oscila sob
+  carga (1 falha em 3 rodadas isoladas; verde na rodada final) — BL-703.
+- **Pendência declarada:** `presumido.py` chama
+  `motivo_bloqueio_efetivacao` sem a empresa (o booleano é idêntico para o
+  Presumido); o motivo nomeado ali é ajuste de uma linha no domínio do
+  Presumido — BL-702.
+
+Próximo: auditoria independente — rodada 1, correção única, reconferência
+(§3.1).

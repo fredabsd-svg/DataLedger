@@ -1007,6 +1007,25 @@
                                                             <a href="{% url 'fiscal_web:folhas_fator_r' %}">Folha (fator r)</a>
                                                         {% endif %}
                                                     </li>
+                                                    {% comment %}
+                                                    DL-088 (frente B, escopos 3 e 6): a opção de regime de IBS/CBS por
+                                                    semestre e o IPI mantido (Zona Franca). Consultas por ?empresa= (como as
+                                                    demais telas do grupo); o servidor decide cada registro na própria tela.
+                                                    {% endcomment %}
+                                                    <li>
+                                                        {% if pagina_atual == "opcao_regime_ibs_cbs" %}
+                                                            <span class="item-atual" aria-current="page">Opção de regime IBS/CBS</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:opcao_regime_ibs_cbs' %}">Opção de regime IBS/CBS</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "ipi_mantido" %}
+                                                            <span class="item-atual" aria-current="page">IPI mantido (Zona Franca)</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:ipi_mantido' %}">IPI mantido (Zona Franca)</a>
+                                                        {% endif %}
+                                                    </li>
                                                 </ul>
                                             </div>
                                             {% comment %}

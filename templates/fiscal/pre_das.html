@@ -88,6 +88,31 @@ serviço sai como antes.
             <a class="botao botao--secundario" href="{{ url_folhas }}">Folha para o fator r</a>
         </p>
 
+        {% if opcao_do_semestre or primeira_faixa %}
+            {% comment %}
+            DL-088 (frente B, escopo 6): em 2027 em diante a tela mostra a opção do semestre que
+            valeu (com a consequência em linguagem de escritório) e o estado "1ª faixa" do RBT12,
+            quando for o caso. CBS e IBS aparecem por segmento nas tabelas abaixo.
+            {% endcomment %}
+            <div class="painel-etapa">
+                <h2>Virada de 2027</h2>
+                {% if opcao_do_semestre %}
+                    <p>
+                        Opção de regime de IBS/CBS do {{ opcao_do_semestre.semestre }}:
+                        <strong>{{ opcao_do_semestre.rotulo }}</strong> — {{ opcao_do_semestre.consequencia }}.
+                    </p>
+                {% endif %}
+                {% if primeira_faixa %}
+                    <p>
+                        <strong>Primeira faixa (início de atividade).</strong>
+                        O RBT12 deste período está no estado "1ª faixa" (1º e 2º mês de atividade):
+                        não há RBT12 numérico, e o cálculo usa a alíquota nominal da primeira faixa
+                        (Res. CGSN 190/2026, art. 22, § 2º, I).
+                    </p>
+                {% endif %}
+            </div>
+        {% endif %}
+
         <h2>Valor calculado de {{ mes_rotulo }}</h2>
         <dl class="lista-de-definicao">
             <div>
@@ -342,4 +367,10 @@ serviço sai como antes.
             </tbody>
         </table>
     {% endif %}
+
+    {% comment %}
+    DL-088 (escopo 5, PE-92): o calendário de prazos da virada de 2027, com fonte, sempre no fim
+    da tela do Simples — informativo, sem transmitir nada.
+    {% endcomment %}
+    {% include "fiscal/_calendario_virada_2027.html" %}
 {% endblock %}

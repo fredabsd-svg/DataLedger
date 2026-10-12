@@ -215,11 +215,25 @@ de apps.fiscal.rbt12, com o dispositivo que os motiva.
             </dl>
 
             {% if not rbt12.apuravel %}
-                <p class="mensagem mensagem-warning" role="status">
-                    <strong>Não apurável.</strong>
-                    Faltam meses confirmados na janela do RBT12: {{ rbt12.pendentes|join:"; " }}.
-                    O RBT12 só é apurado com todos os meses da janela confirmados.
-                </p>
+                {% if rbt12.primeira_faixa %}
+                    {% comment %}
+                    DL-088 (frente B): a pendência da frente A1 — "não apurável" mostrava o motivo
+                    de mês pendente quando o real era o início de atividade (1ª faixa, HI-147). O
+                    motivo certo é o que o contador lê.
+                    {% endcomment %}
+                    <p class="mensagem mensagem-info" role="status">
+                        <strong>Primeira faixa (início de atividade).</strong>
+                        O RBT12 deste período está no estado "1ª faixa" (1º e 2º mês de atividade):
+                        não há RBT12 numérico, e o cálculo usa a alíquota nominal da primeira faixa
+                        (Res. CGSN 190/2026, art. 22, § 2º, I).
+                    </p>
+                {% else %}
+                    <p class="mensagem mensagem-warning" role="status">
+                        <strong>Não apurável.</strong>
+                        Faltam meses confirmados na janela do RBT12: {{ rbt12.pendentes|join:"; " }}.
+                        O RBT12 só é apurado com todos os meses da janela confirmados.
+                    </p>
+                {% endif %}
             {% endif %}
 
             <table class="tabela-dados">
@@ -293,4 +307,10 @@ de apps.fiscal.rbt12, com o dispositivo que os motiva.
             {% endif %}
         {% endif %}
     {% endif %}
+
+    {% comment %}
+    DL-088 (escopo 5, PE-92): o calendário de prazos da virada de 2027, com fonte, sempre no fim
+    da tela do Simples — informativo, sem transmitir nada.
+    {% endcomment %}
+    {% include "fiscal/_calendario_virada_2027.html" %}
 {% endblock %}

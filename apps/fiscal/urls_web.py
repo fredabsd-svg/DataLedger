@@ -34,6 +34,8 @@ from apps.fiscal.views_web import (
     folha_estornar,
     folha_nova,
     folhas_fator_r,
+    ipi_mantido,
+    ipi_mantido_gravar,
     iss_aliquota_editar,
     iss_aliquota_encerrar,
     iss_aliquota_nova,
@@ -56,6 +58,8 @@ from apps.fiscal.views_web import (
     nfe_recebidas,
     nfe_reclassificar,
     notas_a_escriturar,
+    opcao_regime_ibs_cbs,
+    opcao_regime_ibs_cbs_registrar,
     pre_das,
     presumido_apuracao,
     presumido_atividade_encerrar,
@@ -209,6 +213,22 @@ urlpatterns = [
         "simples/empresas/<int:empresa_id>/regime-caixa/",
         regime_caixa,
         name="regime_caixa",
+    ),
+    # DL-088 (frente B, escopos 3 e 6): a opção de regime de IBS/CBS por semestre (insert-only) e o
+    # IPI mantido (Zona Franca). Mesmo critério das telas do Presumido da DL-084 (item 6): a
+    # consulta leva a empresa na querystring (e por isso pode ser item do submenu do Simples), e o
+    # registro/gravação leva a empresa no caminho, com o dado buscado DENTRO dela (404 fora).
+    path("simples/opcao-regime-ibs-cbs/", opcao_regime_ibs_cbs, name="opcao_regime_ibs_cbs"),
+    path(
+        "simples/empresas/<int:empresa_id>/opcao-regime-ibs-cbs/",
+        opcao_regime_ibs_cbs_registrar,
+        name="opcao_regime_ibs_cbs_registrar",
+    ),
+    path("simples/ipi-mantido/", ipi_mantido, name="ipi_mantido"),
+    path(
+        "simples/empresas/<int:empresa_id>/ipi-mantido/",
+        ipi_mantido_gravar,
+        name="ipi_mantido_gravar",
     ),
     # DL-075 (frente B): pré-DAS para conferência, atividades da empresa e folha para o fator
     # r. Mesmo critério das rotas da DL-074: a tela de consulta leva a empresa na querystring

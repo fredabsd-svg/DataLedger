@@ -146,6 +146,13 @@ ROTULOS_DE_TELA = {
     ("fiscal_web", "receita_informada_estornar"): "Estornar receita informada",
     ("fiscal_web", "receita_mes_reabrir"): "Reabrir receita do mês",
     ("fiscal_web", "regime_caixa"): "Regime de caixa (Simples)",
+    # DL-088 (frente B, escopos 3 e 6): a opção de regime de IBS/CBS por semestre e o IPI mantido
+    # (Zona Franca). A consulta e o ato de registrar/cadastrar levam o mesmo rótulo da tela: o ato
+    # responde com a própria tela quando recusa.
+    ("fiscal_web", "opcao_regime_ibs_cbs"): "Opção de regime IBS/CBS",
+    ("fiscal_web", "opcao_regime_ibs_cbs_registrar"): "Opção de regime IBS/CBS",
+    ("fiscal_web", "ipi_mantido"): "IPI mantido (Zona Franca)",
+    ("fiscal_web", "ipi_mantido_gravar"): "IPI mantido (Zona Franca)",
     # DL-075 (frente B): pré-DAS para conferência, atividades e folha para o fator r.
     ("fiscal_web", "pre_das"): "Pré-DAS do Simples",
     ("fiscal_web", "atividades"): "Atividades do Simples",
