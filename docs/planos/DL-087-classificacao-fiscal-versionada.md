@@ -173,6 +173,32 @@ repassados à frente A em desenvolvimento:
 Mutantes acrescentados ao critério 8: pesos que empatam conjuntos distintos;
 conflito com a mesma natureza; combustível sem NCM aceito.
 
+## Entrega da frente A (12/10/2026)
+
+Integrada na branch. Migrações `fiscal 0019` (regra) e `0020` (origem da
+natureza confirmada, em tabela própria 1:1). Medido pelo desenvolvedor, num
+banco próprio: suíte completa 9.983/1/56 (a falha é a de ambiente). 126
+testes novos; nove mutantes derrubam testes.
+
+- Volume com 10.000 NFC-e: média das partes de confirmação +5,8% sem regra
+  e +8,2% com 50 regras, depois de indexar as regras por CFOP. Sem o
+  índice, 50 regras estouravam o teto de 10 s da chamada. A margem até os
+  10% do critério 7 é pequena, e o ruído do ambiente é alto.
+- **Mês já confirmado (ajuste 8):** o fiscal permite escriturar nota de mês
+  confirmado e reabre a confirmação como "a retificar" (DL-074). Por isso a
+  fila **avisa** e não bloqueia. Bloquear seria mais restritivo que a própria
+  escrituração. Decisão do arquiteto.
+- **Conflito entre regras quase não ocorre:** com pesos em potências de dois,
+  regras de critérios diferentes nunca empatam, e a regra repetida no mesmo
+  escopo é recusada (409) na criação. O conflito aparece no cadastro, e não
+  na fila.
+- Desativar fixa o fim da vigência no dia anterior.
+- A reversão da 0020 recusa só se houver regra; sem regra, a tabela de
+  origens é descartada. A auditoria deve avaliar isso.
+- A reclassificação em massa grava a origem, mas não tem teste próprio.
+
+Próximo: frente B (telas), depois a auditoria.
+
 ## Critérios de aceite
 
 1. **Sem regra cadastrada, nada muda.**
