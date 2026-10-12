@@ -185,14 +185,11 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
   DL-085/082/089/084 a `BL-698` a `BL-701`, e as decisões do Razão e do
   estorno a `DE-103` e `DE-104`; a revisão de layout mantém `DL-086`,
   `DE-101` e `BL-689` a `BL-697`.
-- A DL-084 (frentes A e B) tem **ciclo de auditoria encerrado**: rodada 1
-  aprovada com ressalvas, correção única com a DE-106 e reconferência
-  APROVADA. As frentes A2 e B da
-  [DL-088](../planos/DL-088-virada-de-2027-no-simples.md) estão **entregues**
-  (opção de regime de IBS/CBS por semestre, IPI mantido da Zona Franca,
-  pré-DAS de 2027 liberado no regime único, receita de NF-e de 2027, telas e
-  calendário da virada). Trabalho em curso: a **auditoria da DL-088** (rodada
-  1, correção única e reconferência; §3.1).
+- A DL-084 e a DL-088 (frentes A2 e B) têm **ciclo de auditoria encerrado**
+  — rodada 1, correção única e reconferência APROVADA nas duas. Trabalho em
+  curso: o **PR com tudo o que estiver auditado** (DL-082, DL-084, DL-085,
+  DL-088, DL-089 e a DL-090 de documentação, mais a integração da `main`
+  pela DE-105) e o merge com os quatro checks verdes (RC-171).
 - A ordem de retomada segue a do fechamento de 10/10, abaixo: DL-088 frentes
   A2 e B com auditoria; PR com tudo o que estiver auditado e merge com os
   quatro checks verdes (RC-171); depois DL-087.

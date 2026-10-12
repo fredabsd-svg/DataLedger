@@ -240,3 +240,39 @@ antes de resolver a empresa, erros campo a campo, §2B):
 
 Próximo: auditoria independente — rodada 1, correção única, reconferência
 (§3.1).
+
+## Ciclo da rodada 1 encerrado (11/10/2026)
+
+[Rodada 1](../auditorias/2026-10-11-dl-088-rodada-1.md) **APROVADA COM
+RESSALVAS**: A1 e A2 médios, A3 a A7 baixos; 9 de 12 mutantes mortos. O
+dinheiro foi conferido pelo auditor ao centavo (tabelas número a número com
+as linhas somando 100,00%, janela defasada do RBT12, pré-DAS nos seis
+cenários e a matriz da NF-e de 2027).
+
+**Correção única** (`f69cf53`): A1 — o cancelamento da opção vira ATO com
+motivo, trilha e janela da fonte citada (Res. CGSN 194/2026, 03/11 a
+20/12/2026 para o 1º semestre de 2027; arts. 40-C/40-D nos demais), com
+unicidade parcial (a cancelada libera o semestre) e o motor voltando a
+recusar `opcao_regime_regular_nao_informada` após o cancelamento; A2 — a
+receita de 2027 passa a ser `vProd − vDesc` (HI-149 / LC 123, art. 3º,
+§ 1º), com a memória mostrando as parcelas; A3 e A5 — testes que matam os
+mutantes do semestre e do `vProdLiq`; A4 — caso cruzado BL-584 (CLIENTE ×
+empresa alheia = 403, nunca 404); A6/A7 — docs (o sublimite vai para
+"Fica fora", BL-704; HI-152 atualizada).
+
+[Reconferência](../auditorias/2026-10-11-dl-088-reconferencia.md)
+**APROVADA** — os sete achados fechados e seis mutantes reaplicados, todos
+mortos. A divergência do A4 foi decidida **a favor do desenvolvedor**: o
+auditor mediu os dois lados, reconheceu que a cobertura existia desde a
+correção da DL-084 e que o achado era artefato da amostra de testes da
+rodada — o registro do erro está no relatório. O frete (`vFrete`) segue
+como dúvida de domínio P15 com o Fred, e as duas divergências menores
+declaradas (piso de 5 caracteres no motivo; janela dos semestres posteriores
+como prazo final, sem abertura porque a fonte não fixa) são limites
+aceitos.
+
+Medida da suíte completa em invocação única na reconferência: **9.805
+aprovados, 24 reprovados (ambiente Windows), 78 pulados**.
+
+Próximo: PR com tudo o que estiver auditado e merge com os quatro checks
+verdes (RC-171).
