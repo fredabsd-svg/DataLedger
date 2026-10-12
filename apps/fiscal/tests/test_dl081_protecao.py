@@ -106,12 +106,14 @@ def codigos_do_presumido(empresa, ano, trimestre):
 # --- pré-DAS -----------------------------------------------------------------------------------
 
 
-def test_pre_das_recusa_o_mes_com_nfe_com_motivo_nomeado(escritorio_a, gestor, empresa):
+def test_pre_das_nao_recusa_mais_o_mes_com_nfe_de_revenda_hi122(escritorio_a, gestor, empresa):
+    """DL-082 (HI-122 encerrada no primeiro corte): NF-e de revenda entra no pré-DAS, por segmento.
+    A recusa geral saiu. Este mês ainda recusa, mas por outros motivos (mês não confirmado)."""
     nfe_de_revenda(
         escritorio_a, gestor, empresa, numero=1, valor="2880.00", dh_emi="2026-03-15T10:00:00-03:00"
     )
     bloqueios = codigos_do_pre_das(empresa, 2026, 3)
-    assert ("receita_de_mercadoria", MENSAGEM_PRE_DAS) in bloqueios
+    assert ("receita_de_mercadoria", MENSAGEM_PRE_DAS) not in bloqueios
 
 
 def test_pre_das_nao_recusa_por_nfe_em_mes_sem_nfe(escritorio_a, gestor, empresa):

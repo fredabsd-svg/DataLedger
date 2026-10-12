@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block titulo %}Parâmetros do Presumido{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-084, item 6 (HI-136), arquétipo B: leitura + edição, por empresa. A forma de recolhimento padrão
+só decide qual plano de quotas a tela abre (o cálculo é o mesmo); o padrão de combustível só sugere
+a natureza quando o CFOP não decide, e não muda nada que já foi escriturado. Sem linha gravada, a
+empresa usa o padrão do escritório: três quotas, sem padrão de combustível — é com ele que a empresa
+nova nasce.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Parâmetros do Presumido</h1>{% endblock %}
+
+{% block content %}
+    {% include "fiscal/_filtro_presumido.html" %}
+
+    {% if erro %}
+        <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+    {% endif %}
+
+    {% if not empresa_selecionada %}
+        {% comment %}
+        DL-086 (A-13, direção de arte §8.4c): anatomia completa de `.estado-vazio` (ícone
+        decorativo + título + descrição), como em iss_aliquotas.html/atividades.html. Sem botão:
+        a saída é o filtro acima, já visível.
+        {% endcomment %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver os parâmetros do Presumido.</strong></p>
+            <p class="estado-vazio__descricao">
+                Cada empresa tem a sua forma de recolhimento padrão e o seu padrão de combustível.
+                Sem parâmetro gravado, vale o padrão do escritório: três quotas, sem padrão.
+            </p>
+        </div>
+    {% else %}
+        <p>
+            Situação: <strong>{% if parametros.definido %}parâmetros gravados desta empresa{% else %}padrão do escritório (nenhum parâmetro gravado ainda){% endif %}</strong>.
+        </p>
+        <p class="texto-apoio">
+            A forma de recolhimento padrão decide qual plano de quotas a apuração abre (o cálculo é o
+            mesmo). O padrão de combustível sugere a natureza do item quando o CFOP não decide consumo
+            ou revenda; nada do que já foi escriturado muda.
+        </p>
+
+        {% if pode_escriturar %}
+            <form method="post" action="{{ url_gravar }}" class="formulario">
+                {% csrf_token %}
+                <div class="campo">
+                    <label for="id_forma_recolhimento">Forma de recolhimento padrão</label>
+                    <select id="id_forma_recolhimento" name="forma_recolhimento" aria-describedby="ajuda_forma{% if erros.forma_recolhimento %} erro_forma_recolhimento{% endif %}">
+                        {% for valor, rotulo in opcoes_forma %}
+                            <option value="{{ valor }}" {% if valores.forma_recolhimento == valor %} selected{% endif %}>{{ rotulo }}</option>
+                        {% endfor %}
+                    </select>
+                    <p class="texto-apoio" id="ajuda_forma">Padrão do escritório: três quotas. A empresa pode mudar quando quiser.</p>
+                    {% if erros.forma_recolhimento %}
+                        <p class="mensagem mensagem-error" role="alert" id="erro_forma_recolhimento"><strong>Erro:</strong> {{ erros.forma_recolhimento }}</p>
+                    {% endif %}
+                </div>
+                <div class="campo">
+                    <label for="id_padrao_combustivel">Padrão de combustível</label>
+                    <select id="id_padrao_combustivel" name="padrao_combustivel" aria-describedby="ajuda_combustivel{% if erros.padrao_combustivel %} erro_padrao_combustivel{% endif %}">
+                        {% for valor, rotulo in opcoes_combustivel %}
+                            <option value="{{ valor }}" {% if valores.padrao_combustivel == valor %} selected{% endif %}>{{ rotulo }}</option>
+                        {% endfor %}
+                    </select>
+                    <p class="texto-apoio" id="ajuda_combustivel">
+                        Posto e TRR vendem a consumidor final: o padrão sugere "para consumo" quando o
+                        CFOP não decide. Distribuidora não tem padrão: quem decide é o item.
+                    </p>
+                    {% if erros.padrao_combustivel %}
+                        <p class="mensagem mensagem-error" role="alert" id="erro_padrao_combustivel"><strong>Erro:</strong> {{ erros.padrao_combustivel }}</p>
+                    {% endif %}
+                </div>
+                {% if erros.geral %}
+                    <p class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erros.geral }}</p>
+                {% endif %}
+                <div class="acoes-formulario">
+                    <button type="submit" class="botao botao--primario">Gravar parâmetros do Presumido</button>
+                </div>
+            </form>
+        {% else %}
+            <p class="texto-apoio" id="ajuda_sem_permissao">Seu papel consulta os parâmetros, mas não os altera.</p>
+            <div class="acoes-formulario">
+                <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao">Gravar parâmetros do Presumido</button>
+            </div>
+        {% endif %}
+
+        <dl class="lista-de-definicao">
+            <div>
+                <dt>Forma de recolhimento em vigor</dt>
+                <dd>{{ parametros.forma_recolhimento_rotulo }}</dd>
+            </div>
+            <div>
+                <dt>Padrão de combustível em vigor</dt>
+                <dd>{{ parametros.padrao_combustivel_rotulo }}</dd>
+            </div>
+        </dl>
+    {% endif %}
+{% endblock %}

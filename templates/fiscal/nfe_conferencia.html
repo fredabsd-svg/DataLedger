@@ -15,6 +15,12 @@
     {% endif %}
 {% endblock %}
 
+{% block acoes_pagina %}
+    {% if empresa %}
+        <a class="botao botao--secundario" href="{% url 'fiscal_web:nfe_lote' empresa.pk %}?ano={{ ano }}&amp;mes={{ mes }}">Escriturar o mês em lote</a>
+    {% endif %}
+{% endblock %}
+
 {% comment %}
 DL-081 (frente B), tela 5, arquétipo C (conferência do mês). Relatório de CONFERÊNCIA (classe 1 de
 docs/projeto/personalizacao-de-relatorio.md): só leitura. Todo valor vem do serviço da frente A e da

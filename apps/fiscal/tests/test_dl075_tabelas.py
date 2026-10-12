@@ -429,11 +429,13 @@ def test_vigencia_e_fonte_de_cada_anexo():
         assert "Planalto" in anexo.fonte and "08/10/2026" in anexo.fonte
 
 
-def test_tabelas_vigentes_so_entre_2018_e_2026():
+def test_tabelas_vigentes_so_entre_2018_e_2028():
+    # DL-088: a vigência cadastrada passou a chegar a 2028 (tabela de 2027-2028, HI-146).
     assert tabelas.tabelas_vigentes_em(2018, 1)
     assert tabelas.tabelas_vigentes_em(2026, 12)
     assert not tabelas.tabelas_vigentes_em(2017, 12)
-    assert not tabelas.tabelas_vigentes_em(2027, 1)
+    assert tabelas.tabelas_vigentes_em(2028, 12)
+    assert not tabelas.tabelas_vigentes_em(2029, 1)
 
 
 def test_anexo_iv_nao_tem_cpp():

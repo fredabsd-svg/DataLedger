@@ -459,7 +459,9 @@ def test_csll_estimada_com_codigo_3_e_a_classificar_com_outros_codigos(
         empresa,
         usuario_gestor_a,
         sufixo=503,
-        v_serv="5000.00",
+        # DL-084 (HI-103): 465,00 é 4,65% de 10.000,00 (a base da nota). Com 5.000,00 não confere,
+        # e a nota cairia em "a classificar". A expectativa (100,00) não muda.
+        v_serv="10000.00",
         d_compet="2026-01-10",
         ret_csll="465.00",
         tp_ret="3",

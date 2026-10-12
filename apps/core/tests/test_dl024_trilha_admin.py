@@ -114,18 +114,26 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         DeclaracaoReceitasIntegrais,
         DocumentoFiscal,
         DocumentoNFe,
+        EncerramentoMedidaJudicialLC224,
         EscrituracaoFiscal,
         EscrituracaoNFe,
         EscrituracaoTomada,
         EventoFiscal,
         EventoNFe,
+        ExcecaoFeriadoLocal,
+        FeriadoLocal,
         FolhaFatorR,
+        IpiMantidoZfmEmpresa,
         ItemNFe,
         LeituraItensNFe,
         LoteDeRecepcao,
+        LoteEscrituracaoNFe,
+        LoteEscrituracaoNFeNota,
         MedidaJudicialLC224,
         NaturezaItemNFe,
         OpcaoRegimeCaixaSimples,
+        OpcaoRegimeIbsCbsSimples,
+        ParametrosPresumidoEmpresa,
         ReceitaInformada,
         ReceitaTrimestralPresumido,
         RegimeIssEmpresa,
@@ -230,6 +238,11 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         ReceitaInformada,
         ConfirmacaoReceitaMensal,
         OpcaoRegimeCaixaSimples,
+        # DL-088 (frente A2, 2026-10-11): `OpcaoRegimeIbsCbsSimples` e `IpiMantidoZfmEmpresa`,
+        # na cobertura "por padrão" (R1/DE-056). Sem ModelAdmin (BL-262); a escrita é pelos
+        # serviços de `apps.fiscal.receita`, que gravam a trilha na mesma transação.
+        OpcaoRegimeIbsCbsSimples,
+        IpiMantidoZfmEmpresa,
         # DL-075 (frente A, 2026-10-08): `AtividadeEmpresa` e `FolhaFatorR`, na cobertura
         # "por padrão" (R1/DE-056), como os acima. Sem ModelAdmin (BL-262); a escrita é pelos
         # serviços de `apps.fiscal.pre_das` e `apps.fiscal.folha_fator_r`, que gravam a trilha
@@ -286,6 +299,21 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         ImportacaoLancamentos,
         LancamentoImportado,
         DeParaConta,
+        # DL-085 (frente A, 2026-10-09): `LoteEscrituracaoNFe` e `LoteEscrituracaoNFeNota`, o lote
+        # de escrituração de NF-e em partes. Entram na cobertura "por padrão" (R1/DE-056) e NÃO têm
+        # ModelAdmin (BL-262): o admin não isola por escritório, e o lote só é gravado pelo serviço
+        # `apps.fiscal.escrituracao_nfe_lote`. Esse serviço grava a trilha por `registrar()`: a
+        # criação do lote (`escrituracao_nfe.lote_confirmado`) na MESMA transação da criação; as
+        # partes e a conclusão, depois, cada uma com a sua trilha. Nenhuma exclusão foi adicionada.
+        LoteEscrituracaoNFe,
+        LoteEscrituracaoNFeNota,
+        # DL-084 (rotina do Presumido, 2026-10-10): parâmetros por empresa, feriados locais (carga
+        # do produto, com a exceção por ano) e o encerramento de medida judicial. Todos na cobertura
+        # por padrão. Nenhuma exclusão foi adicionada.
+        ParametrosPresumidoEmpresa,
+        FeriadoLocal,
+        ExcecaoFeriadoLocal,
+        EncerramentoMedidaJudicialLC224,
     }
     assert cobertos == esperados_cobertos, (
         f"DL-030: cobertura da trilha divergente.\n"

@@ -26,7 +26,10 @@ def test_migracao_0008_sobre_base_com_empresas_existentes_nao_altera_dado():
     escritorio = Escritorio.objects.create(nome="Escritório Migração DL-038", cnpj="50505050000150")
 
     alvo_anterior = [("empresas", "0007_bl54_cnpj_check_constraint_formato")]
-    alvo_atual = MigrationExecutor(db_connection).loader.graph.leaf_nodes("empresas")
+    # DL-082: restaura TODAS as apps (leaf_nodes() sem app), não só `empresas`: reverter
+    # `empresas` desfaz também as migrações de `fiscal` que dependem dela, e o retorno só
+    # para `empresas` deixava a `fiscal` para trás.
+    alvo_atual = MigrationExecutor(db_connection).loader.graph.leaf_nodes()
     try:
         # Volta o SCHEMA de `empresas` para ANTES desta migração — as
         # colunas `cpf`, `tipo_inscricao` e `modo_escrituracao` não
@@ -65,7 +68,10 @@ def test_migracao_0008_em_banco_vazio_nao_levanta_erro():
     from django.db.migrations.executor import MigrationExecutor
 
     alvo_anterior = [("empresas", "0007_bl54_cnpj_check_constraint_formato")]
-    alvo_atual = MigrationExecutor(db_connection).loader.graph.leaf_nodes("empresas")
+    # DL-082: restaura TODAS as apps (leaf_nodes() sem app), não só `empresas`: reverter
+    # `empresas` desfaz também as migrações de `fiscal` que dependem dela, e o retorno só
+    # para `empresas` deixava a `fiscal` para trás.
+    alvo_atual = MigrationExecutor(db_connection).loader.graph.leaf_nodes()
     try:
         MigrationExecutor(db_connection).migrate(alvo_anterior)
         # Nenhum dado gravado — banco vazio na hora de migrar para frente.
@@ -98,7 +104,10 @@ def test_migracao_0008_reverte_sem_empresa_cpf_cadastrada():
     )
 
     alvo_anterior = [("empresas", "0007_bl54_cnpj_check_constraint_formato")]
-    alvo_atual = MigrationExecutor(db_connection).loader.graph.leaf_nodes("empresas")
+    # DL-082: restaura TODAS as apps (leaf_nodes() sem app), não só `empresas`: reverter
+    # `empresas` desfaz também as migrações de `fiscal` que dependem dela, e o retorno só
+    # para `empresas` deixava a `fiscal` para trás.
+    alvo_atual = MigrationExecutor(db_connection).loader.graph.leaf_nodes()
     try:
         # A própria chamada de `migrate` para trás é a asserção: se a
         # migração não fosse reversível (RunPython irreversível, por

@@ -634,7 +634,7 @@ def _acoes_rapidas_do_painel(*, papel, empresas_da_carteira):
         acoes.append(
             {
                 "chave": "receber-nfse",
-                "rotulo": "Receber NFS-e",
+                "rotulo": "Receber notas",
                 "url": url_recepcao,
                 "icone": "fiscal",
             }
@@ -689,7 +689,7 @@ def _modulos_do_painel(*, papel, empresas_da_carteira, request=None):
                 "chave": "fiscal",
                 "icone": "fiscal",
                 "titulo": "Fiscal",
-                "descricao": "Recepção e consulta de NFS-e nacional.",
+                "descricao": "Recepção de NFS-e e NF-e, escrituração e apuração para conferência.",
                 "url": url_fiscal,
                 "planejado": False,
             }

@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block titulo %}Opção de regime de IBS/CBS{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-088, frente B (escopo 6), arquétipo B com a última etapa do arquétipo E: a opção de regime de
+IBS/CBS do Simples é por (ano, semestre) e é registrada UMA única vez (insert-only — Res. CGSN
+190/2026, art. 22-A; HI-148; fonte: consulta de 09/10/2026,
+docs/projeto/consultas/2026-10-09-contador-senior-virada-2027-simples.md). Os dois regimes vêm com
+a consequência em linguagem de escritório: "CBS e IBS ficam no DAS" × "CBS e IBS são deduzidos do
+DAS, art. 22-A". É dado do escritório sobre a empresa, com trilha vinda do serviço: nada é
+transmitido. A segunda tentativa mostra a recusa nomeada do serviço, como ela é. O CANCELAMENTO
+(DL-088, correção do achado A1; Res. CGSN 194/2026) é ato à parte, em duas etapas, na janela legal
+dita nesta tela com a fonte citada: a linha cancelada fica no histórico e o semestre é liberado
+para nova opção.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Opção de regime de IBS/CBS</h1>{% endblock %}
+
+{% block content %}
+    {% include "fiscal/_filtro_simples.html" %}
+
+    {% if erro %}
+        <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+    {% endif %}
+    {% if erros.geral %}
+        <p class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erros.geral }}</p>
+    {% endif %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver a opção de regime de IBS/CBS.</strong></p>
+            <p class="estado-vazio__descricao">
+                A opção é de cada empresa, por ano e semestre. Sem empresa escolhida, não há o que
+                registrar.
+            </p>
+        </div>
+    {% else %}
+        <div class="painel-etapa">
+            <h2>O que esta opção muda</h2>
+            <p>
+                A cada semestre a empresa fica em um dos dois regimes de IBS/CBS do Simples Nacional:
+            </p>
+            <ul>
+                <li><strong>Regime único</strong> — CBS e IBS ficam no DAS.</li>
+                <li><strong>Regime regular</strong> — CBS e IBS são deduzidos do DAS, art. 22-A.</li>
+            </ul>
+            <p class="texto-apoio">
+                A opção do semestre é registrada uma única vez: a segunda tentativa é recusada. Este
+                registro é um dado do escritório, para a conferência do pré-DAS e das notas de 2027;
+                nada é transmitido a órgão algum.
+            </p>
+            <p class="texto-apoio">
+                {{ janela_cancelamento }}
+            </p>
+            <p class="texto-apoio">
+                Fonte: Res. CGSN 190/2026, art. 22-A, na leitura de 09/10/2026
+                (docs/projeto/consultas/2026-10-09-contador-senior-virada-2027-simples.md).
+            </p>
+        </div>
+
+        {% if opcoes %}
+            <table class="tabela-dados">
+                <caption>Opções de regime de IBS/CBS já registradas, com a situação, a consequência e o carimbo de quem registrou</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Período</th>
+                        <th scope="col">Regime</th>
+                        <th scope="col">Consequência</th>
+                        <th scope="col">Situação</th>
+                        <th scope="col">Registrada em</th>
+                        <th scope="col">Registrada por</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for opcao in opcoes %}
+                        <tr>
+                            <th scope="row">{{ opcao.semestre }} de {{ opcao.ano }}</th>
+                            <td>{{ opcao.rotulo }}</td>
+                            <td>{{ opcao.consequencia }}</td>
+                            <td>
+                                {% if opcao.ativa %}
+                                    Ativa
+                                {% else %}
+                                    Cancelada em {{ opcao.cancelada_em|date:"d/m/Y H:i" }}
+                                    {% if opcao.cancelada_por %}por {{ opcao.cancelada_por }}{% endif %}
+                                    — {{ opcao.motivo_cancelamento }}
+                                {% endif %}
+                            </td>
+                            <td>{{ opcao.registrada_em|date:"d/m/Y H:i" }}</td>
+                            <td>{{ opcao.registrada_por }}</td>
+                            <td>
+                                {% comment %}
+                                Ação sensível em `.botao--perigoso`, com rótulo que nomeia o alvo
+                                (direção de arte §8.4). Quem só consulta vê a ação desabilitada
+                                com o motivo, nunca sumindo (§2B).
+                                {% endcomment %}
+                                {% if opcao.ativa %}
+                                    {% if pode_registrar %}
+                                        <a class="botao botao--perigoso botao--pequeno" href="{{ opcao.url_cancelar }}">Cancelar a opção<span class="visualmente-oculto"> de {{ opcao.semestre }} de {{ opcao.ano }} ({{ opcao.rotulo }}) de {{ empresa_selecionada.razao_social }}</span></a>
+                                    {% else %}
+                                        <button type="button" class="botao botao--perigoso botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Cancelar a opção<span class="visualmente-oculto"> de {{ opcao.semestre }} de {{ opcao.ano }} ({{ opcao.rotulo }}) de {{ empresa_selecionada.razao_social }}</span></button>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="texto-apoio">Cancelada: sem ação</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="estado-vazio">
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo"><strong>Nenhuma opção de regime de IBS/CBS registrada.</strong></p>
+                <p class="estado-vazio__descricao">
+                    Sem a opção informada, o pré-DAS de 2027 não é calculado e a nota de 2027 não se
+                    efetiva: nada se presume.
+                </p>
+            </div>
+        {% endif %}
+
+        {% if confirmacao %}
+            <div class="painel-etapa">
+                <h2>Confirme o que será registrado</h2>
+                <p><strong>{{ confirmacao.texto }}</strong></p>
+                <p class="texto-apoio">Nada foi gravado ainda: esta é a última etapa antes do registro.</p>
+            </div>
+            <form method="post" action="{{ url_registrar }}" class="formulario">
+                {% csrf_token %}
+                <input type="hidden" name="ano" value="{{ confirmacao.ano }}">
+                <input type="hidden" name="semestre" value="{{ confirmacao.semestre }}">
+                <input type="hidden" name="regime" value="{{ confirmacao.regime }}">
+                <input type="hidden" name="acao" value="confirmar">
+                <div class="acoes-formulario">
+                    <button type="submit" class="botao botao--primario">Confirmar o registro da opção</button>
+                    <a class="botao botao--secundario" href="{{ url_consulta }}">Voltar e corrigir</a>
+                </div>
+            </form>
+        {% elif pode_registrar %}
+            <form method="post" action="{{ url_registrar }}" class="formulario">
+                {% csrf_token %}
+                <input type="hidden" name="acao" value="revisar">
+                <div class="campo">
+                    <label for="id_ano">Ano da opção</label>
+                    <input type="text" id="id_ano" name="ano" value="{{ valores.ano }}" inputmode="numeric"
+                           maxlength="4" required aria-describedby="id_ano_ajuda{% if erros.ano %} erro_ano{% endif %}">
+                    <p class="texto-apoio" id="id_ano_ajuda">
+                        Ano com quatro dígitos, a partir de 2027 (a opção só existe da virada de 2027
+                        em diante).
+                    </p>
+                    {% if erros.ano %}
+                        <p class="mensagem mensagem-error" role="alert" id="erro_ano"><strong>Erro:</strong> {{ erros.ano }}</p>
+                    {% endif %}
+                </div>
+                <div class="campo">
+                    <label for="id_semestre">Semestre da opção</label>
+                    <select id="id_semestre" name="semestre" aria-describedby="id_semestre_ajuda{% if erros.semestre %} erro_semestre{% endif %}">
+                        <option value="1" {% if valores.semestre == "1" %}selected{% endif %}>1º semestre (janeiro a junho)</option>
+                        <option value="2" {% if valores.semestre == "2" %}selected{% endif %}>2º semestre (julho a dezembro)</option>
+                    </select>
+                    <p class="texto-apoio" id="id_semestre_ajuda">
+                        A opção vale para o semestre inteiro e é registrada uma única vez.
+                    </p>
+                    {% if erros.semestre %}
+                        <p class="mensagem mensagem-error" role="alert" id="erro_semestre"><strong>Erro:</strong> {{ erros.semestre }}</p>
+                    {% endif %}
+                </div>
+                <fieldset class="campo">
+                    <legend>Regime de IBS/CBS do semestre</legend>
+                    {% for opcao in opcoes_regime %}
+                        <p>
+                            <input type="radio" id="id_regime_{{ opcao.valor }}" name="regime"
+                                   value="{{ opcao.valor }}" {% if valores.regime == opcao.valor %}checked{% endif %}
+                                   aria-describedby="ajuda_regime_{{ opcao.valor }}{% if erros.regime %} erro_regime{% endif %}">
+                            <label for="id_regime_{{ opcao.valor }}"><strong>{{ opcao.rotulo }}</strong> — {{ opcao.consequencia }}</label>
+                        </p>
+                        <p class="texto-apoio" id="ajuda_regime_{{ opcao.valor }}">{{ opcao.consequencia }}</p>
+                    {% endfor %}
+                    {% if erros.regime %}
+                        <p class="mensagem mensagem-error" role="alert" id="erro_regime"><strong>Erro:</strong> {{ erros.regime }}</p>
+                    {% endif %}
+                </fieldset>
+                <div class="acoes-formulario">
+                    <button type="submit" class="botao botao--primario">Revisar a opção antes de registrar</button>
+                </div>
+            </form>
+        {% else %}
+            <p class="texto-apoio" id="ajuda_sem_permissao">{{ mensagem_sem_permissao }}</p>
+            <div class="acoes-formulario">
+                <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao">Registrar a opção do semestre</button>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}

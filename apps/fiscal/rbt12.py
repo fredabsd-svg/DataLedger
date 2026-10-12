@@ -35,9 +35,33 @@ com precisão de 60 dígitos significativos, sem `quantize`. Nenhum valor é
 truncado a centavos aqui. A conferência com o PGDAS-D é do contador.
 
 Limites: são DADO com fonte e vigência (`LIMITES`, HI-70). Cada entrada traz
-valor, dispositivo, fonte, início e fim. Todas terminam em 31/12/2026. Valores de
-2027 não entram. A apuração de 2027 em diante é RECUSADA com mensagem nomeada,
-porque depende da Res. CGSN 190/2026, que não foi lida.
+valor, dispositivo, fonte, início e fim. Os de 2018 a 2026 terminam em 31/12/2026;
+os de 2027 e 2028 vêm da Res. CGSN 190/2026 (DL-088, HI-147). A apuração de 2029 em
+diante é RECUSADA com mensagem nomeada (HI-146: a 6ª faixa do Anexo I diverge entre a
+LC 123 e a Resolução; o RBT12 não depende dela, mas a recusa fica até a divergência
+ser resolvida, como no pré-DAS).
+
+DL-088, frente A1 — RBT12 a partir do PA 01/2027 (Res. CGSN 190/2026, art. 21, II, "a";
+art. 22, §§ 2º e 4º; LC 123, art. 18, §§ 1º e 1º-A, na redação da LC 214, art. 517, lida):
+
+- Janela do § 1º: os 12 meses ANTECEDENTES AO MÊS ANTERIOR ao PA (índices pa−13 a pa−2).
+  Para o PA 01/2027 são 12/2025 a 11/2026. Para PA até 12/2026 a janela continua pa−12 a pa−1.
+- Início de atividade (mês de atividade n; 1 = mês da abertura no CNPJ):
+  - n = 1 ou 2: "1ª faixa". Não há RBT12 numérico: `Rbt12.primeira_faixa` é True, `apurado` é
+    None e a janela é vazia. A alíquota efetiva da 1ª faixa é a nominal, porque a parcela a deduzir
+    é zero (a identidade não depende do RBT12). O FS12 do fator r não tem janela definida nas
+    fontes lidas: `janela_da_apuracao` recusa nesse estado.
+  - 3 ≤ n ≤ 13: média dos meses de atividade ANTERIORES AO MÊS ANTERIOR (abertura até pa−2) × 12.
+    Com n meses de atividade, a média tem n−2 meses no divisor.
+  - n ≥ 14: regra geral (§ 1º), com a janela defasada.
+- A mesma janela defasada vale para o FS12 do fator r (`janela_da_apuracao`, `folha_fator_r`).
+- O § 3º da Res. 140 (2º ao 12º mês) foi revogado pela Res. 190 (art. 8º, XIV): para 2027 em
+  diante a regra de início de atividade é a deste bloco, e não a dos anos anteriores.
+
+Os LIMITES de 2027 e 2028 valem para o ano inteiro. O sublimite de 3,6 mi e o de 300 mil por
+mês são da Res. 190 (art. 9º e art. 12, § 2º, lidos). O limite de 4,8 mi e o de 400 mil por mês
+NÃO foram relidos no texto de 2027 (consulta de 09/10/2026, P14): são mantidos com o valor de
+2026, e a fonte diz isso.
 """
 
 from __future__ import annotations
@@ -53,9 +77,15 @@ from apps.fiscal.models import MercadoReceita
 # Mercados que têm RBT12, limite e sublimite próprios (HI-67).
 MERCADOS = (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)
 
-# Último ano com limites cadastrados e primeiro sem (HI-70).
-ANO_ULTIMO_COM_LIMITES = 2026
-ANO_RECUSADO = 2027
+# Último ano com limites cadastrados e primeiro sem (HI-70; DL-088, HI-146).
+ANO_ULTIMO_COM_LIMITES = 2028
+ANO_RECUSADO = 2029
+
+# DL-088 (HI-147): a partir deste PA a janela é defasada de um mês. Os rótulos são o que a
+# memória e a tela mostram; `folha_fator_r` distingue o § 1º pelo texto exato "§ 1º".
+PA_DA_DEFASAGEM = (2027, 1)
+REGRA_PRIMEIRA_FAIXA = "1ª faixa (1º e 2º mês de atividade; Res. CGSN 190/2026, art. 22, § 2º, I)"
+REGRA_MEDIA_2027 = "média × 12 (3º ao 13º mês de atividade; Res. CGSN 190/2026, art. 22, § 2º, II)"
 
 # Precisão da divisão do § 3º/§ 4º. Não é arredondamento de centavos: é o
 # número de dígitos significativos guardados antes de qualquer tratamento.
@@ -136,6 +166,54 @@ LIMITES: tuple[LimiteVigente, ...] = (
         inicio=date(2018, 1, 1),
         fim=date(2026, 12, 31),
     ),
+    # DL-088, 2027 e 2028 (HI-147). Os de sublimite foram lidos na Res. 190; os de limite anual
+    # não foram relidos (P14 da consulta de 09/10/2026) e ficam com o valor de 2026. Não é
+    # alíquota nem regra nova: é o valor que a consulta registra como "sem alteração encontrada".
+    LimiteVigente(
+        chave="limite_anual",
+        valor=Decimal("4800000.00"),
+        por_mes_no_ano_de_inicio=False,
+        dispositivo="LC 123, art. 3º, II, e Res. CGSN 140, art. 2º, I, 'b' e § 1º (2027-2028)",
+        fonte=(
+            "NÃO RELIDO no texto de 2027 (P14, consulta de 09/10/2026, seção 2): valor de 2026 "
+            "mantido por inferência. Conferir no Planalto (LC 123, art. 3º, II)."
+        ),
+        inicio=date(2027, 1, 1),
+        fim=date(2028, 12, 31),
+    ),
+    LimiteVigente(
+        chave="limite_proporcional_mes",
+        valor=Decimal("400000.00"),
+        por_mes_no_ano_de_inicio=True,
+        dispositivo="Res. CGSN 140, art. 3º; LC 123, art. 3º, § 2º (2027-2028)",
+        fonte=(
+            "NÃO RELIDO no texto de 2027 (P14, consulta de 09/10/2026, seção 2): valor de 2026 "
+            "mantido por inferência."
+        ),
+        inicio=date(2027, 1, 1),
+        fim=date(2028, 12, 31),
+    ),
+    LimiteVigente(
+        chave="sublimite_anual",
+        valor=Decimal("3600000.00"),
+        por_mes_no_ano_de_inicio=False,
+        dispositivo="Res. CGSN 190/2026, art. 9º (ICMS, ISS e IBS), lido no DOU em 10/08/2026",
+        fonte=(
+            "Res. CGSN 190/2026 (DOU 10/08/2026, Ed. 149-A, lido em 09/10/2026, consulta seção 1). "
+            "A UF não é modelada, como em 2026: o sublimite de 1,8 mi não é usado."
+        ),
+        inicio=date(2027, 1, 1),
+        fim=date(2028, 12, 31),
+    ),
+    LimiteVigente(
+        chave="sublimite_proporcional_mes",
+        valor=Decimal("300000.00"),
+        por_mes_no_ano_de_inicio=True,
+        dispositivo="Res. CGSN 190/2026, art. 12, § 2º (início de atividade), lido no DOU",
+        fonte="Res. CGSN 190/2026 (DOU 10/08/2026, lido em 09/10/2026, consulta seção 1).",
+        inicio=date(2027, 1, 1),
+        fim=date(2028, 12, 31),
+    ),
 )
 
 
@@ -207,8 +285,19 @@ class Rbt12:
     avisos: tuple[Aviso, ...] = field(default_factory=tuple)
 
     @property
+    def primeira_faixa(self) -> bool:
+        """Início de atividade nos meses 1 e 2 (DL-088): não há RBT12 numérico.
+
+        A apuração não é "não apurável" por falta de mês confirmado: o estado é próprio, e o
+        pré-DAS calcula a 1ª faixa (sem RBT12) ou recusa o que depender de RBT12 (o fator r).
+        """
+        return self.regra == REGRA_PRIMEIRA_FAIXA
+
+    @property
     def apuravel(self) -> bool:
-        return not self.pendentes_da_janela
+        # Na 1ª faixa não há RBT12 numérico para apurar: `apuravel` é False, e a tela e a API
+        # devem ler `primeira_faixa` para dizer o motivo (ver DL-088, frente B).
+        return not self.pendentes_da_janela and not self.primeira_faixa
 
     def de(self, mercado: str) -> RbtPorMercado:
         return self.por_mercado[mercado]
@@ -317,11 +406,32 @@ class _Mes:
         return self.composicao.total(mercado)
 
 
+def _regra_e_janela_a_partir_de_2027(
+    indice_pa: int, indice_abertura: int, abertura: date, ano_opcao: int
+):
+    """Regra e janela do PA a partir de 01/2027 (Res. CGSN 190/2026; DL-088, HI-147).
+
+    A janela do § 1º é pa−13 a pa−2: os 12 meses antecedentes ao MÊS ANTERIOR ao PA. No início de
+    atividade a média também para no mês anterior (abertura até pa−2), e o número de meses no
+    divisor é n−2, onde n é o mês de atividade do PA. Por isso o 1º e o 2º mês não têm média: são a
+    1ª faixa, sem RBT12 numérico. A partir do 14º mês vale o § 1º, já defasado.
+    """
+    n = indice_pa - indice_abertura + 1
+    if n <= 13 and abertura.year in (ano_opcao, ano_opcao - 1):
+        if n <= 2:
+            return REGRA_PRIMEIRA_FAIXA, []
+        return REGRA_MEDIA_2027, list(range(indice_abertura, indice_pa - 1))
+    return "§ 1º", list(range(indice_pa - 13, indice_pa - 1))
+
+
 def _regra_e_janela(ano: int, mes: int, abertura: date, ano_opcao: int):
     """(regra, lista de (ano, mês) da janela, em ordem). Ver a docstring do módulo."""
     indice_pa = _indice(ano, mes)
     indice_abertura = _indice(abertura.year, abertura.month)
     n = indice_pa - indice_abertura + 1  # mês de atividade do PA; 1 = mês da abertura
+
+    if (ano, mes) >= PA_DA_DEFASAGEM:
+        return _regra_e_janela_a_partir_de_2027(indice_pa, indice_abertura, abertura, ano_opcao)
 
     # HI-76: a proporcional depende só de o PA estar até o 12º mês de atividade, e não
     # do ano do PA ser o ano da opção. A abertura pode ser do ano da opção (§ 3º) ou do
@@ -486,9 +596,9 @@ def _contexto_da_apuracao(empresa: Empresa, ano: int, mes: int, periodos: list |
     recibo.validar_competencia(ano, mes)
     if ano >= ANO_RECUSADO:
         raise ApuracaoRecusada(
-            f"A apuração do RBT12 a partir de {ANO_RECUSADO} depende das regras da Res. CGSN "
-            "190/2026, que não foram incorporadas: os limites desses anos não estão "
-            "cadastrados (HI-70)."
+            f"A apuração do RBT12 a partir de {ANO_RECUSADO} está recusada: a Res. CGSN "
+            "190/2026 e a LC 123 (na redação da LC 214) divergem na 6ª faixa do Anexo I "
+            "(19,00% × 18,90%), e os limites desses anos não estão cadastrados (HI-146; HI-70)."
         )
     abertura = empresa.data_abertura_cnpj
     if abertura is None:
@@ -552,6 +662,14 @@ def janela_da_apuracao(
     abertura, periodo = _contexto_da_apuracao(empresa, ano, mes, periodos)
     ano_opcao = periodo.vigencia_inicio.year
     regra, indices = _regra_e_janela(ano, mes, abertura, ano_opcao)
+    if regra == REGRA_PRIMEIRA_FAIXA:
+        # DL-088: na 1ª faixa a janela do FS12 não tem regra lida. Recusar aqui evita que a folha
+        # divida por zero (`folha_fator_r._fs12_da_janela` não trata janela vazia).
+        raise ApuracaoRecusada(
+            f"O FS12 do fator r em {_mm_aaaa(ano, mes)} não tem janela definida: é o 1º ou o 2º "
+            "mês de atividade (1ª faixa, Res. CGSN 190/2026, art. 22, § 2º, I), e a regra do fator "
+            "r nesse caso não foi lida (HI-147; pendência)."
+        )
     return JanelaDaApuracao(
         regra=regra,
         meses=tuple(_do_indice(indice) for indice in indices),
@@ -671,7 +789,8 @@ def rbt12(empresa: Empresa, ano: int, mes: int) -> Rbt12:
         # § 1º: soma dos 12 meses (zeros antes da abertura já estão na soma). Demais: média
         # dos meses de atividade da janela × 12. O divisor é o número de meses da média.
         apurado = None
-        if not pendentes_da_janela:
+        # Na 1ª faixa (DL-088) não há RBT12 numérico: `apurado` fica None, e não se divide por zero.
+        if not pendentes_da_janela and regra != REGRA_PRIMEIRA_FAIXA:
             if regra == "§ 1º":
                 apurado = soma
                 divisor = 12

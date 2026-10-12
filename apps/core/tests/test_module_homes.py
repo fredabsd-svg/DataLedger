@@ -797,3 +797,88 @@ def test_homes_compartilhadas_tem_moldura_acessivel(client, cenario, modulo, lis
     assert_moldura_acessivel(html)
     assert 'class="timbre-impressao"' not in html
     assert 'class="identificacao-do-documento"' not in html
+
+
+# ---------------------------------------------------------------------------
+# DL-090 (I11 da revisão do fiscal): o banner do módulo fiscal diz o que existe
+# e o que não existe. A afirmação antiga ("só recebe NFS-e" e "apuração ainda
+# não disponível") não pode voltar. Os trechos abaixo são conferidos contra o
+# código: cada capacidade citada tem uma DL que a entregou.
+# ---------------------------------------------------------------------------
+
+BANNER_FISCAL = "Recepção, escrituração e apuração para conferência"
+TRECHOS_QUE_EXISTEM = (
+    "Recebe XML de NFS-e nacional, NF-e e NFC-e",
+    "Escritura NFS-e prestadas e tomadas",
+    "NF-e e NFC-e de saída e devolução de venda",
+    # A11 (correção da rodada 1 do DL-082): o pré-DAS de comércio e indústria existe nos casos do
+    # corte.
+    "pré-DAS do Simples de serviços e de comércio e indústria",
+    "o ISS",
+    "as retenções federais",
+    "o IRPJ e a CSLL do Lucro Presumido",
+)
+TRECHOS_QUE_NAO_EXISTEM = (
+    "não emite documentos",
+    "não gera guias",
+    "não transmite obrigações",
+    "não escritura compras de mercadoria",
+    "ICMS, PIS/Cofins, IPI ou IBS/CBS",
+    "Livros fiscais e obrigações acessórias também não existem",
+)
+
+
+def _banner_fiscal(client, parametros):
+    home = client.get(_url("fiscal"), parametros).context["home"]
+    banners = [banner for banner in home["banners"] if banner["titulo"] == BANNER_FISCAL]
+    assert len(banners) == 1, "o banner do fiscal aparece uma vez, em qualquer escopo"
+    return banners[0]
+
+
+@pytest.mark.parametrize("escopo", ["todas", "grupo", "uma"])
+def test_banner_fiscal_diz_o_que_existe_e_o_que_nao_existe(client, cenario, escopo):
+    if escopo == "todas":
+        parametros = {"empresa": "todas", "competencia": "2026-09"}
+    elif escopo == "grupo":
+        parametros = {
+            "empresa": "grupo",
+            "empresas": f"{cenario['empresa'].pk},{cenario['segunda'].pk}",
+            "competencia": "2026-09",
+        }
+    else:
+        parametros = {"empresa": str(cenario["empresa"].pk), "competencia": "2026-09"}
+    banner = _banner_fiscal(client, parametros)
+    assert banner["status"] == "muted"
+    for trecho in TRECHOS_QUE_EXISTEM + TRECHOS_QUE_NAO_EXISTEM:
+        assert trecho in banner["texto"], trecho
+
+
+def test_banner_fiscal_chega_ao_html_da_home(client, cenario):
+    resposta = client.get(_url("fiscal"), {"empresa": "todas", "competencia": "2026-09"})
+    html = resposta.content.decode()
+    assert BANNER_FISCAL in html
+    assert "não escritura compras de mercadoria" in html
+
+
+def test_banner_fiscal_nao_volta_a_dizer_que_so_recebe_nfse(client, cenario):
+    parametros = {"empresa": "todas", "competencia": "2026-09"}
+    home = client.get(_url("fiscal"), parametros).context["home"]
+    textos = " ".join(f"{banner['titulo']} {banner['texto']}" for banner in home["banners"])
+    for antigo in (
+        "Recepção de NFS-e disponível",
+        "recebe e consulta XML de NFS-e nacional",
+        "apuração fiscal ainda não estão disponíveis",
+        "Emissão, obrigações",
+        # A11: a afirmação que a correção da rodada 1 do DL-082 desmentiu não pode voltar.
+        "não calcula o pré-DAS de comércio e indústria",
+    ):
+        assert antigo not in textos, antigo
+    contabilidade = client.get(_url("contabilidade"), parametros).context["home"]
+    assert all(banner["titulo"] != BANNER_FISCAL for banner in contabilidade["banners"])
+
+
+def test_banner_fiscal_aparece_com_carteira_vazia(client, cenario):
+    """Sem clientes, o escritório ainda recebe NF-e e NFS-e: o banner não depende de empresa."""
+    _escritorio_sem_empresas(client, cenario)
+    banner = _banner_fiscal(client, {"empresa": "todas", "competencia": "2026-09"})
+    assert "não emite documentos" in banner["texto"]

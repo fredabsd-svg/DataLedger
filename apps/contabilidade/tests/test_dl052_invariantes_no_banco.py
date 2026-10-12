@@ -47,6 +47,7 @@ from apps.contabilidade.tests.gatilhos_do_livro import (
     IMUTAVEL_ITEM,
     IMUTAVEL_LANCAMENTO,
     gatilho_desligado,
+    modelos_do_esquema,
 )
 from apps.empresas.models import Empresa
 from apps.tenancy.models import Escritorio
@@ -329,12 +330,17 @@ def test_apagar_usuario_que_escriturou_e_recusado_pelo_orm(cenario):
 # ---------------------------------------------------------------------------
 
 
-def _bulk_itens(cenario, lancamento, partidas):
-    ItemLancamento.objects.bulk_create(
+def _bulk_itens(cenario, lancamento, partidas, esquema=None):
+    # `esquema`: registro histórico (`modelos_do_esquema`) quando a gravação acontece dentro
+    # de uma janela de migração. Com `_id`, o mesmo código serve ao modelo atual e ao histórico.
+    modelo_item = (
+        ItemLancamento if esquema is None else esquema.get_model("contabilidade", "ItemLancamento")
+    )
+    modelo_item.objects.bulk_create(
         [
-            ItemLancamento(
-                lancamento=lancamento,
-                conta=cenario["caixa" if tipo == TipoPartida.DEBITO else "capital"],
+            modelo_item(
+                lancamento_id=lancamento.pk,
+                conta_id=cenario["caixa" if tipo == TipoPartida.DEBITO else "capital"].pk,
                 tipo=tipo,
                 valor=Decimal(valor),
             )
@@ -343,9 +349,16 @@ def _bulk_itens(cenario, lancamento, partidas):
     )
 
 
-def _lancamento_nu(cenario):
-    return LancamentoContabil.objects.create(
-        empresa=cenario["empresa"], data=date(2026, 3, 10), historico="Gravado por fora"
+def _lancamento_nu(cenario, esquema=None):
+    # `esquema`: ver `_bulk_itens`. DL-089 (0026): sem ele, dentro de uma janela anterior à
+    # 0026 o INSERT do modelo atual mandaria a coluna `origem`, que a janela não tem.
+    modelo = (
+        LancamentoContabil
+        if esquema is None
+        else esquema.get_model("contabilidade", "LancamentoContabil")
+    )
+    return modelo.objects.create(
+        empresa_id=cenario["empresa"].pk, data=date(2026, 3, 10), historico="Gravado por fora"
     )
 
 
@@ -572,12 +585,15 @@ def test_migracao_falha_alto_nomeando_o_lote_quando_o_banco_ja_tem_dado_invalido
     lote_ruim = None
     try:
         MigrationExecutor(connection).migrate(ANTERIOR)
-        # Sem gatilho neste estado do esquema: monta o lote desbalanceado.
-        lote_ruim = _lancamento_nu(cenario)
+        # Sem gatilho neste estado do esquema: monta o lote desbalanceado, com o modelo
+        # HISTÓRICO do estado ANTERIOR (DL-089: o atual tem `origem`, que o esquema não tem).
+        esquema = modelos_do_esquema(ANTERIOR)
+        lote_ruim = _lancamento_nu(cenario, esquema=esquema)
         _bulk_itens(
             cenario,
             lote_ruim,
             [(TipoPartida.DEBITO, "100.00"), (TipoPartida.CREDITO, "90.00")],
+            esquema=esquema,
         )
 
         with pytest.raises(RuntimeError) as erro:
@@ -665,8 +681,10 @@ def test_d1_migracao_0015_falha_alto_nomeando_o_lote_com_tipo_invalido(cenario):
     lote_ruim = None
     try:
         MigrationExecutor(connection).migrate(antes_da_0015)
+        # Modelo histórico do estado ANTERIOR à 0015 (DL-089: ver o teste acima).
+        esquema = modelos_do_esquema(antes_da_0015)
         with transaction.atomic():
-            lote_ruim = _lancamento_nu(cenario)
+            lote_ruim = _lancamento_nu(cenario, esquema=esquema)
             _bulk_itens(
                 cenario,
                 lote_ruim,
@@ -675,6 +693,7 @@ def test_d1_migracao_0015_falha_alto_nomeando_o_lote_com_tipo_invalido(cenario):
                     (TipoPartida.CREDITO, "10.00"),
                     ("lixo", "5.00"),
                 ],
+                esquema=esquema,
             )
 
         with pytest.raises(RuntimeError) as erro:

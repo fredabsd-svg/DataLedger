@@ -146,6 +146,14 @@ ROTULOS_DE_TELA = {
     ("fiscal_web", "receita_informada_estornar"): "Estornar receita informada",
     ("fiscal_web", "receita_mes_reabrir"): "Reabrir receita do mês",
     ("fiscal_web", "regime_caixa"): "Regime de caixa (Simples)",
+    # DL-088 (frente B, escopos 3 e 6): a opção de regime de IBS/CBS por semestre e o IPI mantido
+    # (Zona Franca). A consulta e o ato de registrar/cadastrar levam o mesmo rótulo da tela: o ato
+    # responde com a própria tela quando recusa.
+    ("fiscal_web", "opcao_regime_ibs_cbs"): "Opção de regime IBS/CBS",
+    ("fiscal_web", "opcao_regime_ibs_cbs_registrar"): "Opção de regime IBS/CBS",
+    ("fiscal_web", "opcao_regime_ibs_cbs_cancelar"): "Opção de regime IBS/CBS",
+    ("fiscal_web", "ipi_mantido"): "IPI mantido (Zona Franca)",
+    ("fiscal_web", "ipi_mantido_gravar"): "IPI mantido (Zona Franca)",
     # DL-075 (frente B): pré-DAS para conferência, atividades e folha para o fator r.
     ("fiscal_web", "pre_das"): "Pré-DAS do Simples",
     ("fiscal_web", "atividades"): "Atividades do Simples",
@@ -189,9 +197,20 @@ ROTULOS_DE_TELA = {
     ("fiscal_web", "presumido_retencao_confirmar"): "Confirmar retenção",
     ("fiscal_web", "presumido_medidas"): "Medidas judiciais contra a LC 224",
     ("fiscal_web", "presumido_medida_nova"): "Nova medida judicial",
+    ("fiscal_web", "presumido_medida_encerrar"): "Encerrar medida judicial",
     ("fiscal_web", "presumido_medida_revogar"): "Revogar medida judicial",
     ("fiscal_web", "presumido_apuracao"): "Apuração do trimestre",
     ("fiscal_web", "presumido_limite"): "Controle do limite do ano",
+    # DL-084 (frente B2): parâmetros da empresa, feriados locais da praça e pendências do mês.
+    ("fiscal_web", "presumido_parametros"): "Parâmetros do Presumido",
+    ("fiscal_web", "presumido_parametros_gravar"): "Gravar parâmetros do Presumido",
+    ("fiscal_web", "presumido_feriados"): "Feriados locais da praça",
+    ("fiscal_web", "presumido_feriado_novo"): "Novo feriado local",
+    ("fiscal_web", "presumido_feriado_editar"): "Alterar feriado local",
+    ("fiscal_web", "presumido_feriado_excluir"): "Excluir feriado local",
+    ("fiscal_web", "presumido_feriado_excecao_nova"): "Nova exceção de feriado",
+    ("fiscal_web", "presumido_feriado_excecao_excluir"): "Excluir exceção de feriado",
+    ("fiscal_web", "presumido_pendencias"): "Pendências de cadastro do mês",
     # DL-073: conformidade IBS/CBS das NFS-e recebidas (modo aviso).
     ("fiscal_web", "conformidade_ibscbs"): "Conformidade IBS/CBS",
     ("tenancy", "bootstrap-primeiro-acesso"): "Criar escritório",

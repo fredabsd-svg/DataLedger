@@ -83,6 +83,103 @@ atualizadas pela RC-172.
 8. **Pendência de cadastro** (HI-136). A empresa do Presumido sem atividade
    de presunção padrão vigente aparece na lista de pendências do mês.
 
+## Entrega da frente A (10/10/2026)
+
+Commit integrado na branch; o desenvolvedor mediu a suíte completa num banco
+próprio: 9.302/1/55 (a falha é a de ambiente, Python 3.13 local).
+
+- **Itens 1, 2, 3, 5, 7 e 8:** implementados e testados. Mutantes do
+  critério 9 derrubam testes (Páscoa deslocada, retenção no trimestre
+  seguinte, competência fora da identidade, aviso local mudando a data).
+- **Item 4 (retenção tardia):** medido, a dedução **já** ficava no trimestre
+  da receita, e o excesso aparece como saldo negativo; o teste novo prende
+  isso. "Reabrir como a retificar" e "já pago" ficam **bloqueados**: o
+  Presumido não tem estado de trimestre efetivado ou pago. Isso vira etapa
+  própria (BL-701).
+- **Item 6:** os parâmetros por empresa existem (três quotas por padrão), e a
+  função do padrão de combustível também, mas **ainda não está ligada** ao
+  lote, à API de escrituração e à tela, que estavam fora dos arquivos
+  permitidos. A ligação vai com a frente B.
+- **Item 7:** o portal do STF respondeu 403 neste ambiente; o andamento das
+  ADI 7936 e 7944 não foi reconferido, e a data do aviso continua 08/10/2026.
+- **20/11:** a vigência passou para 2024 (a Lei 14.759 foi publicada em
+  22/12/2023). Não muda vencimento de 2026 em diante.
+- Hipóteses novas: HI-151 (encerramento cobre o trimestre; praça pela
+  matriz).
+
+Próximo: frente B (telas, ligação do padrão de combustível, retirada do
+aviso "calendário a conferir" em `views_web.py`), depois a auditoria.
+
+## Entrega da frente B (11/10/2026)
+
+Implementada por dois desenvolvedores em paralelo (serviços/API e telas) e
+integrada pelo arquiteto. Medida da suíte completa numa única invocação, já
+com as duas frentes juntas: **9.645 aprovados, 24 reprovados, 78 pulados**.
+As 24 reprovações são de ambiente Windows (`signal.SIGALRM`, bits de
+permissão Unix no NTFS, binários `pdfinfo`/`pdftotext`), medido antes e
+depois da entrega, sem mudança no conjunto.
+
+- **Ligação do padrão de combustível (item 6):** a conferência do mês, a
+  prévia e a confirmação do lote e a API de escrituração passam a sugerir por
+  `sugerir_natureza_com_padrao`, com o padrão lido **uma vez por chamada** e
+  repassado aos itens — nunca por item, prendido por teste de contagem de
+  consultas (BL-698). O desvio da confirmação do lote usa o MESMO padrão da
+  prévia que fixou os itens; sem isso, todo item decidido pelo padrão viraria
+  "desvio" e o lote não efetivaria nota nenhuma.
+- **Telas (itens 2, 3, 5, 6, 7 e 8):** parâmetros da empresa (forma de
+  recolhimento e padrão de combustível, com a trilha antes/depois do
+  serviço); feriados locais da praça com exceção por ano, fonte obrigatória e
+  os dois avisos ("feriado bancário em Palmas (Febraban)" / "feriado local:
+  confirmar expediente bancário na praça"); coerência da CSLL retida na lista
+  e na confirmação, **sem dedução sem o contador**; encerramento da medida
+  judicial em (ano, trimestre) com confirmação nomeando o alvo, trilha e
+  histórico preservado; pendências de cadastro do mês na apuração do
+  trimestre e em lista própria; antecipação do vencimento com o aviso
+  "antecipar: sem expediente bancário na praça".
+- **Item 1 (resto):** a chave morta `"aviso": "calendário a conferir"` saiu
+  de `views_web.py`, e os docstrings desatualizados de `FeriadoLocal` e de
+  `Parcela.aviso_calendario` foram corrigidos.
+- **Testes novos:** `test_dl084_frente_b_ligacao.py` (13) e
+  `test_dl084_frente_b_telas.py` (27). Mutação verificada na execução: os
+  quatro caminhos de sugestão (conferência, prévia, confirmação do lote e
+  API) e duas permissões de tela derrubam teste quando anulados.
+- O item 4 (retenção tardia → "a retificar"/PER/DCOMP) segue **bloqueado**
+  no estado de trimestre (BL-701), como na frente A.
+
+Próximo: auditoria independente — rodada 1, correção única, reconferência
+(§3.1).
+
+## Ciclo da rodada 1 encerrado (11/10/2026)
+
+[Rodada 1](../auditorias/2026-10-11-dl-084-rodada-1.md) **APROVADA COM
+RESSALVAS**: A1 e A2 médios, A3 a A5 baixos; 8 de 10 mutantes mortos. Os dois
+sobreviventes (M8, base da CSLL sem o desconto; M9, ordem permissão→empresa
+sem teste nas rotas do fiscal) foram os achados A3 e A4.
+
+**Correção única** (commits `14f13a2` e `8ac49f4`): A1 fechado pela
+[DE-106](../projeto/decisoes.md) — a lei da praça vira base somente leitura e
+a escrita passa a ser do escritório (`FeriadoLocal.escritorio` e
+`ExcecaoFeriadoLocal.escritorio`, migração `0016`), com substituição do mesmo
+dia e um aviso por dia; A2 com as guardas das migrações 0015 e 0016 (a 0016
+recusa as cinco classes ANTES de qualquer coisa mudar — cada migração tem a
+própria transação); A3 e A4 com os testes que matam M8 e M9; A5 com a guarda
+de reversão parametrizada nas cinco classes.
+
+[Reconferência](../auditorias/2026-10-11-dl-084-reconferencia.md)
+**APROVADA** — os cinco achados fechados; as duas nuances (exceção no mesmo
+(feriado, ano) da base e atalho de exceção na tela da base) aceitas como
+limite do desenho e registradas na DE-106. Ajustes do arquiteto depois dela,
+sem terceira rodada (§3.1): as duas nuances na DE-106, o texto de ajuda da
+linha da base distinguindo "a linha é da base" de "a exceção do ano pode ser a
+sua", e o teste unitário de `linhas_efetivas` com entrada fora de ordem, que
+mata o mutante equivalente E2 (conferido na execução).
+
+Medida da suíte completa numa única invocação na reconferência: **9.700
+aprovados, 24 reprovados (ambiente Windows), 78 pulados**.
+
+Próximo: [DL-088](DL-088-virada-de-2027-no-simples.md) frentes A2 e B, depois
+a auditoria dela.
+
 ## Critérios de aceite
 
 1. O vencimento é antecipado nas quatro datas, em anos com Páscoa em março e

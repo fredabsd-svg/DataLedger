@@ -157,14 +157,15 @@ def test_recusa_lista_todos_os_motivos_de_uma_vez(empresa_a, usuario_gestor_a):
     assert {"mes_nao_confirmado", "sem_atividade_padrao"} <= _codigos(excecao)
 
 
-def test_tabela_de_2027_recusada_citando_a_res_cgsn_190(empresa_a, usuario_gestor_a):
+def test_tabela_de_2029_recusada_citando_a_res_cgsn_190(empresa_a, usuario_gestor_a):
+    # DL-088: 2027 e 2028 têm tabela; a recusa de tabela passou a ser de 2029 (HI-146).
     empresa = cenario_simples(empresa_a)
     with pytest.raises(servico.PreDasRecusado) as excecao:
-        servico.pre_das(empresa, 2027, 1)
+        servico.pre_das(empresa, 2029, 1)
     (bloqueio,) = excecao.value.bloqueios
     assert bloqueio.codigo == "tabela_fora_de_vigencia"
     assert "190/2026" in bloqueio.mensagem
-    assert "01/2027" in bloqueio.mensagem
+    assert "01/2029" in bloqueio.mensagem
 
 
 def test_competencia_antes_de_2018_recusada_com_a_vigencia(empresa_a):

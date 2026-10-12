@@ -20,7 +20,7 @@
             <div>
                 <p class="mh-eyebrow">Central de trabalho</p>
                 <p class="mh-subtitle">{{ home.modulo.descricao }}</p>
-                {% if home.modulo.disponibilidade == "parcial" %}<p class="mh-availability">Fiscal disponível: recepção e consulta de NFS-e.</p>{% endif %}
+                {% if home.modulo.disponibilidade == "parcial" %}<p class="mh-availability">Fiscal disponível em parte: recepção de NFS-e, NF-e e NFC-e, escrituração e apuração para conferência.</p>{% endif %}
             </div>
             {% if home.filtros %}{% include "core/_home_components.html" with parte="filtros" %}{% endif %}
         </header>

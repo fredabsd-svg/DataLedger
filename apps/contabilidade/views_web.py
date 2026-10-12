@@ -156,9 +156,11 @@ from apps.contabilidade.models import (
     # validação de negócio mora aqui: quem valida é sempre o serviço
     # (`registrar_parametro_contabil`) — ver o docstring do próprio
     # modelo, em models.py, sobre por que ele não tem `clean()`.
+    OrigemLancamento,
     ParametroContabilEmpresa,
     PeriodicidadeZeramento,
     TipoConta,
+    TipoDocumentoOrigem,
     TipoPartida,
 )
 from apps.contabilidade.permissoes import papel_pode_ler_contabilidade
@@ -267,6 +269,7 @@ from apps.contabilidade.services import (
     definir_adocao_antecipada_da_nbc_tg_51,
     encerrar_competencia,
     encerrar_vigencia_de_parametro_contabil,
+    existe_lancamento_de_origem,
     # DL-045 fatia 3: função PURA (sem consulta) que devolve o bloco de
     # identificação NBC TG 26 item 51 — mesma que `apurar_balanco_
     # patrimonial` já embute no próprio retorno (`resultado["identificacao"]`
@@ -3170,6 +3173,8 @@ def _contexto_do_lancamento_detalhe(request, empresa, lancamento, *, erros=None,
         "itens": itens,
         "total_debito_ptbr": _valor_ptbr(total_debito),
         "total_credito_ptbr": _valor_ptbr(total_credito),
+        "origem_ptbr": OrigemLancamento(lancamento.origem).label,
+        "documento_de_origem": _documento_de_origem_para_a_tela(empresa, lancamento),
         "guia_dmpl": _guia_da_marcacao_dmpl(
             empresa,
             lancamento,
@@ -3177,6 +3182,37 @@ def _contexto_do_lancamento_detalhe(request, empresa, lancamento, *, erros=None,
             erros=erros,
             digitadas=digitadas,
         ),
+    }
+
+
+def _documento_de_origem_para_a_tela(empresa, lancamento):
+    """Rótulo e link do documento de origem do lançamento (DL-089), ou `None` (manual).
+
+    O link só existe onde a tela do documento existe hoje: o lote da importação de
+    lançamentos (DL-077). A escrituração fiscal ainda não tem tela de contabilidade; nesse
+    caso a tela mostra o tipo e o identificador, sem link. Não se inventa URL.
+    """
+    if lancamento.documento_origem_tipo is None:
+        return None
+    tipo = lancamento.documento_origem_tipo
+    identificador = lancamento.documento_origem_id
+    url = None
+    # `str(int(...)) == ...` recusa "0012" e "+12": o link tem de apontar exatamente para o
+    # id gravado pela efetivação, e não para outro número parecido.
+    if (
+        tipo == TipoDocumentoOrigem.IMPORTACAO_LANCAMENTOS
+        and identificador.isascii()
+        and identificador.isdigit()
+        and str(int(identificador)) == identificador
+    ):
+        url = reverse(
+            "contabilidade_web:lancamentos_importacao",
+            args=[empresa.id, int(identificador)],
+        )
+    return {
+        "rotulo": TipoDocumentoOrigem(tipo).label,
+        "identificador": identificador,
+        "url": url,
     }
 
 
@@ -3418,6 +3454,34 @@ def _aviso_de_movimento_fora_do_periodo(
 # ---------------------------------------------------------------------------
 
 
+# DL-089 (A5): rótulos do filtro de origem na tela do Diário. São os da tela, e não os do
+# modelo: o modelo diz "(reservado)" em `escrita_fiscal`, que é jargão interno para o contador.
+ROTULO_DA_ORIGEM_NO_DIARIO = {
+    OrigemLancamento.MANUAL: "Manual",
+    OrigemLancamento.IMPORTACAO: "Importação de lançamentos",
+    OrigemLancamento.ESCRITA_FISCAL: "Escrita fiscal",
+}
+
+
+def _opcoes_de_origem_do_diario(empresa, origem_selecionada):
+    """Opções do seletor de origem do Diário.
+
+    `escrita_fiscal` só aparece quando a empresa tem lançamento dessa origem, ou quando ela
+    já é o filtro pedido: sem isso, o seletor mostraria "Todas as origens" em cima de um
+    filtro que a própria tela aplicou. As outras origens sempre aparecem.
+    """
+    opcoes = [("", "Todas as origens")]
+    for valor in OrigemLancamento.values:
+        if (
+            valor == OrigemLancamento.ESCRITA_FISCAL
+            and valor != origem_selecionada
+            and not existe_lancamento_de_origem(empresa=empresa, origem=valor)
+        ):
+            continue
+        opcoes.append((valor, ROTULO_DA_ORIGEM_NO_DIARIO[valor]))
+    return opcoes
+
+
 @login_required
 @require_safe
 def diario(request, empresa_id):
@@ -3434,22 +3498,36 @@ def diario(request, empresa_id):
         return recusa_livro_caixa
 
     inicio, fim, erro_periodo = _periodo_do_formulario(request)
+    # DL-089: filtro por origem do lançamento. Vazio = todas. Valor fora da lista é erro de
+    # formulário (400), como a data: não vira "sem filtro" em silêncio.
+    origem_pedida = (request.GET.get("origem") or "").strip()
+    erro_origem = None
+    origem_filtro = origem_pedida or None
+    if origem_filtro is not None and origem_filtro not in OrigemLancamento.values:
+        erro_origem = "Origem inválida. Escolha uma das opções da lista de origem."
+        origem_filtro = None
     # DL-077, fatia 3: o link "Importar lançamentos" só aparece para quem escritura (o servidor
     # recusa de qualquer forma; a tela só deixa de convidar quem seria recusado).
+    origem_selecionada = origem_filtro or ""
     contexto = {
         "empresa": empresa,
         "inicio": inicio,
         "fim": fim,
         "pode_escriturar": _pode_escriturar(request),
+        "origens": _opcoes_de_origem_do_diario(empresa, origem_selecionada),
+        "origem_selecionada": origem_selecionada,
+        # Rótulo do filtro aplicado: a mensagem de vazio e o cabeçalho impresso o citam, para
+        # que o papel diga qual origem foi listada (A5). Vazio quando não há filtro.
+        "origem_selecionada_rotulo": ROTULO_DA_ORIGEM_NO_DIARIO.get(origem_selecionada, ""),
     }
-    if erro_periodo:
-        messages.error(request, erro_periodo)
+    if erro_periodo or erro_origem:
+        messages.error(request, erro_periodo or erro_origem)
         return render(request, "contabilidade/diario.html", contexto, status=400)
 
     lotes = []
     total_debito = Decimal("0")
     total_credito = Decimal("0")
-    for lancamento in listar_diario(empresa=empresa, inicio=inicio, fim=fim):
+    for lancamento in listar_diario(empresa=empresa, inicio=inicio, fim=fim, origem=origem_filtro):
         debito_lote = Decimal("0")
         credito_lote = Decimal("0")
         for item in lancamento.itens.all():

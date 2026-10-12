@@ -198,6 +198,12 @@ MENSAGENS_DE_RESTRICAO = {
         "Opção pelo regime de caixa fora de 2000-2026. A partir de 2027 a base é a "
         "competência (HI-66)."
     ),
+    # DL-085 (frente A): um lote de escrituração em andamento por empresa e mês. O serviço
+    # (`apps.fiscal.escrituracao_nfe_lote`) confere a trava da empresa antes de gravar; esta
+    # restrição é a segunda defesa. A corrida que passa pela checagem vira 400, não 500.
+    "lote_nfe_em_andamento_unico_por_mes": (
+        "Já existe um lote de escrituração em andamento para esta empresa e este mês."
+    ),
 }
 
 # Achado D1 da auditoria da DL-039 rodada 1 (BL-533): os dois gatilhos de
@@ -273,6 +279,14 @@ MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
     ),
     "item_lancamento_imutavel": (
         "Item de lançamento efetivado não pode ser alterado nem excluído; registre um estorno."
+    ),
+    # DL-089 (BL-72), migração 0026 de `contabilidade`: origem e documento de origem são
+    # gravados na criação e o gatilho recusa qualquer UPDATE que os altere. Nenhum caminho de
+    # cliente os altera (não há rota de edição de lançamento); a mensagem existe para que, se
+    # um dia alcançar, o erro seja legível.
+    "lancamento_origem_imutavel": (
+        "Origem ou documento de origem de lançamento efetivado não pode ser alterado; "
+        "registre um estorno."
     ),
     "lancamento_debito_igual_a_credito": (
         "O total de débitos do lançamento deve ser igual ao total de créditos."
@@ -407,6 +421,11 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     "escrituracao_nfe_ativa_unica_por_vinculo": "apps.fiscal.escrituracao_nfe._inserir",
     "fiscal_leituraitensnfe_documento_id_key": "apps.fiscal.itens_nfe.ler_itens",
     "presumido_confirmacao_ativa_unica_por_escrituracao": "apps.fiscal.presumido._inserir",
+    # DL-084 (frente A): as duas unicidades novas do presumido passam por `_inserir`, que traduz a
+    # violação em conflito (409). Os parâmetros são gravados sob a trava da empresa; o encerramento
+    # de medida é único por medida, e a corrida de dois encerramentos cai aqui.
+    "presumido_parametros_unico_por_empresa": "apps.fiscal.presumido._inserir",
+    "presumido_encerramento_unico_por_medida": "apps.fiscal.presumido._inserir",
     # DL-077 (fatia 3, frente A): as unicidades da importação de lançamentos são checadas pelo
     # serviço antes de gravar (`receber` recusa o arquivo repetido com 409; o IntegrityError de
     # corrida é reconvertido ali) e o de-para é gravado por `definir_de_para` (update_or_create).
@@ -534,6 +553,11 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     # apps.fiscal.receita (savepoint por INSERT, mesmo molde de `_inserir_escrituracao`).
     "confirmacao_mes_unica_por_empresa": "apps.fiscal.receita._inserir",
     "opcao_caixa_unica_por_ano": "apps.fiscal.receita._inserir",
+    # DL-088 (frente A2): a opção de regime de IBS/CBS do semestre é insert-only, e o IPI
+    # mantido tem INSERT com trava de unicidade (cadastro corrigível por novo INSERT). As duas
+    # unicidades saem como 409 pelo mesmo `_inserir`.
+    "opcao_regime_ibs_cbs_unica_por_semestre": "apps.fiscal.receita._inserir",
+    "ipi_mantido_unico_por_empresa": "apps.fiscal.receita._inserir",
     # DL-075 (frente A): folha, um lançamento ativo por mês → 409 (conflito de estado).
     "folha_mes_unica_ativa_por_empresa": "apps.fiscal.folha_fator_r._inserir",
     # DL-075 (frente A): atividades. A padrão em aberto e a vigência/enquadramento
@@ -582,6 +606,16 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
 # nenhum. A forma como a restrição foi DECLARADA não muda o que acontece
 # quando ela é violada.
 RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
+    # DL-088 (frente A2): CHECKs da opção de regime de IBS/CBS do semestre. O serviço
+    # (`apps.fiscal.receita._validar_ano_e_semestre`) recusa ano anterior a 2027 e semestre fora
+    # de 1|2 ANTES do INSERT, com `EntradaInvalidaReceita` (400); nenhuma entrada de cliente
+    # alcança estas linhas.
+    "opcao_regime_ibs_cbs_so_desde_2027": (
+        "Ano anterior a 2027 na opção de regime: o serviço recusa antes. "
+    ),
+    "opcao_regime_ibs_cbs_semestre_valido": (
+        "Semestre fora de 1 e 2 na opção de regime: o serviço recusa antes. "
+    ),
     # DL-080 (frente A): `_vincular_participantes_nfe` nunca cria dois vínculos para a mesma empresa
     # no mesmo documento: emitente e destinatário que são a mesma empresa viram UM vínculo, como
     # emitente, com a marca de transferência (HI-111). Nenhum caminho de escrita do cliente.
@@ -646,6 +680,56 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
     ),
     "presumido_medida_ativa_coerente": (
         "Revogação sem motivo ou data: só o serviço de revogação escreve estes campos. "
+    ),
+    # DL-084 (rotina do Presumido): CHECKs e unicidades novas. O serviço valida antes de gravar, e a
+    # API só passa o que ele aceita. Só SQL direto as viola.
+    "presumido_receita_competencia_valida": (
+        "Competência fora de AAAA-MM (mês do trimestre) ou 'parcela N': o serviço recusa antes. "
+    ),
+    "presumido_parametros_forma_valida": (
+        "Forma de recolhimento fora de quota única, duas ou três quotas: o serviço recusa antes. "
+    ),
+    "presumido_parametros_combustivel_valido": (
+        "Padrão de combustível fora de posto, TRR, distribuidora ou vazio: o serviço recusa antes. "
+    ),
+    "presumido_encerramento_trimestre_valido": (
+        "Trimestre do encerramento fora de 1 a 4: o serviço recusa antes. "
+    ),
+    "presumido_encerramento_motivo_obrigatorio": (
+        "Encerramento sem motivo: o serviço recusa antes. "
+    ),
+    # DL-084 (item 2): a tabela de feriados locais é carga da migração 0015, com lei e data da
+    # leitura.
+    # Não há caminho de escrita pelo cliente; a CHECK e o NOT NULL garantem a fonte em cada linha.
+    "feriado_local_unico": (
+        "Carga de feriado local da migração 0015, uma linha por UF, município, dia e vigência: não "
+        "há caminho de cliente que grave feriado. "
+    ),
+    "feriado_local_uf_valida": (
+        "Feriado local com UF fora de duas letras maiúsculas: só a carga grava."
+    ),
+    "feriado_local_esfera_valida": (
+        "Feriado local com esfera fora de estadual e municipal: só a carga grava."
+    ),
+    "feriado_local_municipal_tem_municipio": (
+        "Feriado municipal sem município: só a carga grava, e o município vem do cadastro da lei."
+    ),
+    "feriado_local_data_valida": "Feriado local com mês ou dia fora da faixa: só a carga grava.",
+    "feriado_local_fundamento_obrigatorio": (
+        "Feriado local sem a lei que o declara: a carga exige a fonte em cada linha."
+    ),
+    "feriado_local_vigencia_coerente": (
+        "Vigência do feriado com fim antes do início: só a carga grava."
+    ),
+    "excecao_feriado_unica_por_ano": (
+        "Uma exceção por feriado e ano, gravada pela carga da migração 0015: não há caminho de"
+        "cliente."
+    ),
+    "excecao_feriado_ano_valido": (
+        "Exceção de feriado com ano fora de 1970 a 2999: só a carga grava."
+    ),
+    "excecao_feriado_fundamento_obrigatorio": (
+        "Exceção de feriado sem o ato que moveu a data: a carga exige a fonte em cada linha."
     ),
     # DL-077 (fatia 3, frente A): restrições de domínio fechado escritas só pelo serviço.
     "ck_importacao_lancamentos_estado_valido": (
@@ -776,6 +860,34 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "`LancamentoContabil` sem `empresa`. Defesa em profundidade contra "
         "INSERT direto via psql/shell-admin, sem caminho de escrita por "
         "cliente."
+    ),
+    # DL-089 (BL-72), três CHECKs de origem e documento. A origem é decidida pelo SERVIDOR
+    # (`criar_lancamento`, e `importacao_lancamentos.efetivar`); o contrato do POST de
+    # lançamento recusa o campo `origem` e `documento_origem_*`. Nenhum caminho de cliente as
+    # grava; são defesa contra `bulk_create`, `objects.create()` e SQL direto.
+    "ck_lancamentocontabil_origem_valida": (
+        "`CheckConstraint(origem IN ('manual','importacao','escrita_fiscal'))` do modelo "
+        "`LancamentoContabil` (DL-089). `criar_lancamento` só grava valores de "
+        "`OrigemLancamento`, e o contrato do POST não aceita o campo. Sem caminho de escrita "
+        "por cliente."
+    ),
+    "ck_lancamentocontabil_documento_tipo_valido": (
+        "`CheckConstraint(documento_origem_tipo IS NULL OR IN (...))` do modelo "
+        "`LancamentoContabil` (DL-089). `criar_lancamento` valida o tipo contra "
+        "`TipoDocumentoOrigem` antes de gravar. Sem caminho de escrita por cliente."
+    ),
+    "ck_lancamentocontabil_documento_consistente": (
+        "`CheckConstraint` do modelo `LancamentoContabil` (DL-089): ou não há documento de "
+        "origem, ou há tipo e identificador sem espaço nas pontas, não vazio após aparar, e a "
+        "origem não é `manual` (A6). `criar_lancamento` valida o identificador antes de gravar. "
+        "Sem caminho de escrita por cliente."
+    ),
+    "ck_lancamentocontabil_origem_pareada_ao_documento": (
+        "`CheckConstraint` do modelo `LancamentoContabil` (DL-089, A6): `importacao` só com "
+        "`importacao_lancamentos`, e `escrita_fiscal` só com `escrituracao_nfe` ou "
+        "`escrituracao_nfse`; só `manual` fica sem documento (reconferência, R1). "
+        "`criar_lancamento` valida o par com `TIPOS_DE_DOCUMENTO_POR_ORIGEM` e exige o documento "
+        "da origem automática antes de gravar. Sem caminho de escrita por cliente."
     ),
     # DL-010 F1: `apps.fiscal.services._vincular_participantes` nunca monta
     # dois vínculos para a MESMA empresa no mesmo documento (o ramo do
@@ -1185,6 +1297,29 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "as linhas de natureza são criadas uma por item, em `criar_rascunho`, com `bulk_create` "
         "sobre os itens da nota. Nenhum caminho do cliente insere uma segunda linha para o mesmo "
         "item: o pedido de natureza só atualiza as linhas existentes."
+    ),
+    # DL-085 (frente A): `CheckConstraint` do lote. Só `_criar_lote` (cria em andamento) e
+    # `_concluir_se_terminou` (passa a concluído) escrevem o estado, com valores fixos no código.
+    # Nenhum caminho de escrita do cliente alcança a tabela do lote.
+    "lote_nfe_estado_valido": (
+        "Estado do lote fora de em andamento e concluído: só o serviço do lote escreve o estado."
+    ),
+    # DL-085 (frente A): `concluido_em` é gravado junto com o estado concluído, em
+    # `_concluir_se_terminou`, na mesma transação. Sem caminho de escrita por cliente.
+    "lote_nfe_concluido_tem_data": (
+        "Lote concluído sem data de conclusão: `_concluir_se_terminou` grava as duas juntas."
+    ),
+    # DL-085 (frente A): a linha de nota do lote é criada uma por vínculo, no mesmo
+    # `bulk_create` de `_criar_lote`, sob a trava da empresa. Nenhum caminho do cliente insere
+    # linha de lote.
+    "lote_nfe_nota_unica_por_lote": (
+        "Duas linhas da mesma nota no mesmo lote: `_criar_lote` cria uma por vínculo, sob trava. "
+        "Sem caminho de escrita por cliente hoje."
+    ),
+    # DL-085 (frente A): estado da linha do lote fora de pendente, efetivada, já efetivada e
+    # falhou. Só `_gravar_estado` (apps.fiscal.escrituracao_nfe_lote) escreve o estado.
+    "lote_nfe_nota_estado_valido": (
+        "Estado da linha do lote fora do conjunto fixo: só o serviço do lote escreve o estado."
     ),
 }
 

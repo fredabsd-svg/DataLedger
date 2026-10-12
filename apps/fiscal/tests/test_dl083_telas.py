@@ -221,10 +221,11 @@ def _linhas(html):
 
 
 def _linha_do_item(html, n_item):
-    """Linha da tabela de itens da escrituração: oito células (item, produto, CFOP, CST, NCM, vProd,
-    receita, natureza). Índices: vProd é 5, receita é 6."""
+    """Linha da tabela de itens da escrituração: nove células (item, produto, CFOP, CST, NCM, vProd,
+    receita, natureza, e marca e segmento da devolução, DL-082). Índices: vProd é 5, receita é 6.
+    Ajuste mínimo: a coluna nova acrescentou uma célula; os índices lidos não mudaram."""
     for linha in _linhas(html):
-        if len(linha) == 8 and linha[0] == str(n_item):
+        if len(linha) == 9 and linha[0] == str(n_item):
             return linha
     raise AssertionError(f"item {n_item} não aparece na tela")
 

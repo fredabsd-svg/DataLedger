@@ -364,7 +364,9 @@ def test_retencoes_do_trimestre_mostram_proposta_e_confirmacao(
         presumido_api["empresa"],
         usuario_gestor_a,
         sufixo=602,
-        v_serv="20000.00",
+        # DL-084 (HI-103): 465,00 é 4,65% de 10.000,00. Com 20.000,00 a nota não confere com a regra
+        # e cairia em "a classificar". A expectativa abaixo (100,00) não muda.
+        v_serv="10000.00",
         d_compet="2026-01-10",
         ret_irrf="300.00",
         ret_csll="465.00",

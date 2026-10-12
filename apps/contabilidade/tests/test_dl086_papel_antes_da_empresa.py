@@ -13,14 +13,15 @@ a MESMA (status e corpo) para id existente e inexistente, e o B7 da DL-038
 segue preservado (a recusa não revela o modo de escrituração de ninguém).
 
 Como na varredura da DL-038 (`test_dl038_recusa_livro_caixa.py`), as rotas
-são DERIVADAS de `apps.contabilidade.urls_web.urlpatterns` — nenhuma lista
-escrita à mão. Uma rota nova com `empresa_id` entra nesta varredura sem
-ninguém editar este arquivo; os métodos aceitos vêm da sonda TRACE (cabeçalho
-`Allow` do 405), sem executar o handler. O controle de vacuidade é o par de
-testes finais: papel que LÊ com id inexistente continua 404 (isolamento,
-critério 2 da DL-015) — se a guarda virasse "403 para todos", aquele par
-caía junto com o mutante "guarda removida" (CLIENTE com id inexistente
-voltaria a ser 404).
+são DERIVADAS de `apps.contabilidade.urls_web.urlpatterns` e, desde a
+correção da DL-084 (achado A4), também de `apps.fiscal.urls_web.urlpatterns`
+— nenhuma lista escrita à mão. Uma rota nova com `empresa_id` entra nesta
+varredura sem ninguém editar este arquivo; os métodos aceitos vêm da sonda
+TRACE (cabeçalho `Allow` do 405), sem executar o handler. O controle de
+vacuidade é o par de testes finais: papel que LÊ com id inexistente continua
+404 (isolamento, critério 2 da DL-015) — se a guarda virasse "403 para
+todos", aquele par caía junto com o mutante "guarda removida" (CLIENTE com
+id inexistente voltaria a ser 404).
 """
 
 import re
@@ -32,6 +33,7 @@ from django.urls import reverse
 from apps.contabilidade import urls_web as contabilidade_urls_web
 from apps.contabilidade.models import Conta, LancamentoContabil
 from apps.empresas.models import Empresa
+from apps.fiscal import urls_web as fiscal_urls_web
 from apps.tenancy.models import Escritorio, Papel, VinculoUsuarioEscritorio
 
 pytestmark = pytest.mark.django_db
@@ -43,12 +45,22 @@ ID_INEXISTENTE = 987_654_321
 
 def _rotas_web_com_empresa_id():
     """Mesma derivação da DL-038: todo padrão de `urls_web` cujo conversor
-    inclui `empresa_id`."""
+    inclui `empresa_id`.
+
+    Desde a correção da DL-084 (achado A4 da auditoria), derivam-se também as
+    rotas do FISCAL: as rotas novas do Presumido nascem sob a mesma regra da
+    BL-584, e sem elas aqui o mutante "empresa resolvida antes da permissão"
+    sobrevivia à suíte inteira (medido: 181 testes passavam). O namespace vem do
+    módulo, para `reverse` acertar cada rota."""
     rotas = []
-    for padrao in contabilidade_urls_web.urlpatterns:
-        nomes_de_parametro = tuple(padrao.pattern.converters)
-        if "empresa_id" in nomes_de_parametro:
-            rotas.append((f"contabilidade_web:{padrao.name}", nomes_de_parametro))
+    for modulo, namespace in (
+        (contabilidade_urls_web, "contabilidade_web"),
+        (fiscal_urls_web, "fiscal_web"),
+    ):
+        for padrao in modulo.urlpatterns:
+            nomes_de_parametro = tuple(padrao.pattern.converters)
+            if "empresa_id" in nomes_de_parametro:
+                rotas.append((f"{namespace}:{padrao.name}", nomes_de_parametro))
     return rotas
 
 
@@ -61,8 +73,12 @@ def test_a_derivacao_nao_esta_vazia():
     # rotas. A contagem exata é fixada pela DL-038
     # (`test_a_derivacao_encontrou_as_vinte_e_quatro_rotas_web_e_as_vinte_da_api`)
     # — de propósito não duplicada aqui, para uma rota nova não exigir dois
-    # arquivos editados.
+    # arquivos editados. O segundo assert prende a PRESENÇA das rotas do
+    # fiscal: sem ele, uma derivação que só enxergasse a contabilidade passaria
+    # silenciosamente e as rotas novas do Presumido ficariam fora (o próprio
+    # achado A4).
     assert len(ROTAS_WEB) >= 41, ROTAS_WEB
+    assert any(nome.startswith("fiscal_web:") for nome, _ in ROTAS_WEB), ROTAS_WEB
 
 
 @pytest.fixture
@@ -191,3 +207,57 @@ def test_papel_que_le_acessa_a_empresa_do_proprio_escritorio(client, cenario_cli
     endereco = reverse("contabilidade_web:plano_de_contas", kwargs={"empresa_id": empresa.pk})
     resposta = client.get(endereco)
     assert resposta.status_code == 200
+
+
+def test_cliente_com_empresa_de_outro_escritorio_recebe_403_nao_404(client, cenario_cliente):
+    """O cruzamento que distingue as ordens (achado A4 da auditoria da DL-088, sobre as rotas
+    novas do Fiscal): CLIENTE com empresa de OUTRO escritório.
+
+    Com a ordem certa — permissão ANTES de resolver a empresa — a resposta é 403, a MESMA de
+    qualquer alvo. Com a ordem invertida (a empresa resolvida antes da permissão), a recusa viraria
+    404 e confirmaria que o id existe — exatamente o oráculo que a BL-584 fechou. O teste derivado
+    de cima já derruba esse mutante (compara 403/403 com 403/404); este caso prende o cruzamento
+    nomeado pelo auditor nas rotas de registro, cancelamento e gravação da opção de regime e do IPI
+    mantido (DL-088, achado A1).
+    """
+    from apps.fiscal.models import IpiMantidoZfmEmpresa, OpcaoRegimeIbsCbsSimples
+
+    escritorio, empresa = cenario_cliente
+    outro = Escritorio.objects.create(nome="Escritório DL-086 B", cnpj="11222333000199")
+    empresa_alheia = Empresa.objects.create(
+        escritorio=outro, razao_social="Empresa Alheia Ltda", cnpj="11122233000177"
+    )
+    assert client.login(username="cliente-dl086", password="senha-forte-123")
+
+    for rota, metodos, corpo in (
+        (
+            "fiscal_web:opcao_regime_ibs_cbs_registrar",
+            # Rota só de POST: o GET é 405 por despacho (o decorador), para todo mundo — não é
+            # recusa de permissão e não diz nada sobre a ordem. O POST é o que prova a ordem.
+            ("POST",),
+            {"ano": "2027", "semestre": "1", "regime": "regime_unico", "acao": "confirmar"},
+        ),
+        (
+            "fiscal_web:opcao_regime_ibs_cbs_cancelar",
+            # GET (a confirmação) e POST (o ato): os dois são handlers de verdade e os dois têm de
+            # recusar 403 antes de resolver a empresa.
+            ("GET", "POST"),
+            {"ano": "2027", "semestre": "1", "motivo": "Cancelamento sintético de teste."},
+        ),
+        (
+            "fiscal_web:ipi_mantido_gravar",
+            ("POST",),
+            {"situacao": "ipi_mantido", "fonte": "Declaração sintética de teste."},
+        ),
+    ):
+        endereco = reverse(rota, kwargs={"empresa_id": empresa_alheia.pk})
+        for metodo in metodos:
+            resposta = (
+                client.get(endereco) if metodo == "GET" else client.post(endereco, data=corpo)
+            )
+            assert resposta.status_code == 403, (rota, metodo, resposta.status_code)
+            assert empresa_alheia.razao_social not in resposta.content.decode(), (rota, metodo)
+
+    # Nada foi gravado — nem para a empresa alheia, nem para a própria.
+    assert not OpcaoRegimeIbsCbsSimples.objects.exists()
+    assert not IpiMantidoZfmEmpresa.objects.exists()

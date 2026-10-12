@@ -904,12 +904,21 @@ def _dados_fiscal(request, escopo):
             total_documentos,
         )
     )
+    # DL-090 (I11 da revisão do fiscal): o banner descreve o que o módulo faz e o que ainda não
+    # faz, para o contador não tomar a ausência de um cálculo por ausência de módulo. A lista
+    # sai do código (DL-072 a DL-085); se uma DL mudar a capacidade, este texto muda junto.
     banners = [
         _banner(
-            "Recepção de NFS-e disponível",
+            "Recepção, escrituração e apuração para conferência",
             (
-                "Esta versão recebe e consulta XML de NFS-e nacional. Emissão, obrigações, "
-                "certificado e apuração fiscal ainda não estão disponíveis."
+                "Recebe XML de NFS-e nacional, NF-e e NFC-e. Escritura NFS-e prestadas e "
+                "tomadas e NF-e e NFC-e de saída e devolução de venda. Apura para conferência "
+                "a receita e o pré-DAS do Simples de serviços e de comércio e indústria (casos do "
+                "primeiro corte; fora dele, o mês é recusado com o motivo), o ISS, as retenções "
+                "federais e o IRPJ e a CSLL do Lucro Presumido. Ainda não emite documentos, não "
+                "gera guias, não transmite obrigações, não escritura compras de mercadoria, nem "
+                "apura ICMS, PIS/Cofins, IPI ou IBS/CBS. "
+                "Livros fiscais e obrigações acessórias também não existem."
             ),
             "muted",
         )
@@ -1252,7 +1261,7 @@ def montar_home(request, escopo, *, estado="", pagina=1, tamanho=8):
         **MODULOS[escopo.modulo],
         "descricao": {
             "contabilidade": "Conferência e fechamento por competência",
-            "fiscal": "Recepção e conferência de NFS-e nacional",
+            "fiscal": "Recepção, escrituração e apuração para conferência",
             "livro-caixa": "Conferência do livro-caixa de pessoa física",
         }.get(escopo.modulo, "Módulo ainda não disponível"),
     }

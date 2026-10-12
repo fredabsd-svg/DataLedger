@@ -64,6 +64,112 @@ com NFS-e, não com NFC-e.
 medida mostrar que as partes não bastam; apuração do ICMS; NFC-e em
 contingência sem protocolo, que continua recusada (HI-110).
 
+## Decisões tomadas na implementação (frente A)
+
+- **Modelo de lote** (`LoteEscrituracaoNFe` e `LoteEscrituracaoNFeNota`,
+  migração `fiscal 0013`):
+  - depois da primeira parte, as notas efetivadas saem da prévia, e só o
+    conjunto gravado diz quais notas eram do lote;
+  - o banco trava "um lote em andamento por empresa e mês"; a corrida vira
+    400 com a mensagem do registro de restrições.
+- **Chave do grupo:** o tipo da nota e o conjunto ordenado, sem repetição,
+  de (CFOP, CST ou CSOSN, natureza sugerida) dos itens.
+- **Assinatura:** SHA-256 sobre empresa, mês e cada grupo com os seus
+  vínculos e naturezas. Inclui também o conjunto de notas ainda não lidas:
+  se a prévia que o contador viu mudou, a confirmação recusa com 409.
+- **Cada nota passa pelas funções da escrituração individual**
+  (`criar_rascunho`, `definir_natureza`, `efetivar`), em transação própria.
+  - A nota que falha sai com o motivo, sem desfazer as outras.
+  - A nota já efetivada por fora do lote é pulada.
+  - A nota estornada ou alterada depois da confirmação falha e pede uma
+    prévia nova.
+- **Leitura em partes:** a prévia não lê XML. A nota nunca lida aparece no
+  bloco "a ler", e `POST .../lote/ler/` lê até 400 por chamada.
+- **Medidas** (10.000 NFC-e de 1 a 5 itens numa empresa, Python 3.13
+  local):
+
+  | Etapa | Tempo |
+  | --- | --- |
+  | Envio de 2.000 NFC-e | 7,3 a 7,8 s |
+  | Prévia sem leitura | 0,8 s (era 110,7 s antes da leitura em partes) |
+  | Leitura de 400 notas | 5,2 s em média |
+  | Prévia já lida | 2,3 s |
+  | Confirmação de 100 notas | 4,5 s em média (limite padrão 100, máximo 150) |
+  | Conferência do mês | 3,3 s |
+  | Composição da receita | 5,4 s |
+  | Presumido do trimestre | 6,9 s |
+
+- **Limite do envio (HI-22):** mantido em 2.000 arquivos. A medida não
+  testou envio maior.
+- **`apps/core`:** as restrições novas entraram no registro, e os dois
+  modelos no inventário da trilha.
+- **Medido pelo desenvolvedor:** 8.880/1/54 numa única invocação. A medida
+  de volume só roda com `DL085_MEDIR_VOLUME=1`.
+
+## Decisões tomadas na frente B e no ajuste de domínio
+
+- **Grupos parciais:** a confirmação aceita só os grupos marcados.
+  - Os desmarcados ficam intactos, sem rascunho; o contador os escritura
+    nota a nota.
+  - A assinatura continua sendo a da prévia inteira.
+  - Os grupos confirmados ficam nas linhas de nota do lote e na trilha
+    `lote_confirmado`, sem campo próprio.
+- **Escolha de natureza por grupo:** vale para todas as combinações CFOP,
+  CST e CSOSN do grupo. Grupo com combinações que pedem naturezas
+  diferentes se desmarca e se escritura individualmente (decisão do
+  arquiteto, reversível).
+- **Sem permissão:** para o PARALEGAL, os botões aparecem desabilitados com
+  o motivo (direção de arte, §2.B), e o servidor recusa o POST com 403.
+- **Campos novos:** o valor da nota (vNF) nas notas fora do lote; número e
+  série nas falhas, ambos vindos do domínio.
+- **Medido pelo desenvolvedor:** 8.924/1/54 numa única invocação.
+
+## Decisões para a correção (rodada 1)
+
+A [rodada 1](../auditorias/2026-10-09-dl-085-rodada-1.md) foi **aprovada com
+ressalvas**: o lote é equivalente ao individual nas 24 notas do roteiro do
+auditor, e os quatro mutantes do critério 8 caem. Decisões do arquiteto
+para a correção única:
+
+- **A1:** os contadores e a trilha da parte contam só o que a própria
+  chamada mudou.
+- **A2:** um rascunho com natureza já escolhida, diferente da sugestão, sai
+  do lote com o motivo nomeado. O lote nunca sobrescreve a escolha do
+  contador.
+- **A3:** coluna "Devolução" na tela.
+- **A4:** `grupos` ausente significa "todos os grupos da prévia"; grupos
+  diferentes dos do lote dão 409.
+- **A5:** ordem de travas empresa → vínculo → escrituração, a mesma da
+  escrituração individual.
+- **A6:** orçamento de tempo de 10 s por parte, além do limite de notas.
+- **A7:** a lista do mês não carrega o XML.
+- **A8:** comentários desatualizados corrigidos.
+- **A9:** rótulo distinto em cada grupo, e redirecionamento depois do POST.
+  O avanço automático das partes vai para o backlog.
+- **Testes T1 a T10** do auditor, inclusive dois lotes em andamento ao
+  mesmo tempo.
+
+## Decisões tomadas na reconferência (ajustes do arquiteto, §3.1)
+
+A [reconferência](../auditorias/2026-10-09-dl-085-reconferencia-e-dl-086.md)
+foi **aprovada com ressalvas**: A1 a A6 e A9 fechados, sem achado alto.
+Ajustes do arquiteto, com teste em `test_dl085_ajustes_do_arquiteto.py`:
+
+- **R1 (média):** a confirmação calcula a prévia **antes** de travar a
+  empresa. Com 10.000 notas, segurar a trava por mais de 3 s derrubava a
+  recepção e a escrituração individual da mesma empresa por `lock_timeout`.
+- **R2:** a efetivação não carrega mais o XML original. Agora há `defer` na
+  trava do vínculo e nas três travas da escrituração.
+- **R3:** comentários atualizados depois do ajuste da ordem de travas.
+- **R4:** testes do rascunho vazio no lote (N8) e da nova tentativa por
+  deadlock (N13, N14, N42).
+- **R5:** o nome acessível da caixa começa pelo rótulo visível (WCAG
+  2.5.3).
+- **R8 e R9 (DL-090):** textos corrigidos na página pública, no seletor
+  ("Receber notas") e no banner ("compras de mercadoria"), e uma guarda das
+  superfícies de interface.
+- **R6, R7 e o resto:** foram para o BL-689.
+
 ## Critérios de aceite
 
 1. A prévia agrupa certo e lista cada nota fora do lote com o motivo.

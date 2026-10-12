@@ -22,6 +22,7 @@ from decimal import Decimal
 
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers, status
+from rest_framework.exceptions import NotFound
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -33,6 +34,8 @@ from apps.core.requisicao import (
 )
 from apps.empresas.mixins import EmpresaEscopadaMixin
 from apps.fiscal import escrituracao_nfe as servico
+from apps.fiscal import escrituracao_nfe_lote as lote_servico
+from apps.fiscal import presumido
 from apps.fiscal.api import PodeConsultarFiscal, PodeEscriturarFiscal, _ano_e_mes_da_consulta
 from apps.fiscal.cfop import cfop as consultar_cfop
 from apps.fiscal.itens_nfe import receita_do_item
@@ -43,6 +46,7 @@ from apps.fiscal.models import (
     LeituraItensNFe,
     NaturezaItemNFe,
     NaturezaOperacaoNFe,
+    TipoEscrituracaoNFe,
     VinculoNFeEmpresa,
 )
 from apps.tenancy.permissions import TemEscritorioAtivo
@@ -53,6 +57,7 @@ MAIOR_ID = 2**63 - 1
 _ANO_MINIMO_DATA, _ANO_MAXIMO_DATA = 1970, 2999
 # Reconferência da DL-083, R1: o limite vem do campo do modelo, nunca de um literal.
 _TAMANHO_NATUREZA = NaturezaItemNFe._meta.get_field("natureza").max_length
+_TAMANHO_SEGMENTO_DEVOLUCAO = NaturezaItemNFe._meta.get_field("segmento_devolucao").max_length
 _TAMANHO_MOTIVO = servico.MOTIVO_MAXIMO
 _MAXIMO_ITENS_POR_PEDIDO = 5000
 
@@ -65,6 +70,16 @@ CONTRATO_NATUREZAS = ContratoDeRequisicao(
     campos={"natureza", "itens"},
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na definição da natureza dos itens",
+)
+CONTRATO_MARCA_MONOFASICO = ContratoDeRequisicao(
+    campos={"monofasico", "itens"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na marca de monofásico dos itens da escrituração de NF-e",
+)
+CONTRATO_SEGMENTO_DEVOLUCAO = ContratoDeRequisicao(
+    campos={"segmento", "itens"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no segmento confirmado da devolução de NF-e",
 )
 CONTRATO_EFETIVAR = ContratoDeRequisicao(
     campos=frozenset(),
@@ -80,6 +95,19 @@ CONTRATO_RECLASSIFICAR = ContratoDeRequisicao(
     campos={"natureza", "inicio", "fim", "cfop", "cst_csosn", "ncm"},
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na reclassificação em massa",
+)
+# DL-085: a confirmação em bloco. A primeira chamada leva ano, mes, assinatura e escolhas; a
+# continuação leva só lote_id (e, se quiser, a assinatura do lote, para conferir).
+CONTRATO_CONFIRMAR_LOTE = ContratoDeRequisicao(
+    campos={"ano", "mes", "assinatura", "escolhas", "grupos", "lote_id", "limite"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na confirmação do lote de escrituração de NF-e",
+)
+# DL-085 (leitura em partes): lê o XML das notas do mês que ainda não têm leitura atual.
+CONTRATO_LER_LOTE = ContratoDeRequisicao(
+    campos={"ano", "mes", "limite"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na leitura em partes das notas do lote de escrituração de NF-e",
 )
 
 
@@ -139,6 +167,28 @@ class CriarRascunhoEntradaSerializer(serializers.Serializer):
 class NaturezasEntradaSerializer(serializers.Serializer):
     natureza = serializers.CharField(
         max_length=_TAMANHO_NATUREZA, validators=[_sem_caractere_invalido]
+    )
+    itens = serializers.ListField(
+        child=serializers.IntegerField(min_value=1, max_value=MAIOR_ID),
+        min_length=1,
+        max_length=_MAXIMO_ITENS_POR_PEDIDO,
+    )
+
+
+class MarcaMonofasicoEntradaSerializer(serializers.Serializer):
+    monofasico = serializers.BooleanField()
+    itens = serializers.ListField(
+        child=serializers.IntegerField(min_value=1, max_value=MAIOR_ID),
+        min_length=1,
+        max_length=_MAXIMO_ITENS_POR_PEDIDO,
+    )
+
+
+class SegmentoDevolucaoEntradaSerializer(serializers.Serializer):
+    segmento = serializers.CharField(
+        max_length=_TAMANHO_SEGMENTO_DEVOLUCAO,
+        allow_blank=True,
+        validators=[_sem_caractere_invalido],
     )
     itens = serializers.ListField(
         child=serializers.IntegerField(min_value=1, max_value=MAIOR_ID),
@@ -291,7 +341,20 @@ def _item_payload(
         "avisos": list(avisos),
         "natureza": natureza.natureza or None,
         "sugestao": {"natureza": sugestao.natureza, "motivo": sugestao.motivo},
+        # DL-082 (HI-128, HI-129): marca de monofásico e segmento confirmado da devolução. A
+        # sugestão do segmento só aparece para CFOP de devolução (indDevol 1).
+        "monofasico": natureza.monofasico,
+        "segmento_devolucao": natureza.segmento_devolucao or None,
+        "sugestao_segmento_devolucao": _sugestao_segmento_payload(item, natureza),
     }
+
+
+def _sugestao_segmento_payload(item: ItemNFe, natureza: NaturezaItemNFe) -> dict | None:
+    info = consultar_cfop(item.cfop)
+    if info is None or not info.ind_devol:
+        return None
+    sugestao = servico.sugerir_segmento_devolucao(item, natureza.monofasico)
+    return {"segmento": sugestao.segmento, "motivo": sugestao.motivo}
 
 
 def _escrituracao_payload(escrituracao: EscrituracaoNFe) -> dict:
@@ -385,9 +448,12 @@ class EscrituracaoNFeDetalheView(_EmpresaComIdValido, APIView):
             pares = [(n.item, n.natureza) for n in naturezas]
             avisos_por_item = servico.avisos_da_nota(pares)
             receitas = servico.receitas_atribuidas(pares)
+            # DL-084 (RC-173, item 3): o padrão de combustível da empresa é o último recurso da
+            # sugestão. Uma consulta por requisição, repassada a todos os itens (BL-698).
+            padrao_combustivel = presumido.parametros_da_empresa(empresa).padrao_combustivel
             for natureza in naturezas:
-                sugestao = servico.sugerir_natureza_item(
-                    documento, natureza.item, escrituracao.tipo
+                sugestao = servico.sugerir_natureza_com_padrao(
+                    documento, natureza.item, padrao_combustivel, escrituracao.tipo
                 )
                 itens.append(
                     _item_payload(
@@ -414,9 +480,12 @@ class EscrituracaoNFeDetalheView(_EmpresaComIdValido, APIView):
                 "leitura_motivo": (leitura.motivo or None) if leitura else None,
                 "itens": itens,
                 "avisos": _avisos_payload(servico.avisos_ibscbs(documento, leitura)),
-                # A8: a tela desabilita "Efetivar" com este motivo (regra de data, hoje 2027).
-                # O servidor recusa de novo no POST.
-                "motivo_bloqueio_efetivacao": servico.motivo_bloqueio_efetivacao(documento),
+                # A8: a tela desabilita "Efetivar" com este motivo (data e, em 2027, o regime:
+                # só o Simples no regime único do semestre se efetiva — DL-088 A2, HI-149).
+                # O servidor recusa de novo no POST, com o mesmo motivo.
+                "motivo_bloqueio_efetivacao": servico.motivo_bloqueio_efetivacao(
+                    documento, escrituracao.empresa
+                ),
                 "catalogo": {
                     codigo: {
                         "rotulo": NaturezaOperacaoNFe(codigo).label,
@@ -455,6 +524,67 @@ class DefinirNaturezasView(_EmpresaComIdValido, APIView):
         except servico.EscrituracaoNFeErro as exc:
             return _resposta_de_conflito(exc)
         return Response(_escrituracao_payload(atualizada), status=status.HTTP_200_OK)
+
+
+class _DefinirItensView(_EmpresaComIdValido, APIView):
+    """Base dos POST que marcam itens da escrituração. Só rascunho (a recusa vem do serviço)."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+    contrato = None
+    serializer = None
+
+    def _aplicar(self, escrituracao, entrada, request):
+        raise NotImplementedError
+
+    def post(self, request, empresa_id, escrituracao_id):
+        _recusar_dado_nao_contratado(request, self.contrato)
+        empresa = self.get_empresa()
+        _id_valido(escrituracao_id)
+        escrituracao = get_object_or_404(EscrituracaoNFe, pk=escrituracao_id, empresa=empresa)
+        entrada = self.serializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        try:
+            atualizada = self._aplicar(escrituracao, entrada.validated_data, request)
+        except servico.EntradaInvalidaNFe as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except servico.EscrituracaoNFeErro as exc:
+            return _resposta_de_conflito(exc)
+        return Response(_escrituracao_payload(atualizada), status=status.HTTP_200_OK)
+
+
+class DefinirMarcaMonofasicoView(_DefinirItensView):
+    """POST — marca (ou desmarca) o monofásico de PIS e Cofins de itens da escrituração (DL-082)."""
+
+    contrato = CONTRATO_MARCA_MONOFASICO
+    serializer = MarcaMonofasicoEntradaSerializer
+
+    def _aplicar(self, escrituracao, dados, request):
+        return servico.definir_marca_monofasico(
+            escrituracao,
+            dados["itens"],
+            dados["monofasico"],
+            usuario=request.user,
+            request=request,
+        )
+
+
+class DefinirSegmentoDevolucaoView(_DefinirItensView):
+    """POST — confirma o anexo e o segmento de devoluções de venda (DL-082, HI-129).
+
+    Segmento vazio desfaz a confirmação.
+    """
+
+    contrato = CONTRATO_SEGMENTO_DEVOLUCAO
+    serializer = SegmentoDevolucaoEntradaSerializer
+
+    def _aplicar(self, escrituracao, dados, request):
+        return servico.definir_segmento_devolucao(
+            escrituracao,
+            dados["itens"],
+            dados["segmento"],
+            usuario=request.user,
+            request=request,
+        )
 
 
 class EfetivarEscrituracaoNFeView(_EmpresaComIdValido, APIView):
@@ -570,3 +700,268 @@ class ConferenciaNFeView(_EmpresaComIdValido, APIView):
                 },
             }
         )
+
+
+# ---------------------------------------------------------------------------
+# DL-085 (frente A): prévia do mês em lote e confirmação em bloco, em partes
+# ---------------------------------------------------------------------------
+
+
+class TrocaDeGrupoEntradaSerializer(serializers.Serializer):
+    """Uma escolha de natureza por grupo: {id da assinatura: natureza}. Validada no serviço."""
+
+    grupo = serializers.CharField(max_length=40, validators=[_sem_caractere_invalido])
+    naturezas = serializers.DictField(
+        child=serializers.CharField(
+            max_length=_TAMANHO_NATUREZA, validators=[_sem_caractere_invalido]
+        ),
+    )
+
+    def validate_naturezas(self, valor):
+        # Chaves são ids de assinatura (CFOP|CST|natureza): curtas. Acima disso, é entrada hostil.
+        if len(valor) > _MAXIMO_ITENS_POR_PEDIDO:
+            raise serializers.ValidationError("Escolhas demais em um grupo.")
+        for chave in valor:
+            if len(chave) > 100:
+                raise serializers.ValidationError("Identificador de assinatura longo demais.")
+            _sem_caractere_invalido(chave)
+        return valor
+
+
+class ConfirmarLoteEntradaSerializer(serializers.Serializer):
+    ano = serializers.IntegerField(
+        required=False, allow_null=True, min_value=_ANO_MINIMO_DATA, max_value=_ANO_MAXIMO_DATA
+    )
+    mes = serializers.IntegerField(required=False, allow_null=True, min_value=1, max_value=12)
+    assinatura = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=64,
+        validators=[_sem_caractere_invalido],
+    )
+    escolhas = TrocaDeGrupoEntradaSerializer(many=True, required=False, allow_null=True)
+    # DL-085 (confirmação por grupo): só as chaves listadas entram no lote. Ausente: todos.
+    grupos = serializers.ListField(
+        child=serializers.CharField(max_length=80, validators=[_sem_caractere_invalido]),
+        required=False,
+        allow_null=True,
+        max_length=_MAXIMO_ITENS_POR_PEDIDO,
+    )
+    lote_id = serializers.IntegerField(
+        required=False, allow_null=True, min_value=1, max_value=MAIOR_ID
+    )
+    limite = serializers.IntegerField(
+        required=False, allow_null=True, min_value=1, max_value=lote_servico.LIMITE_MAXIMO_DA_PARTE
+    )
+
+
+def _escolhas_como_dicionario(trocas) -> dict[str, dict[str, str]]:
+    """Lista de escolhas do corpo → {grupo: {id: natureza}}. Grupo repetido é 400."""
+    resultado: dict[str, dict[str, str]] = {}
+    for troca in trocas or []:
+        grupo = troca["grupo"]
+        if grupo in resultado:
+            raise DRFValidationError("Grupo repetido nas escolhas: informe cada grupo uma vez.")
+        resultado[grupo] = dict(troca["naturezas"])
+    return resultado
+
+
+def _previa_payload(previa: lote_servico.PreviaDoLote) -> dict:
+    por_motivo: dict[str, int] = {}
+    for recusa in previa.fora:
+        por_motivo[recusa.codigo] = por_motivo.get(recusa.codigo, 0) + 1
+    return {
+        "ano": previa.ano,
+        "mes": previa.mes,
+        "assinatura": previa.assinatura,
+        "grupos": [
+            {
+                "chave": grupo.chave,
+                "tipo": grupo.tipo,
+                "rotulo_tipo": TipoEscrituracaoNFe(grupo.tipo).label,
+                "notas": grupo.quantidade_notas,
+                "itens": grupo.quantidade_itens,
+                "receita_bruta": _decimal(grupo.receita_bruta),
+                "devolucao": _decimal(grupo.devolucao),
+                "assinaturas": [
+                    {
+                        "id": a.id,
+                        "cfop": a.cfop,
+                        "cst_csosn": a.cst_csosn or None,
+                        "natureza_sugerida": a.natureza,
+                        "rotulo_natureza": NaturezaOperacaoNFe(a.natureza).label,
+                    }
+                    for a in grupo.assinaturas
+                ],
+                # As naturezas que a troca de grupo aceita: as do tipo, pelo catálogo.
+                "naturezas_permitidas": [
+                    {"natureza": n, "rotulo": NaturezaOperacaoNFe(n).label}
+                    for n in sorted(servico.naturezas_permitidas(grupo.tipo))
+                ],
+            }
+            for grupo in previa.grupos
+        ],
+        "fora_do_lote": {
+            "total": len(previa.fora),
+            "por_motivo": dict(sorted(por_motivo.items())),
+            "notas": [
+                {
+                    "vinculo_id": recusa.vinculo_id,
+                    "documento_id": recusa.documento_id,
+                    "numero": recusa.numero,
+                    "serie": recusa.serie,
+                    "dh_emissao": _iso(recusa.dh_emissao),
+                    "valor_nf": _decimal(recusa.valor_nf),
+                    "codigo": recusa.codigo,
+                    "motivo": recusa.motivo,
+                }
+                for recusa in previa.fora
+            ],
+        },
+        # "a ler": notas do mês sem leitura atual. A prévia não as lê, e elas não entram em grupo
+        # nem em "fora do lote". Antes de confirmar, o contador lê estas notas (POST .../lote/ler/).
+        "a_ler": {"notas": len(previa.a_ler)},
+        "ja_efetivadas": previa.ja_efetivadas,
+        "canceladas": previa.canceladas,
+        "nao_elegiveis": previa.nao_elegiveis,
+        "lote_em_andamento": (
+            lote_servico.resumo_do_lote(previa.lote_em_andamento)
+            if previa.lote_em_andamento is not None
+            else None
+        ),
+    }
+
+
+def _progresso_payload(progresso: lote_servico.ProgressoDoLote) -> dict:
+    return {
+        "lote_id": progresso.lote_id,
+        "ano": progresso.ano,
+        "mes": progresso.mes,
+        "assinatura": progresso.assinatura,
+        "estado": progresso.estado,
+        "terminou": progresso.terminou,
+        "total_notas": progresso.total_notas,
+        "efetivadas_nesta_chamada": progresso.efetivadas_nesta_chamada,
+        "ja_efetivadas_nesta_chamada": progresso.ja_efetivadas_nesta_chamada,
+        "falhas_nesta_chamada": [
+            {
+                "vinculo_id": falha.vinculo_id,
+                "numero": falha.numero,
+                "serie": falha.serie,
+                "motivo": falha.motivo,
+            }
+            for falha in progresso.falhas_nesta_chamada
+        ],
+        "restantes": progresso.restantes,
+        "efetivadas_total": progresso.efetivadas_total,
+        "ja_efetivadas_total": progresso.ja_efetivadas_total,
+        "falhas_total": progresso.falhas_total,
+    }
+
+
+class PreviaLoteNFeView(_EmpresaComIdValido, APIView):
+    """GET — prévia do mês em lote: grupos (quantidades, receita, naturezas), notas fora do lote com
+    o motivo, e a assinatura que a confirmação exige. Só lê o banco: não grava nada e não lê XML.
+    As notas ainda não lidas vêm em `a_ler`; o POST `.../lote/ler/` as lê em partes."""
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        ano, mes = _ano_e_mes_da_consulta(request)
+        try:
+            previa = lote_servico.previa_do_lote(empresa, ano, mes)
+        except servico.EntradaInvalidaNFe as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        return Response(_previa_payload(previa))
+
+
+class ConfirmarLoteNFeView(_EmpresaComIdValido, APIView):
+    """POST — confirma a prévia em bloco (1ª chamada: ano, mes, assinatura, escolhas) ou continua o
+    lote (`lote_id`). Uma parte por chamada: 200 com o progresso; 409 se a assinatura não bate com a
+    prévia de agora (nada é efetivado); 400 para entrada inválida; 404 lote de outra empresa."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def post(self, request, empresa_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_CONFIRMAR_LOTE)
+        empresa = self.get_empresa()
+        entrada = ConfirmarLoteEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        dados = entrada.validated_data
+        if dados.get("lote_id") is None and (dados.get("ano") is None or dados.get("mes") is None):
+            raise DRFValidationError(
+                "Informe 'ano' e 'mes' na primeira confirmação, ou 'lote_id' para continuar o lote."
+            )
+        try:
+            progresso = lote_servico.confirmar_lote(
+                empresa,
+                dados.get("ano"),
+                dados.get("mes"),
+                dados.get("assinatura") or None,
+                _escolhas_como_dicionario(dados.get("escolhas")),
+                usuario=request.user,
+                request=request,
+                limite=dados.get("limite") or lote_servico.LIMITE_PADRAO_DA_PARTE,
+                lote_id=dados.get("lote_id"),
+                grupos=dados.get("grupos"),
+            )
+        except lote_servico.LoteNaoEncontrado as exc:
+            raise NotFound("Lote de escrituração não encontrado nesta empresa.") from exc
+        except servico.EntradaInvalidaNFe as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except servico.EscrituracaoNFeErro as exc:
+            return _resposta_de_conflito(exc)
+        return Response(_progresso_payload(progresso), status=status.HTTP_200_OK)
+
+
+class LerEntradaSerializer(serializers.Serializer):
+    ano = serializers.IntegerField(min_value=_ANO_MINIMO_DATA, max_value=_ANO_MAXIMO_DATA)
+    mes = serializers.IntegerField(min_value=1, max_value=12)
+    limite = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=lote_servico.LIMITE_MAXIMO_DA_LEITURA,
+    )
+
+
+def _leitura_payload(leitura: lote_servico.LeituraDoMes) -> dict:
+    return {
+        "ano": leitura.ano,
+        "mes": leitura.mes,
+        "lidas_nesta_chamada": leitura.lidas_nesta_chamada,
+        "ilegiveis_nesta_chamada": leitura.ilegiveis_nesta_chamada,
+        "falhas_nesta_chamada": [
+            {"vinculo_id": falha.vinculo_id, "motivo": falha.motivo}
+            for falha in leitura.falhas_nesta_chamada
+        ],
+        "restam": leitura.restam,
+        "terminou": leitura.terminou,
+    }
+
+
+class LerLoteNFeView(_EmpresaComIdValido, APIView):
+    """POST — lê, em partes, o XML das notas do mês sem leitura atual (DL-085). 200 com "lidas X,
+    restam Y". Só escrita de leitura: não cria escrituração, rascunho nem lote. Quem escritura pode;
+    PARALEGAL e CLIENTE não."""
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def post(self, request, empresa_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_LER_LOTE)
+        empresa = self.get_empresa()
+        entrada = LerEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        dados = entrada.validated_data
+        try:
+            leitura = lote_servico.ler_notas_do_mes(
+                empresa,
+                dados["ano"],
+                dados["mes"],
+                limite=dados.get("limite") or lote_servico.LIMITE_PADRAO_DA_LEITURA,
+            )
+        except servico.EntradaInvalidaNFe as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        return Response(_leitura_payload(leitura), status=status.HTTP_200_OK)

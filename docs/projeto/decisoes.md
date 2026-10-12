@@ -5281,6 +5281,57 @@ que o sinal fosse uma variável explícita, não uma inferência.
 
 **Reversão:** local ao `settings.py`, ao `Dockerfile` e ao `.env.example`.
 
+## DE-103 — O Razão não filtra por origem do lançamento; o Diário filtra
+
+**Data:** 09/10/2026. **Etapa:** [DL-089](../planos/DL-089-origem-do-lancamento-contabil.md),
+A5 da [auditoria](../auditorias/2026-10-09-dl-089-rodada-1.md). (Nasceu como
+DE-101; renumerada na junção com a `main`, que já tinha DE-101 — DE-105.)
+
+**Decisão:** a origem do lançamento (digitado, importado, escrita fiscal)
+filtra o **Diário**, mas **não** o Razão.
+
+**Motivo:** o Razão abre com o saldo anterior da conta, que soma todas as
+origens. Um Razão filtrado mostraria um saldo final que não bate com o
+Balancete, e o contador concluiria que há erro onde não há. O Diário é uma
+lista de lançamentos sem saldo acumulado: filtrar só muda o que é listado, e
+o total diz que é o total filtrado.
+
+**Alternativas descartadas:** filtrar o Razão recalculando o saldo anterior
+só com a origem escolhida. Esse saldo não existe em nenhum documento contábil
+e confundiria a conferência.
+
+**Reversão:** acrescentar o filtro no Razão é aditivo, se o Fred pedir.
+
+## DE-104 — O que conta como automático para o estorno, e documento obrigatório
+
+**Data:** 10/10/2026. **Etapa:** [DL-089](../planos/DL-089-origem-do-lancamento-contabil.md),
+A1 e A2 da [rodada 1](../auditorias/2026-10-09-dl-089-rodada-1.md) e R1 da
+[reconferência](../auditorias/2026-10-10-dl-089-reconferencia.md). (Nasceu
+como DE-102; renumerada na junção com a `main` — DE-105.)
+
+**Decisão:**
+
+1. Para o estorno, um lançamento é automático quando tem origem `importacao`
+   ou `escrita_fiscal`, **ou** chave de idempotência `importacao:` ou
+   `zeramento:`, **ou** vínculo com um lançamento importado. O estorno dele
+   exige ADMINISTRADOR ou GESTOR. A regra mora numa função só
+   (`criterio_de_estorno_automatico`), e a trilha da negativa grava qual
+   critério valeu.
+2. Origem automática sempre tem documento de origem, no serviço e no banco.
+
+**Motivo:** as importações anteriores à migração 0026 e o zeramento ficaram
+com origem `manual`, e a origem é imutável. Sem o item 1, quem só escritura
+estornaria uma importação antiga ou o zeramento do resultado, que infla
+Lucros e Prejuízos. Sem o item 2, a regeração da escrita fiscal (BL-66) não
+teria a chave natural do lançamento.
+
+**Alternativas descartadas:** reclassificar a origem das linhas antigas, o
+que exigiria abrir exceção no gatilho de imutabilidade.
+
+**Reversão:** tirar um critério da função é uma linha, se o Fred decidir que
+a importação ou o zeramento não devem contar como automáticos (HI-150). O
+item 2 sai com a reversão da 0026.
+
 ## DE-101 — Fechar/encerrar período ou vigência é ação sensível: tom `--perigoso`
 
 **Data:** 11/10/2026. **Etapa:** [DL-086](../planos/DL-086-revisao-de-layout-e-acessos.md).
@@ -5312,3 +5363,94 @@ encerramento do fiscal já estavam em `--perigoso`. O §8.4 da
   "sensível" (§8.4: quatro tons, nunca mais).
 
 **Reversão:** local aos dois templates citados e ao §8.4 do contrato.
+
+## DE-105 — Junção de 11/10/2026: identificador colidido é renumerado no lado não publicado
+
+**Data:** 11/10/2026. **Etapa:** integração da branch `ccr-bf4b4a55-hpqgbp`
+com a `main` (DL-084 em diante), preparação do PR do fiscal. **Fecha:** a
+classe do BL-242 e do BL-326 repetida em três famílias de identificador.
+
+**Problema.** Duas linhas de trabalho paralelas — a branch de sessão do
+fiscal (09-10/10/2026) e a revisão de layout da `main` (11/10/2026) — pegaram
+cada uma o próximo número livre **que via**, e a `main` não conhecia a
+branch. Na junção apareceram três colisões semânticas, que o Git não acusa:
+
+| Identificador | Definição de 09-10/10 (branch, não publicada) | Definição de 11/10 (`main`, já mesclada) |
+| --- | --- | --- |
+| `DL-086` | Fiscal: documentação e painel alinhados ao código (RC-175) | Revisão de layout, botões, páginas e acessos (PR #107) |
+| `DE-101` | O Razão não filtra por origem do lançamento | Fechar/encerrar período é ação sensível, tom `--perigoso` |
+| `BL-689` a `BL-692` | Resíduos da DL-085, da DL-082, da DL-089 e da DL-084 | Resíduos da revisão de layout (faixa `BL-689` a `BL-697`) |
+
+**Decisão.** Renumera-se o lado **não publicado** — o da branch — e mantém-se
+o número do lado que já chegou à `main` e que o código e os testes citam em
+massa (cerca de 250 comentários "DL-086 (achado A-xx/C-xx)" e dez arquivos
+`test_dl086_*`, contra cerca de 70 referências documentais do outro lado).
+A documentação e o painel do fiscal viram **DL-090** (antes `DL-086`), as
+decisões do Razão e do estorno viram **`DE-103` e `DE-104`** (antes `DE-101`
+e `DE-102`), e os resíduos da DL-085/082/089/084 viram **`BL-698` a `BL-701`**
+(antes `BL-689` a `BL-692`). Auditorias históricas não se reescrevem
+(BL-242): as de 09-10/10 continuam citando os números da época, e a tradução
+fica registrada na abertura de cada plano renumerado.
+
+O critério do BL-242 ("renumerar a definição mais nova") foi lido aqui como
+**renumerar a definição ainda não integrada**: nas duas colisões originais
+(BL-242 e DE-042) "mais nova" e "não publicada" eram o mesmo lado; aqui as
+datas divergiam — a branch numerou primeiro (09/10) mas não publicou, e a
+`main` numerou depois (11/10) e mesclou antes. Prevalece o uso operacional:
+identificador que o código já carrega não se muda por uma colisão documental.
+
+**Alternativas descartadas.** Renumerar o lado da `main` (a revisão de
+layout): moveria cerca de 250 comentários de código, dez nomes de arquivo de
+teste e trinta referências documentais para corrigir uma colisão que só
+existe em texto. Manter os dois significados com nota explicativa: é a
+ambiguidade que derrubou o PR #21 (BL-242) — identificador com dois
+significados não é identificador.
+
+**Reversão:** os planos renumerados guardam o número antigo na abertura; a
+volta é renomear de volta os arquivos e as referências desta decisão.
+
+## DE-106 — Feriado local: a lei da praça é base somente leitura; a escrita é do escritório
+
+**Data:** 11/10/2026. **Etapa:** [DL-084](../planos/DL-084-rotina-do-presumido.md),
+correção do achado A1 da [rodada 1](../auditorias/2026-10-11-dl-084-rodada-1.md).
+
+**Problema.** O escopo 2 do plano diz "cada empresa tem uma tabela opcional de
+feriados estaduais e municipais"; a frente A desenhou a tabela como a lei do
+lugar (por praça, sem dono) e a frente B abriu escrita por ela. Medido pelo
+auditor: o gestor de qualquer escritório edita ou apaga a linha carregada —
+lei, data da leitura e a confirmação bancária da Febraban — que gera o aviso
+da empresa de OUTRO escritório, e a trilha fica no escritório que agiu, que é
+o único a não sofrer nada.
+
+**Decisão.** A base (carga do produto: lei, data da leitura, fonte bancária) é
+global e **somente leitura** para as telas. A escrita vira **do escritório**:
+`FeriadoLocal` e `ExcecaoFeriadoLocal` ganham `escritorio`; o que o usuário
+cadastra nasce escopado ao escritório que agiu e vale só para as empresas
+dele. No mesmo dia, a linha do escritório substitui a da base para as empresas
+dele — o mesmo princípio que o modelo já documenta (a linha do município
+substitui a do estado no mesmo dia). A empresa herda a base da praça da matriz
+mais as linhas do escritório: é a "tabela opcional" do escopo 2.
+
+**Motivo.** O feriado é a lei do lugar: copiar a lei por empresa — a letra
+fria do escopo — faria cinquenta cópias da mesma data numa carteira de
+Palmas e não protegeria ninguém. O que precisa de dono é a **escrita**, não a
+lei.
+
+**Alternativas descartadas.** Tabela por empresa: duplica o dado público e
+multiplica a manutenção sem ganho. Manter global com trava de papel só: o
+ADMINISTRADOR de um escritório ainda alteraria o aviso de outro — a recusa do
+A1 continuaria valendo. Trilha visível nos dois escritórios sem escopo: mostra
+o estrago, não o impede.
+
+**Limites registrados** (reconferência de 11/10/2026, aceitos como desenho):
+(1) a exceção do escritório para o MESMO (feriado, ano) de uma exceção da base
+é recusada antes do banco ("Já existe exceção para este ano neste feriado.");
+a saída é cadastrar a própria linha do dia com a própria exceção, que
+substitui só para as empresas dele — o índice único ficou para a migração ser
+estritamente aditiva; (2) a tela da base não oferece atalho para a exceção —
+o caminho é cadastrar a própria linha ("cadastre a sua para a sua praça"), e a
+rota de exceção segue funcional e testada.
+
+**Reversão:** a migração nova tem guarda; voltar ao arranjo global é reverter
+a migração do `escritorio` e o trecho da reversão da 0015, e tirar o escopo
+das views — nada de dado do contador se perde.

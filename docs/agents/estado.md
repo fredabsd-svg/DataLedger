@@ -21,7 +21,7 @@ Regras deste arquivo, aprendidas com defeito:
 
 ## Resumo
 
-Medido em 25/09/2026 no código e no Git, não copiado de documento anterior; remedido em 30/09/2026 (análise do repositório que originou a DL-052).
+Medido em 25/09/2026 no código e no Git, não copiado de documento anterior; remedido em 30/09/2026 (análise do repositório que originou a DL-052); a linha do Fiscal foi remedida em 09/10/2026 (revisão da RC-175). A linha de base de testes vigente está em [Próximo passo](#próximo-passo).
 
 | Área | O que existe hoje |
 | --- | --- |
@@ -30,9 +30,9 @@ Medido em 25/09/2026 no código e no Git, não copiado de documento anterior; re
 | Contabilidade | Plano de contas hierárquico com circulante/não circulante e **linha da DRE (art. 187, propriedade de apresentação — pode mudar com movimento, DE-086)**; lançamento por partidas dobradas, imutável depois de gravado; estorno; idempotência; competência com encerrar, reabrir e marcar como entregue; Diário, Razão, Balancete e **Balanço Patrimonial**; conferências de lote; parâmetros contábeis por empresa com vigência e **zeramento do resultado** em duas etapas (DL-043); **apuração e tela da DRE** (mês e acumulado do exercício), servidor e formulário de classificação (DL-045 fatias 1 a 3); **DLPA — Demonstração dos Lucros ou Prejuízos Acumulados** (art. 186): classificação ligada à conta, apuração pelo movimento com conciliação ao Balanço, veto que nomeia o que falta e telas de emissão/classificação (DL-048, fatia CTB-12 + CTB-13), com API própria (fatia D8) |
 | Documento emitido | Identificação obrigatória por classe de documento; veto de emissão do Balancete e do Balanço que não fecham; critério de apuração impresso |
 | Trilha de auditoria | Na mesma transação da gravação, imutável, cobrindo também o admin |
-| Fiscal | Recepção e consulta de NFS-e nacional (DL-010 fatia 1): XML e ZIP, deduplicação, cancelamento por evento, isolamento por escritório |
+| Fiscal | **Corrigido em 09/10/2026 (revisão da RC-175).** Esta linha dizia "só a recepção de NFS-e", desmentida desde a DL-072. O que existe:<br>• **Recepção:** NFS-e nacional, NF-e e NFC-e (DL-010, DL-080).<br>• **Escrituração:** NFS-e prestadas (DL-072) e tomadas (DL-078); NF-e de saída e devolução de venda (DL-081, DL-083); escrituração em lote na branch (DL-085).<br>• **Simples:** receita e RBT12 (DL-074) e pré-DAS de serviços (DL-075).<br>• **ISS:** por município, começando por Palmas (DL-076).<br>• **Retenções federais** (DL-078).<br>• **Presumido:** IRPJ e CSLL trimestrais com a LC 224 e a receita de NF-e (DL-079, DL-083).<br>• **Conformidade IBS/CBS** das NFS-e recebidas (DL-073).<br>• **Recortes:** tudo é conferência; nada gera guia nem transmite. |
 | Cadastro de cliente pessoa física | CPF e modo de escrituração livro-caixa (DL-038); CNPJ e CPF únicos por escritório (DL-041) |
-| **Não existe** | Compensação de lucros e prejuízos acumulados (HI-26/PE-38); as demonstrações anuais da DL-048 depois da DMPL (**DFC, DRA e DVA**); escrituração fiscal e apuração; módulos Folha, Honorários, Patrimônio e Lalur; assistente de IA; servidor MCP |
+| **Não existe** | Compensação de lucros e prejuízos acumulados (HI-26/PE-38); as demonstrações anuais da DL-048 depois da DMPL (**DFC, DRA e DVA**); no fiscal: escrituração de entradas (compras), ICMS, IPI, PIS/Cofins, livros fiscais, obrigações acessórias, guias, integração contábil, cadastro de classificação com vigência (o "acumulador") e o ano de 2027; módulos Folha, Honorários, Patrimônio e Lalur; assistente de IA; servidor MCP |
 
 ⚠️ **Corrigido em 04/10/2026 (DL-064).** Esta linha listava a **DMPL** como
 inexistente, e a linha da tabela de etapas a registrava como **Integrada** —
@@ -131,7 +131,7 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-063](../planos/DL-063-fecha-a-leva-da-dl-061.md) | Fecha a leva da DL-061: coluna da DMPL nas duas portas, teste do snapshot e dica condicionada (BL-606, BL-607, BL-625) | **Integrada (PR #84, squash `c32cfe6`)** — o conteúdo **não tinha chegado à `main`** (o PR #82 foi mesclado na branch intermediária `fix/dl-062-…`); recuperado com a `base` reapontada para o destino real |
 | [DL-065](../planos/DL-065-reclassificacao-em-periodo-fechado.md) | Reclassificar conta com movimento em competência encerrada ou entregue não pode reescrever DLPA nem DMPL já apuradas (BL-550) | **Integrada (PR #85, squash `012a759`)** — ciclo de auditoria encerrado no veredito **REPROVADO** da reconferência; N1, N2 e N3 corrigidos depois, sem terceira rodada |
 | [DL-066](../planos/DL-066-dfc.md) | DFC — Demonstração dos Fluxos de Caixa, direto e indireto (CTB-15 da DL-048) | Situação em **[Próximo passo](#próximo-passo)** — **fatia 1 integrada pelo PR #89** (núcleo da apuração; auditoria e reconferência aprovadas com ressalvas, N1 e N2 corrigidos) e **fechada pelo PR #90** (porta de classificação, telas, API e método indireto); a fatia 2, método direto, está na fila |
-| [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md) | Plano do módulo fiscal de out/2026 a 2028, com a reforma tributária, conciliado com a paridade fiscal | Planejada |
+| [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md) | Plano do módulo fiscal de out/2026 a 2028, com a reforma tributária, conciliado com a paridade fiscal | Plano integrado; o roteiro está em execução desde 08/10/2026 (RC-164), DL-072 em diante |
 | [DL-057](../planos/DL-057-ip-real-na-trilha.md) | IP real na trilha atrás de proxy (BL-553) | Integrada (PR #68) — auditoria aprovada com ressalvas; BL-577 tratada na DL-068 |
 | [DL-068](../planos/DL-068-prontidao-para-implantacao.md) | Prontidão para implantação: Django 6.1.2, limite no login do admin, `.dockerignore`, `DJANGO_AMBIENTE` (BL-82) e proxies `/0` (BL-577) | **Integrada (PR #91, squash `7c23894`, merge feito pelo Fred em 07/10/2026)** — auditoria e reconferência aprovadas com ressalvas; R1 com o Fred (BL-642) |
 | [DL-069](../planos/DL-069-travas-no-banco.md) | Travas no banco: livro-caixa imutável, período encerrado recusa INSERT, trilha imutável | Situação em **[Próximo passo](#próximo-passo)** — fatias 1 e 2 integradas (PR #92 e #93); fatia 3 bloqueada na PE-77 |
@@ -148,10 +148,14 @@ em andamento **aponta** para o Próximo passo em vez de descrever o estado aqui
 | [DL-080](../planos/DL-080-recepcao-de-nfe.md) | Fiscal: recepção de NF-e (modelo 55) e NFC-e (modelo 65), fatia 2 da DL-010 | Integrada (PR #104, squash `c01b451`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 | [DL-081](../planos/DL-081-escrituracao-das-nfe-de-saida.md) | Fiscal: escrituração das NF-e de saída e da devolução de venda | Integrada (PR #105, squash `2911eb6`) — rodada 1 reprovada, reconferência aprovada com ressalvas |
 | [DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md) | Fiscal: pré-DAS de comércio e indústria (Anexos I e II) | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-083](../planos/DL-083-receita-de-nfe-no-presumido.md) | Fiscal: receita de NF-e no Lucro Presumido e regras de receita da RC-172 | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-083](../planos/DL-083-receita-de-nfe-no-presumido.md) | Fiscal: receita de NF-e no Lucro Presumido e regras de receita da RC-172 | Integrada (PR #106, squash `3f3206c`) — rodada 1 e reconferência reprovadas; ajustes do arquiteto (§3.1) |
 | [DL-084](../planos/DL-084-rotina-do-presumido.md) | Fiscal: rotina do Lucro Presumido (RC-172) | Situação em **[Próximo passo](#próximo-passo)** |
 | [DL-085](../planos/DL-085-escrituracao-de-nfe-em-volume.md) | Fiscal: escrituração de NF-e e NFC-e em volume (RC-173) | Situação em **[Próximo passo](#próximo-passo)** |
-| [DL-086](../planos/DL-086-revisao-de-layout-e-acessos.md) | Revisão de layout, botões, páginas e acessos | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-086](../planos/DL-086-revisao-de-layout-e-acessos.md) | Revisão de layout, botões, páginas e acessos | Integrada (PR #107, squash `451a25f`) — resíduos em BL-689 a BL-697 |
+| [DL-087](../planos/DL-087-classificacao-fiscal-versionada.md) | Fiscal: classificação fiscal versionada e regras de importação (RC-175) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-088](../planos/DL-088-virada-de-2027-no-simples.md) | Fiscal: virada de 2027 no Simples Nacional (RC-175) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-089](../planos/DL-089-origem-do-lancamento-contabil.md) | Contabilidade: origem e documento de origem do lançamento (BL-72, BL-73) | Situação em **[Próximo passo](#próximo-passo)** |
+| [DL-090](../planos/DL-090-documentacao-e-painel-do-fiscal.md) | Fiscal: documentação e painel alinhados ao código (RC-175; nasceu como DL-086 e foi renumerada na junção com a `main`, DE-105) | Situação em **[Próximo passo](#próximo-passo)** |
 
 A DL-016 foi entregue em fatias: F1 (trava de competência) e F2 pelo PR #31,
 F5 (backfill) pelo PR #33, F6 (restrição `NOT NULL`) pelo PR #34 e a tela do
@@ -172,18 +176,37 @@ publicação ou exclusão (HI-55). Roteiro de execução no fim do
 [consultas/](../projeto/consultas/2026-10-08-contador-senior-fiscal.md);
 hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 
-**AGORA, em 11/10/2026 (demanda direta do Fred — "revise e melhore o
-layout, botões e páginas do sistema, bem como acessos e demais"):**
+**AGORA, em 11/10/2026 (retomada do fiscal, na branch
+`ccr-bf4b4a55-hpqgbp`):**
+
+- A `main` foi integrada na branch, e as colisões de identificador da junção
+  estão resolvidas pela [DE-105](../projeto/decisoes.md): a documentação e o
+  painel do fiscal passaram a **DL-090** (eram DL-086), os resíduos da
+  DL-085/082/089/084 a `BL-698` a `BL-701`, e as decisões do Razão e do
+  estorno a `DE-103` e `DE-104`; a revisão de layout mantém `DL-086`,
+  `DE-101` e `BL-689` a `BL-697`.
+- A DL-084 e a DL-088 (frentes A2 e B) têm **ciclo de auditoria encerrado**
+  — rodada 1, correção única e reconferência APROVADA nas duas. Trabalho em
+  curso: o **PR com tudo o que estiver auditado** (DL-082, DL-084, DL-085,
+  DL-088, DL-089 e a DL-090 de documentação, mais a integração da `main`
+  pela DE-105) e o merge com os quatro checks verdes (RC-171).
+- A ordem de retomada segue a do fechamento de 10/10, abaixo: DL-088 frentes
+  A2 e B com auditoria; PR com tudo o que estiver auditado e merge com os
+  quatro checks verdes (RC-171); depois DL-087.
+- Seguem com o Fred: PE-90, PE-91 e PE-92; HI-150 e DE-104; HI-151; HI-152.
 
 **[DL-086](../planos/DL-086-revisao-de-layout-e-acessos.md) — Revisão de
-layout, botões, páginas e acessos: EM REVISÃO.** Três auditorias
-independentes (fiscal/livro-caixa, fundação/contabilidade e acesso ponta a
-ponta) consolidadas pelo arquiteto; implementação particionada por módulo
-com equipe multiagente, na branch `feat/dl-086-revisao-layout-e-acessos`,
-[PR #107](https://github.com/fredabsd-svg/DataLedger/pull/107) para revisão. Nível 2 (§3.1) com UM item nível 1 — motivo obrigatório no
-estorno do livro-caixa, gravado na trilha (A-02) — com testes de
-sucesso/erro/limite em `apps/livro_caixa/tests/test_dl086_estorno_com_motivo.py`
-e auditoria independente no PR. O que entrou: gaveta móvel com controle de
+layout, botões, páginas e acessos: INTEGRADA** pelo
+[PR #107](https://github.com/fredabsd-svg/DataLedger/pull/107), squash
+`451a25f`, em 11/10/2026 (demanda direta do Fred — "revise e melhore o
+layout, botões e páginas do sistema, bem como acessos e demais"). Três
+auditorias independentes (fiscal/livro-caixa, fundação/contabilidade e acesso
+ponta a ponta) consolidadas pelo arquiteto; implementação particionada por
+módulo com equipe multiagente, na branch `feat/dl-086-revisao-layout-e-acessos`.
+Nível 2 (§3.1) com UM item nível 1 — motivo obrigatório no estorno do
+livro-caixa, gravado na trilha (A-02) — com testes de sucesso/erro/limite em
+`apps/livro_caixa/tests/test_dl086_estorno_com_motivo.py` e auditoria
+independente no PR. O que entrou: gaveta móvel com controle de
 fechar e sem parada de teclado invisível (C-01/C-02); dropdown "Cadastros"
 com `open` condicional e rótulo de estado no alternador (C-03/C-04);
 `--tinta-media` e os acentos do Início recalculados para o canvas atual
@@ -201,9 +224,47 @@ acesso); chave única `username_hmac` na trilha com teste de correlação
 (BL-593); `SECURE_REFERRER_POLICY = same-origin` (C-07, parcial); handlers
 404/403/500 com a cara do produto (H-01); e portabilidade Windows das
 guardas (controles da varredura + sha256 da tabela CFOP com `.gitattributes`
-byte-exato). Fora do escopo, registrado no backlog: **BL-689 a BL-696**;
+byte-exato). Fora do escopo, registrado no backlog: **BL-689 a BL-696**, mais
+o BL-697 (estorno da contabilidade sem motivo);
 seguem abertos BL-18, BL-35, BL-547, BL-548, BL-552, BL-580/581/642,
 BL-598, BL-599, BL-640, BL-652, BL-653.
+
+**Fechamento de 10/10/2026 (RC-176: "registre e envie tudo, depois pode
+encerrar por hoje").** Para retomar, comece por aqui:
+
+- **Branch `ccr-bf4b4a55-hpqgbp`, enviada ao GitHub, sem PR aberto.** Ela
+  está à frente da `main` com:
+  - DL-085 e DL-090, ciclo de auditoria encerrado;
+  - DL-082 e DL-089, ciclo de auditoria encerrado;
+  - DL-084 frente A e DL-088 frente A1, **sem auditoria ainda**.
+- **Testes medidos pelo arquiteto, em banco próprio:**
+  - `apps/contabilidade`, `apps/core` e `apps/auditoria`: 4.299 passaram,
+    com 1 falha de ambiente (`test_versao_minima_python`, Python 3.13
+    local);
+  - `apps/fiscal` com a DL-084: 3.369 passaram.
+
+  Antes do PR, rode a suíte completa numa única invocação. Ela leva cerca de
+  19 min local, e o job "Lint e testes" tem limite de 20 min: confira o
+  tempo na CI.
+- **Testes em paralelo precisam de banco próprio**
+  (`DATABASE_URL=.../<nome>`). Ver [equipe.md](equipe.md), "Limitações
+  reais da plataforma".
+- **Próximos passos, nesta ordem:**
+  1. Frente B da DL-084 (telas e ligação do padrão de combustível), depois
+     a auditoria da DL-084.
+  2. Frente A2 da DL-088 (opção pelo regime regular, Zona Franca, NF-e de
+     2027), frente B e auditoria.
+  3. PR com tudo o que estiver auditado, e merge pela RC-171 com os quatro
+     checks verdes. Alternativa: abrir o PR já com DL-082/085/089/090 e
+     deixar DL-084 e DL-088 para o PR seguinte. Para isso, separe os
+     commits; a ordem na branch está no `git log`.
+  4. Depois: DL-087 (classificação fiscal versionada).
+- **Para o Fred:**
+  - PE-90, PE-91 e PE-92;
+  - HI-150 e DE-104 (importação e zeramento contam como automáticos no
+    estorno?);
+  - HI-151 (encerramento da medida cobre o trimestre?);
+  - HI-152 (monofasia em 2027; algum cliente na Zona Franca?).
 
 **Em 08/10/2026:**
 
@@ -370,13 +431,37 @@ BL-598, BL-599, BL-640, BL-652, BL-653.
     conservadores saem na DL-083.
 
 11. **[DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md) — pré-DAS
-    de comércio e indústria (Anexos I e II): planejada.**
+    de comércio e indústria (Anexos I e II): frentes A e B integradas na
+    branch (`a1e06a6`, `670b58c`, `1138310`);
+    [rodada 1](../auditorias/2026-10-09-dl-082-rodada-1.md) aprovada com
+    ressalvas; correção única integrada;
+    [reconferência](../auditorias/2026-10-09-dl-082-reconferencia.md)
+    aprovada com ressalvas (R1 a R7, todas baixas).** Ajustes do arquiteto,
+    sem terceira rodada (§3.1):
+    - R1: a devolução de venda de combustível sai do saldo do Simples; o
+      saldo de um mês não abate mais, em silêncio, o DAS do mês seguinte;
+    - R4: os CFOP 1.505, 1.506, 2.505 e 2.506 (devolução de remessa para
+      lote de exportação) deixam de ser devolução de exportação, e o
+      pré-DAS recusa o mês com o motivo;
+    - R5: testes dos dois lados do aviso de exportação direta.
+
+    R2, R3, R6, R7 e os dois resíduos declarados foram para o BL-699.
     [Consulta ao contador-senior](../projeto/consultas/2026-10-09-contador-senior-pre-das-comercio.md):
     exemplos 1, 2, 3 e 6 do Manual do PGDAS-D batem ao centavo com as tabelas
     do repositório; um RBT12 para todos os anexos; segregação sem
     redistribuição; devolução por segmento. HI-125 a HI-132; PE-86
-    (benefício de ICMS do Tocantins), PE-87 (conciliação real). **Executa
-    depois da DL-083.**
+    (benefício de ICMS do Tocantins), PE-87 (conciliação real).
+    - Frente A integrada na branch (o commit do cálculo e o da segunda
+      rodada). Na segunda rodada:
+      - o anexo da mercadoria vem da descrição oficial do CFOP quando a
+        natureza não decide; se o CFOP também não decidir, o pré-DAS recusa
+        com o motivo;
+      - os testes de migração voltam todas as apps à última versão;
+      - a reversão da 0014 recusa quando há marca ou segmento em escrituração
+        não estornada.
+    - Suíte completa numa única invocação, medida pelo desenvolvedor: 9.009
+      passaram, 54 pulados e 1 falha de ambiente (`test_versao_minima_python`,
+      Python 3.13 local).
 
 12. **Respostas da PE-83, da PE-84 e da PE-85 (RC-172, 09/10/2026):
     registradas.** O Fred delegou as três ao `contador-senior` (Fable). A
@@ -422,8 +507,9 @@ BL-598, BL-599, BL-640, BL-652, BL-653.
 
       R4, R6, A9, S12, G16, S02 e R8 foram para o BL-688. Suíte completa
       depois dos ajustes, medida pelo arquiteto numa única invocação:
-      **8.791/1/53** (a reprovação é a de ambiente). Próximo: o PR e o merge
-      com os quatro checks verdes (RC-171).
+      **8.791/1/53** (a reprovação é a de ambiente). **INTEGRADA** pelo PR
+      #106 (squash `3f3206c`), com os quatro checks verdes em todas as
+      execuções do último commit (RC-171).
     - [DL-084](../planos/DL-084-rotina-do-presumido.md): rotina do Presumido,
       depois da DL-082.
     - BL-687: mudanças do leitor de NF-e, que dependem do BL-686.
@@ -444,14 +530,108 @@ BL-598, BL-599, BL-640, BL-652, BL-653.
       Tocantins com lei lida, padrão de combustível por tipo de cliente e o
       encerramento da medida judicial (BL-680).
 
-    **Ordem de execução:** DL-083 → DL-085 → DL-082 → DL-084.
+    **Ordem de execução:** DL-083 → DL-085 → DL-082 → DL-084. A
+    [DL-084](../planos/DL-084-rotina-do-presumido.md): **frente A integrada
+    na branch** (migração `fiscal 0015`): vencimento antecipado nos dias
+    sem expediente bancário, feriados de Palmas e do Tocantins com aviso,
+    coerência da CSLL retida, competência na receita informada, parâmetros
+    por empresa (três quotas por padrão), encerramento da medida judicial e
+    pendência de cadastro. Medido pelo desenvolvedor: 9.302/1/55. A parte
+    "a retificar" da retenção tardia ficou bloqueada (BL-701); HI-151 para
+    o Fred. Próximo: frente B (telas e ligação do padrão de combustível),
+    depois a auditoria.
+
+14. **[DL-085](../planos/DL-085-escrituracao-de-nfe-em-volume.md) —
+    escrituração de NF-e e NFC-e em volume.**
+    - **Frente A integrada na branch** (`aa6e37f`). O lote grava as notas
+      confirmadas, efetiva em partes de 100 pelas funções individuais e lê
+      os itens em partes de 400. Com 10.000 NFC-e, cada chamada fica entre
+      4 e 8 s.
+    - **Frente B integrada** (`d17b734`), com o ajuste de domínio dos grupos
+      parciais e dos botões desabilitados para o PARALEGAL.
+    - [Rodada 1](../auditorias/2026-10-09-dl-085-rodada-1.md): **aprovada
+      com ressalvas**. Não houve achado alto; A1 a A3 são médios.
+    - **Correção única integrada** (`7f723d1`), mais o ajuste do arquiteto
+      no resíduo do A5 (`5ca0d5f`): a criação individual do rascunho trava a
+      empresa antes do vínculo.
+    - [Reconferência](../auditorias/2026-10-09-dl-085-reconferencia-e-dl-086.md)
+      **aprovada com ressalvas**. Os ajustes do arquiteto R1 a R5, R8 e R9
+      estão integrados; R6, R7 e o resto foram para o BL-698. Próximo: o PR
+      (junto com a DL-082 e a DL-090, que estão na mesma branch).
+
+15. **[DL-082](../planos/DL-082-pre-das-de-comercio-e-industria.md):**
+    ciclo de auditoria encerrado; situação no item 11. Próximo: o PR, junto
+    com a DL-085, a DL-090 e a DL-089.
+
+16. **Ordem do Fred de 09/10/2026 (RC-175):** revisar o fiscal por completo,
+    codar o que falta e pesquisar os acumuladores do sistema de referência
+    (cálculo de impostos, regras contábeis, importação de notas).
+    **Em andamento**, com duas pesquisas em paralelo:
+    - mapa de lacunas medido no código;
+    - acumuladores, no manual e na internet, com palavras nossas.
+
+    Resultado:
+    - [Revisão do fiscal](../projeto/revisao-do-fiscal-2026-10-09.md): o
+      que existe e o que falta, medido no código.
+    - [Pesquisa sobre os acumuladores](../projeto/pesquisa-acumuladores-2026-10-09.md).
+    - [Consulta ao `contador-senior`](../projeto/consultas/2026-10-09-contador-senior-classificacao-fiscal.md):
+      HI-141 a HI-145 e as PE-90 e PE-91, para o Fred.
+
+    Planos:
+    - [DL-090](../planos/DL-090-documentacao-e-painel-do-fiscal.md):
+      documentação e painel, **integrada na branch** (`1f06604`, mais os
+      textos da página inicial e do cartão do módulo, ajustados pelo
+      arquiteto). Os indicadores de NF-e no painel ficam no BL-681, item 2,
+      porque precisam de uma função de leitura no fiscal;
+    - [DL-087](../planos/DL-087-classificacao-fiscal-versionada.md):
+      classificação fiscal versionada, corte 1, depois da DL-085 e da
+      DL-082;
+    - [DL-088](../planos/DL-088-virada-de-2027-no-simples.md): virada de
+      2027 no Simples.
+      - A [leitura oficial](../projeto/consultas/2026-10-09-contador-senior-virada-2027-simples.md)
+        foi feita: Res. CGSN 190/2026 com os Anexos no DOU, idênticos à LC
+        214 e à LC 227.
+      - O RBT12 passa a ser defasado um mês; CBS e IBS entram no DAS.
+      - HI-146 a HI-149.
+      - **PE-92 traz prazos para o Fred**, o primeiro em **15/10/2026**.
+      - **Frente A1 integrada na branch:** tabelas de 2027-2028, RBT12
+        defasado, início de atividade em três fases e motor do pré-DAS de
+        2027. O pré-DAS de 2027 **continua recusado** ao público até a A2
+        (opção pelo regime regular, dado de Zona Franca, NF-e de 2027).
+        Medido pelo desenvolvedor: 9.374/1/55. HI-152 para o Fred.
+        Próximo: frente A2 (a DL-084 já está integrada, então os arquivos
+        não cruzam mais), frente B e auditoria.
+    - [DL-089](../planos/DL-089-origem-do-lancamento-contabil.md): origem
+      do lançamento contábil (BL-72, BL-73). **Frente A integrada na branch**
+      (`cc3c82c`).
+      - Migração `contabilidade 0026`; o gatilho de imutabilidade cobre os
+        campos novos.
+      - O estorno de lançamento automático exige ADMINISTRADOR ou GESTOR
+        (HI-150).
+      - Medido pelo desenvolvedor: 9.138/1/55.
+      - [Rodada 1](../auditorias/2026-10-09-dl-089-rodada-1.md) **aprovada
+        com ressalvas**. O Razão fica sem filtro de origem (DE-103).
+      - **Correção única integrada** (`bab28e7`): importação e zeramento
+        contam como automáticos para o estorno; pareamento origem × tipo de
+        documento no serviço e no banco; o 403 do estorno vai para a
+        trilha; o Diário declara o filtro de origem. Medido pelo
+        desenvolvedor: 9.236/1/55.
+      - [Reconferência](../auditorias/2026-10-10-dl-089-reconferencia.md)
+        **aprovada com ressalvas** (R1 a R5, baixas). Ajustes do arquiteto,
+        sem terceira rodada (§3.1): origem automática exige documento de
+        origem no serviço e no banco (a CHECK aceitava NULL, defeito achado
+        ao escrever o teste); teste de isolamento do seletor do Diário; a
+        mensagem do 403 e a trilha dizem qual critério valeu. DE-104;
+        resíduos no BL-700. **Ciclo de auditoria encerrado.**
+    - em seguida: as NF-e de entrada, o ICMS-TO, a integração contábil e os
+      livros.
 
 **Linha de base vigente (09/10/2026, contêiner Linux, Python 3.13.16,
-PostgreSQL 16 local, sobre `578ce9e` — conteúdo da `main` em `2911eb6` —,
+PostgreSQL 16 local, sobre `973dc02` — conteúdo da `main` em `3f3206c` —,
 medida pelo arquiteto numa única invocação, sem a variável dos XSD):**
-`pytest` completo **8.558 aprovados, 1 reprovado, 53 pulados**; a reprovação
+`pytest` completo **8.791 aprovados, 1 reprovado, 53 pulados**; a reprovação
 é a conhecida de ambiente (`test_versao_minima_python.py`, exige Python
-3.14). `ruff`, `check` e `makemigrations --check` limpos (569 arquivos). A
+3.14). `ruff`, `check` e `makemigrations --check` limpos (583 arquivos). A
 suíte leva cerca de 13 min: o job "Lint e testes" tem limite de 20 min. Lição
 da DL-075: a suíte **em fatias** esconde interação entre migrações — só vale
 a invocação única.

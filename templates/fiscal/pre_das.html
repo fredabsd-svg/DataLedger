@@ -21,6 +21,10 @@ FISCAL (§3): o documento confere com a memória de cálculo? É CONFERÊNCIA, c
 docs/projeto/personalizacao-de-relatorio.md: o contador confere contra o PGDAS-D. Nada é
 gerado nem transmitido. A regra fica em apps.fiscal.pre_das; a tela só mostra o que o serviço
 calcula, com o dispositivo de cada passo, e mostra cada bloqueio quando o cálculo recusa.
+DL-082 (frente B): mercadoria por anexo I/II e segmento. Tributo desconsiderado aparece como
+"desconsiderado", com o motivo e o dispositivo, e nunca como zero digitado. Avisos (CSOSN 900) e
+venda bruta, devolução e receita líquida só aparecem quando há mercadoria no mês: mês só de
+serviço sai como antes.
 {% endcomment %}
 {% block titulo_pagina %}<h1>Pré-DAS do Simples</h1>{% endblock %}
 
@@ -84,6 +88,31 @@ calcula, com o dispositivo de cada passo, e mostra cada bloqueio quando o cálcu
             <a class="botao botao--secundario" href="{{ url_folhas }}">Folha para o fator r</a>
         </p>
 
+        {% if opcao_do_semestre or primeira_faixa %}
+            {% comment %}
+            DL-088 (frente B, escopo 6): em 2027 em diante a tela mostra a opção do semestre que
+            valeu (com a consequência em linguagem de escritório) e o estado "1ª faixa" do RBT12,
+            quando for o caso. CBS e IBS aparecem por segmento nas tabelas abaixo.
+            {% endcomment %}
+            <div class="painel-etapa">
+                <h2>Virada de 2027</h2>
+                {% if opcao_do_semestre %}
+                    <p>
+                        Opção de regime de IBS/CBS do {{ opcao_do_semestre.semestre }}:
+                        <strong>{{ opcao_do_semestre.rotulo }}</strong> — {{ opcao_do_semestre.consequencia }}.
+                    </p>
+                {% endif %}
+                {% if primeira_faixa %}
+                    <p>
+                        <strong>Primeira faixa (início de atividade).</strong>
+                        O RBT12 deste período está no estado "1ª faixa" (1º e 2º mês de atividade):
+                        não há RBT12 numérico, e o cálculo usa a alíquota nominal da primeira faixa
+                        (Res. CGSN 190/2026, art. 22, § 2º, I).
+                    </p>
+                {% endif %}
+            </div>
+        {% endif %}
+
         <h2>Valor calculado de {{ mes_rotulo }}</h2>
         <dl class="lista-de-definicao">
             <div>
@@ -95,6 +124,17 @@ calcula, com o dispositivo de cada passo, e mostra cada bloqueio quando o cálcu
             Alíquotas e percentuais são mostrados com 4 casas decimais. O cálculo usa precisão total e
             não arredonda: só o valor de cada tributo é arredondado a centavos (ROUND_HALF_UP).
         </p>
+
+        {% if avisos %}
+            <div class="painel-etapa">
+                <h2>Avisos: não recusam o cálculo, mas conferir no PGDAS-D</h2>
+                <ul>
+                    {% for aviso in avisos %}
+                        <li>{{ aviso }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
 
         <h2>RBT12 por mercado</h2>
         <table class="tabela-dados">
@@ -208,7 +248,7 @@ calcula, com o dispositivo de cada passo, e mostra cada bloqueio quando o cálcu
                     </tbody>
                     <tfoot>
                         <tr>
-                            <th scope="row">Total da receita de {{ segmento.receita }} (R$)</th>
+                            <th scope="row">{{ segmento.rotulo_receita }} {{ segmento.receita }} (R$)</th>
                             <td></td>
                             <td class="valor-monetario">{{ segmento.total }}</td>
                             <td></td>
@@ -268,6 +308,39 @@ calcula, com o dispositivo de cada passo, e mostra cada bloqueio quando o cálcu
             </tbody>
         </table>
 
+        {% if tem_mercadoria %}
+            <h2>Venda, devolução e receita líquida de mercadoria</h2>
+            <p class="texto-apoio">
+                A devolução é deduzida só no segmento confirmado pelo contador (HI-129). Nunca há rateio entre
+                segmentos. A receita líquida é a que cada segmento segrega.
+            </p>
+            <table class="tabela-dados">
+                <caption>Venda bruta, devolução deduzida e receita líquida de mercadoria, por mercado, anexo e segmento</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Mercado</th>
+                        <th scope="col">Anexo</th>
+                        <th scope="col">Segmento</th>
+                        <th scope="col">Venda bruta (R$)</th>
+                        <th scope="col">Devolução deduzida (R$)</th>
+                        <th scope="col">Receita líquida (R$)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for parcela in mercadoria_por_segmento %}
+                        <tr>
+                            <td>{{ parcela.mercado }}</td>
+                            <td>{{ parcela.anexo }}</td>
+                            <td>{{ parcela.segmento }}</td>
+                            <td class="valor-monetario">{{ parcela.bruto }}</td>
+                            <td class="valor-monetario">{{ parcela.deduzido }}</td>
+                            <td class="valor-monetario">{{ parcela.liquido }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+
         <h2>Memória de cálculo</h2>
         <p class="texto-apoio">
             Cada passo, com o valor e o dispositivo que o fundamenta, para a conferência com o PGDAS-D.
@@ -294,4 +367,10 @@ calcula, com o dispositivo de cada passo, e mostra cada bloqueio quando o cálcu
             </tbody>
         </table>
     {% endif %}
+
+    {% comment %}
+    DL-088 (escopo 5, PE-92): o calendário de prazos da virada de 2027, com fonte, sempre no fim
+    da tela do Simples — informativo, sem transmitir nada.
+    {% endcomment %}
+    {% include "fiscal/_calendario_virada_2027.html" %}
 {% endblock %}

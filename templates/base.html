@@ -1007,6 +1007,25 @@
                                                             <a href="{% url 'fiscal_web:folhas_fator_r' %}">Folha (fator r)</a>
                                                         {% endif %}
                                                     </li>
+                                                    {% comment %}
+                                                    DL-088 (frente B, escopos 3 e 6): a opção de regime de IBS/CBS por
+                                                    semestre e o IPI mantido (Zona Franca). Consultas por ?empresa= (como as
+                                                    demais telas do grupo); o servidor decide cada registro na própria tela.
+                                                    {% endcomment %}
+                                                    <li>
+                                                        {% if pagina_atual == "opcao_regime_ibs_cbs" %}
+                                                            <span class="item-atual" aria-current="page">Opção de regime IBS/CBS</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:opcao_regime_ibs_cbs' %}">Opção de regime IBS/CBS</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "ipi_mantido" %}
+                                                            <span class="item-atual" aria-current="page">IPI mantido (Zona Franca)</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:ipi_mantido' %}">IPI mantido (Zona Franca)</a>
+                                                        {% endif %}
+                                                    </li>
                                                 </ul>
                                             </div>
                                             {% comment %}
@@ -1137,6 +1156,33 @@
                                                             <span class="item-atual" aria-current="page">Controle do limite</span>
                                                         {% else %}
                                                             <a href="{% url 'fiscal_web:presumido_limite' %}">Controle do limite</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    {% comment %}
+                                                    DL-084 (frente B2): parâmetros da empresa, feriados
+                                                    locais da praça e pendências de cadastro do mês.
+                                                    Mesma permissão de consulta; cada ação é decidida
+                                                    pelo servidor na própria tela.
+                                                    {% endcomment %}
+                                                    <li>
+                                                        {% if pagina_atual == "presumido_parametros" %}
+                                                            <span class="item-atual" aria-current="page">Parâmetros do Presumido</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:presumido_parametros' %}">Parâmetros do Presumido</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "presumido_feriados" %}
+                                                            <span class="item-atual" aria-current="page">Feriados locais</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:presumido_feriados' %}">Feriados locais</a>
+                                                        {% endif %}
+                                                    </li>
+                                                    <li>
+                                                        {% if pagina_atual == "presumido_pendencias" %}
+                                                            <span class="item-atual" aria-current="page">Pendências do mês</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:presumido_pendencias' %}">Pendências do mês</a>
                                                         {% endif %}
                                                     </li>
                                                 </ul>

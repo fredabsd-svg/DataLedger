@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+
+{% block titulo %}{% if feriado %}Alterar feriado local{% else %}Novo feriado local{% endif %} — {{ empresa_selecionada.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa_selecionada.razao_social }}</strong>
+    </span>
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Praça</span>
+        <strong>{{ praca }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Feriados locais</a></li>
+            <li aria-current="page">{% if feriado %}Alterar feriado{% else %}Novo feriado{% endif %}</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para os feriados</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-084, item 2 (HI-137), arquétipo B. A fonte (lei ou ato) é obrigatória: sem lei lida, a linha não
+entra. A data do feriado é normativa (dia e mês) e a tela nunca a muda por causa de aviso nenhum.
+A exceção por ano registra o decreto que MOVEU a data observada naquele ano — a data normativa
+continua a mesma.
+{% endcomment %}
+{% block titulo_pagina %}<h1>{% if feriado %}Alterar feriado local{% else %}Novo feriado local{% endif %}</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa">
+        <h2>O que esta linha decide</h2>
+        <p>
+            O feriado local avisa quando um vencimento cai nele ("feriado bancário em {{ praca }}
+            (Febraban)" quando a lista bancária confirma o fechamento, "feriado local: confirmar
+            expediente bancário na praça" quando não confirma). A data de vencimento nunca muda por
+            causa deste cadastro. Cadastre só a data cuja lei foi lida na fonte oficial.
+        </p>
+    </div>
+
+    <form method="post" action="{{ url_envio }}" class="formulario">
+        {% csrf_token %}
+        <fieldset class="campo">
+            <legend>Abrangência</legend>
+            {% for valor, rotulo in opcoes_abrangencia %}
+                <div class="campo-radio">
+                    <input type="radio" id="id_abrangencia_{{ valor }}" name="abrangencia" value="{{ valor }}"
+                           aria-describedby="ajuda_abrangencia{% if erros.abrangencia %} erro_abrangencia{% endif %}"
+                           {% if valores.abrangencia == valor %} checked{% endif %}>
+                    <label for="id_abrangencia_{{ valor }}">{{ rotulo }}</label>
+                </div>
+            {% endfor %}
+            <p class="texto-apoio" id="ajuda_abrangencia">
+                Estadual para todo o estado, ou só para esta praça (quando a lista bancária confirma o
+                fechamento aqui), ou municipal, só para {{ praca }}.
+            </p>
+            {% if erros.abrangencia %}
+                <p class="mensagem mensagem-error" role="alert" id="erro_abrangencia"><strong>Erro:</strong> {{ erros.abrangencia }}</p>
+            {% endif %}
+        </fieldset>
+        <div class="campo">
+            <label for="id_dia">Data do feriado (dia e mês)</label>
+            <div class="acoes-de-linha">
+                <select id="id_dia" name="dia" aria-describedby="ajuda_data{% if erros.data %} erro_data{% endif %}">
+                    {% for valor, rotulo in opcoes_dia %}
+                        <option value="{{ valor }}" {% if valores.dia == valor %} selected{% endif %}>{{ rotulo }}</option>
+                    {% endfor %}
+                </select>
+                <select name="mes" aria-label="Mês do feriado" aria-describedby="ajuda_data{% if erros.data %} erro_data{% endif %}">
+                    {% for valor, rotulo in opcoes_mes %}
+                        <option value="{{ valor }}" {% if valores.mes == valor %} selected{% endif %}>{{ rotulo }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <p class="texto-apoio" id="ajuda_data">A data normativa do feriado, em dia e mês (ex.: 19 de março).</p>
+            {% if erros.data %}
+                <p class="mensagem mensagem-error" role="alert" id="erro_data"><strong>Erro:</strong> {{ erros.data }}</p>
+            {% endif %}
+        </div>
+        <div class="campo">
+            <label for="id_descricao">Descrição</label>
+            <input type="text" id="id_descricao" name="descricao" value="{{ valores.descricao }}" maxlength="200"
+                   aria-describedby="ajuda_descricao{% if erros.descricao %} erro_descricao{% endif %}">
+            <p class="texto-apoio" id="ajuda_descricao">Como o feriado é conhecido, ex.: "São José, padroeiro de Palmas".</p>
+            {% if erros.descricao %}
+                <p class="mensagem mensagem-error" role="alert" id="erro_descricao"><strong>Erro:</strong> {{ erros.descricao }}</p>
+            {% endif %}
+        </div>
+        <div class="campo">
+            <label for="id_fundamento">Fonte: lei ou ato que declara o feriado (obrigatória)</label>
+            <input type="text" id="id_fundamento" name="fundamento" value="{{ valores.fundamento }}" maxlength="300"
+                   aria-describedby="ajuda_fundamento{% if erros.fundamento %} erro_fundamento{% endif %}">
+            <p class="texto-apoio" id="ajuda_fundamento">Ex.: "Lei municipal de Palmas nº 577, de 02/04/1996, art. 1º, III". Sem fonte, a linha não entra.</p>
+            {% if erros.fundamento %}
+                <p class="mensagem mensagem-error" role="alert" id="erro_fundamento"><strong>Erro:</strong> {{ erros.fundamento }}</p>
+            {% endif %}
+        </div>
+        <div class="campo">
+            <label for="id_data_leitura">Data em que a fonte foi lida</label>
+            <input type="text" id="id_data_leitura" name="data_leitura" value="{{ valores.data_leitura }}" maxlength="10" inputmode="numeric"
+                   aria-describedby="ajuda_leitura{% if erros.data_leitura %} erro_data_leitura{% endif %}">
+            <p class="texto-apoio" id="ajuda_leitura">Em dd/mm/aaaa: a data em que a lei foi lida na fonte oficial.</p>
+            {% if erros.data_leitura %}
+                <p class="mensagem mensagem-error" role="alert" id="erro_data_leitura"><strong>Erro:</strong> {{ erros.data_leitura }}</p>
+            {% endif %}
+        </div>
+        <div class="campo">
+            <label for="id_fonte_bancaria">Fonte bancária (quando houver)</label>
+            <input type="text" id="id_fonte_bancaria" name="fonte_bancaria" value="{{ valores.fonte_bancaria }}" maxlength="300"
+                   aria-describedby="ajuda_fonte_bancaria">
+            <p class="texto-apoio" id="ajuda_fonte_bancaria">
+                A lista da Febraban que confirma o fechamento na praça (ex.: "CAF501 v.007541 de
+                07/10/2026"). Sem ela, o aviso sai mais fraco: "feriado local: confirmar expediente
+                bancário na praça".
+            </p>
+        </div>
+        <div class="campo">
+            <label for="id_vigencia_inicio">Início da vigência</label>
+            <input type="text" id="id_vigencia_inicio" name="vigencia_inicio" value="{{ valores.vigencia_inicio }}" maxlength="10" inputmode="numeric"
+                   aria-describedby="ajuda_vigencia{% if erros.vigencia_inicio %} erro_vigencia_inicio{% endif %}">
+            <p class="texto-apoio" id="ajuda_vigencia">Em dd/mm/aaaa.</p>
+            {% if erros.vigencia_inicio %}
+                <p class="mensagem mensagem-error" role="alert" id="erro_vigencia_inicio"><strong>Erro:</strong> {{ erros.vigencia_inicio }}</p>
+            {% endif %}
+        </div>
+        <div class="campo">
+            <label for="id_vigencia_fim">Fim da vigência (opcional)</label>
+            <input type="text" id="id_vigencia_fim" name="vigencia_fim" value="{{ valores.vigencia_fim }}" maxlength="10" inputmode="numeric"
+                   aria-describedby="ajuda_vigencia{% if erros.vigencia_fim %} erro_vigencia_fim{% endif %}">
+            {% if erros.vigencia_fim %}
+                <p class="mensagem mensagem-error" role="alert" id="erro_vigencia_fim"><strong>Erro:</strong> {{ erros.vigencia_fim }}</p>
+            {% endif %}
+        </div>
+        {% if erros.geral %}
+            <p class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erros.geral }}</p>
+        {% endif %}
+        <div class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+            {% if feriado.da_base %}
+                {% comment %}
+                DE-106 + direção de arte §2B: a linha da base é somente leitura e a ação de gravar
+                aparece DESABILITADA com o motivo (o MESMO texto da recusa do servidor), nunca some.
+                {% endcomment %}
+                <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_linha_da_base">Gravar feriado local</button>
+            {% else %}
+                <button type="submit" class="botao botao--primario">{% if feriado %}Gravar feriado local{% else %}Cadastrar feriado local{% endif %}</button>
+            {% endif %}
+        </div>
+        {% if feriado.da_base %}
+            <p class="texto-apoio" id="ajuda_linha_da_base">Esta é uma linha da base (lei e fonte da carga) — a linha do feriado é somente leitura: cadastre a sua para a sua praça. A exceção do ano, abaixo, pode ser a sua: ela vale só para as empresas do seu escritório.</p>
+        {% endif %}
+    </form>
+
+    {% if feriado %}
+        <h2>Exceções por ano</h2>
+        <p class="texto-apoio">
+            O decreto que moveu o feriado num ano registra a data OBSERVADA naquele ano. A data
+            normativa acima não muda: o aviso passa a sair na data observada, e a de vencimento nunca
+            muda por causa disso.
+        </p>
+
+        {% if feriado.excecoes %}
+            <table class="tabela-dados">
+                <caption>Exceções por ano do feriado, com a data observada, o ato e os avisos</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Ano</th>
+                        <th scope="col">Data observada</th>
+                        <th scope="col">Ato que moveu o feriado</th>
+                        <th scope="col">Fonte bancária</th>
+                        <th scope="col">Aviso do vencimento</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for excecao in feriado.excecoes %}
+                        <tr>
+                            <td class="valor-monetario">{{ excecao.ano }}</td>
+                            <td class="valor-monetario">{{ excecao.data_observada }}</td>
+                            <td class="texto-apoio">{{ excecao.fundamento }}</td>
+                            <td class="texto-apoio">{{ excecao.fonte_bancaria }}</td>
+                            <td>
+                                {% for aviso in excecao.avisos %}
+                                    {{ aviso }}{% if not forloop.last %}<br>{% endif %}
+                                {% endfor %}
+                            </td>
+                            <td>
+                                <div class="acoes-de-linha">
+                                    {% if excecao.url_excluir %}
+                                        <a class="botao botao--perigoso botao--pequeno" href="{{ excecao.url_excluir }}">Excluir exceção<span class="visualmente-oculto"> de {{ excecao.ano }} do feriado de {{ feriado.data }}</span></a>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="estado-vazio">
+                {# DL-086 (A-13): mesma anatomia — ícone decorativo, título e descrição. #}
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo"><strong>Nenhuma exceção por ano neste feriado.</strong></p>
+                <p class="estado-vazio__descricao">
+                    Sem exceção, o aviso do vencimento sai sempre na data normativa, todo ano.
+                </p>
+            </div>
+        {% endif %}
+
+        <h3>Cadastrar exceção por ano</h3>
+        <form method="post" action="{{ url_excecao }}" class="formulario">
+            {% csrf_token %}
+            <div class="campo">
+                <label for="id_excecao_ano">Ano da exceção</label>
+                <input type="text" id="id_excecao_ano" name="ano" value="{{ excecao_valores.ano }}" inputmode="numeric" maxlength="4"
+                       aria-describedby="ajuda_excecao_ano{% if erros_excecao.ano %} erro_excecao_ano{% endif %}">
+                <p class="texto-apoio" id="ajuda_excecao_ano">O ano em que o decreto moveu o feriado.</p>
+                {% if erros_excecao.ano %}
+                    <p class="mensagem mensagem-error" role="alert" id="erro_excecao_ano"><strong>Erro:</strong> {{ erros_excecao.ano }}</p>
+                {% endif %}
+            </div>
+            <div class="campo">
+                <label for="id_excecao_data_observada">Data observada no ano</label>
+                <input type="text" id="id_excecao_data_observada" name="data_observada" value="{{ excecao_valores.data_observada }}" maxlength="10" inputmode="numeric"
+                       aria-describedby="ajuda_excecao_data{% if erros_excecao.data_observada %} erro_excecao_data_observada{% endif %}">
+                <p class="texto-apoio" id="ajuda_excecao_data">Em dd/mm/aaaa: a data que o decreto fixou (ex.: 09/10/2026).</p>
+                {% if erros_excecao.data_observada %}
+                    <p class="mensagem mensagem-error" role="alert" id="erro_excecao_data_observada"><strong>Erro:</strong> {{ erros_excecao.data_observada }}</p>
+                {% endif %}
+            </div>
+            <div class="campo">
+                <label for="id_excecao_fundamento">Ato que moveu o feriado (obrigatório)</label>
+                <input type="text" id="id_excecao_fundamento" name="fundamento" value="{{ excecao_valores.fundamento }}" maxlength="300"
+                       aria-describedby="ajuda_excecao_fundamento{% if erros_excecao.fundamento %} erro_excecao_fundamento{% endif %}">
+                <p class="texto-apoio" id="ajuda_excecao_fundamento">Ex.: "Decreto estadual nº 7.238/2026". Sem o ato, a exceção não entra.</p>
+                {% if erros_excecao.fundamento %}
+                    <p class="mensagem mensagem-error" role="alert" id="erro_excecao_fundamento"><strong>Erro:</strong> {{ erros_excecao.fundamento }}</p>
+                {% endif %}
+            </div>
+            <div class="campo">
+                <label for="id_excecao_data_leitura">Data em que a fonte foi lida</label>
+                <input type="text" id="id_excecao_data_leitura" name="data_leitura" value="{{ excecao_valores.data_leitura }}" maxlength="10" inputmode="numeric"
+                       aria-describedby="ajuda_excecao_leitura{% if erros_excecao.data_leitura %} erro_excecao_data_leitura{% endif %}">
+                <p class="texto-apoio" id="ajuda_excecao_leitura">Em dd/mm/aaaa.</p>
+                {% if erros_excecao.data_leitura %}
+                    <p class="mensagem mensagem-error" role="alert" id="erro_excecao_data_leitura"><strong>Erro:</strong> {{ erros_excecao.data_leitura }}</p>
+                {% endif %}
+            </div>
+            <div class="campo">
+                <label for="id_excecao_fonte_bancaria">Fonte bancária da exceção (quando houver)</label>
+                <input type="text" id="id_excecao_fonte_bancaria" name="fonte_bancaria" value="{{ excecao_valores.fonte_bancaria }}" maxlength="300"
+                       aria-describedby="ajuda_excecao_fonte">
+                <p class="texto-apoio" id="ajuda_excecao_fonte">A lista da Febraban que confirma a data observada na praça, quando houver.</p>
+            </div>
+            {% if erros_excecao.geral %}
+                <p class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erros_excecao.geral }}</p>
+            {% endif %}
+            <div class="acoes-formulario">
+                <button type="submit" class="botao botao--primario">Cadastrar exceção por ano<span class="visualmente-oculto"> no feriado de {{ feriado.data }} — {{ feriado.descricao }}</span></button>
+            </div>
+        </form>
+    {% endif %}
+{% endblock %}

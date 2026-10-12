@@ -34,6 +34,8 @@ from apps.fiscal.views_web import (
     folha_estornar,
     folha_nova,
     folhas_fator_r,
+    ipi_mantido,
+    ipi_mantido_gravar,
     iss_aliquota_editar,
     iss_aliquota_encerrar,
     iss_aliquota_nova,
@@ -52,9 +54,13 @@ from apps.fiscal.views_web import (
     nfe_escriturar,
     nfe_estornar,
     nfe_eventos_orfaos,
+    nfe_lote,
     nfe_recebidas,
     nfe_reclassificar,
     notas_a_escriturar,
+    opcao_regime_ibs_cbs,
+    opcao_regime_ibs_cbs_cancelar,
+    opcao_regime_ibs_cbs_registrar,
     pre_das,
     presumido_apuracao,
     presumido_atividade_encerrar,
@@ -62,11 +68,21 @@ from apps.fiscal.views_web import (
     presumido_atividades,
     presumido_criterio,
     presumido_criterio_gravar,
+    presumido_feriado_editar,
+    presumido_feriado_excecao_excluir,
+    presumido_feriado_excecao_nova,
+    presumido_feriado_excluir,
+    presumido_feriado_novo,
+    presumido_feriados,
     presumido_integrais_declarar,
     presumido_limite,
+    presumido_medida_encerrar,
     presumido_medida_nova,
     presumido_medida_revogar,
     presumido_medidas,
+    presumido_parametros,
+    presumido_parametros_gravar,
+    presumido_pendencias,
     presumido_receita_estornar,
     presumido_receita_nova,
     presumido_receitas,
@@ -126,6 +142,10 @@ urlpatterns = [
     path("nfe/escrituracao/", nfe_a_escriturar, name="nfe_a_escriturar"),
     path("nfe/escrituracao/conferencia/", nfe_conferencia, name="nfe_conferencia"),
     path("nfe/escrituracao/reclassificar/", nfe_reclassificar, name="nfe_reclassificar"),
+    # DL-085 (frente B): escrituração do mês em lote. A empresa vai no caminho; o mês, na
+    # querystring (GET) ou no formulário (POST). A prévia, o lote e as notas são buscados DENTRO
+    # da empresa, e lote de outra empresa é 404.
+    path("nfe/escrituracao/empresas/<int:empresa_id>/lote/", nfe_lote, name="nfe_lote"),
     path(
         "nfe/escrituracao/empresas/<int:empresa_id>/notas/<int:vinculo_id>/",
         nfe_escriturar,
@@ -194,6 +214,29 @@ urlpatterns = [
         "simples/empresas/<int:empresa_id>/regime-caixa/",
         regime_caixa,
         name="regime_caixa",
+    ),
+    # DL-088 (frente B, escopos 3 e 6): a opção de regime de IBS/CBS por semestre (insert-only) e o
+    # IPI mantido (Zona Franca). Mesmo critério das telas do Presumido da DL-084 (item 6): a
+    # consulta leva a empresa na querystring (e por isso pode ser item do submenu do Simples), e o
+    # registro/gravação leva a empresa no caminho, com o dado buscado DENTRO dela (404 fora).
+    path("simples/opcao-regime-ibs-cbs/", opcao_regime_ibs_cbs, name="opcao_regime_ibs_cbs"),
+    path(
+        "simples/empresas/<int:empresa_id>/opcao-regime-ibs-cbs/",
+        opcao_regime_ibs_cbs_registrar,
+        name="opcao_regime_ibs_cbs_registrar",
+    ),
+    # DL-088 (correção do achado A1): cancelar a opção do semestre, na janela legal (Res. CGSN
+    # 194/2026; arts. 40-C/40-D). GET é a confirmação (nomeia o alvo e pede o motivo); POST grava.
+    path(
+        "simples/empresas/<int:empresa_id>/opcao-regime-ibs-cbs/cancelar/",
+        opcao_regime_ibs_cbs_cancelar,
+        name="opcao_regime_ibs_cbs_cancelar",
+    ),
+    path("simples/ipi-mantido/", ipi_mantido, name="ipi_mantido"),
+    path(
+        "simples/empresas/<int:empresa_id>/ipi-mantido/",
+        ipi_mantido_gravar,
+        name="ipi_mantido_gravar",
     ),
     # DL-075 (frente B): pré-DAS para conferência, atividades da empresa e folha para o fator
     # r. Mesmo critério das rotas da DL-074: a tela de consulta leva a empresa na querystring
@@ -290,6 +333,10 @@ urlpatterns = [
     path("presumido/medidas/", presumido_medidas, name="presumido_medidas"),
     path("presumido/apuracao/", presumido_apuracao, name="presumido_apuracao"),
     path("presumido/limite/", presumido_limite, name="presumido_limite"),
+    # DL-084 (frente B2): parâmetros da empresa, feriados locais da praça e pendências do mês.
+    path("presumido/parametros/", presumido_parametros, name="presumido_parametros"),
+    path("presumido/feriados/", presumido_feriados, name="presumido_feriados"),
+    path("presumido/pendencias/", presumido_pendencias, name="presumido_pendencias"),
     path(
         "presumido/empresas/<int:empresa_id>/atividades/nova/",
         presumido_atividade_nova,
@@ -330,9 +377,50 @@ urlpatterns = [
         presumido_medida_nova,
         name="presumido_medida_nova",
     ),
+    # DL-084, item 7: encerrar a medida em (ano, trimestre), com confirmação e trilha.
+    path(
+        "presumido/empresas/<int:empresa_id>/medidas/<int:medida_id>/encerrar/",
+        presumido_medida_encerrar,
+        name="presumido_medida_encerrar",
+    ),
     path(
         "presumido/empresas/<int:empresa_id>/medidas/<int:medida_id>/revogar/",
         presumido_medida_revogar,
         name="presumido_medida_revogar",
+    ),
+    # DL-084, item 6: parâmetros do Presumido da empresa (leitura na tela de consulta; gravação
+    # aqui, com a empresa no caminho, como os demais atos).
+    path(
+        "presumido/empresas/<int:empresa_id>/parametros/",
+        presumido_parametros_gravar,
+        name="presumido_parametros_gravar",
+    ),
+    # DL-084, item 2: feriados locais da praça da empresa (data normativa, descrição, fonte,
+    # vigência e exceção por ano). A tabela é da praça: duas empresas da mesma praça veem as linhas.
+    path(
+        "presumido/empresas/<int:empresa_id>/feriados/novo/",
+        presumido_feriado_novo,
+        name="presumido_feriado_novo",
+    ),
+    path(
+        "presumido/empresas/<int:empresa_id>/feriados/<int:feriado_id>/",
+        presumido_feriado_editar,
+        name="presumido_feriado_editar",
+    ),
+    path(
+        "presumido/empresas/<int:empresa_id>/feriados/<int:feriado_id>/excluir/",
+        presumido_feriado_excluir,
+        name="presumido_feriado_excluir",
+    ),
+    path(
+        "presumido/empresas/<int:empresa_id>/feriados/<int:feriado_id>/excecoes/nova/",
+        presumido_feriado_excecao_nova,
+        name="presumido_feriado_excecao_nova",
+    ),
+    path(
+        "presumido/empresas/<int:empresa_id>/feriados/<int:feriado_id>/excecoes/"
+        "<int:excecao_id>/excluir/",
+        presumido_feriado_excecao_excluir,
+        name="presumido_feriado_excecao_excluir",
     ),
 ]

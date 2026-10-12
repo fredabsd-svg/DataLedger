@@ -49,12 +49,13 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, Min, OuterRef, Sum
+from django.db.models import Exists, Min, OuterRef, Q, Sum
 from django.utils import timezone
 
 from apps.auditoria.services import registrar
 from apps.empresas.models import Empresa, HistoricoRegimeTributario, RegimeTributario
-from apps.fiscal.itens_nfe import atribuir_receita_da_nota_efetivada
+from apps.fiscal.cfop import e_devolucao_de_venda_de_combustivel
+from apps.fiscal.itens_nfe import atribuicao_pelo_vprod, atribuir_receita_da_nota_efetivada
 from apps.fiscal.models import (
     ConfirmacaoReceitaMensal,
     EscrituracaoFiscal,
@@ -62,13 +63,19 @@ from apps.fiscal.models import (
     EstadoEscrituracao,
     EstadoReceitaInformada,
     EventoNFe,
+    IpiMantidoZfmEmpresa,
     MercadoReceita,
     NaturezaItemNFe,
     NaturezaOperacaoNFe,
     OpcaoRegimeCaixaSimples,
+    OpcaoRegimeIbsCbsSimples,
     OrigemReceitaInformada,
     ReceitaInformada,
+    RegimeIbsCbsSimples,
+    SituacaoIpiMantido,
     SituacaoIssReceitaInformada,
+    classificacao_da_devolucao,
+    classificacao_da_venda,
     mercado_da_natureza,
     mercado_do_item_nfe,
     papel_da_natureza_nfe,
@@ -262,12 +269,18 @@ class LinhaNFe:
     """Um item de NF-e escriturado e efetivado, com a receita que ele compõe (DL-083).
 
     `papel` é "receita" ou "deducao" (devolução). `valor` é a receita do item DEPOIS da atribuição
-    da
-    nota (HI-138): num item de receita, inclui a parcela do resíduo de frete ou desconto de item que
-    não é receita. Positivo quando é venda e também positivo quando é devolução: quem diz que é
-    dedução é o `papel`. Vem da mesma
-    consulta para o Simples (`_nfe_do_periodo`) e para o Presumido (`presumido`), sem cálculo
-    paralelo.
+    da nota (HI-138): num item de receita, inclui a parcela do resíduo de frete ou desconto de item
+    que não é receita. Positivo quando é venda e também positivo quando é devolução: quem diz que é
+    dedução é o `papel`. Vem da mesma consulta para o Simples (`_nfe_do_periodo`) e para o Presumido
+    (`presumido`), sem cálculo paralelo.
+
+    DL-082: `anexo` e `segmento` dizem onde a mercadoria cai no Simples (`classificacao_da_venda` e
+    `classificacao_da_devolucao`, em `models`). Ficam `None` quando a natureza não é de mercadoria
+    (combustível, serviço conjugado) e quando a devolução não tem segmento confirmado. `csosn` é o
+    do
+    item: CSOSN 103, 300 e 400 recusam o pré-DAS no mercado interno (HI-131; A4).
+
+    `id_dest` é o local de destino da NOTA (1, 2 ou 3). O aviso de exportação direta (A6) o compara.
     """
 
     escrituracao_id: int
@@ -278,6 +291,24 @@ class LinhaNFe:
     papel: str
     mercado: str
     valor: Decimal
+    anexo: str | None = None
+    segmento: str | None = None
+    csosn: str | None = None
+    id_dest: str = ""
+
+
+def _classe_da_parcela(registro: NaturezaItemNFe, papel: str) -> tuple[str, str] | None:
+    """(anexo, segmento) da mercadoria de um item de NF-e, ou `None` (DL-082).
+
+    Venda: pela natureza e pela marca de monofásico. Devolução: pelo segmento CONFIRMADO pelo
+    contador (HI-129); sem confirmação, `None`, e o pré-DAS do mês recusa. Devolução de combustível
+    não tem classe: o pré-DAS a recusa pela natureza.
+    """
+    if papel == "receita":
+        return classificacao_da_venda(registro.natureza, registro.monofasico, registro.item.cfop)
+    if registro.natureza == NaturezaOperacaoNFe.DEVOLUCAO_VENDA:
+        return classificacao_da_devolucao(registro.segmento_devolucao)
+    return None
 
 
 def linhas_nfe_do_periodo(
@@ -304,26 +335,34 @@ def linhas_nfe_do_periodo(
         .filter(~Exists(_cancelada_depois_de_escriturada("escrituracao__")))
         .order_by("escrituracao__competencia", "escrituracao_id", "item__n_item")
     )
-    # A atribuição (HI-138) é por NOTA: o resíduo de item que não é receita (indTot 0 ou 1) vai
-    # para os
-    # itens de receita da mesma escrituração. Por isso as naturezas da nota entram todas, e só
-    # depois se
-    # filtra o papel. A nota que a atribuição recusa não pode estar efetivada (a efetivação
+    # A atribuição (HI-138) é por NOTA: o resíduo de item que não é receita (indTot 0 ou 1) vai para
+    # os itens de receita da mesma escrituração. Por isso as naturezas da nota entram todas, e só
+    # depois se filtra o papel. A nota que a atribuição recusa não pode estar efetivada (a
+    # efetivação
     # recusou).
     por_escrituracao: dict[int, list[NaturezaItemNFe]] = {}
     for registro in registros:
         por_escrituracao.setdefault(registro.escrituracao_id, []).append(registro)
     linhas = []
     for registros_da_nota in por_escrituracao.values():
-        atribuicao = atribuir_receita_da_nota_efetivada(
-            [(r.item, r.natureza) for r in registros_da_nota]
-        )
+        pares = [(r.item, r.natureza) for r in registros_da_nota]
+        # DL-088 A2 (HI-149): a nota de 2027 em diante vale o seu `vProd − vDesc`, sem resíduo
+        # nem rateio.
+        # Toda escrituração EFETIVADA de 2027 em diante passou pelo portão do regime único na
+        # efetivação (`escrituracao_nfe.motivo_bloqueio_efetivacao`), então a regra vale para ela
+        # sem rechecar o regime aqui: rechecar por nota duplicaria a regra e enfiaria consulta por
+        # nota (DL-081, A6).
+        if registros_da_nota[0].escrituracao.data_emissao.year >= 2027:
+            atribuicao = atribuicao_pelo_vprod(pares)
+        else:
+            atribuicao = atribuir_receita_da_nota_efetivada(pares)
         for registro in registros_da_nota:
             papel = papel_da_natureza_nfe(registro.natureza)
             if papel not in ("receita", "deducao"):
                 continue
             item = registro.item
             escrituracao = registro.escrituracao
+            classe = _classe_da_parcela(registro, papel)
             linhas.append(
                 LinhaNFe(
                     escrituracao_id=escrituracao.pk,
@@ -336,34 +375,13 @@ def linhas_nfe_do_periodo(
                     # externo (A8).
                     mercado=mercado_do_item_nfe(registro.natureza, item.cfop),
                     valor=atribuicao.valores[item.pk],
+                    anexo=classe[0] if classe else None,
+                    segmento=classe[1] if classe else None,
+                    csosn=item.csosn,
+                    id_dest=escrituracao.vinculo.documento.id_dest,
                 )
             )
     return linhas
-
-
-def _nfe_do_periodo(
-    empresa: Empresa, inicio: tuple[int, int], fim: tuple[int, int]
-) -> dict[tuple[int, int], dict[str, tuple[Decimal, Decimal]]]:
-    """(mercadoria, devolução) de NF-e de cada mês do período, por mercado. Devolução sai positiva.
-
-    A natureza de cada item diz o papel: receita (soma), dedução (devolução) ou nada (fica fora,
-    HI-121 e HI-124). O mercado vem de `mercado_do_item_nfe`, a fonte única.
-    """
-    por_mes: dict[tuple[int, int], dict[str, list[Decimal]]] = {}
-    for linha in linhas_nfe_do_periodo(empresa, inicio, fim):
-        mes = (linha.competencia.year, linha.competencia.month)
-        celulas = por_mes.setdefault(
-            mes, {MercadoReceita.INTERNO: [ZERO, ZERO], MercadoReceita.EXTERNO: [ZERO, ZERO]}
-        )
-        indice = 0 if linha.papel == "receita" else 1
-        celulas[linha.mercado][indice] += linha.valor
-    return {
-        mes: {
-            m: (celulas[m][0], celulas[m][1])
-            for m in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)
-        }
-        for mes, celulas in por_mes.items()
-    }
 
 
 def _documentos_do_periodo(
@@ -416,32 +434,127 @@ def _informados_do_periodo(
     return por_mes
 
 
-def _componentes_do_periodo(
-    empresa: Empresa, inicio: tuple[int, int], fim: tuple[int, int]
-) -> dict[tuple[int, int], dict[str, tuple]]:
-    """(documento, informado, mercadoria, devolução) por mercado, de cada mês do período.
+# Chave de parcela SEM segmento: anexo e segmento vazios. Vale para combustível, serviço conjugado
+# e devolução sem segmento confirmado. Essas parcelas não têm segmento e nunca são rateadas.
+SEM_SEGMENTO = ("", "")
 
-    Três consultas para o período inteiro, não uma por mês (DL-081, A6). Mês sem lançamento sai
-    com zeros, e não some do resultado.
+
+@dataclass(frozen=True)
+class _ParcelasDoMes:
+    """Parcelas de UM mês. `vendas` e `devolucoes` são indexadas por (mercado, anexo, segmento)."""
+
+    documento: dict[str, Decimal]
+    informado: dict[str, Decimal]
+    vendas: dict[tuple[str, str, str], Decimal]
+    devolucoes: dict[tuple[str, str, str], Decimal]
+
+
+def _parcelas_do_periodo(
+    empresa: Empresa, inicio: tuple[int, int], fim: tuple[int, int]
+) -> dict[tuple[int, int], _ParcelasDoMes]:
+    """Parcelas de cada mês do período: NFS-e, informado e NF-e por segmento. Três consultas.
+
+    Mês sem lançamento sai com zeros, e não some do resultado (DL-081, A6).
     """
     documento = _documentos_do_periodo(empresa, inicio, fim)
     informado = _informados_do_periodo(empresa, inicio, fim)
-    nfe = _nfe_do_periodo(empresa, inicio, fim)
-    resultado = {}
-    for mes in _meses_do_intervalo(inicio, fim):
-        doc_mes = documento.get(mes, _zeros_por_mercado())
-        inf_mes = informado.get(mes, _zeros_por_mercado())
-        nfe_mes = nfe.get(mes, {})
-        resultado[mes] = {
-            mercado: (
-                doc_mes[mercado],
-                inf_mes[mercado],
-                nfe_mes.get(mercado, (ZERO, ZERO))[0],
-                nfe_mes.get(mercado, (ZERO, ZERO))[1],
-            )
-            for mercado in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)
-        }
-    return resultado
+    vendas: dict[tuple[int, int], dict] = {}
+    devolucoes: dict[tuple[int, int], dict] = {}
+    for linha in linhas_nfe_do_periodo(empresa, inicio, fim):
+        if linha.papel != "receita" and e_devolucao_de_venda_de_combustivel(linha.cfop):
+            # Reconferência da DL-082, R1 (ajuste do arquiteto): a devolução de venda de
+            # combustível está fora do corte do Simples (HI-132). O pré-DAS do mês dela já recusa;
+            # aqui ela também não entra na dedução nem no saldo que passa aos meses seguintes. Sem
+            # isto, o saldo de uma devolução de combustível de maio abatia, em silêncio, a receita
+            # de mercadoria comum de junho, e o DAS saía menor. Fora daqui (o Presumido) a linha
+            # continua a mesma.
+            continue
+        mes = (linha.competencia.year, linha.competencia.month)
+        destino = vendas if linha.papel == "receita" else devolucoes
+        celulas = destino.setdefault(mes, {})
+        chave = (linha.mercado, linha.anexo or "", linha.segmento or "")
+        celulas[chave] = celulas.get(chave, ZERO) + linha.valor
+    return {
+        mes: _ParcelasDoMes(
+            documento=documento.get(mes, _zeros_por_mercado()),
+            informado=informado.get(mes, _zeros_por_mercado()),
+            vendas=vendas.get(mes, {}),
+            devolucoes=devolucoes.get(mes, {}),
+        )
+        for mes in _meses_do_intervalo(inicio, fim)
+    }
+
+
+@dataclass(frozen=True)
+class _Apuracao:
+    """Um mês apurado: a composição e o detalhamento por segmento que o pré-DAS usa."""
+
+    composicao: Composicao
+    vendas: dict[tuple[str, str, str], Decimal]
+    deducoes: dict[tuple[str, str, str], Decimal]
+    saldo_saida: dict[tuple[str, str, str], Decimal]
+
+
+def _apurar_mes(parcelas: _ParcelasDoMes, saldo_entrada: dict) -> _Apuracao:
+    """Deduz a devolução de um mês e diz o que passa ao mês seguinte (Res. CGSN 140, art. 17, II).
+
+    1. Chave COM segmento: a devolução deduz só da venda do MESMO (mercado, anexo, segmento). O
+    saldo
+       de meses anteriores entra no mesmo pool, e o que não cabe segue para o mês seguinte. Outro
+       segmento não consome esse saldo (HI-130: leitura literal de "receitas segregadas").
+    2. Chave SEM segmento (devolução sem confirmação): deduz do que sobrou do mercado, como antes da
+       DL-082. Isto é um total e não uma alocação por segmento, e por isso o pré-DAS do mês recusa
+       quando há essa dedução. Rateio nunca (HI-129).
+    """
+    vendas = parcelas.vendas
+    devolucoes = parcelas.devolucoes
+    deducoes: dict[tuple[str, str, str], Decimal] = {}
+    saldo_saida: dict[tuple[str, str, str], Decimal] = {}
+    com_segmento = {c for c in set(vendas) | set(devolucoes) | set(saldo_entrada) if c[1]}
+    for chave in sorted(com_segmento):
+        pool = saldo_entrada.get(chave, ZERO) + devolucoes.get(chave, ZERO)
+        deduzido = min(pool, vendas.get(chave, ZERO))
+        deducoes[chave] = deduzido
+        saldo_saida[chave] = pool - deduzido
+
+    composicao_por_mercado = {}
+    for mercado in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO):
+        sem = (mercado, *SEM_SEGMENTO)
+        venda_mercado = sum((v for c, v in vendas.items() if c[0] == mercado), ZERO)
+        dev_mercado = sum((v for c, v in devolucoes.items() if c[0] == mercado), ZERO)
+        entrada_mercado = sum((v for c, v in saldo_entrada.items() if c[0] == mercado), ZERO)
+        ded_com_segmento = sum((deducoes[c] for c in com_segmento if c[0] == mercado), ZERO)
+        sobra = (
+            parcelas.documento[mercado]
+            + parcelas.informado[mercado]
+            + venda_mercado
+            - ded_com_segmento
+        )
+        pool_sem = saldo_entrada.get(sem, ZERO) + devolucoes.get(sem, ZERO)
+        deduzido_sem = min(pool_sem, sobra)
+        deducoes[sem] = deduzido_sem
+        saldo_saida[sem] = pool_sem - deduzido_sem
+        deduzido_mercado = sum((deducoes[c] for c in deducoes if c[0] == mercado), ZERO)
+        saida_mercado = sum((v for c, v in saldo_saida.items() if c[0] == mercado), ZERO)
+        composicao_por_mercado[mercado] = ComposicaoMercado(
+            mercado,
+            parcelas.documento[mercado],
+            parcelas.informado[mercado],
+            venda_mercado,
+            dev_mercado,
+            entrada_mercado,
+            deduzido_mercado,
+            saida_mercado,
+        )
+    return _Apuracao(
+        composicao=Composicao(
+            interno=composicao_por_mercado[MercadoReceita.INTERNO],
+            externo=composicao_por_mercado[MercadoReceita.EXTERNO],
+        ),
+        vendas=vendas,
+        deducoes=deducoes,
+        saldo_saida=saldo_saida,
+    )
 
 
 def _primeiro_mes_com_devolucao(empresa: Empresa) -> tuple[int, int] | None:
@@ -462,13 +575,12 @@ def _primeiro_mes_com_devolucao(empresa: Empresa) -> tuple[int, int] | None:
     return None if primeira is None else (primeira.year, primeira.month)
 
 
-def composicoes_do_periodo(empresa: Empresa, meses) -> dict[tuple[int, int], Composicao]:
-    """Composição de cada (ano, mês) pedido, com o saldo de devolução percorrido UMA vez (A6).
+def _apurar_periodo(empresa: Empresa, meses) -> dict[tuple[int, int], _Apuracao]:
+    """Apuração de cada (ano, mês) pedido, com o saldo de devolução percorrido UMA vez (A6).
 
     O período vai de `min(primeiro mês pedido, primeira devolução)` ao último mês pedido. Lê-se o
-    período em três consultas (`_componentes_do_periodo`) e anda-se mês a mês, uma vez. Cada mês
-    pedido recebe o saldo que CHEGA a ele, isto é, o que sobrou dos meses anteriores (Res. CGSN 140,
-    art. 17, II; HI-121). A devolução do próprio mês não entra no saldo de entrada.
+    período em três consultas (`_parcelas_do_periodo`) e anda-se mês a mês. Cada mês pedido recebe o
+    saldo que CHEGA a ele, isto é, o que sobrou dos meses anteriores (HI-121, HI-130).
     """
     pedidos = sorted(set(meses))
     if not pedidos:
@@ -476,40 +588,21 @@ def composicoes_do_periodo(empresa: Empresa, meses) -> dict[tuple[int, int], Com
     primeira = _primeiro_mes_com_devolucao(empresa)
     inicio = pedidos[0] if primeira is None else min(pedidos[0], primeira)
     fim = pedidos[-1]
-    componentes = _componentes_do_periodo(empresa, inicio, fim)
+    parcelas = _parcelas_do_periodo(empresa, inicio, fim)
     pedidos_set = set(pedidos)
-    saldo = _zeros_por_mercado()
-    resultado: dict[tuple[int, int], Composicao] = {}
+    saldo: dict[tuple[str, str, str], Decimal] = {}
+    resultado: dict[tuple[int, int], _Apuracao] = {}
     for mes in _meses_do_intervalo(inicio, fim):
-        por_mercado = componentes[mes]
+        apuracao = _apurar_mes(parcelas[mes], saldo)
         if mes in pedidos_set:
-            resultado[mes] = _composicao_do_mes(por_mercado, saldo)
-        for mercado, (doc, inf, merc, dev) in por_mercado.items():
-            pool = saldo[mercado] + dev
-            saldo[mercado] = pool - min(pool, doc + inf + merc)
+            resultado[mes] = apuracao
+        saldo = apuracao.saldo_saida
     return resultado
 
 
-def _composicao_do_mes(componentes: dict[str, tuple], entrada: dict[str, Decimal]) -> Composicao:
-    """Monta a `Composicao` de um mês a partir das parcelas e do saldo que chega a ele."""
-    por_mercado = {}
-    for mercado, (doc, inf, merc, dev) in componentes.items():
-        pool = entrada[mercado] + dev
-        deduzido = min(pool, doc + inf + merc)
-        por_mercado[mercado] = ComposicaoMercado(
-            mercado,
-            doc,
-            inf,
-            merc,
-            dev,
-            entrada[mercado],
-            deduzido,
-            pool - deduzido,
-        )
-    return Composicao(
-        interno=por_mercado[MercadoReceita.INTERNO],
-        externo=por_mercado[MercadoReceita.EXTERNO],
-    )
+def composicoes_do_periodo(empresa: Empresa, meses) -> dict[tuple[int, int], Composicao]:
+    """Composição de cada (ano, mês) pedido. Ver `_apurar_periodo` para o saldo por segmento."""
+    return {mes: apuracao.composicao for mes, apuracao in _apurar_periodo(empresa, meses).items()}
 
 
 def composicao_do_mes(empresa: Empresa, ano: int, mes: int) -> Composicao:
@@ -525,10 +618,65 @@ def composicao_do_mes(empresa: Empresa, ano: int, mes: int) -> Composicao:
 def componente_nfe_no_mes(empresa: Empresa, ano: int, mes: int) -> bool:
     """O mês tem alguma parcela de NF-e na receita (receita, devolução ou saldo de antes).
 
-    Porta do pré-DAS (DL-081, item 5): o pré-DAS de comércio e indústria ainda não trata mercadoria.
+    Não é mais a porta do pré-DAS (DL-082 trocou a recusa geral por recusas nomeadas). Continua
+    útil para a tela e para a conferência do mês.
     """
     composicao = composicao_do_mes(empresa, ano, mes)
     return composicao.interno.com_nfe or composicao.externo.com_nfe
+
+
+@dataclass(frozen=True)
+class SegmentoDeMercadoria:
+    """Receita de mercadoria de UM (mercado, anexo, segmento) no mês, depois da devolução (DL-082).
+
+    `bruto` é a venda do mês nesse segmento. `deduzido` é a devolução que caiu nele, inclusive o
+    saldo de meses anteriores do mesmo segmento. `liquido` é o que o pré-DAS segrega.
+    """
+
+    mercado: str
+    anexo: str
+    segmento: str
+    bruto: Decimal
+    deduzido: Decimal
+
+    @property
+    def liquido(self) -> Decimal:
+        return self.bruto - self.deduzido
+
+
+@dataclass(frozen=True)
+class MercadoriaDoMes:
+    """Mercadoria do mês por segmento (DL-082). `deduzido_sem_segmento` tem o que não pôde ser
+    atribuído a um segmento, por mercado. Qualquer valor ali faz o pré-DAS recusar o mês."""
+
+    segmentos: tuple[SegmentoDeMercadoria, ...]
+    deduzido_sem_segmento: dict[str, Decimal]
+
+
+def mercadoria_do_mes(empresa: Empresa, ano: int, mes: int) -> MercadoriaDoMes:
+    """Receita de mercadoria do mês por (mercado, anexo, segmento), para o pré-DAS (DL-082).
+
+    Usa a MESMA apuração de `composicao_do_mes`: o total por mercado é a soma destes segmentos mais
+    o
+    que não tem segmento. Só lê a empresa dada.
+    """
+    apuracao = _apurar_periodo(empresa, [(ano, mes)])[(ano, mes)]
+    segmentos = tuple(
+        SegmentoDeMercadoria(
+            mercado=chave[0],
+            anexo=chave[1],
+            segmento=chave[2],
+            bruto=apuracao.vendas[chave],
+            deduzido=apuracao.deducoes.get(chave, ZERO),
+        )
+        for chave in sorted(apuracao.vendas)
+        if chave[1]
+    )
+    deduzido_sem = {
+        mercado: apuracao.deducoes.get((mercado, *SEM_SEGMENTO), ZERO)
+        for mercado in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO)
+    }
+    return MercadoriaDoMes(segmentos=segmentos, deduzido_sem_segmento=deduzido_sem)
 
 
 @dataclass(frozen=True)
@@ -1337,3 +1485,415 @@ def registrar_opcao_regime_caixa(
 
 def opcao_caixa_do_ano(empresa: Empresa, ano: int) -> bool:
     return OpcaoRegimeCaixaSimples.objects.filter(empresa=empresa, ano_calendario=ano).exists()
+
+
+# ---------------------------------------------------------------------------
+# DL-088, frente A2: o dado da empresa que libera 2027 — opção de regime de IBS/CBS por semestre
+# (Res. CGSN 190/2026, art. 22-A; HI-148) e IPI mantido da Zona Franca (art. 25, § 1º, II; HI-152).
+#
+# São dados do ESCRITÓRIO sobre a empresa (o Fred confirma quais clientes optaram e quais estão na
+# Zona Franca), gravados com trilha e sob a trava da empresa, como a opção pelo regime de caixa.
+# A leitura é o que o motor do pré-DAS (`pre_das._calcular_pre_das`) e a regra de receita de 2027
+# (`escrituracao_nfe`) consomem. Sem linha = dado NÃO informado, e nada se presume.
+# ---------------------------------------------------------------------------
+
+_RESTRICAO_OPCAO_IBS_CBS_UNICA = "opcao_regime_ibs_cbs_unica_por_semestre"
+_RESTRICAO_IPI_MANTIDO_UNICO = "ipi_mantido_unico_por_empresa"
+FONTE_MAXIMA = 500
+
+
+def regimes_em(empresa: Empresa, dia: date) -> set[str | None]:
+    """Regimes tributários vigentes da empresa em `dia` (histórico de regime).
+
+    Pode haver mais de um (transição no dia). `None` é o regime em branco do histórico. É o dado
+    que diz se a empresa é do Simples ou do Presumido na data da nota (HI-149).
+    """
+    return {
+        linha.regime
+        for linha in HistoricoRegimeTributario.objects.filter(
+            empresa=empresa, vigencia_inicio__lte=dia
+        ).filter(Q(vigencia_fim__isnull=True) | Q(vigencia_fim__gte=dia))
+    }
+
+
+def opcao_regime_ibs_cbs_registrada(
+    empresa: Empresa, ano: int, semestre: int
+) -> OpcaoRegimeIbsCbsSimples | None:
+    """A LINHA ATIVA da opção do semestre (para a API mostrar o dado e o carimbo), ou `None`.
+
+    Só a opção ATIVA conta (`cancelada_em` vazio). A linha cancelada continua na tabela (histórico
+    e trilha), mas não é a opção do semestre: o estado efetivo volta a ser "não informado", como o
+    motor vê (`opcao_regime_ibs_cbs_do_semestre`). No máximo UMA linha ativa existe por
+    (empresa, ano, semestre) — a restrição única parcial garante.
+    """
+    return OpcaoRegimeIbsCbsSimples.objects.filter(
+        empresa=empresa, ano=ano, semestre=semestre, cancelada_em__isnull=True
+    ).first()
+
+
+def opcao_regime_ibs_cbs_do_semestre(empresa: Empresa, ano: int, semestre: int) -> bool | None:
+    """A opção de regime de IBS/CBS registrada para o (ano, semestre), no vocabulário do motor.
+
+    O contrato do parâmetro `regime_regular_ibs_cbs` de `pre_das._calcular_pre_das`:
+
+    - `True` = REGIME REGULAR (opção `RegimeIbsCbsSimples.REGIME_REGULAR`, art. 22-A): CBS e IBS
+      são DEDUZIDOS do DAS;
+    - `False` = REGIME ÚNICO (`RegimeIbsCbsSimples.REGIME_UNICO`): CBS e IBS ficam NO DAS;
+    - `None` = opção NÃO informada (sem linha ativa — nem nunca registrada, nem CANCELADA): o motor
+      recusa 2027 com o bloqueio `opcao_regime_regular_nao_informada`, e a NF-e de 2027 não se
+      efetiva (HI-149). A opção cancelada (DL-088, correção do achado A1) devolve `None` de novo: é
+      o comportamento conservador — o motor não calcula sem saber o regime.
+    """
+    linha = opcao_regime_ibs_cbs_registrada(empresa, ano, semestre)
+    if linha is None:
+        return None
+    return linha.regime == RegimeIbsCbsSimples.REGIME_REGULAR
+
+
+def _validar_ano_e_semestre(ano, semestre) -> tuple[int, int]:
+    if isinstance(ano, bool) or not isinstance(ano, int) or not ANO_MINIMO <= ano <= ANO_MAXIMO:
+        raise EntradaInvalidaReceita(f"'ano' inválido: {ano!r}.")
+    if ano < 2027:
+        raise EntradaInvalidaReceita(
+            f"A opção de regime de IBS/CBS só existe a partir de 2027 (Res. CGSN 190/2026; "
+            f"HI-148): {ano!r} não é aceito."
+        )
+    if isinstance(semestre, bool) or not isinstance(semestre, int) or semestre not in (1, 2):
+        raise EntradaInvalidaReceita(f"'semestre' inválido: {semestre!r}. Use 1 ou 2.")
+    return ano, semestre
+
+
+@transaction.atomic
+def registrar_opcao_regime_ibs_cbs(
+    empresa: Empresa, ano: int, semestre: int, regime: str, usuario, request=None
+) -> OpcaoRegimeIbsCbsSimples:
+    """Registra a opção de regime de IBS/CBS do semestre, com trilha, sob a trava da empresa.
+
+    O `regime` escolhido é `RegimeIbsCbsSimples.REGIME_REGULAR` ou `.REGIME_UNICO` (ver
+    `opcao_regime_ibs_cbs_do_semestre` para como ele alimenta o motor). Enquanto houver opção ATIVA
+    no (empresa, ano, semestre), a segunda tentativa é recusada pela restrição única parcial (não há
+    "mudar de ideia" — a escolha do semestre é do regime fiscal, não do sistema). A opção CANCELADA
+    (`cancelar_opcao_regime_ibs_cbs`, na janela legal) libera o semestre: registrar de novo é
+    aceito e a nova linha vira a única ativa. Empresa sem período do Simples no ano é recusada
+    antes de gravar, como na opção pelo regime de caixa.
+    """
+    ano, semestre = _validar_ano_e_semestre(ano, semestre)
+    if regime not in RegimeIbsCbsSimples.values:
+        raise EntradaInvalidaReceita(
+            "Regime inválido: use regime_unico ou regime_regular (RegimeIbsCbsSimples)."
+        )
+    travada = travar_empresa(empresa)
+    if not _simples_em_algum_dia_do_ano(travada, ano):
+        raise ReceitaErro(f"A empresa não tem período do Simples Nacional em {ano}.")
+
+    opcao = OpcaoRegimeIbsCbsSimples(
+        empresa=travada,
+        ano=ano,
+        semestre=semestre,
+        regime=regime,
+        registrada_por=usuario,
+    )
+    _inserir(
+        opcao,
+        _RESTRICAO_OPCAO_IBS_CBS_UNICA,
+        f"A opção de regime de IBS/CBS do {semestre}º semestre de {ano} já foi registrada; "
+        "a opção do semestre é registrada uma única vez e só deixa de valer pelo cancelamento, "
+        "na janela legal (Res. CGSN 194/2026; Res. CGSN 190/2026, arts. 40-C e 40-D).",
+    )
+    registrar(
+        acao="regime_ibs_cbs.opcao_registrada",
+        usuario=usuario,
+        escritorio=travada.escritorio,
+        objeto=opcao,
+        request=request,
+        detalhes={
+            "empresa_id": travada.pk,
+            "ano": ano,
+            "semestre": semestre,
+            "regime": regime,
+        },
+    )
+    return opcao
+
+
+# ---------------------------------------------------------------------------
+# Cancelamento da opção do semestre (DL-088, correção do achado A1 — Res. CGSN 194/2026)
+# ---------------------------------------------------------------------------
+
+# O motivo é obrigatório, como nos estornos da casa (`_motivo`): vazio ou só com espaços recusa, e
+# acima de MOTIVO_MAXIMO recusa. O piso de MOTIVO_CANCELAMENTO_MINIMO caracteres é decisão de
+# produto desta correção (a fonte legal não fixa tamanho de motivo): o ato fica na trilha, e um
+# motivo como "x" não diz nada a quem ler a trilha depois.
+MOTIVO_CANCELAMENTO_MINIMO = 5
+
+
+@dataclass(frozen=True)
+class JanelaDeCancelamentoDaOpcao:
+    """Janela legal do cancelamento da opção do (ano, semestre), com a fonte citada.
+
+    `inicio` é `None` quando a fonte fixa SÓ o prazo final (regra geral dos arts. 40-C/40-D).
+    """
+
+    inicio: date | None
+    fim: date
+    fonte: str
+
+    @property
+    def descricao(self) -> str:
+        if self.inicio is None:
+            return f"até {self.fim:%d/%m/%Y}"
+        return f"de {self.inicio:%d/%m/%Y} a {self.fim:%d/%m/%Y}"
+
+
+def janela_de_cancelamento_da_opcao(ano: int, semestre: int) -> JanelaDeCancelamentoDaOpcao:
+    """A janela de cancelamento da opção do (ano, semestre), com o dispositivo citado.
+
+    Fonte: consulta do contador-senior de 09/10/2026, seção 1
+    (docs/projeto/consultas/2026-10-09-contador-senior-virada-2027-simples.md), que registra:
+
+    - **Res. CGSN 194/2026** — para o PRIMEIRO ciclo, opção pelo regime regular de IBS/CBS para
+      jan-jun/2027 de 01/09 a 30/10/2026, com **cancelamento de 03/11 a 20/12/2026**. É o único
+      caso da fonte com janela FECHADA (início e fim), e por isso está fixado à mão abaixo.
+    - **Res. CGSN 190/2026, arts. 40-C e 40-D** — opção/renúncia irretratável por semestre, no
+      Portal: 01 a 30/09 (efeitos 01/01 seguinte) e 01 a 31/03 (efeitos 01/07), **cancelável até
+      30/11 e até 31/05**, respectivamente. A fonte fixa SÓ o prazo final, e por isso `inicio` vem
+      `None`: aplica-se o prazo (30/11 do ano anterior ao 1º semestre; 31/05 do ano do 2º) e não se
+      exige abertura de janela que a fonte não traz (AGENTS §10: nada de prazo inventado). É a
+      regra geral aplicada aos semestres que a Res. 194/2026 não cobre — o 2º semestre de 2027 e
+      2028 em diante (a fonte do primeiro ciclo só trata de jan-jun/2027).
+    """
+    if (ano, semestre) == (2027, 1):
+        return JanelaDeCancelamentoDaOpcao(
+            date(2026, 11, 3),
+            date(2026, 12, 20),
+            "Res. CGSN 194/2026 (cancelamento de 03/11 a 20/12/2026; "
+            "consulta de 09/10/2026, seção 1)",
+        )
+    if semestre == 1:
+        return JanelaDeCancelamentoDaOpcao(
+            None,
+            date(ano - 1, 11, 30),
+            "Res. CGSN 190/2026, arts. 40-C e 40-D (cancelável até 30/11; "
+            "consulta de 09/10/2026, seção 1)",
+        )
+    return JanelaDeCancelamentoDaOpcao(
+        None,
+        date(ano, 5, 31),
+        "Res. CGSN 190/2026, arts. 40-C e 40-D (cancelável até 31/05; "
+        "consulta de 09/10/2026, seção 1)",
+    )
+
+
+def mensagem_fora_da_janela_de_cancelamento(ano: int, semestre: int, hoje: date) -> str:
+    """Recusa do cancelamento fora da janela legal, citando o prazo e a fonte."""
+    janela = janela_de_cancelamento_da_opcao(ano, semestre)
+    return (
+        f"O cancelamento da opção de regime de IBS/CBS do {semestre}º semestre de {ano} só é "
+        f"admitido {janela.descricao} ({janela.fonte}). Hoje é {hoje:%d/%m/%Y}: fora da janela "
+        "de cancelamento."
+    )
+
+
+def mensagem_cancelamento_sem_opcao(ano: int, semestre: int) -> str:
+    return (
+        f"Não há opção de regime de IBS/CBS ativa do {semestre}º semestre de {ano} para cancelar: "
+        "registre a opção primeiro."
+    )
+
+
+def mensagem_opcao_ja_cancelada(ano: int, semestre: int) -> str:
+    return (
+        f"A opção de regime de IBS/CBS do {semestre}º semestre de {ano} já está cancelada: o "
+        "cancelamento da opção é um ato único."
+    )
+
+
+def _motivo_do_cancelamento(motivo) -> str:
+    """Motivo do cancelamento: obrigatório, com tamanho entre o piso e o teto da casa."""
+    limpo = _motivo(motivo)
+    if len(limpo) < MOTIVO_CANCELAMENTO_MINIMO:
+        raise EntradaInvalidaReceita(
+            f"O motivo do cancelamento tem de ter pelo menos {MOTIVO_CANCELAMENTO_MINIMO} "
+            "caracteres: diga por que a opção está sendo cancelada (ele fica na trilha)."
+        )
+    return limpo
+
+
+@transaction.atomic
+def cancelar_opcao_regime_ibs_cbs(
+    empresa: Empresa, ano: int, semestre: int, motivo: str, usuario, request=None
+) -> OpcaoRegimeIbsCbsSimples:
+    """Cancela a opção ATIVA do semestre, com motivo obrigatório, dentro da janela legal.
+
+    Ato à parte do registro (DL-088, correção do achado A1), no molde dos estornos da casa:
+
+    - `motivo` obrigatório (vazio ou só com espaços recusa; com menos de
+      `MOTIVO_CANCELAMENTO_MINIMO` caracteres recusa; acima de `MOTIVO_MAXIMO` recusa), e fica na
+      linha e na trilha;
+    - trava da empresa, e a linha ativa é travada (`select_for_update`) antes de mudar;
+    - a janela é a de `janela_de_cancelamento_da_opcao` — 03/11 a 20/12/2026 para o 1º semestre de
+      2027 (Res. CGSN 194/2026) e, nos demais semestres (a fonte do primeiro ciclo não os cobre;
+      vale a regra geral dos arts. 40-C/40-D), até 30/11 (1º semestre) ou 31/05 (2º). FORA da
+      janela, a recusa nomeia o prazo e a fonte;
+    - sem opção ATIVA recusa; já cancelada recusa (o cancelamento é ato único);
+    - a linha NÃO é apagada: `cancelada_em`/`cancelada_por`/`motivo_cancelamento` ficam nela, a
+      trilha guarda antes/depois e o motivo, e o semestre é LIBERADO para novo registro (a
+      unicidade `opcao_regime_ibs_cbs_unica_por_semestre` é parcial em `cancelada_em__isnull=True`).
+
+    Efeito: `opcao_regime_ibs_cbs_do_semestre` volta a devolver `None` — o pré-DAS de 2027 recusa
+    com `opcao_regime_regular_nao_informada` e a NF-e de 2027 não se efetiva, até que outra opção
+    seja registrada no mesmo semestre.
+    """
+    ano, semestre = _validar_ano_e_semestre(ano, semestre)
+    motivo_limpo = _motivo_do_cancelamento(motivo)
+    travada = travar_empresa(empresa)
+    linha = (
+        OpcaoRegimeIbsCbsSimples.objects.select_for_update(of=("self",))
+        .filter(empresa=travada, ano=ano, semestre=semestre, cancelada_em__isnull=True)
+        .first()
+    )
+    if linha is None:
+        if OpcaoRegimeIbsCbsSimples.objects.filter(
+            empresa=travada, ano=ano, semestre=semestre
+        ).exists():
+            raise ReceitaErro(mensagem_opcao_ja_cancelada(ano, semestre))
+        raise ReceitaErro(mensagem_cancelamento_sem_opcao(ano, semestre))
+    hoje = hoje_local()
+    janela = janela_de_cancelamento_da_opcao(ano, semestre)
+    if hoje > janela.fim or (janela.inicio is not None and hoje < janela.inicio):
+        raise ReceitaErro(mensagem_fora_da_janela_de_cancelamento(ano, semestre, hoje))
+    antes = {
+        "ativa": True,
+        "regime": linha.regime,
+        "cancelada_em": None,
+        "cancelada_por": None,
+        "motivo_cancelamento": None,
+    }
+    linha.cancelada_em = timezone.now()
+    linha.cancelada_por = usuario
+    linha.motivo_cancelamento = motivo_limpo
+    linha.save(update_fields=["cancelada_em", "cancelada_por", "motivo_cancelamento"])
+    depois = {
+        "ativa": False,
+        "regime": linha.regime,
+        "cancelada_em": _iso(linha.cancelada_em),
+        "cancelada_por": linha.cancelada_por_id,
+        "motivo_cancelamento": motivo_limpo,
+    }
+    registrar(
+        acao="regime_ibs_cbs.opcao_cancelada",
+        usuario=usuario,
+        escritorio=travada.escritorio,
+        objeto=linha,
+        request=request,
+        detalhes={
+            "empresa_id": travada.pk,
+            "ano": ano,
+            "semestre": semestre,
+            "regime": linha.regime,
+            "motivo_cancelamento": motivo_limpo,
+            "antes": antes,
+            "depois": depois,
+        },
+    )
+    return linha
+
+
+def ipi_mantido_registrado(empresa: Empresa) -> IpiMantidoZfmEmpresa | None:
+    """A LINHA do dado de IPI mantido (a API mostra o dado, a fonte e o carimbo), ou `None`."""
+    return IpiMantidoZfmEmpresa.objects.filter(empresa=empresa).first()
+
+
+def ipi_mantido_da_empresa(empresa: Empresa) -> bool | None:
+    """O dado de IPI mantido (Zona Franca) da empresa, para o anexo de 2027 (HI-152, item 2).
+
+    - `True` = IPI mantido (`SituacaoIpiMantido.IPI_MANTIDO`): é o ÚNICO estado que leva a
+      produção própria ao Anexo II em 2027 (`pre_das.anexo_da_mercadoria_no_ano`);
+    - `False` = sem IPI mantido: produção própria vai ao Anexo I;
+    - `None` = NÃO informado (sem linha), e o produto NÃO presume ZFM: produção própria vai ao
+      Anexo I (a regra geral) e o pré-DAS avisa que o dado falta.
+    """
+    linha = ipi_mantido_registrado(empresa)
+    if linha is None:
+        return None
+    return linha.situacao == SituacaoIpiMantido.IPI_MANTIDO
+
+
+@transaction.atomic
+def definir_ipi_mantido(
+    empresa: Empresa, situacao: str, fonte: str, usuario, request=None
+) -> IpiMantidoZfmEmpresa:
+    """Grava (ou corrige) o dado de IPI mantido da empresa, com trilha de antes e depois.
+
+    `situacao` é `SituacaoIpiMantido.IPI_MANTIDO` ou `.SEM_IPI_MANTIDO`; a `fonte` (justificativa:
+    declaração do cliente, ato de incentivo etc.) é obrigatória — o dado é do escritório e precisa
+    dizer de onde veio. É CADASTRO corrigível (ao contrário da opção do semestre): registrar de novo
+    com outro valor atualiza a linha, e a trilha guarda as duas situações. Sem mudança real, não há
+    trilha nova.
+    """
+    if situacao not in SituacaoIpiMantido.values:
+        raise EntradaInvalidaReceita(
+            "Situação inválida: use ipi_mantido ou sem_ipi_mantido (SituacaoIpiMantido)."
+        )
+    fonte = (fonte or "").strip()
+    if not fonte:
+        raise EntradaInvalidaReceita(
+            "A fonte do dado de IPI mantido é obrigatória: diga de onde a informação veio "
+            "(declaração do cliente, ato de incentivo, etc.)."
+        )
+    if len(fonte) > FONTE_MAXIMA:
+        raise EntradaInvalidaReceita(
+            f"A fonte do dado de IPI mantido deve ter no máximo {FONTE_MAXIMA} caracteres."
+        )
+    travada = travar_empresa(empresa)
+    registro = (
+        IpiMantidoZfmEmpresa.objects.select_for_update(of=("self",)).filter(empresa=travada).first()
+    )
+    antes = None if registro is None else {"situacao": registro.situacao, "fonte": registro.fonte}
+    depois = {"situacao": situacao, "fonte": fonte}
+    if registro is None:
+        registro = IpiMantidoZfmEmpresa(
+            empresa=travada, situacao=situacao, fonte=fonte, registrada_por=usuario
+        )
+        _inserir(
+            registro,
+            _RESTRICAO_IPI_MANTIDO_UNICO,
+            "O dado de IPI mantido desta empresa acabou de ser definido por outra ação. "
+            "Atualize a tela.",
+        )
+    elif antes == depois:
+        return registro
+    else:
+        registro.situacao = situacao
+        registro.fonte = fonte
+        registro.registrada_por = usuario
+        registro.save()
+    registrar(
+        acao="ipi_mantido.definido",
+        usuario=usuario,
+        escritorio=travada.escritorio,
+        objeto=registro,
+        request=request,
+        detalhes={"empresa_id": travada.pk, "antes": antes, "depois": depois},
+    )
+    return registro
+
+
+def receita_nfe_pelo_vprod(empresa: Empresa, dia: date) -> bool:
+    """A NF-e emitida em `dia` tem receita pela regra de 2027, `vProd − vDesc` (DL-088 A2, HI-149)?
+
+    Sim SÓ para a empresa do Simples no regime ÚNICO do semestre de `dia`, a partir de 01/2027: a
+    NT 2026.008 v1.00 passa a compor o `vProd` com IBS, CBS e IS por dentro, e a receita bruta do
+    Simples é o produto da venda/preço dos serviços, "não incluídas as vendas canceladas e os
+    descontos incondicionais", sem exclusão de tributos (LC 123, art. 3º, § 1º, na redação da LC
+    214 — leitura do contador-senior de 09/10/2026, seção 3; HI-149; correção do achado A2: o
+    `vDesc` sai da receita, e o frete segue fora, com a dúvida P15 registrada com o Fred). Para o
+    Presumido e para quem optou pelo REGIME REGULAR a receita de NF-e de 2027 continua bloqueada até
+    a leitura do DL 1.598, art. 12, § 4º. Antes de 2027 vale a regra do MOC
+    (`itens_nfe.receita_do_item`).
+    """
+    if dia.year < 2027:
+        return False
+    if RegimeTributario.SIMPLES_NACIONAL not in regimes_em(empresa, dia):
+        return False
+    return opcao_regime_ibs_cbs_do_semestre(empresa, dia.year, 1 if dia.month <= 6 else 2) is False

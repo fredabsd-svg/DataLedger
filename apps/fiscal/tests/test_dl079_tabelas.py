@@ -97,9 +97,11 @@ def test_feriados_nacionais_fixos_sao_os_das_leis():
     }
 
 
-def test_20_de_novembro_so_vale_a_partir_de_2023():
+def test_20_de_novembro_so_vale_a_partir_de_2024():
+    # DL-084 (item 1): a Lei 14.759 foi publicada em 22/12/2023; o 1º 20/11 observado é o de 2024.
     assert calc.feriado_nacional_fixo(date(2026, 11, 20)) is True
-    assert calc.feriado_nacional_fixo(date(2022, 11, 20)) is False
+    assert calc.feriado_nacional_fixo(date(2024, 11, 20)) is True
+    assert calc.feriado_nacional_fixo(date(2023, 11, 20)) is False
 
 
 def test_feriado_nao_inclui_pontos_facultativos_nem_estaduais():
@@ -126,33 +128,36 @@ def test_pascoa_pelo_algoritmo_de_gauss_meeus(ano, pascoa):
     assert calc.pascoa(ano) == pascoa
 
 
-def test_sexta_feira_santa_de_2029_e_30_de_marco_e_avisa():
-    # 30/03/2029 é Sexta-feira Santa (Páscoa 01/04/2029 − 2 dias). Só esta data avisa.
-    assert date(2029, 3, 30) in calc.datas_a_conferir(2029)
-    assert date(2029, 3, 29) not in calc.datas_a_conferir(2029)
-    assert date(2029, 3, 31) not in calc.datas_a_conferir(2029)
+def test_sexta_feira_santa_de_2029_e_30_de_marco_e_dia_sem_expediente():
+    # 30/03/2029 é Sexta-feira Santa (Páscoa 01/04/2029 − 2 dias). DL-084 (item 1): não é útil.
+    assert date(2029, 3, 30) in calc.dias_sem_expediente_bancario(2029)
+    assert date(2029, 3, 29) not in calc.dias_sem_expediente_bancario(2029)
+    assert date(2029, 3, 31) not in calc.dias_sem_expediente_bancario(2029)
 
 
-def test_sexta_feira_santa_de_2027_e_26_de_marco_e_avisa():
-    # Páscoa 28/03/2027 → Sexta-feira Santa 26/03/2027. Só esta avisa; 27/03 e 29/03 não.
-    assert date(2027, 3, 26) in calc.datas_a_conferir(2027)
-    assert date(2027, 3, 27) not in calc.datas_a_conferir(2027)
-    assert date(2027, 3, 29) not in calc.datas_a_conferir(2027)
+def test_sexta_feira_santa_de_2027_e_26_de_marco_e_dia_sem_expediente():
+    # Páscoa 28/03/2027 → Sexta-feira Santa 26/03/2027. Só esta; 27/03 e 29/03 não.
+    assert date(2027, 3, 26) in calc.dias_sem_expediente_bancario(2027)
+    assert date(2027, 3, 27) not in calc.dias_sem_expediente_bancario(2027)
+    assert date(2027, 3, 29) not in calc.dias_sem_expediente_bancario(2027)
 
 
-def test_terca_de_carnaval_avisa_e_a_data_certa():
+def test_terca_de_carnaval_e_a_data_certa():
     # Terça de Carnaval = Páscoa − 47 dias: 13/02/2029 e 09/02/2027.
-    assert date(2029, 2, 13) in calc.datas_a_conferir(2029)
-    assert date(2027, 2, 9) in calc.datas_a_conferir(2027)
-    assert date(2029, 2, 12) not in calc.datas_a_conferir(2029)
+    assert date(2029, 2, 13) in calc.dias_sem_expediente_bancario(2029)
+    assert date(2027, 2, 9) in calc.dias_sem_expediente_bancario(2027)
+    # DL-084 (item 1): a segunda de Carnaval (Páscoa − 48) também não é útil. Antes só a terça
+    # valia.
+    assert date(2029, 2, 12) in calc.dias_sem_expediente_bancario(2029)
+    assert date(2029, 2, 14) not in calc.dias_sem_expediente_bancario(2029)
 
 
-def test_vencimento_em_sexta_santa_nao_recua_so_avisa():
-    # Último dia útil de março de 2029: 31/03 é sábado → recua a 30/03 (Sexta-feira Santa, que não é
-    # feriado nacional por lei). A data fica e sai com o aviso "calendário a conferir".
-    vencimento, aviso = calc.ultimo_dia_util(2029, 3)
-    assert vencimento == date(2029, 3, 30)
-    assert aviso is True
+def test_vencimento_em_sexta_santa_antecipa_para_o_util_anterior():
+    # DL-084 (item 1): último dia útil de março de 2029: 31/03 é sábado → 30/03 é Sexta-feira Santa,
+    # dia sem expediente bancário → recua a 29/03 (quinta). A antecipação é sinalizada.
+    vencimento, antecipado = calc.ultimo_dia_util(2029, 3)
+    assert vencimento == date(2029, 3, 29)
+    assert antecipado is True
 
 
 def test_vencimento_no_fim_de_semana_recua_para_o_util_anterior():
@@ -245,8 +250,11 @@ def test_quotas_do_quarto_trimestre_viram_janeiro_do_ano_seguinte():
     opcoes = calc.opcoes_de_quota(D("9000.00"), 2028, 4)
     venc = [p.vencimento for p in opcoes.tres_quotas]
     assert venc[0].year == 2029 and venc[0].month == 1
-    assert venc[2] == date(2029, 3, 30)
-    assert opcoes.tres_quotas[2].aviso_calendario is True
+    # DL-084 (item 1): 30/03/2029 é Sexta-feira Santa. A 3ª quota antecipa para 29/03, sem aviso de
+    # calendário: a data civil fica registrada em `antecipada_de`.
+    assert venc[2] == date(2029, 3, 29)
+    assert opcoes.tres_quotas[2].aviso_calendario is False
+    assert opcoes.tres_quotas[2].antecipada_de == date(2029, 3, 30)
     assert opcoes.tres_quotas[2].juros == "Selic acumulada de fevereiro + 1% — taxa não embutida"
 
 

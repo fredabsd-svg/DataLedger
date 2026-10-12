@@ -28,10 +28,13 @@ from apps.fiscal.api import (
     EstornarReceitaInformadaView,
     EstornarTomadaView,
     FolhasFatorRView,
+    IpiMantidoView,
     IssRetidoTomadoView,
     LancarFolhaView,
     NotasPrestadasView,
     NotasTomadasView,
+    OpcaoRegimeIbsCbsCancelarView,
+    OpcaoRegimeIbsCbsView,
     OutrosMunicipiosIssView,
     PreDasView,
     RascunhoTomadaView,
@@ -48,11 +51,16 @@ from apps.fiscal.api import (
 )
 from apps.fiscal.api_escrituracao_nfe import (
     ConferenciaNFeView,
+    ConfirmarLoteNFeView,
+    DefinirMarcaMonofasicoView,
     DefinirNaturezasView,
+    DefinirSegmentoDevolucaoView,
     EfetivarEscrituracaoNFeView,
     EscrituracaoNFeDetalheView,
     EscrituracaoNFeListaView,
     EstornarEscrituracaoNFeView,
+    LerLoteNFeView,
+    PreviaLoteNFeView,
     ReclassificarNFeView,
 )
 from apps.fiscal.api_nfe import DetalheNFeView, NotasNFeView
@@ -62,9 +70,12 @@ from apps.fiscal.api_presumido import (
     CriterioPresumidoView,
     DeclaracaoIntegraisPresumidoView,
     EncerrarAtividadePresumidoView,
+    EncerrarMedidaPresumidoView,
     EstornarReceitaPresumidoView,
     LimitePresumidoView,
     MedidasPresumidoView,
+    ParametrosPresumidoView,
+    PendenciasPresumidoView,
     ReceitasPresumidoView,
     RetencoesPresumidoView,
     RevogarMedidaPresumidoView,
@@ -107,6 +118,16 @@ urlpatterns = [
         name="nfe_escrituracao_naturezas",
     ),
     path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/<int:escrituracao_id>/marca-monofasico/",
+        DefinirMarcaMonofasicoView.as_view(),
+        name="nfe_escrituracao_marca_monofasico",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/<int:escrituracao_id>/segmento-devolucao/",
+        DefinirSegmentoDevolucaoView.as_view(),
+        name="nfe_escrituracao_segmento_devolucao",
+    ),
+    path(
         "empresas/<int:empresa_id>/nfe/escrituracao/<int:escrituracao_id>/efetivar/",
         EfetivarEscrituracaoNFeView.as_view(),
         name="nfe_escrituracao_efetivar",
@@ -120,6 +141,22 @@ urlpatterns = [
         "empresas/<int:empresa_id>/nfe/conferencia/",
         ConferenciaNFeView.as_view(),
         name="nfe_conferencia",
+    ),
+    # DL-085 (frente A): prévia do mês em lote (leitura) e confirmação em bloco (escrita).
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/lote/previa/",
+        PreviaLoteNFeView.as_view(),
+        name="nfe_lote_previa",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/lote/confirmar/",
+        ConfirmarLoteNFeView.as_view(),
+        name="nfe_lote_confirmar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/lote/ler/",
+        LerLoteNFeView.as_view(),
+        name="nfe_lote_ler",
     ),
     path(
         "empresas/<int:empresa_id>/notas-prestadas/",
@@ -222,6 +259,25 @@ urlpatterns = [
         "empresas/<int:empresa_id>/regime-caixa/",
         RegimeCaixaView.as_view(),
         name="regime_caixa",
+    ),
+    # DL-088 (frente A2): o dado da empresa que libera 2027 — a opção de regime de IBS/CBS por
+    # semestre e o IPI mantido (Zona Franca). GET lê, POST grava (ver `apps.fiscal.api`).
+    path(
+        "empresas/<int:empresa_id>/opcao-regime-ibs-cbs/",
+        OpcaoRegimeIbsCbsView.as_view(),
+        name="opcao_regime_ibs_cbs",
+    ),
+    # DL-088 (correção do achado A1): o cancelamento da opção do semestre, na janela legal
+    # (Res. CGSN 194/2026; arts. 40-C/40-D). POST com `ano`, `semestre` e `motivo`.
+    path(
+        "empresas/<int:empresa_id>/opcao-regime-ibs-cbs/cancelar/",
+        OpcaoRegimeIbsCbsCancelarView.as_view(),
+        name="opcao_regime_ibs_cbs_cancelar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/ipi-mantido/",
+        IpiMantidoView.as_view(),
+        name="ipi_mantido",
     ),
     # DL-075 (frente A): pré-DAS, atividades da empresa e folha para o fator r.
     path(
@@ -361,6 +417,21 @@ urlpatterns = [
         "empresas/<int:empresa_id>/presumido/medidas/<int:medida_id>/revogar/",
         RevogarMedidaPresumidoView.as_view(),
         name="presumido_revogar_medida",
+    ),
+    path(
+        "empresas/<int:empresa_id>/presumido/medidas/<int:medida_id>/encerrar/",
+        EncerrarMedidaPresumidoView.as_view(),
+        name="presumido_encerrar_medida",
+    ),
+    path(
+        "empresas/<int:empresa_id>/presumido/parametros/",
+        ParametrosPresumidoView.as_view(),
+        name="presumido_parametros",
+    ),
+    path(
+        "empresas/<int:empresa_id>/presumido/pendencias/",
+        PendenciasPresumidoView.as_view(),
+        name="presumido_pendencias",
     ),
     path(
         "empresas/<int:empresa_id>/presumido/apuracao/",

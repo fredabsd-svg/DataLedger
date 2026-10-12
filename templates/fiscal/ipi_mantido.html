@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block titulo %}IPI mantido (Zona Franca){% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-088, frente B (escopos 3 e 6), arquétipo B: o dado de IPI mantido (Zona Franca) da empresa —
+indústria com IPI mantido, do ADCT art. 126, III, "a". Fonte: Res. CGSN 190/2026, art. 25, § 1º,
+II, na leitura de 09/10/2026 (docs/projeto/consultas/
+2026-10-09-contador-senior-virada-2027-simples.md); HI-152. É CADASTRO corrigível, com a fonte
+obrigatória (diga de onde a informação veio) e trilha de antes e depois vinda do serviço. Sem
+linha gravada, o dado aparece como NÃO informado: o produto não presume Zona Franca.
+{% endcomment %}
+{% block titulo_pagina %}<h1>IPI mantido (Zona Franca)</h1>{% endblock %}
+
+{% block content %}
+    {% include "fiscal/_filtro_simples.html" %}
+
+    {% if erro %}
+        <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+    {% endif %}
+    {% if erros.geral %}
+        <p class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erros.geral }}</p>
+    {% endif %}
+
+    {% if not empresa_selecionada %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver o dado de IPI mantido.</strong></p>
+            <p class="estado-vazio__descricao">
+                O dado é de cada empresa e decide o Anexo da produção própria em 2027.
+            </p>
+        </div>
+    {% else %}
+        <div class="painel-etapa">
+            <h2>O que este dado muda</h2>
+            <p>{{ efeito }}</p>
+            <p class="texto-apoio">
+                Fonte: Res. CGSN 190/2026, art. 25, § 1º, II (leitura de 09/10/2026,
+                docs/projeto/consultas/2026-10-09-contador-senior-virada-2027-simples.md).
+            </p>
+        </div>
+
+        <dl class="lista-de-definicao">
+            <div>
+                <dt>Situação registrada</dt>
+                <dd><strong>{{ situacao.rotulo }}</strong></dd>
+            </div>
+            {% if situacao.informado %}
+                <div>
+                    <dt>Fonte do dado</dt>
+                    <dd>{{ situacao.fonte }}</dd>
+                </div>
+                <div>
+                    <dt>Registrada em</dt>
+                    <dd>{{ situacao.registrada_em|date:"d/m/Y H:i" }} por {{ situacao.registrada_por }}</dd>
+                </div>
+            {% endif %}
+        </dl>
+
+        {% if pode_cadastrar %}
+            <form method="post" action="{{ url_gravar }}" class="formulario">
+                {% csrf_token %}
+                <fieldset class="campo">
+                    <legend>Situação do IPI mantido</legend>
+                    {% for valor, rotulo in opcoes_situacao %}
+                        <p>
+                            <input type="radio" id="id_situacao_{{ valor }}" name="situacao"
+                                   value="{{ valor }}" {% if valores.situacao == valor %}checked{% endif %}
+                                   aria-describedby="ajuda_situacao{% if erros.situacao %} erro_situacao{% endif %}">
+                            <label for="id_situacao_{{ valor }}">{{ rotulo }}</label>
+                        </p>
+                    {% endfor %}
+                    <p class="texto-apoio" id="ajuda_situacao">
+                        É um cadastro corrigível: registrar de novo com outro valor atualiza a linha,
+                        e a trilha guarda o antes e o depois.
+                    </p>
+                    {% if erros.situacao %}
+                        <p class="mensagem mensagem-error" role="alert" id="erro_situacao"><strong>Erro:</strong> {{ erros.situacao }}</p>
+                    {% endif %}
+                </fieldset>
+                <div class="campo">
+                    <label for="id_fonte">Fonte do dado</label>
+                    <textarea id="id_fonte" name="fonte" rows="3" required
+                              aria-describedby="id_fonte_ajuda{% if erros.fonte %} erro_fonte{% endif %}">{{ valores.fonte }}</textarea>
+                    <p class="texto-apoio" id="id_fonte_ajuda">
+                        Obrigatória: diga de onde a informação veio (declaração do cliente, ato de
+                        incentivo, etc.). Até 500 caracteres.
+                    </p>
+                    {% if erros.fonte %}
+                        <p class="mensagem mensagem-error" role="alert" id="erro_fonte"><strong>Erro:</strong> {{ erros.fonte }}</p>
+                    {% endif %}
+                </div>
+                <div class="acoes-formulario">
+                    <button type="submit" class="botao botao--primario">Gravar o dado de IPI mantido</button>
+                </div>
+            </form>
+        {% else %}
+            <p class="texto-apoio" id="ajuda_sem_permissao">{{ mensagem_sem_permissao }}</p>
+            <div class="acoes-formulario">
+                <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao">Gravar o dado de IPI mantido</button>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}

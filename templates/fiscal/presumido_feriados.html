@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block titulo %}Feriados locais da praça{% if empresa_selecionada %} — {{ empresa_selecionada.razao_social }}{% endif %}{% endblock %}
+
+{% block contexto_extra %}
+    {% if empresa_selecionada %}
+        <span class="contexto-item">
+            <span class="contexto-rotulo">Empresa</span>
+            <strong>{{ empresa_selecionada.razao_social }}</strong>
+        </span>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-084, item 2 (HI-137), arquétipo A (tabela de consulta) com cadastro à parte (arquétipo B). A
+tabela é da PRAÇA (município e UF da matriz da empresa), não da empresa: duas empresas da mesma
+praça veem as mesmas linhas. A data normativa do feriado NUNCA muda na tela — o feriado local só
+avisa ("feriado bancário em ... (Febraban)" com a lista bancária, "feriado local: confirmar
+expediente bancário na praça" sem ela, e "antecipar: sem expediente bancário na praça" quando a
+lista confirma). A linha da praça substitui a do estado no mesmo dia.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Feriados locais da praça</h1>{% endblock %}
+
+{% block content %}
+    {% include "fiscal/_filtro_presumido.html" %}
+
+    {% if erro %}
+        <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+    {% endif %}
+
+    {% if not empresa_selecionada %}
+        {% comment %}
+        DL-086 (A-13, direção de arte §8.4c): anatomia completa de `.estado-vazio` (ícone
+        decorativo + título + descrição). Sem botão: a saída é o filtro acima, já visível.
+        {% endcomment %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Escolha uma empresa para ver os feriados locais da praça.</strong></p>
+            <p class="estado-vazio__descricao">
+                Os feriados vêm do município e do estado da matriz da empresa. Eles avisam quando o
+                vencimento cai neles; nunca mudam a data de vencimento.
+            </p>
+        </div>
+    {% elif sem_praca %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Esta empresa não tem matriz com município e UF.</strong></p>
+            <p class="estado-vazio__descricao">
+                Sem a praça de pagamento, o produto não sabe quais feriados locais valem e não
+                avalia nenhum. Cadastre o município e a UF da matriz da empresa no cadastro dela.
+            </p>
+        </div>
+    {% else %}
+        <div class="painel-etapa">
+            <h2>Praça de {{ praca }} ({{ uf }})</h2>
+            <p>
+                O feriado local nunca muda a data de vencimento: ele só avisa. A linha da praça
+                substitui a do estado no mesmo dia. Cada linha cita a lei (ou ato) e a data em que a
+                fonte foi lida — sem fonte, a linha não entra.
+            </p>
+        </div>
+
+        <div class="acoes-formulario">
+            {% if url_nova %}
+                <a class="botao botao--primario" href="{{ url_nova }}">Cadastrar feriado local</a>
+            {% else %}
+                {% comment %}
+                Direção de arte §2B: quem só consulta vê a ação DESABILITADA com o motivo, nunca
+                sumindo — sumir ensina a pessoa a duvidar da própria memória.
+                {% endcomment %}
+                <button type="button" class="botao botao--primario" disabled aria-describedby="ajuda_sem_permissao_cadastro">Cadastrar feriado local</button>
+                <p class="texto-apoio" id="ajuda_sem_permissao_cadastro">Seu papel consulta os feriados locais, mas não cadastra, altera nem exclui.</p>
+            {% endif %}
+        </div>
+
+        {% if feriados %}
+            <table class="tabela-dados">
+                <caption>Feriados locais da praça, com data normativa, fonte, vigência, avisos do vencimento e exceções por ano</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Data</th>
+                        <th scope="col">Descrição</th>
+                        <th scope="col">Abrangência</th>
+                        <th scope="col">Fonte (lida em)</th>
+                        <th scope="col">Vigência</th>
+                        <th scope="col">Aviso do vencimento</th>
+                        <th scope="col">Exceções por ano</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for feriado in feriados %}
+                        <tr>
+                            <td class="valor-monetario">{{ feriado.data }}</td>
+                            <td>{{ feriado.descricao }}</td>
+                            <td>{{ feriado.abrangencia }}<br><span class="texto-apoio">{% if feriado.da_base %}Linha da base (carga/lei){% else %}Do seu escritório{% endif %}</span></td>
+                            <td class="texto-apoio">{{ feriado.fundamento }}<br>Lida em {{ feriado.data_leitura }}<br>Fonte bancária: {{ feriado.fonte_bancaria }}</td>
+                            <td>{{ feriado.vigencia }}</td>
+                            <td>
+                                {% for aviso in feriado.avisos %}
+                                    {{ aviso }}{% if not forloop.last %}<br>{% endif %}
+                                {% endfor %}
+                            </td>
+                            <td>
+                                {% if feriado.excecoes %}
+                                    {% for excecao in feriado.excecoes %}
+                                        {{ excecao.ano }}: observado em {{ excecao.data_observada }}
+                                        ({% for aviso in excecao.avisos %}{{ aviso }}{% if not forloop.last %}; {% endif %}{% endfor %})
+                                        {% if excecao.url_excluir %}
+                                            <a class="botao botao--perigoso botao--pequeno" href="{{ excecao.url_excluir }}">Excluir exceção<span class="visualmente-oculto"> de {{ excecao.ano }} do feriado de {{ feriado.data }}</span></a>
+                                        {% else %}
+                                            <button type="button" class="botao botao--perigoso botao--pequeno" disabled aria-describedby="{% if not pode_escriturar %}ajuda_sem_permissao{% elif excecao.da_base %}ajuda_linha_da_base{% endif %}">Excluir exceção<span class="visualmente-oculto"> de {{ excecao.ano }} do feriado de {{ feriado.data }}</span></button>
+                                        {% endif %}
+                                        {% if not forloop.last %}<br>{% endif %}
+                                    {% endfor %}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% comment %}
+                                Direção de arte §8.4b: ação de linha nunca é link solto; a sensível
+                                (excluir) usa `.botao--perigoso` e nomeia o alvo (DL-086, A-06).
+                                {% endcomment %}
+                                <div class="acoes-de-linha">
+                                    {% if feriado.url_editar %}
+                                        <a class="botao botao--secundario botao--pequeno" href="{{ feriado.url_editar }}">Alterar<span class="visualmente-oculto"> o feriado de {{ feriado.data }} — {{ feriado.descricao }}</span></a>
+                                        <a class="botao botao--perigoso botao--pequeno" href="{{ feriado.url_excluir }}">Excluir<span class="visualmente-oculto"> o feriado de {{ feriado.data }} — {{ feriado.descricao }}</span></a>
+                                    {% else %}
+                                        {% comment %}
+                                        Direção de arte §2B: a ação aparece DESABILITADA com o motivo, nunca some.
+                                        O motivo do feriado da base é o de `presumido_feriado_editar`/`_excluir`
+                                        (DE-106), com o MESMO texto do servidor.
+                                        {% endcomment %}
+                                        <button type="button" class="botao botao--secundario botao--pequeno" disabled aria-describedby="{% if not pode_escriturar %}ajuda_sem_permissao{% else %}ajuda_linha_da_base{% endif %}">Alterar<span class="visualmente-oculto"> o feriado de {{ feriado.data }} — {{ feriado.descricao }}</span></button>
+                                        <button type="button" class="botao botao--perigoso botao--pequeno" disabled aria-describedby="{% if not pode_escriturar %}ajuda_sem_permissao{% else %}ajuda_linha_da_base{% endif %}">Excluir<span class="visualmente-oculto"> o feriado de {{ feriado.data }} — {{ feriado.descricao }}</span></button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if not pode_escriturar %}
+                <p class="texto-apoio" id="ajuda_sem_permissao">Seu papel consulta os feriados locais, mas não cadastra, altera nem exclui.</p>
+            {% endif %}
+            <p class="texto-apoio" id="ajuda_linha_da_base">Linha da base (carga/lei) é somente leitura: alteração e exclusão recusam — cadastre a sua para a sua praça.</p>
+        {% else %}
+            <div class="estado-vazio">
+                {# DL-086 (A-13): mesma anatomia do cartão acima — ícone decorativo, título e descrição. #}
+                <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+                <p class="estado-vazio__titulo"><strong>Nenhum feriado local cadastrado para {{ praca }} ({{ uf }}).</strong></p>
+                <p class="estado-vazio__descricao">
+                    Sem feriado local, o vencimento só considera o calendário nacional (fim de semana,
+                    feriados nacionais e os dias sem expediente bancário). Cadastre apenas datas cuja
+                    lei tenha sido lida na fonte oficial.
+                </p>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}

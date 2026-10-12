@@ -228,12 +228,15 @@ def test_item_indtot_zero_fica_fora_da_composicao_da_conferencia_e_da_segregacao
 # --- E4b: o pré-DAS recusa o mês que só tem SALDO de devolução --------------------------------
 
 
-def test_pre_das_recusa_o_mes_que_so_tem_saldo_de_devolucao_de_meses_anteriores(
+def test_pre_das_recusa_o_mes_da_devolucao_sem_segmento_e_nao_o_que_so_recebe_saldo(
     escritorio_a, gestor, empresa
 ):
-    """Devolução de 300,00 em janeiro, sem venda. Fevereiro não tem NF-e, mas recebe o saldo de
-    300,00.
-    O pré-DAS de fevereiro recusa com o motivo de receita de mercadoria, de ponta a ponta."""
+    """Devolução de 300,00 em janeiro, sem venda e SEM segmento confirmado (DL-082, HI-129).
+
+    Antes da DL-082 o pré-DAS de fevereiro recusava por "receita de mercadoria" (HI-122). Agora a
+    recusa nomeada é da devolução sem segmento, no mês dela (janeiro). Fevereiro, sem venda, não tem
+    o que o saldo deduza, e por isso não recebe o motivo de devolução.
+    """
     _nota(
         escritorio_a,
         gestor,
@@ -245,7 +248,10 @@ def test_pre_das_recusa_o_mes_que_so_tem_saldo_de_devolucao_de_meses_anteriores(
         devolucao=True,
         dh_emi="2026-01-10T10:00:00-03:00",
     )
+    with pytest.raises(pre_das_servico.PreDasRecusado) as erro_jan:
+        pre_das_servico.pre_das(empresa, 2026, 1)
+    assert "devolucao_sem_segmento_confirmado" in [b.codigo for b in erro_jan.value.bloqueios]
     with pytest.raises(pre_das_servico.PreDasRecusado) as erro:
         pre_das_servico.pre_das(empresa, 2026, 2)
     codigos = [b.codigo for b in erro.value.bloqueios]
-    assert "receita_de_mercadoria" in codigos
+    assert "receita_de_mercadoria" not in codigos

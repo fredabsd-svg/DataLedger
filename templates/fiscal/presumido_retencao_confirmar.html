@@ -57,7 +57,23 @@ pede: quem confirma precisa saber qual nota está confirmando antes de gravar.
             <dt>CSLL proposta</dt>
             <dd>{{ retencao.csll_proposta }}</dd>
         </div>
+        <div>
+            <dt>Classificação da CSLL</dt>
+            <dd>{{ retencao.csll_classificacao }}</dd>
+        </div>
     </dl>
+
+    {% if retencao.csll_aviso %}
+        {% comment %}
+        DL-084, item 3: a coerência da CSLL retida ("a classificar", com o aviso do serviço —
+        ex.: "o tomador reteve só a CSLL?") aparece onde a retenção é confirmada. Nenhuma dedução
+        acontece sem a confirmação do contador: esta tela só informa, nunca confirma sozinha.
+        {% endcomment %}
+        <div class="mensagem mensagem-warning" role="note" id="aviso_csll">
+            <strong>CSLL a classificar:</strong> {{ retencao.csll_aviso }}
+            <br><span class="texto-apoio">Confira o comprovante de retenção antes de confirmar. Nenhuma dedução acontece sem a sua confirmação.</span>
+        </div>
+    {% endif %}
 
     <form method="post" action="{{ url_envio }}" class="formulario">
         {% csrf_token %}

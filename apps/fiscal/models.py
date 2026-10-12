@@ -35,6 +35,7 @@ from django.db.models import F, Q
 
 from apps.empresas.models import Empresa
 from apps.fiscal import presumido_tabelas as _tabelas_presumido
+from apps.fiscal.cfop import cfop as consultar_cfop_oficial
 from apps.tenancy.models import Escritorio
 
 
@@ -1643,6 +1644,173 @@ class OpcaoRegimeCaixaSimples(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# DL-088 (frente A2): o dado da empresa que libera 2027 — a opção de regime de
+# IBS/CBS por semestre e o IPI mantido (Zona Franca). Fonte: Res. CGSN 190/2026;
+# HI-148 e HI-152. Ver `apps.fiscal.receita` para a leitura e a escrita com trilha.
+# ---------------------------------------------------------------------------
+
+
+class RegimeIbsCbsSimples(models.TextChoices):
+    """A opção registrada para o semestre (Res. CGSN 190/2026; art. 22-A; HI-148)."""
+
+    REGIME_UNICO = "regime_unico", "Regime único (CBS e IBS no DAS)"
+    REGIME_REGULAR = "regime_regular", "Regime regular de IBS/CBS (art. 22-A)"
+
+
+class OpcaoRegimeIbsCbsSimples(models.Model):
+    """Opção de regime de IBS/CBS do Simples, por (empresa, ano, semestre) — DL-088, frente A2.
+
+    Fonte e significado (Res. CGSN 190/2026, art. 22-A; consulta de 09/10/2026, seção 1; HI-148):
+    a cada semestre a empresa fica em UM dos dois regimes de IBS/CBS, e a escolha decide se CBS e
+    IBS entram no DAS do Simples daquele semestre:
+
+    - `regime = RegimeIbsCbsSimples.REGIME_REGULAR` = optou pelo REGIME REGULAR (art. 22-A): as
+      parcelas de CBS e IBS da faixa são DEDUZIDAS do DAS. Alimenta o motor do pré-DAS como
+      `regime_regular_ibs_cbs=True` (`pre_das._calcular_pre_das`).
+    - `regime = RegimeIbsCbsSimples.REGIME_UNICO` = REGIME ÚNICO: CBS e IBS ficam NO DAS. Alimenta
+      o motor como `regime_regular_ibs_cbs=False`.
+    - SEM LINHA = opção NÃO informada. Não se presume nenhum dos dois: o pré-DAS de 2027 continua
+      recusando com o bloqueio `opcao_regime_regular_nao_informada` (é o `None` do motor), e a
+      NF-e de 2027 não se efetiva (HI-149).
+
+    O carimbo da escolha é o campo `regime`, gravado com `registrada_em`/`registrada_por` (quem do
+    escritório registrou; o dado é cadastrado pelo escritório — o Fred confirma quais clientes
+    optaram). Enquanto estiver ATIVA, a opção do semestre é registrada UMA vez: a segunda tentativa
+    é recusada pela restrição única (`opcao_regime_ibs_cbs_unica_por_semestre`, PARCIAL em
+    `cancelada_em__isnull=True`). O CANCELAMENTO (DL-088, correção do achado A1) é ato à parte, na
+    janela legal (`receita.cancelar_opcao_regime_ibs_cbs`): a opção cancelada fica na linha, com
+    `cancelada_em`/`cancelada_por`/`motivo_cancelamento`, deixa de valer para o motor (volta a ser
+    "opção não informada") e LIBERA o (empresa, ano, semestre) para novo registro. Duas opções
+    ATIVAS do mesmo semestre continuam impossíveis.
+
+    Fonte do cancelamento (consulta de 09/10/2026, seção 1; `docs/projeto/consultas/
+    2026-10-09-contador-senior-virada-2027-simples.md`): Res. CGSN 194/2026 — cancelamento de
+    03/11 a 20/12/2026 para o 1º semestre de 2027; Res. CGSN 190/2026, arts. 40-C e 40-D — opção/
+    renúncia irretratável por semestre, cancelável até 30/11 (1º semestre) e 31/05 (2º).
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="opcoes_regime_ibs_cbs_simples",
+        verbose_name="empresa",
+    )
+    ano = models.PositiveSmallIntegerField("ano")
+    semestre = models.PositiveSmallIntegerField("semestre")
+    regime = models.CharField(
+        "regime escolhido", max_length=20, choices=RegimeIbsCbsSimples.choices
+    )
+    registrada_em = models.DateTimeField("registrada em", auto_now_add=True)
+    registrada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="registrada por",
+    )
+    # O cancelamento NÃO apaga a linha: quem cancelou, quando e por quê ficam no próprio registro
+    # (e na trilha). `cancelada_em` preenchida é a única marca de "não vale mais" — a unicidade do
+    # semestre é parcial exatamente para a linha cancelada poder conviver com a nova opção.
+    cancelada_em = models.DateTimeField("cancelada em", null=True, blank=True)
+    cancelada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        null=True,
+        blank=True,
+        verbose_name="cancelada por",
+    )
+    motivo_cancelamento = models.TextField("motivo do cancelamento", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "opção de regime de IBS/CBS (Simples)"
+        verbose_name_plural = "opções de regime de IBS/CBS (Simples)"
+        ordering = ["empresa_id", "ano", "semestre"]
+        constraints = [
+            # PARCIAL (DL-088, correção do achado A1): só as opções ATIVAS disputam o semestre.
+            # Duas ativas seguem impossíveis; a cancelada libera o (empresa, ano, semestre).
+            models.UniqueConstraint(
+                fields=["empresa", "ano", "semestre"],
+                condition=Q(cancelada_em__isnull=True),
+                name="opcao_regime_ibs_cbs_unica_por_semestre",
+            ),
+            # A opção de regime regular só existe da virada de 2027 em diante (HI-148).
+            models.CheckConstraint(
+                condition=Q(ano__gte=2027),
+                name="opcao_regime_ibs_cbs_so_desde_2027",
+            ),
+            models.CheckConstraint(
+                condition=Q(semestre__gte=1, semestre__lte=2),
+                name="opcao_regime_ibs_cbs_semestre_valido",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"Opção {self.get_regime_display()} em {self.semestre}º/{self.ano} — "
+            f"empresa {self.empresa_id}"
+        )
+
+
+class SituacaoIpiMantido(models.TextChoices):
+    """Situação do IPI mantido da indústria (Res. CGSN 190/2026, art. 25, § 1º, II; HI-152)."""
+
+    IPI_MANTIDO = "ipi_mantido", "IPI mantido (indústria da Zona Franca)"
+    SEM_IPI_MANTIDO = "sem_ipi_mantido", "Sem IPI mantido (produção própria fora da ZFM)"
+
+
+class IpiMantidoZfmEmpresa(models.Model):
+    """Dado da empresa: a indústria tem IPI MANTIDO (Zona Franca de Manaus)? — DL-088, frente A2.
+
+    Fonte e significado (Res. CGSN 190/2026, art. 25, § 1º, II; HI-152, item 2): em 2027 o Anexo II
+    passa a valer SÓ para a indústria COM IPI mantido (Zona Franca); a produção própria fora dela
+    vai ao Anexo I (`pre_das.anexo_da_mercadoria_no_ano`). SEM LINHA = dado NÃO informado, e o
+    produto NÃO presume ZFM: a produção própria vai ao Anexo I (a regra geral) e o pré-DAS avisa
+    que o dado falta. `situacao = SituacaoIpiMantido.IPI_MANTIDO` é o ÚNICO estado que leva ao
+    Anexo II em 2027.
+
+    O dado é cadastrado pelo ESCRITÓRIO (o Fred confirma quais clientes estão na Zona Franca), com a
+    `fonte` (justificativa: declaração do cliente, ato de incentivo etc.) e o carimbo
+    `registrada_em`/`registrada_por`. Diferente da opção por semestre, é CADASTRO corrigível: a
+    gravação de novo valor atualiza a linha e a trilha guarda antes e depois.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="ipi_mantido_zfm",
+        verbose_name="empresa",
+    )
+    situacao = models.CharField(
+        "situação do IPI mantido", max_length=20, choices=SituacaoIpiMantido.choices
+    )
+    fonte = models.TextField(
+        "fonte ou justificativa",
+        help_text="Onde o dado foi confirmado (declaração do cliente, ato de incentivo, etc.).",
+    )
+    registrada_em = models.DateTimeField("registrada em", auto_now_add=True)
+    registrada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="registrada por",
+    )
+
+    class Meta:
+        verbose_name = "IPI mantido (Zona Franca) da empresa"
+        verbose_name_plural = "IPI mantido (Zona Franca) das empresas"
+        ordering = ["empresa_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["empresa"],
+                name="ipi_mantido_unico_por_empresa",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.get_situacao_display()} — empresa {self.empresa_id}"
+
+
+# ---------------------------------------------------------------------------
 # DL-075 (frente A): atividades da empresa e folha para o fator r.
 #
 # Atividade (HI-68): o pré-DAS aplica cada receita a um ANEXO, e o anexo depende
@@ -2337,6 +2505,12 @@ class ReceitaTrimestralPresumido(models.Model):
     descricao = models.CharField("descrição", max_length=300)
     valor = models.DecimalField("valor", max_digits=15, decimal_places=2)
     suporte = models.CharField("documento de suporte", max_length=300)
+    # DL-084, item 5 (HI-135): a competência (AAAA-MM, mês do trimestre) ou o número da parcela
+    # ("parcela N") entra na IDENTIDADE contra duplicidade. Três mensalidades iguais do mesmo
+    # contrato são receitas diferentes por este campo, e a descrição livre nunca diferencia. Vazio
+    # = não informado (a identidade continua a de antes). Formato validado pelo serviço e pela
+    # CHECK `presumido_receita_competencia_valida`.
+    competencia = models.CharField("competência ou parcela", max_length=20, blank=True, default="")
     estado = models.CharField(
         "estado", max_length=10, choices=OPCOES_ESTADO_RECEITA_PRESUMIDO, default="ativa"
     )
@@ -2383,6 +2557,13 @@ class ReceitaTrimestralPresumido(models.Model):
             models.CheckConstraint(
                 condition=~Q(suporte=""),
                 name="presumido_receita_suporte_obrigatorio",
+            ),
+            # DL-084 (HI-135): vazio, mês AAAA-MM ou "parcela N". O serviço já recusa o resto com
+            # mensagem nomeada; a CHECK é a segunda defesa.
+            models.CheckConstraint(
+                condition=Q(competencia="")
+                | Q(competencia__regex=r"^([0-9]{4}-(0[1-9]|1[0-2])|parcela [1-9][0-9]?)$"),
+                name="presumido_receita_competencia_valida",
             ),
             models.CheckConstraint(
                 condition=(
@@ -2622,6 +2803,277 @@ class MedidaJudicialLC224(models.Model):
         return f"Medida {self.pk} — {self.numero_processo} ({self.get_tributo_display()})"
 
 
+OPCOES_FORMA_RECOLHIMENTO = [
+    ("quota_unica", "Quota única"),
+    ("duas_quotas", "Duas quotas"),
+    ("tres_quotas", "Três quotas"),
+]
+OPCOES_PADRAO_COMBUSTIVEL = [
+    ("", "Sem padrão"),
+    ("posto", "Posto de combustível"),
+    ("trr", "Transportador-revendedor-retalhista (TRR)"),
+    ("distribuidora", "Distribuidora"),
+]
+
+
+class ParametrosPresumidoEmpresa(models.Model):
+    """Parâmetros do Lucro Presumido de UMA empresa (DL-084, item 6; HI-136).
+
+    Sem linha, a empresa usa o padrão do escritório: três quotas e sem padrão de combustível. A
+    forma de recolhimento só decide qual plano a tela abre; o cálculo continua o mesmo. O padrão de
+    combustível sugere a natureza "para consumo" quando o CFOP não decide (posto e TRR);
+    distribuidora
+    não tem padrão: quem decide é o item.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="parametros_presumido",
+        verbose_name="empresa",
+    )
+    forma_recolhimento = models.CharField(
+        "forma de recolhimento padrão",
+        max_length=12,
+        choices=OPCOES_FORMA_RECOLHIMENTO,
+        default="tres_quotas",
+    )
+    padrao_combustivel = models.CharField(
+        "padrão de combustível",
+        max_length=14,
+        choices=OPCOES_PADRAO_COMBUSTIVEL,
+        blank=True,
+        default="",
+    )
+    atualizado_em = models.DateTimeField("atualizado em", auto_now=True)
+    atualizado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="atualizado por",
+    )
+
+    class Meta:
+        verbose_name = "parâmetros do presumido da empresa"
+        verbose_name_plural = "parâmetros do presumido das empresas"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["empresa"],
+                name="presumido_parametros_unico_por_empresa",
+            ),
+            models.CheckConstraint(
+                condition=Q(forma_recolhimento__in=["quota_unica", "duas_quotas", "tres_quotas"]),
+                name="presumido_parametros_forma_valida",
+            ),
+            models.CheckConstraint(
+                condition=Q(padrao_combustivel__in=["", "posto", "trr", "distribuidora"]),
+                name="presumido_parametros_combustivel_valido",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Parâmetros do presumido — empresa {self.empresa_id}"
+
+
+OPCOES_ESFERA_FERIADO = [
+    ("estadual", "Estadual"),
+    ("municipal", "Municipal"),
+]
+
+
+class FeriadoLocal(models.Model):
+    """Feriado estadual ou municipal por UF e município (DL-084, item 2; HI-137; DE-106).
+
+    O feriado é a lei do lugar, e a carga do produto (lei, data da leitura e fonte bancária) é a
+    BASE: linha com `escritorio` vazio. A escrita das telas nasce escopada ao escritório que agiu
+    (`escritorio` preenchido) e afeta só as empresas dele. A empresa herda a base da praça MAIS as
+    linhas do escritório dela, pelo município do ESTABELECIMENTO MATRIZ (`municipio` e `uf`,
+    normalizados em `chave_municipio`); no mesmo dia, a linha do escritório substitui a da base — e
+    a da praça substitui a do estado — para as empresas dele
+    (`presumido_calculo.linhas_efetivas`). Feriado estadual com `municipio` vazio vale para todo o
+    estado (só a lei). Cada linha guarda a lei (`fundamento`) e a data em que foi lida
+    (`data_leitura`); a CHECK e o NOT NULL impedem linha sem uma ou sem outra.
+
+    O feriado local NUNCA muda a data de vencimento: só gera aviso (`avisos_de_feriado_local`).
+    `fonte_bancaria` é a lista da Febraban que confirma o fechamento na praça, quando houver. A base
+    é somente leitura nas telas (edição e exclusão recusam); a linha do escritório se grava com
+    trilha no escritório que agiu.
+    """
+
+    escritorio = models.ForeignKey(
+        Escritorio,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="feriados_locais",
+        verbose_name="escritório (vazio = linha da base)",
+    )
+    uf = models.CharField("UF", max_length=2)
+    municipio = models.CharField(
+        "município (vazio = estadual)", max_length=100, blank=True, default=""
+    )
+    esfera = models.CharField("esfera", max_length=10, choices=OPCOES_ESFERA_FERIADO)
+    mes = models.PositiveSmallIntegerField("mês")
+    dia = models.PositiveSmallIntegerField("dia")
+    descricao = models.CharField("descrição", max_length=200)
+    fundamento = models.CharField("lei ou ato que declara o feriado", max_length=300)
+    data_leitura = models.DateField("data da leitura da fonte")
+    fonte_bancaria = models.CharField(
+        "fonte bancária (Febraban), quando houver", max_length=300, blank=True, default=""
+    )
+    vigencia_inicio = models.DateField("início da vigência")
+    vigencia_fim = models.DateField("fim da vigência", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "feriado local"
+        verbose_name_plural = "feriados locais"
+        ordering = ["uf", "municipio", "mes", "dia"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["uf", "municipio", "mes", "dia", "vigencia_inicio"],
+                name="feriado_local_unico",
+            ),
+            models.CheckConstraint(
+                condition=Q(uf__regex=r"^[A-Z]{2}$"),
+                name="feriado_local_uf_valida",
+            ),
+            models.CheckConstraint(
+                condition=Q(esfera__in=["estadual", "municipal"]),
+                name="feriado_local_esfera_valida",
+            ),
+            # Municipal tem município. Estadual pode vir com município: é a linha da praça que
+            # traz a confirmação bancária dela, e substitui a linha da UF no mesmo dia
+            # (`presumido._feriados_locais_da_praca`).
+            models.CheckConstraint(
+                condition=Q(esfera="estadual") | ~Q(municipio=""),
+                name="feriado_local_municipal_tem_municipio",
+            ),
+            models.CheckConstraint(
+                condition=Q(mes__gte=1, mes__lte=12, dia__gte=1, dia__lte=31),
+                name="feriado_local_data_valida",
+            ),
+            models.CheckConstraint(
+                condition=~Q(fundamento=""),
+                name="feriado_local_fundamento_obrigatorio",
+            ),
+            models.CheckConstraint(
+                condition=Q(vigencia_fim__isnull=True)
+                | Q(vigencia_fim__gte=models.F("vigencia_inicio")),
+                name="feriado_local_vigencia_coerente",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.descricao} ({self.uf}{' ' + self.municipio if self.municipio else ''})"
+
+
+class ExcecaoFeriadoLocal(models.Model):
+    """Um ano em que o feriado foi movido por decreto (DL-084, item 2; HI-137; DE-106).
+
+    Ex.: em 2026 o feriado estadual de 05/10 foi observado em 09/10 (Decreto estadual 7.238/2026,
+    citado no Decreto municipal de Palmas 2.993/2026). A data observada recebe o aviso; a data
+    normativa, nesse ano, não avisa. A data de vencimento não muda em nenhum dos dois casos.
+
+    Mesmo escopo da linha de `FeriadoLocal`: `escritorio` vazio é a exceção da BASE (carga/decreto
+    da carga); preenchido, é a exceção do escritório, que nasce nas telas e afeta só as empresas
+    dele. No mesmo ano, a exceção do escritório substitui a da base para as empresas dele
+    (`presumido_calculo.linhas_efetivas`).
+    """
+
+    escritorio = models.ForeignKey(
+        Escritorio,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="excecoes_feriado_local",
+        verbose_name="escritório (vazio = linha da base)",
+    )
+    feriado = models.ForeignKey(
+        FeriadoLocal,
+        on_delete=models.PROTECT,
+        related_name="excecoes",
+        verbose_name="feriado",
+    )
+    ano = models.PositiveSmallIntegerField("ano")
+    data_observada = models.DateField("data observada no ano")
+    fundamento = models.CharField("ato que moveu o feriado", max_length=300)
+    data_leitura = models.DateField("data da leitura da fonte")
+    fonte_bancaria = models.CharField(
+        "fonte bancária (Febraban), quando houver", max_length=300, blank=True, default=""
+    )
+
+    class Meta:
+        verbose_name = "exceção de feriado local por ano"
+        verbose_name_plural = "exceções de feriado local por ano"
+        ordering = ["feriado_id", "ano"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["feriado", "ano"],
+                name="excecao_feriado_unica_por_ano",
+            ),
+            models.CheckConstraint(
+                condition=Q(ano__gte=1970, ano__lte=2999),
+                name="excecao_feriado_ano_valido",
+            ),
+            models.CheckConstraint(
+                condition=~Q(fundamento=""),
+                name="excecao_feriado_fundamento_obrigatorio",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Exceção de {self.feriado_id} em {self.ano}"
+
+
+class EncerramentoMedidaJudicialLC224(models.Model):
+    """Ato que encerra uma medida judicial a partir de um trimestre (DL-084, item 7; BL-680).
+
+    A medida fica intacta (o trigger dela só aceita a revogação). O encerramento é um ato à parte,
+    com trilha: a medida cobre os trimestres até (ano, trimestre), inclusive, e deixa de valer nos
+    seguintes. Os trimestres anteriores continuam com a medida, e o histórico não é apagado. Só cabe
+    um encerramento por medida, e ele não se altera nem se apaga (trigger da migração 0015).
+    """
+
+    medida = models.ForeignKey(
+        MedidaJudicialLC224,
+        on_delete=models.PROTECT,
+        related_name="encerramentos",
+        verbose_name="medida",
+    )
+    ano = models.PositiveSmallIntegerField("ano do último trimestre coberto")
+    trimestre = models.PositiveSmallIntegerField("último trimestre coberto (1 a 4)")
+    motivo = models.CharField("motivo do encerramento", max_length=500)
+    encerrada_em = models.DateTimeField("encerrada em", auto_now_add=True)
+    encerrada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="encerrada por",
+    )
+
+    class Meta:
+        verbose_name = "encerramento de medida judicial contra a LC 224"
+        verbose_name_plural = "encerramentos de medidas judiciais contra a LC 224"
+        ordering = ["medida_id", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["medida"],
+                name="presumido_encerramento_unico_por_medida",
+            ),
+            models.CheckConstraint(
+                condition=Q(trimestre__gte=1, trimestre__lte=4),
+                name="presumido_encerramento_trimestre_valido",
+            ),
+            models.CheckConstraint(
+                condition=~Q(motivo=""),
+                name="presumido_encerramento_motivo_obrigatorio",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Encerramento da medida {self.medida_id} em {self.ano}/T{self.trimestre}"
+
+
 # ---------------------------------------------------------------------------
 # DL-081 (frente A): escrituração das NF-e de saída e da devolução de venda.
 #
@@ -2807,20 +3259,34 @@ def mercado_da_natureza_nfe(natureza: str) -> str:
     return CATALOGO_NATUREZA_NFE[natureza].mercado
 
 
+def e_devolucao_de_exportacao(cfop: str) -> bool:
+    """A devolução de venda com este CFOP deduz do mercado EXTERNO (e só ela tem segmento de
+    exportação).
+
+    São as 3.xxx (entrada de fora do país, DL-081) e as 1.503, 1.504, 2.503 e 2.504 (A3; as x.505
+    e x.506 saíram na reconferência, R4).
+    Recebe o CFOP com ou sem ponto ("1503" ou "1.503"). É a ÚNICA regra disto: mercado, sugestão e
+    validação do segmento a usam, e nenhum outro lugar compara o primeiro dígito.
+    """
+    limpo = cfop.replace(".", "")
+    if limpo[:1] == "3":
+        return True
+    return f"{limpo[:1]}.{limpo[1:]}" in ANEXO_DA_DEVOLUCAO_DE_EXPORTACAO_DE_ENTRADA
+
+
 def mercado_do_item_nfe(natureza: str, cfop: str) -> str:
     """Mercado de UM item de NF-e: o da natureza, salvo a devolução de exportação.
 
     A devolução de venda (natureza `devolucao_venda`, ou `devolucao_combustivel_consumo`, HI-140)
-    deduz do mercado da venda que ela devolve. A tabela oficial de CFOP marca como devolução de
-    exportação os códigos 3.201, 3.202, 3.211, 3.212, 3.503 e 3.553 (todos com o primeiro dígito 3,
-    que é entrada de fora do país). Essa devolução deduz o EXTERNO (correção da rodada 1, A8). A
-    natureza sozinha não diz isso, por isso o CFOP entra.
+    deduz do mercado da venda que ela devolve. Deduz o EXTERNO quando é devolução de exportação
+    (`e_devolucao_de_exportacao`): as 3.xxx (correção da rodada 1, A8) e, desde a correção A3, as
+    1.503 a 1.506 e 2.503 a 2.506. A natureza sozinha não diz isso, por isso o CFOP entra.
     """
     devolucoes = (
         NaturezaOperacaoNFe.DEVOLUCAO_VENDA,
         NaturezaOperacaoNFe.DEVOLUCAO_COMBUSTIVEL_CONSUMO,
     )
-    if natureza in devolucoes and cfop.startswith("3"):
+    if natureza in devolucoes and e_devolucao_de_exportacao(cfop):
         return MercadoReceita.EXTERNO
     return mercado_da_natureza_nfe(natureza)
 
@@ -2830,6 +3296,220 @@ def papel_da_natureza_nfe(natureza: str) -> str:
     if natureza not in CATALOGO_NATUREZA_NFE:
         raise ValueError(f"natureza de NF-e fora do catálogo: {natureza!r}")
     return CATALOGO_NATUREZA_NFE[natureza].papel
+
+
+# ---------------------------------------------------------------------------
+# Anexo e segmento da mercadoria no Simples (DL-082, HI-125, HI-127, HI-128, HI-129).
+#
+# Fonte única da classificação de MERCADORIA. O anexo vem da natureza do item (revenda → Anexo I;
+# produção própria → Anexo II), nunca da atividade padrão da empresa. O segmento diz quais tributos
+# saem do DAS (Res. CGSN 140, art. 25, §§ 3º, 6º a 8º, em cópia): ICMS-ST substituído tira o ICMS;
+# monofásico tira PIS e Cofins; exportação tira Cofins, PIS, IPI, ICMS e ISS. Combinações tiram a
+# união dos conjuntos (o pré-DAS faz a união; aqui só se diz o segmento).
+#
+# Anexo da mercadoria (DL-082, decisão do arquiteto): o catálogo tem UMA natureza por item, e
+# algumas naturezas não dizem se a venda é de PRODUÇÃO (Anexo II) ou de REVENDA (Anexo I). Por isso:
+# - `revenda` → Anexo I e `producao_propria` → Anexo II, pela própria natureza (HI-125);
+# - `revenda_st_substituido`, `substituto_st`, `monofasico`, `exportacao_direta` e
+#   `comercial_exportadora` → o anexo vem da DESCRIÇÃO OFICIAL do CFOP do item (tabela de
+#   `apps.fiscal.cfop`, Informe 2023.002 v2.10). Veja `anexo_pelo_cfop`.
+# Se a descrição não decidir, o anexo fica `None` e o pré-DAS recusa o mês ("anexo da mercadoria a
+# confirmar"): nunca se presume produção nem revenda.
+# ---------------------------------------------------------------------------
+
+ANEXO_I = "I"
+ANEXO_II = "II"
+
+SEGMENTO_NORMAL = "normal"
+SEGMENTO_SUJEITA_ST = "sujeita_st"
+SEGMENTO_MONOFASICO = "monofasico"
+SEGMENTO_ST_MONOFASICO = "st_monofasico"
+SEGMENTO_EXPORTACAO = "exportacao"
+
+# Devolução de exportação de ENTRADA (DL-082, correção da rodada 1, A3): x.503 a x.506 com
+# `indDevol` 1 na tabela oficial (Informe 2023.002 v2.10). A venda original foi ao mercado externo
+# (remessa com fim específico de exportação, ou lote de exportação). O anexo sai da descrição: 1.503
+# e 1.505 são de produção do estabelecimento (Anexo II); 1.504 e 1.506 são de mercadoria de
+# terceiros (Anexo I). Os 2.50x valem o mesmo. Os 3.50x não dizem produção ou revenda: entram no
+# mercado externo, sem anexo (ver `e_devolucao_de_exportacao`).
+#
+# Reconferência, R4 (ajuste do arquiteto): 1.505, 1.506, 2.505 e 2.506 devolvem REMESSA para
+# formação de lote de exportação (a origem, 5.504 e 5.505, não é venda). Não há receita a deduzir,
+# então saíram daqui; o pré-DAS recusa a devolução com esses CFOP, com o motivo, até o contador
+# confirmar o tratamento (`DEVOLUCAO_DE_REMESSA_PARA_LOTE_DE_EXPORTACAO`).
+ANEXO_DA_DEVOLUCAO_DE_EXPORTACAO_DE_ENTRADA: dict[str, str] = {
+    "1.503": ANEXO_II,
+    "1.504": ANEXO_I,
+    "2.503": ANEXO_II,
+    "2.504": ANEXO_I,
+}
+DEVOLUCAO_DE_REMESSA_PARA_LOTE_DE_EXPORTACAO = frozenset({"1505", "1506", "2505", "2506"})
+
+
+class SegmentoDevolucao(models.TextChoices):
+    """Anexo e segmento de UMA devolução de venda, confirmados pelo contador (HI-129).
+
+    Cada valor é um par (anexo, segmento) fixo. A devolução deduz SÓ dentro do mesmo par. Ver
+    `ANEXO_E_SEGMENTO_DA_DEVOLUCAO`.
+    """
+
+    REVENDA = "revenda", "Devolução de revenda, Anexo I, sem ST nem monofásico"
+    PRODUCAO = "producao", "Devolução de produção própria, Anexo II, sem ST nem monofásico"
+    REVENDA_ST = "revenda_st", "Devolução de revenda com ST substituído, Anexo I"
+    PRODUCAO_ST = "producao_st", "Devolução de produção com ST substituído, Anexo II"
+    REVENDA_MONOFASICO = "revenda_monofasico", "Devolução de revenda monofásica, Anexo I"
+    PRODUCAO_MONOFASICO = "producao_monofasico", "Devolução de produção monofásica, Anexo II"
+    REVENDA_ST_MONOFASICO = (
+        "revenda_st_monofasico",
+        "Devolução de revenda com ST e monofásico, Anexo I",
+    )
+    PRODUCAO_ST_MONOFASICO = (
+        "producao_st_monofasico",
+        "Devolução de produção com ST e monofásico, Anexo II",
+    )
+    REVENDA_EXPORTACAO = "revenda_exportacao", "Devolução de revenda exportada, Anexo I"
+    PRODUCAO_EXPORTACAO = "producao_exportacao", "Devolução de produção exportada, Anexo II"
+
+
+# Tamanho do campo: cabe o maior valor de `SegmentoDevolucao` ("producao_st_monofasico", 22).
+TAMANHO_SEGMENTO_DEVOLUCAO = 24
+
+ANEXO_E_SEGMENTO_DA_DEVOLUCAO: dict[str, tuple[str, str]] = {
+    SegmentoDevolucao.REVENDA: (ANEXO_I, SEGMENTO_NORMAL),
+    SegmentoDevolucao.PRODUCAO: (ANEXO_II, SEGMENTO_NORMAL),
+    SegmentoDevolucao.REVENDA_ST: (ANEXO_I, SEGMENTO_SUJEITA_ST),
+    SegmentoDevolucao.PRODUCAO_ST: (ANEXO_II, SEGMENTO_SUJEITA_ST),
+    SegmentoDevolucao.REVENDA_MONOFASICO: (ANEXO_I, SEGMENTO_MONOFASICO),
+    SegmentoDevolucao.PRODUCAO_MONOFASICO: (ANEXO_II, SEGMENTO_MONOFASICO),
+    SegmentoDevolucao.REVENDA_ST_MONOFASICO: (ANEXO_I, SEGMENTO_ST_MONOFASICO),
+    SegmentoDevolucao.PRODUCAO_ST_MONOFASICO: (ANEXO_II, SEGMENTO_ST_MONOFASICO),
+    SegmentoDevolucao.REVENDA_EXPORTACAO: (ANEXO_I, SEGMENTO_EXPORTACAO),
+    SegmentoDevolucao.PRODUCAO_EXPORTACAO: (ANEXO_II, SEGMENTO_EXPORTACAO),
+}
+
+# Naturezas de mercadoria cujo anexo é FIXO pela natureza (HI-125, consulta de 09/10/2026, item 1).
+_ANEXO_FIXO_DA_NATUREZA = {
+    NaturezaOperacaoNFe.REVENDA: ANEXO_I,
+    NaturezaOperacaoNFe.PRODUCAO_PROPRIA: ANEXO_II,
+}
+
+# Naturezas de mercadoria cujo anexo vem do CFOP do item (DL-082, decisão do arquiteto).
+_ANEXO_PELO_CFOP_DA_NATUREZA = frozenset(
+    {
+        NaturezaOperacaoNFe.REVENDA_ST_SUBSTITUIDO,
+        NaturezaOperacaoNFe.SUBSTITUTO_ST,
+        NaturezaOperacaoNFe.MONOFASICO,
+        NaturezaOperacaoNFe.EXPORTACAO_DIRETA,
+        NaturezaOperacaoNFe.COMERCIAL_EXPORTADORA,
+    }
+)
+
+# Descrições oficiais que decidem o anexo (Informe 2023.002 v2.10, em `apps/fiscal/dados`).
+# Produção do estabelecimento: 5.101 "Venda de produção do estabelecimento."; 5.401 "... em operação
+# com produto sujeito ao regime de substituição tributária"; 7.101 "Venda de produção do
+# estabelecimento."; 5.501 "Remessa de produção do estabelecimento, com fim específico de
+# exportação."
+# Mercadoria de terceiros: 5.102 e 7.102 "Venda de mercadoria adquirida ou recebida de terceiros";
+# 5.403 e 5.405 (ST) "Venda de mercadoria adquirida ou recebida de terceiros em operação com
+# mercadoria sujeita ao regime de substituição tributária"; 5.502 "Remessa de mercadoria adquirida
+# ou recebida de terceiros, com fim específico de exportação." Qualquer outra descrição não decide.
+_PREFIXOS_PRODUCAO = (
+    "Venda de produção do estabelecimento",
+    "Remessa de produção do estabelecimento",
+)
+_PREFIXOS_REVENDA = (
+    "Venda de mercadoria adquirida ou recebida de terceiros",
+    "Remessa de mercadoria adquirida ou recebida de terceiros",
+)
+
+# Naturezas de mercadoria: as que têm anexo e aceitam a marca de monofásico (DL-082).
+NATUREZAS_DE_MERCADORIA = frozenset(_ANEXO_FIXO_DA_NATUREZA) | _ANEXO_PELO_CFOP_DA_NATUREZA
+
+
+def anexo_pelo_cfop(cfop: str) -> str | None:
+    """Anexo que a descrição oficial do CFOP decide, ou `None` se ela não decide.
+
+    Consulta a tabela oficial (`apps.fiscal.cfop`). CFOP fora da tabela não decide.
+    """
+    info = consultar_cfop_oficial(cfop)
+    if info is None:
+        return None
+    if info.descricao.startswith(_PREFIXOS_PRODUCAO):
+        return ANEXO_II
+    if info.descricao.startswith(_PREFIXOS_REVENDA):
+        return ANEXO_I
+    return None
+
+
+def anexo_da_mercadoria(natureza: str, cfop: str) -> str | None:
+    """Anexo de um item de mercadoria. `None` = a natureza e o CFOP não decidem (recusa do pré-DAS).
+
+    Para natureza que não é de mercadoria, devolve `None` também: quem chama confere
+    `NATUREZAS_DE_MERCADORIA` antes.
+    """
+    if natureza in _ANEXO_FIXO_DA_NATUREZA:
+        return _ANEXO_FIXO_DA_NATUREZA[natureza]
+    if natureza in _ANEXO_PELO_CFOP_DA_NATUREZA:
+        return anexo_pelo_cfop(cfop)
+    return None
+
+
+def segmento_da_mercadoria(*, st: bool, monofasico: bool, exportacao: bool) -> str:
+    """Segmento pela união dos tributos que saem (Res. CGSN 140, art. 25, §§ 3º, 6º a 8º).
+
+    Exportação já tira PIS, Cofins, IPI, ICMS e ISS: com ela, ST e monofásico não acrescentam nada
+    e o segmento é `exportacao` (§ 3º, "tão somente").
+    """
+    if exportacao:
+        return SEGMENTO_EXPORTACAO
+    if st and monofasico:
+        return SEGMENTO_ST_MONOFASICO
+    if st:
+        return SEGMENTO_SUJEITA_ST
+    if monofasico:
+        return SEGMENTO_MONOFASICO
+    return SEGMENTO_NORMAL
+
+
+def classificacao_da_venda(
+    natureza: str, monofasico_marcado: bool, cfop: str
+) -> tuple[str | None, str] | None:
+    """(anexo, segmento) de um item de VENDA de mercadoria; `None` se a natureza não é de
+    mercadoria.
+
+    O anexo pode ser `None` (CFOP que não decide): o pré-DAS recusa, nomeando natureza e CFOP.
+    `monofasico` vale pela natureza `monofasico` OU pela marca do contador no item (HI-128). Sem
+    marca e sem natureza monofásica, o item é normal (lado conservador: paga a mais, nunca a menos).
+    """
+    if natureza not in NATUREZAS_DE_MERCADORIA:
+        return None
+    segmento = segmento_da_mercadoria(
+        st=natureza == NaturezaOperacaoNFe.REVENDA_ST_SUBSTITUIDO,
+        monofasico=monofasico_marcado or natureza == NaturezaOperacaoNFe.MONOFASICO,
+        exportacao=natureza
+        in (NaturezaOperacaoNFe.EXPORTACAO_DIRETA, NaturezaOperacaoNFe.COMERCIAL_EXPORTADORA),
+    )
+    return anexo_da_mercadoria(natureza, cfop), segmento
+
+
+def classificacao_da_devolucao(segmento_confirmado: str) -> tuple[str, str] | None:
+    """(anexo, segmento) de uma devolução com segmento CONFIRMADO. `None` se não há confirmação."""
+    return ANEXO_E_SEGMENTO_DA_DEVOLUCAO.get(segmento_confirmado)
+
+
+def segmentos_permitidos(cfop: str) -> tuple[str, ...]:
+    """Segmentos de devolução que cabem num item com este CFOP (DL-082, correção A9).
+
+    Devolução de exportação (`e_devolucao_de_exportacao`) tem só os dois segmentos de exportação; as
+    demais têm só os outros. O anexo continua escolha do contador dentro do grupo. O seletor da tela
+    oferece só isto, e `definir_segmento_devolucao` recusa o que não couber aqui.
+    """
+    exportacao = e_devolucao_de_exportacao(cfop)
+    return tuple(
+        valor
+        for valor in SegmentoDevolucao.values
+        if (ANEXO_E_SEGMENTO_DA_DEVOLUCAO[valor][1] == SEGMENTO_EXPORTACAO) == exportacao
+    )
 
 
 class TipoEscrituracaoNFe(models.TextChoices):
@@ -2849,8 +3529,10 @@ class EscrituracaoNFe(models.Model):
 
     Os totais (`valor_nf`, `receita_bruta`, `devolucao`, `soma_itens`) são copiados na efetivação,
     a partir dos itens lidos do XML guardado. A composição da receita lê as naturezas por item
-    (`NaturezaItemNFe`) e a receita de cada item (`itens_nfe.receita_do_item`, DL-083), não estes
-    totais.
+    (`NaturezaItemNFe`) e a receita de cada item (`itens_nfe.receita_do_item`, DL-083 — em 2027, no
+    regime único do Simples, `itens_nfe.receita_do_item_2027`, que é o `vProd − vDesc`;
+    DL-088 A2, HI-149),
+    não estes totais.
 
     Imutabilidade, em três camadas (como na DL-072): `save()` recusa alterar linha efetivada ou
     estornada; os serviços mudam estado com `update()` condicionado; e o BANCO (gatilhos da
@@ -2894,7 +3576,9 @@ class EscrituracaoNFe(models.Model):
         "valor da nota (vNF)", max_digits=15, decimal_places=2, null=True, blank=True
     )
     # Soma da receita de TODOS os itens (`receita_do_item`, DL-083), de qualquer natureza. É a
-    # conferência com o vNF: vNF − vST − vFCPST − vIPI − vII − vIPIDevol.
+    # conferência com o vNF: vNF − vST − vFCPST − vIPI − vII − vIPIDevol. Em 2027, no regime único
+    # do Simples (DL-088 A2; HI-149), é a soma do `vProd − vDesc` dos itens, e a W16 não é
+    # aplicada (a composição do vNF em 2027 não está publicada — PE-84.4).
     soma_itens = models.DecimalField(
         "soma da receita dos itens", max_digits=15, decimal_places=2, null=True, blank=True
     )
@@ -3286,6 +3970,21 @@ class NaturezaItemNFe(models.Model):
         blank=True,
         default="",
     )
+    # Marca de monofásico de PIS e Cofins dada pelo contador (DL-082, HI-128). Separada da natureza
+    # de ICMS, para permitir "ST e monofásico" no mesmo item. Sem marca, o item é normal. Só vale
+    # para natureza de mercadoria, e só enquanto a escrituração é rascunho (gatilho da DL-081).
+    monofasico = models.BooleanField(
+        "monofásico de PIS e Cofins (marca do contador)", default=False
+    )
+    # Segmento CONFIRMADO de uma devolução de venda (DL-082, HI-129). Vazio = sem confirmação: o
+    # pré-DAS do mês recusa. Só vale para `devolucao_venda`, e só em rascunho.
+    segmento_devolucao = models.CharField(
+        "segmento da devolução (confirmado)",
+        max_length=TAMANHO_SEGMENTO_DEVOLUCAO,
+        choices=SegmentoDevolucao.choices,
+        blank=True,
+        default="",
+    )
     atualizada_em = models.DateTimeField("atualizada em", auto_now=True)
 
     class Meta:
@@ -3299,3 +3998,149 @@ class NaturezaItemNFe(models.Model):
 
     def __str__(self):
         return f"Natureza do item {self.item_id} na escrituração {self.escrituracao_id}"
+
+
+class EstadoLoteEscrituracaoNFe(models.TextChoices):
+    EM_ANDAMENTO = "em_andamento", "Em andamento"
+    CONCLUIDO = "concluido", "Concluído"
+
+
+class EstadoNotaDoLoteNFe(models.TextChoices):
+    PENDENTE = "pendente", "Pendente"
+    EFETIVADA = "efetivada", "Efetivada pelo lote"
+    JA_EFETIVADA = "ja_efetivada", "Já efetivada (pulada)"
+    FALHOU = "falhou", "Falhou"
+
+
+class LoteEscrituracaoNFe(models.Model):
+    """Lote de escrituração de NF-e e NFC-e de UM mês de UMA empresa (DL-085, frente A).
+
+    Guarda o CONJUNTO de notas que o contador confirmou, com a assinatura da prévia. Sem o lote,
+    a parte seguinte não sabe quais notas eram as confirmadas: depois da primeira parte, elas saem
+    da prévia (já estão efetivadas), e a assinatura da prévia muda. Por isso o conjunto é gravado
+    na confirmação, em `LoteEscrituracaoNFeNota`, e as partes seguintes o referem pelo id.
+
+    Um lote em andamento por empresa e mês, no máximo: o banco recusa o segundo (a trava de
+    `select_for_update` no serviço é a primeira defesa, esta é a segunda).
+
+    `escolhas` são as trocas de natureza feitas na confirmação, por grupo: já validadas contra a
+    prévia e contra o tipo de nota. A trilha de cada efetivação é a da escrituração individual.
+    """
+
+    escritorio = models.ForeignKey(
+        Escritorio, on_delete=models.PROTECT, related_name="lotes_escrituracao_nfe"
+    )
+    # Redundante com `empresa.escritorio`, como na escrituração: a consulta por escritório não
+    # precisa atravessar a empresa. A igualdade é garantida em `save()`.
+    empresa = models.ForeignKey(
+        Empresa, on_delete=models.PROTECT, related_name="lotes_escrituracao_nfe"
+    )
+    competencia = models.DateField("competência (primeiro dia do mês)")
+    assinatura = models.CharField("assinatura da prévia", max_length=64)
+    escolhas = models.JSONField("escolhas de natureza por grupo", default=dict, blank=True)
+    estado = models.CharField(
+        "estado",
+        max_length=12,
+        choices=EstadoLoteEscrituracaoNFe.choices,
+        default=EstadoLoteEscrituracaoNFe.EM_ANDAMENTO,
+    )
+    quantidade_notas = models.PositiveIntegerField("notas confirmadas", default=0)
+    quantidade_itens = models.PositiveIntegerField("itens confirmados", default=0)
+    criado_em = models.DateTimeField("criado em", auto_now_add=True)
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="confirmado por",
+    )
+    concluido_em = models.DateTimeField("concluído em", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "lote de escrituração de NF-e"
+        verbose_name_plural = "lotes de escrituração de NF-e"
+        ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["empresa", "competencia"],
+                condition=Q(estado="em_andamento"),
+                name="lote_nfe_em_andamento_unico_por_mes",
+            ),
+            models.CheckConstraint(
+                condition=Q(estado__in=["em_andamento", "concluido"]),
+                name="lote_nfe_estado_valido",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(estado="em_andamento", concluido_em__isnull=True)
+                    | Q(estado="concluido", concluido_em__isnull=False)
+                ),
+                name="lote_nfe_concluido_tem_data",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        # Isolamento: um lote de um escritório nunca aponta para empresa de outro (AGENTS.md §11).
+        if self.escritorio_id != self.empresa.escritorio_id:
+            raise ValidationError("O lote deve ser do escritório da empresa.")
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Lote de NF-e {self.pk} — empresa {self.empresa_id} ({self.get_estado_display()})"
+
+
+class LoteEscrituracaoNFeNota(models.Model):
+    """Uma nota do conjunto confirmado de um lote, com as naturezas FIXADAS na confirmação.
+
+    `itens` é a lista de `[item_id, natureza_sugerida, natureza_escolhida]`, na ordem do nItem. A
+    parte que efetiva compara a sugestão de hoje com a gravada: se a nota mudou desde a
+    confirmação (itens lidos de novo, sugestão diferente), a nota falha com motivo, e não é
+    efetivada com a natureza de uma leitura que o contador não viu.
+
+    `escrituracao` é preenchida quando a nota é efetivada pelo lote (ou quando já estava efetivada,
+    caso em que a nota é "pulada" e não se cria escrituração nova).
+    """
+
+    lote = models.ForeignKey(
+        LoteEscrituracaoNFe, on_delete=models.PROTECT, related_name="notas", verbose_name="lote"
+    )
+    vinculo = models.ForeignKey(
+        VinculoNFeEmpresa,
+        on_delete=models.PROTECT,
+        related_name="notas_de_lote_nfe",
+        verbose_name="vínculo de NF-e com empresa",
+    )
+    chave_grupo = models.CharField("grupo da prévia", max_length=40)
+    itens = models.JSONField("itens com natureza fixada", default=list)
+    estado = models.CharField(
+        "estado",
+        max_length=12,
+        choices=EstadoNotaDoLoteNFe.choices,
+        default=EstadoNotaDoLoteNFe.PENDENTE,
+    )
+    motivo = models.CharField("motivo (quando falhou)", max_length=500, blank=True, default="")
+    escrituracao = models.ForeignKey(
+        EscrituracaoNFe,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="escrituração",
+    )
+    processada_em = models.DateTimeField("processada em", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "nota de lote de escrituração de NF-e"
+        verbose_name_plural = "notas de lote de escrituração de NF-e"
+        ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["lote", "vinculo"], name="lote_nfe_nota_unica_por_lote"
+            ),
+            models.CheckConstraint(
+                condition=Q(estado__in=["pendente", "efetivada", "ja_efetivada", "falhou"]),
+                name="lote_nfe_nota_estado_valido",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Nota {self.vinculo_id} do lote {self.lote_id} ({self.get_estado_display()})"

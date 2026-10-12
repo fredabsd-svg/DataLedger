@@ -102,6 +102,8 @@ from apps.contabilidade.models import (
     ItemLancamento,
     LancamentoContabil,
     LancamentoImportado,
+    OrigemLancamento,
+    TipoDocumentoOrigem,
     TipoPartida,
 )
 from apps.contabilidade.services import (
@@ -1176,6 +1178,9 @@ def efetivar(importacao, *, politica=TUDO_OU_NADA, usuario=None, request=None):
                     soma_debitos += item["valor"]
                 else:
                     soma_creditos += item["valor"]
+            # DL-089 (BL-72): a origem `importacao` e o documento (o lote, pelo id da
+            # importação) são gravados aqui, no único caminho que passa o prefixo
+            # reservado. A API e a tela não informam nenhum dos dois.
             lancamento = criar_lancamento(
                 empresa=atual.empresa,
                 data=linha.data,
@@ -1184,6 +1189,8 @@ def efetivar(importacao, *, politica=TUDO_OU_NADA, usuario=None, request=None):
                 criado_por=usuario,
                 chave_idempotencia=f"{PREFIXO_DA_CHAVE}:{atual.sha256}:{linha.numero_origem}",
                 permitir_prefixo_da_importacao=True,
+                origem=OrigemLancamento.IMPORTACAO,
+                documento_origem=(TipoDocumentoOrigem.IMPORTACAO_LANCAMENTOS, atual.pk),
             )
             if lancamento.criado_agora:
                 criados += 1

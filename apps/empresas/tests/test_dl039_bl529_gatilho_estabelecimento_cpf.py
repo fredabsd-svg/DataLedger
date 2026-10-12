@@ -137,7 +137,10 @@ def test_migracao_0010_aplica_e_reverte_sem_alterar_dado_existente(escritorio):
     from django.db.migrations.executor import MigrationExecutor
 
     alvo_anterior = [("empresas", "0009_empresa_empresa_modo_escrituracao_valido")]
-    alvo_atual = MigrationExecutor(db_connection).loader.graph.leaf_nodes("empresas")
+    # DL-082: restaura TODAS as apps (leaf_nodes() sem app), não só `empresas`: reverter
+    # `empresas` desfaz também as migrações de `fiscal` que dependem dela, e o retorno só
+    # para `empresas` deixava a `fiscal` para trás.
+    alvo_atual = MigrationExecutor(db_connection).loader.graph.leaf_nodes()
     try:
         MigrationExecutor(db_connection).migrate(alvo_anterior)
 

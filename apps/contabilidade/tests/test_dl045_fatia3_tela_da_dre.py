@@ -1062,7 +1062,11 @@ def test_aviso_lista_de_estornos_de_zeramento_na_coluna(client):
         [zeramento_janeiro.get("lancamento_etapa2")]
         + list(zeramento_janeiro.get("lancamentos_etapa1") or []),
     ):
-        estornar_lancamento(lancamento_zeramento, data=timezone.datetime(2026, 2, 10).date())
+        estornar_lancamento(
+            lancamento_zeramento,
+            data=timezone.datetime(2026, 2, 10).date(),
+            papel=Papel.GESTOR,
+        )
     _lancar(
         empresa,
         timezone.datetime(2026, 2, 20).date(),

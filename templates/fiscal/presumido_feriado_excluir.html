@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block titulo %}Excluir feriado local — {{ empresa_selecionada.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa_selecionada.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Feriados locais</a></li>
+            <li aria-current="page">Excluir feriado</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para os feriados</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-084, item 2, arquétipo E (ação sensível): excluir o feriado tira o aviso dos vencimentos futuros
+desta praça. Feriado com exceção por ano NÃO se exclui — a exceção guarda o decreto que moveu a
+data, e o serviço da tela manda excluí-la antes.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Excluir feriado local</h1>{% endblock %}
+
+{% block content %}
+    <div class="painel-etapa painel-etapa--risco">
+        <h2>O que vai acontecer</h2>
+        <p>
+            O feriado deixa de avisar nos vencimentos desta praça. A linha é apagada da tabela — os
+            avisos que já saíram em telas anteriores não são refeitos. Se a lei ainda vale, cadastre
+            o feriado de novo, com a fonte.
+        </p>
+    </div>
+
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Data (normativa)</dt>
+            <dd>{{ feriado.data }}</dd>
+        </div>
+        <div>
+            <dt>Descrição</dt>
+            <dd>{{ feriado.descricao }}</dd>
+        </div>
+        <div>
+            <dt>Abrangência</dt>
+            <dd>{{ feriado.abrangencia }}</dd>
+        </div>
+        <div>
+            <dt>Fonte</dt>
+            <dd>{{ feriado.fundamento }} (lida em {{ feriado.data_leitura }})</dd>
+        </div>
+    </dl>
+
+    {% if erro %}
+        <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erro }}</p>
+    {% endif %}
+
+    <form method="post" action="{{ url_envio }}" class="formulario">
+        {% csrf_token %}
+        <div class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+            {% comment %}
+            Direção de arte §8.4: ação sensível em `.botao--perigoso`, com rótulo que nomeia o alvo —
+            o feriado, com data e descrição, nunca só "Excluir". Linha da base (DE-106): a ação
+            aparece desabilitada com o motivo (§2B), com o MESMO texto da recusa do servidor.
+            {% endcomment %}
+            {% if feriado.da_base %}
+                <button type="button" class="botao botao--perigoso" disabled aria-describedby="ajuda_linha_da_base">Excluir feriado de {{ feriado.data }} — {{ feriado.descricao }}</button>
+            {% else %}
+                <button type="submit" class="botao botao--perigoso">Excluir feriado de {{ feriado.data }} — {{ feriado.descricao }}</button>
+            {% endif %}
+        </div>
+    </form>
+    {% if feriado.da_base %}
+        <p class="texto-apoio" id="ajuda_linha_da_base">Esta é uma linha da base (lei e fonte da carga) — somente leitura: cadastre a sua para a sua praça.</p>
+    {% endif %}
+{% endblock %}

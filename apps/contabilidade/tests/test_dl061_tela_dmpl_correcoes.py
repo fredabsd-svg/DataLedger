@@ -126,7 +126,7 @@ def _caso_a_com_transferencia_estornada():
         if "Zeramento" in lancamento.historico and "contas de resultado" not in lancamento.historico
     ]
     assert len(etapa_2) == 1, "o cenário depende do histórico gravado pelo zeramento"
-    estornar_lancamento(etapa_2[0], criado_por=gestor, data=date(2026, 3, 31))
+    estornar_lancamento(etapa_2[0], criado_por=gestor, data=date(2026, 3, 31), papel=Papel.GESTOR)
     return empresa, contas, gestor
 
 

@@ -24,8 +24,16 @@ Hipóteses HI-117 a HI-124 (requisitos.md). Decisões que o código não explica
   ausentes valem zero só nessa fórmula, e a divergência bloqueia a efetivação com os valores na
   mensagem. A atribuição (HI-138) bloqueia nos três casos de `itens_nfe`: sem item de receita, com
   resíduo negativo maior que a receita, e sem base para rateio.
-- 2027 (HI-133; consulta PE-84.4): nota com dhEmi em 2027 ou depois (fuso de São Paulo) não é
-  efetivada, porque a NT 2026.008 não diz como fica o vNF.
+- 2027 (HI-133; consulta PE-84.4; DL-088 A2, HI-149): a NT 2026.008 diz que IBS, CBS e IS compõem
+  o `vProd` a partir de 2027 e não diz como fica o vNF. Para a empresa do Simples no REGIME ÚNICO
+  do semestre, a nota de 2027 é efetivada com receita = `vProd − vDesc`
+   (`itens_nfe.receita_do_item_2027` — o
+   desconto incondicional sai da receita bruta, LC 123, art. 3º, § 1º; correção do achado A2 da
+   auditoria da DL-088),
+  sem a conferência W16 (não há identidade publicada para o vNF de 2027), e o `vProdLiq` vira
+  memória quando o leitor o trouxer (BL-687). Para o Presumido e para quem optou pelo regime
+  regular a recusa continua, cada caso com o motivo nomeado (`motivo_bloqueio_efetivacao`), até a
+  leitura do DL 1.598, art. 12, § 4º.
 - Competência = mês de `dhEmi` no fuso de São Paulo (consulta, item 1).
 - Nada aqui calcula ICMS, guia ou alíquota. Só se escritura e se confere.
 - Concorrência: cada serviço que escreve roda em `transaction.atomic()` e trava a EMPRESA
@@ -47,6 +55,7 @@ from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 from apps.auditoria.services import registrar
+from apps.empresas.models import RegimeTributario
 from apps.fiscal import receita as receita_servico
 from apps.fiscal import services
 from apps.fiscal.cfop import (
@@ -61,14 +70,21 @@ from apps.fiscal.itens_nfe import (
     MENSAGEM_ITEM_FORA_DO_TOTAL_COM_VALOR,  # noqa: F401 (reexportada: a API e a tela a comparam)
     VERSAO_LEITOR_ITENS,
     ResiduoNaoAtribuivel,
+    atribuicao_pelo_vprod,
     atribuir_receita_da_nota,
     atribuir_receita_da_nota_efetivada,
     avisos_da_atribuicao,
     ler_itens,
     receita_do_item,
+    receita_do_item_2027,
 )
 from apps.fiscal.models import (
+    ANEXO_DA_DEVOLUCAO_DE_EXPORTACAO_DE_ENTRADA,
+    ANEXO_E_SEGMENTO_DA_DEVOLUCAO,
+    ANEXO_I,
+    ANEXO_II,
     CATALOGO_NATUREZA_NFE,
+    NATUREZAS_DE_MERCADORIA,
     EscrituracaoNFe,
     EstadoEscrituracao,
     EventoNFe,
@@ -77,10 +93,15 @@ from apps.fiscal.models import (
     NaturezaItemNFe,
     NaturezaOperacaoNFe,
     PapelNFe,
+    SegmentoDevolucao,
     TipoEscrituracaoNFe,
     VinculoNFeEmpresa,
+    classificacao_da_venda,
+    e_devolucao_de_exportacao,
     mercado_da_natureza_nfe,
     papel_da_natureza_nfe,
+    segmento_da_mercadoria,
+    segmentos_permitidos,
 )
 from apps.fiscal.ncm_combustivel import (
     NCM_COMBUSTIVEL,
@@ -395,14 +416,52 @@ def sugerir_natureza_item(documento, item, tipo: str | None = None) -> Sugestao:
     return Sugestao(natureza, f"sugerida pelo sinal de {origem}")
 
 
+# DL-084, item 6 (HI-136; PE-85.1): o padrão de combustível da empresa sugere a natureza "para
+# consumo" (1,6%) SÓ quando o CFOP não decide. Posto e TRR vendem a consumidor final. Distribuidora
+# não tem padrão: quem decide é o item.
+#
+# Quando o CFOP não decide: o item NÃO tem CFOP de combustível (5949, por exemplo) e o NCM diz que é
+# combustível. Aí o CFOP não separa consumo de revenda, e o padrão separa. Não entram: (a) CFOP de
+# combustível, que já decide consumo (x.656) ou revenda (x.655) e só espera o NCM; (b) item comum de
+# posto (loja de conveniência), cujo NCM não é de combustível.
+_PADROES_QUE_SUGEREM_CONSUMO = ("posto", "trr")
+
+
+def sugerir_natureza_com_padrao(
+    documento, item, padrao_combustivel: str | None, tipo: str | None = None
+) -> Sugestao:
+    """`sugerir_natureza_item` com o padrão de combustível da empresa, como último recurso (DL-084).
+
+    Os caminhos reais de sugestão passam o padrão: a conferência do mês
+    (`_itens_sem_sugestao_do_mes`), o lote (`_calcular` e `_desvio_desde_a_confirmacao`) e a API de
+    escrituração. Cada um lê o padrão da empresa UMA vez por chamada e o repassa aos itens — a
+    consulta por item estoura o orçamento do lote (BL-698). Qualquer caso fora da regra devolve o
+    resultado de `sugerir_natureza_item`, sem mudança.
+    """
+    base = sugerir_natureza_item(documento, item, tipo)
+    if base.natureza is not None or padrao_combustivel not in _PADROES_QUE_SUGEREM_CONSUMO:
+        return base
+    if _natureza_de_combustivel_pelo_cfop(item.cfop) is not None:
+        return base
+    if normalizar_ncm(item.ncm) not in NCM_COMBUSTIVEL:
+        return base
+    return Sugestao(
+        NaturezaOperacaoNFe.COMBUSTIVEL,
+        "sugerida pelo padrão de combustível da empresa (posto ou TRR): o NCM é de combustível "
+        "e o CFOP não diz se é consumo ou revenda",
+    )
+
+
 def segregacao_da_escrituracao(escrituracao: EscrituracaoNFe) -> dict[str, Decimal]:
     """Receita de mercadoria por segregação do Simples (consulta, item 3): memória, sem alíquota.
 
     Normal (revenda, produção, substituto: a operação própria), sujeita a ST (natureza 3),
-    monofásico (natureza 5) e exportação (mercado externo). Só naturezas de receita. A receita de
-    cada item é `receita_do_item` (DL-083): item indTot 0 entra só pelo que foi cobrado.
-    A natureza de serviço (14) não entra aqui: é segregada no pré-DAS de serviços, fora deste corte.
-    A receita de cada item já vem com a parcela do resíduo atribuída à nota (HI-138), e a
+    monofásico (natureza 5 ou a marca do item) e exportação (mercado externo). DL-082: ST e
+    monofásico no mesmo item é a chave `st_monofasico` (união dos dois conjuntos, HI-127), e não se
+    junta a `sujeita_st` (correção A8). Só naturezas de receita. A receita de cada item é
+    `receita_do_item` (DL-083): item indTot 0 entra
+    só pelo que foi cobrado. A natureza de serviço (14) não entra aqui: é segregada no pré-DAS de
+    serviços. A receita de cada item já vem com a parcela do resíduo atribuída à nota (HI-138), e a
     leitura usa `atribuir_receita_da_nota_efetivada`: a nota efetivada antes da DL-083 que a regra
     nova recusaria é lida pelo critério anterior, sem derrubar a receita do mês (reconferência, R2).
     """
@@ -410,6 +469,7 @@ def segregacao_da_escrituracao(escrituracao: EscrituracaoNFe) -> dict[str, Decim
         "normal": Decimal("0.00"),
         "sujeita_st": Decimal("0.00"),
         "monofasico": Decimal("0.00"),
+        "st_monofasico": Decimal("0.00"),
         "exportacao": Decimal("0.00"),
     }
     registros = NaturezaItemNFe.objects.select_related("item").filter(escrituracao=escrituracao)
@@ -420,7 +480,12 @@ def segregacao_da_escrituracao(escrituracao: EscrituracaoNFe) -> dict[str, Decim
         info = CATALOGO_NATUREZA_NFE[registro.natureza]
         if info.papel != "receita" or info.segregacao is None:
             continue
-        total[info.segregacao] += atribuicao.valores[registro.item_id]
+        # DL-082: a memória tem as cinco chaves que a tela conhece. Monofásico pela marca cai em
+        # `monofasico`. ST com monofásico no mesmo item cai em `st_monofasico` (A8): a memória e a
+        # tela o dizem, e o pré-DAS segrega os dois tributos certos.
+        classe = classificacao_da_venda(registro.natureza, registro.monofasico, registro.item.cfop)
+        segmento = info.segregacao if classe is None else classe[1]
+        total[segmento] += atribuicao.valores[registro.item_id]
     return total
 
 
@@ -465,6 +530,8 @@ def notas_do_mes(empresa, ano: int, mes: int) -> list[NotaDoMes]:
         tp_evento__in=CODIGOS_CANCELAMENTO_NFE,
         c_stat__in=CODIGOS_EFETIVOS_NFE,
     )
+    # `xml_original` não é carregado: a lista do mês só precisa do cabeçalho e dos itens. A leitura
+    # de itens, que precisa do XML, carrega o campo na hora (DL-085, auditoria A7).
     vinculos = list(
         VinculoNFeEmpresa.objects.filter(
             empresa=empresa,
@@ -473,6 +540,7 @@ def notas_do_mes(empresa, ano: int, mes: int) -> list[NotaDoMes]:
             documento__dh_emissao__lt=fim,
         )
         .select_related("documento")
+        .defer("documento__xml_original")
         .annotate(cancelada=Exists(eventos_de_cancelamento))
         .order_by("-documento__dh_emissao", "-documento_id")
     )
@@ -588,6 +656,9 @@ def _travar_vinculo(vinculo: VinculoNFeEmpresa) -> VinculoNFeEmpresa:
     return (
         VinculoNFeEmpresa.objects.select_for_update(of=("self",))
         .select_related("documento", "empresa__escritorio")
+        # O XML original não é usado aqui; carregá-lo a cada nota pesava no lote (DL-085, R2).
+        # Quem precisa dele (a leitura dos itens) o carrega sob demanda.
+        .defer("documento__xml_original")
         .get(pk=vinculo.pk)
     )
 
@@ -654,6 +725,11 @@ def criar_rascunho(vinculo: VinculoNFeEmpresa, usuario, request=None) -> Escritu
 
 @transaction.atomic
 def _criar_rascunho_travado(vinculo: VinculoNFeEmpresa, usuario, request) -> EscrituracaoNFe:
+    # Ajuste do arquiteto depois da correção da DL-085 (A5): a empresa é travada ANTES do vínculo,
+    # na mesma ordem da efetivação e do lote (empresa → vínculo → escrituração). Antes, a criação
+    # individual pegava o vínculo e depois precisava da linha da empresa (o INSERT da escrituração
+    # pede KEY SHARE nela), e o lote, que já tinha a empresa, podia entrar em deadlock com ela.
+    receita_servico.travar_empresa(vinculo.empresa)
     travado = _travar_vinculo(vinculo)
     ativa = _ativa_do_vinculo(travado)
     if ativa is not None and ativa.estado == EstadoEscrituracao.EFETIVADA:
@@ -697,6 +773,20 @@ def _criar_rascunho_travado(vinculo: VinculoNFeEmpresa, usuario, request) -> Esc
     return escrituracao
 
 
+def natureza_incompativel_com_marca(
+    natureza: str, monofasico: bool, segmento_devolucao: str
+) -> bool:
+    """Uma natureza nova não aceita a marca de monofásico ou o segmento de devolução do item.
+
+    A marca só vale para natureza de mercadoria, e o segmento só para devolução de venda. Esta é a
+    ÚNICA regra disto: `definir_natureza` e `reclassificar_em_massa` a usam, para que a troca de
+    natureza em lote não contorne a que vale item a item (correção da rodada 1, A12).
+    """
+    if monofasico and natureza not in NATUREZAS_DE_MERCADORIA:
+        return True
+    return bool(segmento_devolucao) and natureza != NaturezaOperacaoNFe.DEVOLUCAO_VENDA
+
+
 @transaction.atomic
 def definir_natureza(
     escrituracao: EscrituracaoNFe, natureza: str, item_ids, usuario, request=None
@@ -713,6 +803,7 @@ def definir_natureza(
     travada = (
         EscrituracaoNFe.objects.select_for_update(of=("self",))
         .select_related("vinculo__documento", "empresa__escritorio")
+        .defer("vinculo__documento__xml_original")
         .get(pk=escrituracao.pk)
     )
     if travada.estado != EstadoEscrituracao.RASCUNHO:
@@ -728,6 +819,10 @@ def definir_natureza(
     )
     if len(alvos) != len(ids):
         raise EntradaInvalidaNFe("Algum item informado não pertence a esta nota.")
+    # DL-082: a marca de monofásico e o segmento da devolução só valem para a natureza certa.
+    for alvo in alvos:
+        if natureza_incompativel_com_marca(natureza, alvo.monofasico, alvo.segmento_devolucao):
+            raise EntradaInvalidaNFe(MENSAGEM_NATUREZA_COM_MARCA)
     antes = {a.item_id: a.natureza for a in alvos}
     NaturezaItemNFe.objects.filter(pk__in=[a.pk for a in alvos]).update(natureza=natureza)
 
@@ -748,6 +843,196 @@ def definir_natureza(
     return travada
 
 
+# ---------------------------------------------------------------------------
+# DL-082: marca de monofásico (HI-128) e segmento CONFIRMADO da devolução (HI-129). Só em rascunho:
+# o gatilho da DL-081 (migração 0011) recusa qualquer mudança depois da efetivação.
+# ---------------------------------------------------------------------------
+
+MENSAGEM_MARCA_SO_EM_MERCADORIA = (
+    "A marca de monofásico só vale para venda de mercadoria (revenda, produção própria, ST, "
+    "substituto, monofásico ou exportação). Esta natureza não é mercadoria."
+)
+MENSAGEM_NATUREZA_COM_MARCA = (
+    "Este item tem marca de monofásico ou segmento de devolução confirmado: tire a marca ou o "
+    "segmento antes de mudar a natureza para uma que não os aceita."
+)
+# A3: o segmento de exportação e a devolução de exportação andam juntos, nos dois sentidos. O texto
+# começa por "Devolução de exportação tem CFOP 3.xxx" (as telas e os testes o citam).
+MENSAGEM_SEGMENTO_DE_EXPORTACAO = (
+    "Devolução de exportação tem CFOP 3.xxx, ou 1.503 a 1.506 e 2.503 a 2.506: o segmento de "
+    "exportação só vale com esses CFOP, e esses CFOP só com o segmento de exportação."
+)
+
+# Par (anexo, segmento) → valor de `SegmentoDevolucao`. A tabela de `models` é a fonte; esta é a
+# inversa.
+_SEGMENTO_DEVOLUCAO_POR_PAR = {par: valor for valor, par in ANEXO_E_SEGMENTO_DA_DEVOLUCAO.items()}
+# CFOP de devolução: x.201 (produção) e x.410 (produção com ST); x.202 (revenda) e x.411 (revenda
+# com ST).
+_PRODUCAO_NA_DEVOLUCAO = frozenset({"201", "410"})
+_REVENDA_NA_DEVOLUCAO = frozenset({"202", "411"})
+
+
+@dataclass(frozen=True)
+class SugestaoSegmento:
+    """Segmento sugerido para uma devolução. `segmento` None = sem sugestão (o contador escolhe)."""
+
+    segmento: str | None
+    motivo: str
+
+
+def sugerir_segmento_devolucao(item, monofasico: bool) -> SugestaoSegmento:
+    """Segmento sugerido para UMA devolução de venda, pelo item (HI-129). Sugere; nunca grava.
+
+    - Anexo: CFOP x.201/x.410 é produção (Anexo II); x.202/x.411 é revenda (Anexo I). CFOP 3.xxx
+      segue a mesma regra e é exportação.
+    - Exportação (A3): x.503 a x.506 (1.503 a 1.506 e 2.503 a 2.506) são devolução de exportação. O
+      anexo sai da descrição oficial (`ANEXO_DA_DEVOLUCAO_DE_EXPORTACAO_DE_ENTRADA`). Os 3.50x não
+      dizem produção ou revenda, e ficam sem sugestão.
+    - ST: CFOP x.410/x.411, ou CSOSN/CST 500 (60), é ICMS-ST substituído. Na exportação o ST não
+      muda o segmento: exportação tira tudo o que ST tiraria.
+    - Monofásico: só a marca do item (não há tabela de NCM; HI-128).
+    - Sem anexo pelo CFOP (CFOP fora das listas acima), não há sugestão.
+    """
+    cfop = item.cfop
+    primeiro, sufixo = cfop[0], cfop[1:]
+    if primeiro not in ("1", "2", "3"):
+        return SugestaoSegmento(None, f"CFOP {cfop} não é de devolução de venda")
+    anexo_da_exportacao = ANEXO_DA_DEVOLUCAO_DE_EXPORTACAO_DE_ENTRADA.get(f"{primeiro}.{sufixo}")
+    if anexo_da_exportacao is not None:
+        anexo = anexo_da_exportacao
+    elif sufixo in _PRODUCAO_NA_DEVOLUCAO:
+        anexo = ANEXO_II
+    elif sufixo in _REVENDA_NA_DEVOLUCAO:
+        anexo = ANEXO_I
+    else:
+        return SugestaoSegmento(
+            None,
+            f"sem sugestão: CFOP {cfop} não diz se a venda original era de produção ou revenda",
+        )
+    st = sufixo in ("410", "411") or item.csosn in _CST_SUBSTITUIDO or item.cst in _CST_SUBSTITUIDO
+    segmento = segmento_da_mercadoria(
+        st=st, monofasico=monofasico, exportacao=e_devolucao_de_exportacao(cfop)
+    )
+    return SugestaoSegmento(
+        _SEGMENTO_DEVOLUCAO_POR_PAR[(anexo, segmento)],
+        f"sugerida pelo CFOP {cfop}, pelo CSOSN/CST e pela marca de monofásico (HI-129)",
+    )
+
+
+def _travar_rascunho(escrituracao: EscrituracaoNFe, ids: list[int]):
+    """Trava a empresa e a escrituração e devolve os itens pedidos. Recusa se não for rascunho."""
+    if not ids:
+        raise EntradaInvalidaNFe("Informe ao menos um item.")
+    receita_servico.travar_empresa(escrituracao.empresa)
+    travada = (
+        EscrituracaoNFe.objects.select_for_update(of=("self",))
+        .select_related("vinculo__documento", "empresa__escritorio")
+        .defer("vinculo__documento__xml_original")
+        .get(pk=escrituracao.pk)
+    )
+    if travada.estado != EstadoEscrituracao.RASCUNHO:
+        raise EscrituracaoNFeErro(
+            "Esta escrituração não é mais rascunho. Estornada ou efetivada, a marca e o segmento "
+            "não mudam."
+        )
+    alvos = list(
+        NaturezaItemNFe.objects.select_for_update(of=("self",))
+        .select_related("item")
+        .filter(escrituracao=travada, item_id__in=ids)
+    )
+    if len(alvos) != len(ids):
+        raise EntradaInvalidaNFe("Algum item informado não pertence a esta nota.")
+    return travada, alvos
+
+
+@transaction.atomic
+def definir_marca_monofasico(
+    escrituracao: EscrituracaoNFe, item_ids, monofasico: bool, usuario, request=None
+) -> EscrituracaoNFe:
+    """Marca (ou desmarca) o monofásico de PIS e Cofins de UM ou VÁRIOS itens (DL-082, HI-128).
+
+    A marca é do contador, na escrituração em rascunho. Só vale para natureza de mercadoria: a
+    devolução marca o segmento (`definir_segmento_devolucao`), e combustível ou serviço não aceitam
+    a marca. Sem marca, o item é normal (lado conservador).
+    """
+    if not isinstance(monofasico, bool):
+        raise EntradaInvalidaNFe("A marca de monofásico é verdadeiro ou falso.")
+    ids = sorted({int(i) for i in item_ids})
+    travada, alvos = _travar_rascunho(escrituracao, ids)
+    if monofasico:
+        for alvo in alvos:
+            if alvo.natureza and alvo.natureza not in NATUREZAS_DE_MERCADORIA:
+                raise EntradaInvalidaNFe(MENSAGEM_MARCA_SO_EM_MERCADORIA)
+            if alvo.segmento_devolucao:
+                raise EntradaInvalidaNFe(
+                    "Este item tem segmento de devolução confirmado: a marca de monofásico não se "
+                    "aplica a devolução."
+                )
+    antes = {a.item_id: a.monofasico for a in alvos}
+    NaturezaItemNFe.objects.filter(pk__in=[a.pk for a in alvos]).update(monofasico=monofasico)
+    registrar(
+        acao="escrituracao_nfe.monofasico_definido",
+        usuario=usuario,
+        escritorio=travada.empresa.escritorio,
+        objeto=travada,
+        request=request,
+        detalhes={
+            "vinculo_id": travada.vinculo_id,
+            "monofasico": monofasico,
+            "itens": {
+                str(item_id): {"antes": antes[item_id], "depois": monofasico} for item_id in ids
+            },
+        },
+    )
+    return travada
+
+
+@transaction.atomic
+def definir_segmento_devolucao(
+    escrituracao: EscrituracaoNFe, item_ids, segmento: str, usuario, request=None
+) -> EscrituracaoNFe:
+    """Confirma o anexo e o segmento de UMA ou VÁRIAS devoluções de venda (DL-082, HI-129).
+
+    `segmento` vazio desfaz a confirmação. Só rascunho. A devolução de exportação tem CFOP 3.xxx ou
+    1.503 a 1.506 e 2.503 a 2.506 (A3): o segmento de exportação só vale com esses CFOP, e esses
+    CFOP só com o segmento de exportação. A regra é `segmentos_permitidos`, a mesma da tela (A9).
+    Sem segmento confirmado, o pré-DAS do mês recusa; nunca há rateio.
+    """
+    segmento = (segmento or "").strip()
+    if segmento and segmento not in SegmentoDevolucao.values:
+        raise EntradaInvalidaNFe(
+            "Segmento de devolução desconhecido: escolha uma das opções do catálogo fiscal."
+        )
+    ids = sorted({int(i) for i in item_ids})
+    travada, alvos = _travar_rascunho(escrituracao, ids)
+    for alvo in alvos:
+        if alvo.natureza and alvo.natureza != NaturezaOperacaoNFe.DEVOLUCAO_VENDA:
+            raise EntradaInvalidaNFe(
+                "O segmento confirma devolução de venda. Este item não é devolução de venda."
+            )
+        # A3: o CFOP de exportação de entrada (1.503 a 1.506, 2.503 a 2.506) conta como 3.xxx. A
+        # regra é `segmentos_permitidos`, a mesma que a tela usa (A9).
+        if segmento and segmento not in segmentos_permitidos(alvo.item.cfop):
+            raise EntradaInvalidaNFe(MENSAGEM_SEGMENTO_DE_EXPORTACAO)
+    antes = {a.item_id: a.segmento_devolucao for a in alvos}
+    NaturezaItemNFe.objects.filter(pk__in=[a.pk for a in alvos]).update(segmento_devolucao=segmento)
+    registrar(
+        acao="escrituracao_nfe.segmento_devolucao_definido",
+        usuario=usuario,
+        escritorio=travada.empresa.escritorio,
+        objeto=travada,
+        request=request,
+        detalhes={
+            "vinculo_id": travada.vinculo_id,
+            "segmento": segmento,
+            "itens": {
+                str(item_id): {"antes": antes[item_id], "depois": segmento} for item_id in ids
+            },
+        },
+    )
+    return travada
+
+
 @dataclass(frozen=True)
 class _ConferenciaDaNota:
     soma_itens: Decimal
@@ -756,27 +1041,86 @@ class _ConferenciaDaNota:
     valor_nf: Decimal
 
 
-# Regra de receita de 2027 pendente (HI-133; consulta PE-84.4): a NT 2026.008 diz que IBS, CBS e IS
-# compõem o vProd a partir de 2027, e não diz como fica o vNF. Até a Receita publicar a regra, a
-# nota
-# não tem receita efetivada. O texto é fixo: a tela o mostra no botão, e o servidor, na recusa.
+# Regra de receita de 2027 (HI-133; consulta PE-84.4; DL-088 A2, HI-149): a NT 2026.008 diz que
+# IBS, CBS e IS compõem o vProd a partir de 2027, e não diz como fica o vNF. Sem a regra por
+# regime, a nota não tem receita efetivada. Os textos são fixos: a tela os mostra no botão, e o
+# servidor, na recusa.
 MENSAGEM_RECEITA_2027_PENDENTE = "regra de receita de 2027 pendente: NT 2026.008 e vNF"
 # Texto da recusa de NF-e de 2027 no Presumido (A8): a nota não pode ser escriturada.
 MENSAGEM_NFE_2027_PENDENTE = (
     "NF-e de 2027 sem regra de receita (NT 2026.008 e vNF): não pode ser escriturada"
 )
+# DL-088 A2 (HI-149): só o Simples no regime único do semestre tem receita de 2027 (o `vProd`). Os
+# demais casos recusam com o motivo nomeado, cada um dizendo o que falta (o texto é o que a tela e
+# a API mostram).
+MENSAGEM_RECEITA_2027_REGIME_REGULAR = (
+    "NF-e de 2027 não se efetiva para quem optou pelo regime regular de IBS/CBS: a receita do "
+    "regime regular depende do DL 1.598, art. 12, § 4º, não lido (HI-149)"
+)
+MENSAGEM_RECEITA_2027_SEM_OPCAO = (
+    "NF-e de 2027 não se efetiva sem a opção de regime de IBS/CBS do semestre (art. 22-A da Res. "
+    "CGSN 190/2026): não se sabe se a empresa está no regime único (HI-149)"
+)
+MENSAGEM_RECEITA_2027_PRESUMIDO = (
+    "NF-e de 2027 não se efetiva no Lucro Presumido: a receita do regime depende do DL 1.598, "
+    "art. 12, § 4º, não lido (HI-149)"
+)
 
 
-def motivo_bloqueio_efetivacao(documento) -> str | None:
-    """Por que a nota não pode ser efetivada por regra de DATA, ou `None` (checagem pura, A8).
+def motivo_bloqueio_efetivacao(documento, empresa=None) -> str | None:
+    """Por que a nota não pode ser efetivada por regra de DATA e de REGIME, ou `None`.
 
-    Hoje só a receita de 2027 (HI-133). Quem chama é a tela (desabilita o botão com o motivo) e o
-    serviço de efetivação (recusa no POST). O ano é o de São Paulo: 31/12/2026 23:59 é de 2026.
+    O ano é o de São Paulo: 31/12/2026 23:59 é de 2026. Antes de 2027 nunca bloqueia. Quem chama é
+    a tela (desabilita o botão com o motivo), o serviço de efetivação (recusa no POST), a API e o
+    lote.
+
+    Em 2027 em diante (DL-088 A2; HI-149), a receita de NF-e só sai para a empresa do Simples no
+    REGIME ÚNICO do semestre da emissão (receita = `vProd − vDesc`; ver `receita_servico.
+    receita_nfe_pelo_vprod`). Sem `empresa`, a checagem é a PURA DATA da DL-083 (A8): 2027 bloqueia
+    com `MENSAGEM_RECEITA_2027_PENDENTE` — é o que a tela mostra antes de saber o regime, e o que o
+    Presumido sempre verá. Com a `empresa`, cada recusa tem o motivo nomeado:
+
+    - Simples sem a opção do semestre informada → `MENSAGEM_RECEITA_2027_SEM_OPCAO`;
+    - Simples no regime regular (art. 22-A) → `MENSAGEM_RECEITA_2027_REGIME_REGULAR`;
+    - Lucro Presumido → `MENSAGEM_RECEITA_2027_PRESUMIDO`;
+    - demais (sem o Simples na data) → `MENSAGEM_RECEITA_2027_PENDENTE`.
     """
     dia, _competencia = dia_e_competencia(documento)
-    if dia.year >= 2027:
+    if dia.year < 2027:
+        return None
+    if empresa is None:
         return MENSAGEM_RECEITA_2027_PENDENTE
-    return None
+    if receita_servico.receita_nfe_pelo_vprod(empresa, dia):
+        return None
+    regimes = receita_servico.regimes_em(empresa, dia)
+    if RegimeTributario.SIMPLES_NACIONAL in regimes:
+        # Empresa do Simples, mas não no regime único do semestre: ou a opção não está informada
+        # (o pré-DAS do mês também recusa), ou ela é de regime regular. Cada caso, seu motivo.
+        opcao = receita_servico.opcao_regime_ibs_cbs_do_semestre(
+            empresa, dia.year, 1 if dia.month <= 6 else 2
+        )
+        if opcao is None:
+            return MENSAGEM_RECEITA_2027_SEM_OPCAO
+        return MENSAGEM_RECEITA_2027_REGIME_REGULAR
+    if RegimeTributario.LUCRO_PRESUMIDO in regimes:
+        return MENSAGEM_RECEITA_2027_PRESUMIDO
+    return MENSAGEM_RECEITA_2027_PENDENTE
+
+
+def memoria_v_prod_liq(itens) -> dict[str, str] | None:
+    """`vProdLiq` de cada item, para a memória da efetivação de 2027 (HI-149), ou `None`.
+
+    Guardado como memória QUANDO o leitor tiver o campo (BL-687): o leitor de hoje não o lê, e aí
+    não há valor que guardar. `getattr` porque o campo entra com o BL-687, sem subir a versão do
+    leitor desta etapa (a efetivação continua exigindo `VERSAO_LEITOR_ITENS`). Chave: `nItem` do
+    item; valor: o número como texto, sem float.
+    """
+    valores = {
+        str(item.n_item): str(valor)
+        for item in itens
+        if (valor := getattr(item, "v_prod_liq", None)) is not None
+    }
+    return valores or None
 
 
 def avisos_do_item(item) -> tuple[str, ...]:
@@ -826,7 +1170,9 @@ def avisos_da_nota(pares) -> dict[int, tuple[str, ...]]:
     return resultado
 
 
-def conferir_valores(documento, leitura, itens_e_naturezas) -> _ConferenciaDaNota:
+def conferir_valores(
+    documento, leitura, itens_e_naturezas, *, receita_pelo_vprod: bool = False
+) -> _ConferenciaDaNota:
     """Conferência da receita com o vNF, pela regra W16 do MOC 7.0 (HI-119; DL-083).
 
     Tolerância zero.
@@ -845,8 +1191,34 @@ def conferir_valores(documento, leitura, itens_e_naturezas) -> _ConferenciaDaNot
     bloqueios são os da atribuição, com mensagem fixa: nota sem item de receita com resíduo; resíduo
     negativo maior que a receita; resíduo sem base para ratear. A soma da nota não muda com a
     atribuição, então a W16 é a mesma. `itens_e_naturezas`: lista de (ItemNFe, natureza).
+
+    `receita_pelo_vprod=True` (DL-088 A2; HI-149) é a nota de 2027 em diante do Simples no regime
+    único: a receita é o `vProd − vDesc` (`itens_nfe.receita_do_item_2027`), sem atribuição de
+    resíduo, e a
+    W16 NÃO é aplicada — a composição do `vNF` em 2027 não está publicada (a NT 2026.008 fala do
+    `vProd`, não do `vNF`; PE-84.4), e aplicar a identidade seria presumir um leiaute. `soma_itens`
+    continua a soma do valor de TODOS os itens com natureza, para a conferência do contador.
     """
     pares = list(itens_e_naturezas)
+    if receita_pelo_vprod:
+        if documento.v_nf is None:
+            raise EscrituracaoNFeErro(
+                "A nota não tem o valor total (vNF): o total é obrigatório no XSD. Nota bloqueada."
+            )
+        soma = Decimal("0.00")
+        receita = Decimal("0.00")
+        devolucao = Decimal("0.00")
+        valores = atribuicao_pelo_vprod(pares).valores
+        for item, natureza in pares:
+            if not natureza:
+                continue
+            soma += receita_do_item_2027(item)
+            papel = papel_da_natureza_nfe(natureza)
+            if papel == "receita":
+                receita += valores[item.pk]
+            elif papel == "deducao":
+                devolucao += valores[item.pk]
+        return _ConferenciaDaNota(soma, receita, devolucao, documento.v_nf)
     try:
         atribuicao = atribuir_receita_da_nota(pares)
     except ResiduoNaoAtribuivel as exc:
@@ -892,11 +1264,18 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
 
     Exige: itens lidos, natureza em TODOS os itens e conferência com vNF. Efetivar em mês já
     confirmado reabre a confirmação e marca "a retificar" (DL-074, critério 6), na mesma transação.
+
+    DL-088 A2 (HI-149): a nota de 2027 em diante só se efetiva para o Simples no regime único do
+    semestre (o portão é `motivo_bloqueio_efetivacao`, com a empresa), e sai com receita =
+    `vProd − vDesc`
+    (`conferir_valores(receita_pelo_vprod=True)`). A memória do `vProdLiq` vai para a trilha quando
+    o leitor o trouxer (BL-687).
     """
     empresa = receita_servico.travar_empresa(escrituracao.empresa)
     travada = (
         EscrituracaoNFe.objects.select_for_update(of=("self",))
         .select_related("vinculo__documento", "empresa__escritorio")
+        .defer("vinculo__documento__xml_original")
         .get(pk=escrituracao.pk)
     )
     if travada.estado == EstadoEscrituracao.EFETIVADA:
@@ -908,9 +1287,9 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
     documento = travada.vinculo.documento
     if services.situacao_da_nfe(documento) == "cancelada":
         raise EscrituracaoNFeErro("Nota cancelada não pode ser efetivada.")
-    # Receita de 2027 não se efetiva (HI-133). O ano é o de São Paulo, não o de UTC: 31/12/2026
-    # 23:59 em SP é 01/01/2027 02:59 UTC, e uma comparação em UTC recusaria a nota de 2026.
-    motivo = motivo_bloqueio_efetivacao(documento)
+    # O ano é o de São Paulo, não o de UTC: 31/12/2026 23:59 em SP é 01/01/2027 02:59 UTC, e uma
+    # comparação em UTC recusaria a nota de 2026. Em 2027 o motivo já vem do regime (HI-149).
+    motivo = motivo_bloqueio_efetivacao(documento, empresa)
     if motivo is not None:
         raise EscrituracaoNFeErro(motivo)
     dia, competencia = dia_e_competencia(documento)
@@ -940,7 +1319,11 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
     for _, natureza in pares:
         _validar_natureza_para_o_tipo(natureza, travada.tipo)
 
-    conferencia = conferir_valores(documento, leitura, pares)
+    # HI-149: a receita da nota de 2027 do regime único é o vProd menos o desconto incondicional
+    # (vDesc — LC 123, art. 3º, § 1º; correção do achado A2); a regra decide o caminho da
+    # conferência (sem W16). O portão acima já garante que só essa nota chega aqui em 2027+.
+    receita_pelo_vprod = receita_servico.receita_nfe_pelo_vprod(empresa, dia)
+    conferencia = conferir_valores(documento, leitura, pares, receita_pelo_vprod=receita_pelo_vprod)
     agora = timezone.now()
     antes = _snapshot(travada)
     atualizadas = EscrituracaoNFe.objects.filter(
@@ -961,18 +1344,44 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
     travada.refresh_from_db()
     travada.criada_agora = True
 
+    detalhes = {
+        "vinculo_id": travada.vinculo_id,
+        "antes": antes,
+        "depois": _snapshot(travada),
+        "naturezas": {str(item.pk): natureza for item, natureza in pares},
+    }
+    if receita_pelo_vprod:
+        # Memória da receita de 2027 (HI-149; LC 123, art. 3º, § 1º — correção do achado A2): o
+        # que a regra usou, item a item agregado — vProd, o desconto incondicional (vDesc) e a
+        # receita resultante (vProd − vDesc) — e o vProdLiq quando o leitor o trouxer (BL-687),
+        # que NÃO entra na receita.
+        itens_com_natureza = [item for item, natureza in pares if natureza]
+        v_prod = sum(
+            (item.v_prod for item in itens_com_natureza if item.ind_tot == "1"),
+            Decimal("0.00"),
+        )
+        v_desc = sum(
+            (
+                item.v_desc
+                for item in itens_com_natureza
+                if item.ind_tot == "1" and item.v_desc is not None
+            ),
+            Decimal("0.00"),
+        )
+        detalhes["receita_2027"] = {
+            "regra": "vProd − vDesc (HI-149)",
+            "v_prod": str(v_prod),
+            "v_desc": str(v_desc),
+            "receita": str(conferencia.soma_itens),
+            "v_prod_liq": memoria_v_prod_liq(item for item, _natureza in pares),
+        }
     registrar(
         acao="escrituracao_nfe.efetivada",
         usuario=usuario,
         escritorio=travada.empresa.escritorio,
         objeto=travada,
         request=request,
-        detalhes={
-            "vinculo_id": travada.vinculo_id,
-            "antes": antes,
-            "depois": _snapshot(travada),
-            "naturezas": {str(item.pk): natureza for item, natureza in pares},
-        },
+        detalhes=detalhes,
     )
     marcar_a_retificar_do_mes(empresa, competencia, usuario, travada, request)
     return travada
@@ -1154,6 +1563,24 @@ def reclassificar_em_massa(
                 f"({len(por_escrituracao)} nota(s) no conjunto). Nada foi alterado."
             )
 
+    # A12: a troca em massa não pode contornar a regra item a item de `definir_natureza`. Um item
+    # casado com marca de monofásico ou segmento de devolução que a natureza nova não aceita recusa
+    # a operação INTEIRA, antes de qualquer `update`. Nada muda.
+    incompativeis = [
+        registro
+        for registro in casamentos
+        if natureza_incompativel_com_marca(
+            natureza, registro.monofasico, registro.segmento_devolucao
+        )
+    ]
+    if incompativeis:
+        notas = len({registro.escrituracao_id for registro in incompativeis})
+        raise EntradaInvalidaNFe(
+            f"A natureza {natureza} não aceita a marca de monofásico ou o segmento de devolução "
+            f"de {len(incompativeis)} item(ns) em {notas} nota(s) que casam com o filtro. Tire a "
+            "marca ou o segmento desses itens antes. Nada foi alterado."
+        )
+
     afetadas = 0
     itens_alterados = 0
     pares: list[tuple[int, int]] = []
@@ -1291,7 +1718,7 @@ def conferencia_do_mes(empresa, ano: int, mes: int) -> ConferenciaDoMes:
     resultado = ConferenciaDoMes(ano=ano, mes=mes)
     # `notas_do_mes` é lida UMA vez, e os itens sem sugestão saem de uma consulta só (DL-081, A6).
     notas = notas_do_mes(empresa, ano, mes)
-    sem_sugestao = _itens_sem_sugestao_do_mes(notas)
+    sem_sugestao = _itens_sem_sugestao_do_mes(notas, empresa)
     for nota in notas:
         if nota.tipo is None:
             resultado.nao_elegiveis += 1
@@ -1312,11 +1739,15 @@ def conferencia_do_mes(empresa, ano: int, mes: int) -> ConferenciaDoMes:
     return resultado
 
 
-def _itens_sem_sugestao_do_mes(notas: list[NotaDoMes]) -> dict[int, int]:
+def _itens_sem_sugestao_do_mes(notas: list[NotaDoMes], empresa) -> dict[int, int]:
     """Itens sem sugestão de natureza, por documento, só nas notas lidas e ainda não efetivadas.
 
     Uma consulta para todas as notas do mês: a conferência não repete a consulta por nota (A6). A
     sugestão lê só campos do item e do documento, já carregados, e a tabela de CFOP é em memória.
+
+    DL-084 (RC-173, item 3): a sugestão passa pelo padrão de combustível da empresa, que decide o
+    que o CFOP não decidiu. O padrão é lido UMA vez por chamada e repassado aos itens: a conferência
+    percorre o mês inteiro, e consulta por item estoura o orçamento (BL-698).
     """
     candidatas = {
         nota.documento.pk: nota
@@ -1327,10 +1758,16 @@ def _itens_sem_sugestao_do_mes(notas: list[NotaDoMes]) -> dict[int, int]:
     }
     if not candidatas:
         return {}
+    # `presumido` importa este módulo (a apuração do Presumido lê a escrituração): o import fica
+    # aqui para o carregamento dos módulos não fechar ciclo.
+    from apps.fiscal import presumido
+
+    padrao_combustivel = presumido.parametros_da_empresa(empresa).padrao_combustivel
     contagem: dict[int, int] = {}
     for item in ItemNFe.objects.filter(documento_id__in=list(candidatas)):
         nota = candidatas[item.documento_id]
-        if sugerir_natureza_item(nota.documento, item, nota.tipo).natureza is None:
+        sugestao = sugerir_natureza_com_padrao(nota.documento, item, padrao_combustivel, nota.tipo)
+        if sugestao.natureza is None:
             contagem[item.documento_id] = contagem.get(item.documento_id, 0) + 1
     return contagem
 

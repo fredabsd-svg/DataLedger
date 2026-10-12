@@ -320,12 +320,13 @@ def test_rbt12_sem_data_de_abertura_mostra_a_recusa_nomeada(
     assert "Informe a data de abertura no CNPJ" in html
 
 
-def test_rbt12_de_2027_mostra_a_recusa_com_a_resolucao_190(
+def test_rbt12_de_2029_mostra_a_recusa_com_a_resolucao_190(
     client, escritorio_a, empresa, usuario_gestor_a
 ):
+    # DL-088: 2027 e 2028 deixaram de ser recusados (RBT12 defasado); a recusa é de 2029 (HI-146).
     _logar(client, usuario_gestor_a)
 
-    html = client.get(_url_painel(), _painel_de(empresa, 2027, 1)).content.decode()
+    html = client.get(_url_painel(), _painel_de(empresa, 2029, 1)).content.decode()
 
     assert "RBT12 não apurado:" in html
     assert "190/2026" in html

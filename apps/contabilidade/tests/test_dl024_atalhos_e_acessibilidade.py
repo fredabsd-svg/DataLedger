@@ -1214,6 +1214,30 @@ NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE = {
     "fiscal_web:iss_regime_novo": "test_cadastrar_regime_pela_tela",
     "fiscal_web:iss_regime_editar": "test_alterar_regime_pela_tela",
     "fiscal_web:iss_regras_municipio": "test_tela_iss_regras_municipio_e_acessivel",
+    # DL-088 (frente B, escopos 3 e 6, apps/fiscal/tests/test_dl088_b_telas.py): a opção de regime
+    # de IBS/CBS por semestre (insert-only) e o IPI mantido (Zona Franca). Ficam AQUI pelo mesmo
+    # motivo das de DL-075: as rotas de registro/gravação precisam de id de empresa do cenário.
+    "fiscal_web:opcao_regime_ibs_cbs": (
+        "test_tela_opcao_regime_ibs_cbs_e_acessivel, "
+        "test_tela_opcao_regime_ibs_cbs_sem_empresa_pede_a_escolha"
+    ),
+    "fiscal_web:opcao_regime_ibs_cbs_registrar": (
+        "test_registrar_opcao_pela_tela_confirma_nomeando_o_alvo_e_e_insert_only, "
+        "test_opcao_ja_registrada_mostra_a_recusa_nomeada_do_servico"
+    ),
+    # DL-088, correção do achado A1 (apps/fiscal/tests/test_dl088_b_telas.py): cancelar a opção
+    # do semestre, em duas etapas, na janela legal (Res. CGSN 194/2026; arts. 40-C/40-D).
+    "fiscal_web:opcao_regime_ibs_cbs_cancelar": (
+        "test_cancelar_a_opcao_pela_tela_confirma_nomeando_o_alvo_e_trilha_o_motivo, "
+        "test_cancelar_a_opcao_fora_da_janela_mostra_o_prazo_e_nao_grava"
+    ),
+    "fiscal_web:ipi_mantido": (
+        "test_tela_ipi_mantido_e_acessivel, test_tela_ipi_mantido_sem_empresa_pede_a_escolha"
+    ),
+    "fiscal_web:ipi_mantido_gravar": (
+        "test_gravar_ipi_mantido_pela_tela_exige_a_fonte, "
+        "test_ipi_mantido_nao_informado_aparece_como_nao_informado"
+    ),
 }
 
 # DL-078, frente B (apps/fiscal/tests/test_dl078_telas.py): os serviços TOMADOS: escriturar,
@@ -1275,9 +1299,45 @@ NOMES_DE_TELA_DO_LUCRO_PRESUMIDO = {
     "fiscal_web:presumido_retencao_confirmar": "test_recusas_nao_gravam_nada",
     "fiscal_web:presumido_medidas": "test_medida_cadastrada_e_revogada_pela_tela",
     "fiscal_web:presumido_medida_nova": "test_medida_cadastrada_e_revogada_pela_tela",
+    # DL-084, item 7 (frente B2, apps/fiscal/tests/test_dl084_frente_b_telas.py): encerrar a medida
+    # em (ano, trimestre), com confirmação, trilha e histórico preservado.
+    "fiscal_web:presumido_medida_encerrar": "test_encerrar_medida_pela_tela_nao_apaga_o_historico",
     "fiscal_web:presumido_medida_revogar": "test_medida_cadastrada_e_revogada_pela_tela",
     "fiscal_web:presumido_apuracao": "test_fluxo_completo_pela_tela_bate_com_o_exemplo_da_consulta",
     "fiscal_web:presumido_limite": "test_controle_do_limite_pela_tela_mostra_o_caso_e_a_sobra",
+    # DL-084, itens 2, 6 e 8 (frente B2, apps/fiscal/tests/test_dl084_frente_b_telas.py):
+    # parâmetros da empresa, feriados locais da praça e pendências de cadastro do mês.
+    "fiscal_web:presumido_parametros": (
+        "test_parametros_da_empresa_mostram_o_padrao_do_escritorio, "
+        "test_tela_de_parametros_e_acessivel"
+    ),
+    "fiscal_web:presumido_parametros_gravar": (
+        "test_gravar_parametros_pela_tela_grava_e_trilha_o_antes_e_o_depois, "
+        "test_parametro_fora_do_catalogo_e_recusado_campo_a_campo"
+    ),
+    "fiscal_web:presumido_feriados": (
+        "test_feriados_da_praca_mostram_os_avisos_do_servico, test_tela_de_feriados_e_acessivel"
+    ),
+    "fiscal_web:presumido_feriado_novo": (
+        "test_cadastrar_feriado_pela_tela_exige_a_fonte, "
+        "test_cadastrar_feriado_pela_tela_grava_com_fonte_e_leitura"
+    ),
+    "fiscal_web:presumido_feriado_editar": (
+        "test_alterar_feriado_pela_tela_edita_sem_mudar_a_data_normativa"
+    ),
+    "fiscal_web:presumido_feriado_excluir": (
+        "test_excluir_feriado_pela_tela_com_confirmacao, "
+        "test_feriado_com_excecao_nao_se_exclui_e_manda_excluir_a_excecao"
+    ),
+    "fiscal_web:presumido_feriado_excecao_nova": (
+        "test_cadastrar_excecao_por_ano_pela_tela_move_o_aviso_e_nao_a_data_normativa"
+    ),
+    "fiscal_web:presumido_feriado_excecao_excluir": (
+        "test_excluir_excecao_pela_tela_com_confirmacao"
+    ),
+    "fiscal_web:presumido_pendencias": (
+        "test_pendencias_do_mes_listam_a_empresa_certa_e_so_a_do_escritorio"
+    ),
 }
 
 # DL-046, fatia 1 (especialista-frontend): as SEIS telas HTML de
@@ -1453,6 +1513,15 @@ NOMES_DE_TELA_ESCRITURACAO_NFE = {
     "fiscal_web:nfe_conferencia": (
         "test_conferencia_mostra_receita_por_natureza_composicao_e_totais, "
         "test_conferencia_nao_soma_nota_cancelada_depois_de_escriturada_e_a_destaca"
+    ),
+    # DL-085, frente B (apps/fiscal/tests/test_dl085_telas.py): escrituração do mês em lote.
+    "fiscal_web:nfe_lote": (
+        "test_depois_de_ler_mostra_grupos_fora_do_lote_com_motivo_e_link, "
+        "test_ler_em_partes_pela_tela_ate_zerar, "
+        "test_confirmar_com_todos_os_grupos_efetiva_as_notas_do_lote_e_so_elas, "
+        "test_assinatura_desatualizada_mostra_a_mensagem_recarrega_a_previa_e_nada_efetiva, "
+        "test_continuar_processa_as_partes_ate_concluir_sem_duplicar, "
+        "test_paralegal_ve_a_previa_sem_botoes_e_o_post_e_recusado"
     ),
 }
 

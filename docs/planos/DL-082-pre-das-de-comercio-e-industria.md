@@ -26,6 +26,43 @@ de 09/10/2026.
 
 Hipóteses HI-125 a HI-132. Pendências PE-86 e PE-87.
 
+## Frente A: rodada de ajuste (decisões do arquiteto)
+
+Aplicadas sobre o commit `2ec6e89`:
+
+1. **Cascata de migrações.** Os testes que revertem `empresas` ou `fiscal`
+   restauram o head de todas as apps (`leaf_nodes()`, em `finally`), sem mudar
+   asserção: `apps/empresas/tests/test_dl038_migracao.py`,
+   `test_dl039_bl529_gatilho_estabelecimento_cpf.py`, `test_dl041_migracao.py`,
+   `test_dl076_b8_modo_escrituracao_constraint.py`,
+   `apps/fiscal/tests/test_dl083_migracao.py` e `test_dl085_migracao.py`.
+2. **Anexo pelo CFOP.** Para `revenda_st_substituido`, `substituto_st`,
+   `monofasico`, `exportacao_direta` e `comercial_exportadora`, o anexo vem da
+   descrição oficial do CFOP (`apps/fiscal/dados/cfop_it2023002_v210.csv`).
+   Produção (5.101, 5.401, 5.501, 7.101) vai para o Anexo II; mercadoria
+   adquirida de terceiros (5.102, 5.403, 5.405, 5.502, 7.102) vai para o
+   Anexo I. CFOP que não decide gera a recusa `anexo_da_mercadoria_a_confirmar`
+   com natureza e CFOP. Código em `apps/fiscal/models.py` (`anexo_pelo_cfop`,
+   `anexo_da_mercadoria`) e `apps/fiscal/pre_das.py`. Testes em
+   `apps/fiscal/tests/test_dl082_anexo_cfop.py`, incluindo o caso F ponta a
+   ponta, com valores conferidos à mão contra a tabela do Anexo II.
+3. **Reversão da 0014.** A reversão recusa, sem alterar nada, se houver item
+   com marca de monofásico ou segmento de devolução em escrituração em
+   rascunho ou efetivada. Com só estornadas, a reversão segue, e o valor de
+   cada item fica nos eventos `monofasico_definido` e
+   `segmento_devolucao_definido` (`antes` e `depois`). Testes em
+   `apps/fiscal/tests/test_dl082_migracao_reversao.py`, pelo `migrate` real.
+4. **Mutante.** Anexo pelo CFOP ignorado (sempre Anexo I): 12 testes falham nos
+   arquivos `test_dl082_anexo_cfop`, `calculo` e `recusas`. O arquivo foi
+   restaurado e comparado byte a byte com o original.
+
+Verificações desta rodada: `ruff check .` e `ruff format --check .` passaram;
+`manage.py check` sem problemas; `makemigrations --check` sem mudanças; ida,
+volta e ida da 0014 no banco de desenvolvimento; `pytest apps/fiscal` com 3092
+passando e 1 pulado; suíte completa numa invocação com 9.009 passando, 54
+pulados e 1 falha de ambiente (`test_versao_minima_python`, Python 3.13 local
+contra a integração em 3.14).
+
 ## O que muda
 
 Hoje o pré-DAS da [DL-075](DL-075-pre-das-do-simples.md) só cobre serviços e
@@ -81,9 +118,86 @@ casos que o primeiro corte cobre.
 8. **Tela e API do pré-DAS:** linhas por anexo e segmento, com o tributo
    desconsiderado mostrado como tal, e não como zero digitado.
 
-**Fica fora:** 6ª faixa e excesso de sublimite (exemplos 9 a 11 do Manual
+**Fica fora:** medicamentos manipulados e outras atividades do art. 25, § 1º, que não têm sinal na NF-e (decisão da correção da rodada 1, A5); 6ª faixa e excesso de sublimite (exemplos 9 a 11 do Manual
 ficam como referência futura); benefício estadual de ICMS; tabela de NCM
 monofásico; combustíveis; leitura do `NFref`; regime de caixa; 2027.
+
+## Decisões para a correção (rodada 1)
+
+A [rodada 1](../auditorias/2026-10-09-dl-082-rodada-1.md) foi **aprovada com
+ressalvas**: o cálculo bate ao centavo com o Manual e com o oráculo do
+auditor, os meses de serviço ficaram idênticos e os seis mutantes do plano
+caem. Decisões do arquiteto para a correção única:
+
+- **A1:** o lote (DL-085) não efetiva devolução: a nota sai do lote com o
+  motivo "segmento da devolução a confirmar: escriture esta nota
+  individualmente". A recusa do pré-DAS para devolução já efetivada sem
+  segmento diz que a nota precisa de estorno.
+- **A2:** a devolução com CFOP de devolução de combustível (1.660 a 1.662,
+  2.660 a 2.662) recusa o pré-DAS seja qual for a natureza.
+- **A3:** CFOP x.503 a x.506 (devolução de venda com fim de exportação)
+  pertencem ao mercado externo, na função de mercado, na validação e na
+  sugestão do segmento.
+- **A4:** a recusa de CSOSN 103, 300 e 400 vale só para o mercado interno.
+  Na exportação, o ICMS já é desconsiderado e o benefício estadual não muda
+  o cálculo (decisão do arquiteto, reversível).
+- **A5:** item com CFOP de prestação de serviço de comunicação ou de
+  transporte, sob natureza de mercadoria, recusa com o motivo nomeado. Os
+  códigos são conferidos na tabela oficial. Medicamento manipulado fica
+  fora, registrado no plano.
+- **A6:** aviso para natureza de exportação sem CFOP 7.xxx ou `idDest` 3.
+- **A7:** segmento zerado por devolução continua visível, com receita
+  líquida 0,00.
+- **A8:** a memória da escrituração ganha a chave `st_monofasico`.
+- **A9:** o seletor de segmento só oferece os segmentos permitidos para o
+  item, por uma função de domínio.
+- **A10:** fica a exceção. O serviço mantém o contrato da DL-075 ("0,00 —
+  valor zero"); a mercadoria mostra "desconsiderado".
+- **A11:** o banner do módulo deixa de dizer que o pré-DAS de comércio não
+  existe.
+- **A12:** a reclassificação em massa recusa a operação inteira se algum item
+  tiver marca ou segmento incompatível com a natureza nova.
+- **A13:** teste do limite exato de R$ 3.600.000,00.
+
+## Decisões tomadas na correção
+
+- **A2:** função nova para a devolução de venda de combustível (1.660 a
+  1.662 e 2.660 a 2.662). A função da DL-083 também pega a devolução de
+  compra.
+- **A5:** os códigos seguem a descrição oficial da tabela, que inclui 5.932
+  e 6.932 (transporte iniciado em outra UF).
+- **A6:** o aviso sai quando falta o CFOP 7.xxx **ou** o `idDest` 3.
+- **A9:** `segmentos_permitidos` recebe o CFOP.
+- **A12:** a verificação vale para todo item que casa com o filtro.
+- **Resíduos para a reconferência:**
+  - o botão da recusa de devolução efetivada sem segmento ainda leva a
+    "NF-e a escriturar";
+  - um segmento que só tem saldo de devolução de meses anteriores não
+    aparece no pré-DAS.
+- **Medido pelo desenvolvedor:** 9.160/1/55, em 18 min 19 s numa única
+  invocação local.
+
+## Decisões tomadas na reconferência
+
+[Reconferência](../auditorias/2026-10-09-dl-082-reconferencia.md): aprovada
+com ressalvas, R1 a R7, todas baixas. Era a última rodada; os ajustes abaixo
+são do arquiteto (§3.1), com testes em
+`apps/fiscal/tests/test_dl082_ajustes_do_arquiteto.py`.
+
+- **R1:** das duas correções que a auditoria ofereceu, escolhi excluir a
+  devolução de venda de combustível do saldo do Simples
+  (`_parcelas_do_periodo`). O pré-DAS do mês da devolução continua
+  recusando; o mês seguinte não herda saldo dela. A outra opção, recusar
+  todos os meses que recebem o saldo, travaria meses sem nota de
+  combustível. O Presumido continua recebendo a linha.
+- **R4:** 1.505, 1.506, 2.505 e 2.506 devolvem remessa para formação de lote
+  de exportação, e não venda (descrição oficial do CFOP). Saíram da tabela
+  de anexo da devolução de exportação; a tela não sugere segmento de
+  exportação; o pré-DAS recusa o mês com o código
+  `devolucao_de_remessa_para_lote_de_exportacao`, nomeando a nota. Hipótese
+  conservadora até o contador confirmar o tratamento.
+- **R5:** teste parametrizado com os quatro casos propostos pela auditoria.
+- **R2, R3, R6, R7** e os dois resíduos declarados: BL-699.
 
 ## Critérios de aceite
 

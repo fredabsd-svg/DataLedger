@@ -59,7 +59,7 @@ que guarda a duplicação.
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal, localcontext
 from functools import wraps
 from urllib.parse import urlencode
@@ -67,7 +67,7 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Exists, OuterRef, Q, Sum
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -77,6 +77,7 @@ from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods, require_safe
 
 from apps.auditoria.models import RegistroAuditoria
+from apps.auditoria.services import registrar
 from apps.core.identificadores import IdentificadorInvalido, para_id
 from apps.core.requisicao import (
     ContratoDeRequisicao,
@@ -86,6 +87,7 @@ from apps.core.requisicao import (
 from apps.empresas.models import Empresa
 from apps.fiscal import escrituracao as servico_escrituracao
 from apps.fiscal import escrituracao_nfe as servico_nfe
+from apps.fiscal import escrituracao_nfe_lote as servico_lote
 from apps.fiscal import folha_fator_r as servico_folha
 from apps.fiscal import iss_municipal as servico_iss
 from apps.fiscal import pre_das as servico_pre_das
@@ -104,6 +106,17 @@ from apps.fiscal.formatacao_ptbr import milhar_ptbr as _milhar_ptbr
 from apps.fiscal.formatacao_ptbr import valor_ptbr as _valor_ptbr
 from apps.fiscal.itens_nfe import receita_do_item
 from apps.fiscal.models import (
+    ANEXO_I,
+    ANEXO_II,
+    NATUREZAS_DE_MERCADORIA,
+    OPCOES_FORMA_RECOLHIMENTO,
+    OPCOES_PADRAO_COMBUSTIVEL,
+    SEGMENTO_EXPORTACAO,
+    SEGMENTO_MONOFASICO,
+    SEGMENTO_NORMAL,
+    SEGMENTO_ST_MONOFASICO,
+    SEGMENTO_SUJEITA_ST,
+    TAMANHO_SEGMENTO_DEVOLUCAO,
     AliquotaIssMunicipal,
     AtividadeEmpresa,
     AtividadePresuncaoEmpresa,
@@ -119,6 +132,8 @@ from apps.fiscal.models import (
     EstadoReceitaInformada,
     EventoFiscal,
     EventoNFe,
+    ExcecaoFeriadoLocal,
+    FeriadoLocal,
     FolhaFatorR,
     ItemNFe,
     LeituraItensNFe,
@@ -131,17 +146,23 @@ from apps.fiscal.models import (
     NaturezaOperacaoNFe,
     NaturezaTomada,
     OpcaoRegimeCaixaSimples,
+    OpcaoRegimeIbsCbsSimples,
     OrigemReceitaInformada,
     PapelDocumento,
     PapelNFe,
     ReceitaInformada,
     ReceitaTrimestralPresumido,
+    RegimeIbsCbsSimples,
     RegimeIss,
     RegimeIssEmpresa,
     RegraIssMunicipio,
+    SegmentoDevolucao,
+    SituacaoIpiMantido,
     SituacaoIssReceitaInformada,
+    TipoEscrituracaoNFe,
     VinculoDocumentoEmpresa,
     VinculoNFeEmpresa,
+    segmentos_permitidos,
 )
 from apps.fiscal.permissoes import (
     papel_pode_consultar_documentos,
@@ -1573,6 +1594,19 @@ def _celula_de_valor(valor, texto_se_nulo):
     return {"texto": _valor_ptbr(valor), "monetario": True}
 
 
+def _texto_do_rbt12_ausente(resultado) -> str:
+    """Por que o RBT12 apurado não tem número, em linguagem de escritório (DL-088, frente B).
+
+    São dois motivos distintos que a tela dizia como um só ("há meses da janela sem confirmação"):
+    o mês pendente e a 1ª faixa (1º e 2º mês de atividade), em que não há RBT12 numérico por regra
+    (`Rbt12.primeira_faixa`, HI-147). A pendência da frente A1 era exatamente esta: a tela dizia o
+    motivo errado quando o real era o início de atividade.
+    """
+    if resultado.primeira_faixa:
+        return "Não apurado: 1ª faixa (1º e 2º mês de atividade), sem RBT12 numérico"
+    return "Não apurável: há meses da janela sem confirmação (lista acima)"
+
+
 def _linhas_do_mercado_no_rbt12(resultado, mercado):
     """Linhas de UM mercado do RBT12. O valor é exato no cálculo; aqui é só exibição."""
     r = resultado.de(mercado)
@@ -1587,9 +1621,7 @@ def _linhas_do_mercado_no_rbt12(resultado, mercado):
         },
         {
             "rotulo": "RBT12 apurado",
-            "celula": _celula_de_valor(
-                r.apurado, "Não apurável: há meses da janela sem confirmação (lista acima)"
-            ),
+            "celula": _celula_de_valor(r.apurado, _texto_do_rbt12_ausente(resultado)),
         },
         {
             "rotulo": "Acumulado no ano (até o período)",
@@ -1638,6 +1670,10 @@ def _bloco_do_rbt12(resultado):
     return {
         "regra": _REGRA_POR_EXTENSO.get(resultado.regra, resultado.regra),
         "apuravel": resultado.apuravel,
+        # DL-088 (frente B): o estado "1ª faixa" tem aviso próprio na tela — sem ele, "não
+        # apurável" aparecia com o motivo de mês pendente mesmo quando o real era o início de
+        # atividade (pendência da frente A1).
+        "primeira_faixa": resultado.primeira_faixa,
         "data_abertura_ptbr": resultado.data_abertura.strftime("%d/%m/%Y"),
         "ano_opcao": resultado.ano_opcao,
         "modo_limite": resultado.modo_limite,
@@ -2169,20 +2205,26 @@ _TRIBUTOS_NA_ORDEM = (
     tabelas.CSLL,
     tabelas.COFINS,
     tabelas.PIS,
+    tabelas.CBS,
     tabelas.CPP,
     tabelas.ISS,
     tabelas.ICMS,
     tabelas.IPI,
+    tabelas.IBS,
 )
+# DL-088 (frente B): CBS e IBS são os tributos do DAS de 2027 no lugar de PIS e Cofins
+# (Res. CGSN 190/2026, art. 4º, IX e X). O rótulo é o do próprio nome oficial.
 _ROTULO_DO_TRIBUTO = {
     tabelas.IRPJ: "IRPJ",
     tabelas.CSLL: "CSLL",
     tabelas.COFINS: "Cofins",
     tabelas.PIS: "PIS/Pasep",
+    tabelas.CBS: "CBS",
     tabelas.CPP: "CPP",
     tabelas.ISS: "ISS",
     tabelas.ICMS: "ICMS",
     tabelas.IPI: "IPI",
+    tabelas.IBS: "IBS",
 }
 _ROTULO_DO_SEGMENTO = {
     servico_pre_das.SEG_NORMAL: "Receita normal (ISS devido pelo prestador)",
@@ -2192,6 +2234,59 @@ _ROTULO_DO_SEGMENTO = {
     ),
     servico_pre_das.SEG_EXPORTACAO: "Exportação de serviço (sem PIS, Cofins e ISS)",
 }
+
+# DL-082 (frente B): segmentos de MERCADORIA, anexos I e II. Têm rótulo próprio porque a chave
+# "exportacao" é a mesma no serviço e na mercadoria, com tributos diferentes (serviço tira PIS,
+# Cofins e ISS; mercadoria tira também IPI e ICMS, Res. CGSN 140, art. 25, § 3º). Escolher pelo
+# anexo é o que separa os dois.
+_ANEXOS_DE_MERCADORIA = (ANEXO_I, ANEXO_II)
+_ROTULO_DO_SEGMENTO_DE_MERCADORIA = {
+    SEGMENTO_NORMAL: "Normal (sem ST, monofásico nem exportação)",
+    SEGMENTO_SUJEITA_ST: "Sujeita a ST (ICMS substituído)",
+    SEGMENTO_MONOFASICO: "Monofásico de PIS e Cofins",
+    SEGMENTO_ST_MONOFASICO: "ST e monofásico",
+    SEGMENTO_EXPORTACAO: "Exportação de mercadoria (mercado externo)",
+}
+# Por que cada tributo sai do DAS em cada segmento de mercadoria. Quem decide QUAL tributo sai é
+# `apps.fiscal.pre_das` (`_desconsiderados`); a tela só escreve o motivo e o dispositivo. Cada
+# tupla é (tributos, motivo, dispositivo). A guarda `test_dl082_telas` confere este mapa com o
+# domínio, segmento por segmento: se o domínio mudar, o teste falha antes da tela mentir.
+_DISP_DA_ST = "Res. CGSN 140, art. 25, § 8º, I"
+_DISP_DO_MONOFASICO = "Res. CGSN 140, art. 25, §§ 6º e 7º, II"
+_DISP_DA_EXPORTACAO = "Res. CGSN 140, art. 25, § 3º"
+_DESCONSIDERADOS_NA_TELA = {
+    SEGMENTO_NORMAL: (),
+    SEGMENTO_SUJEITA_ST: (((tabelas.ICMS,), "ST", _DISP_DA_ST),),
+    SEGMENTO_MONOFASICO: (((tabelas.PIS, tabelas.COFINS), "monofásico", _DISP_DO_MONOFASICO),),
+    SEGMENTO_ST_MONOFASICO: (
+        ((tabelas.ICMS,), "ST", _DISP_DA_ST),
+        ((tabelas.PIS, tabelas.COFINS), "monofásico", _DISP_DO_MONOFASICO),
+    ),
+    SEGMENTO_EXPORTACAO: (
+        (
+            (tabelas.PIS, tabelas.COFINS, tabelas.IPI, tabelas.ICMS, tabelas.ISS),
+            "exportação",
+            _DISP_DA_EXPORTACAO,
+        ),
+    ),
+}
+
+# Recusas do pré-DAS que se resolvem na escrituração da NF-e (DL-082, HI-125, HI-129).
+_CODIGOS_DA_ESCRITURACAO_NFE = frozenset(
+    {
+        "anexo_da_mercadoria_a_confirmar",
+        "devolucao_sem_segmento_confirmado",
+        "deducao_sem_segmento",
+    }
+)
+# Recusas de nota já efetivada por CFOP ou natureza (correção da rodada 1 do DL-082, A2 e A5). A
+# tela não tem estorno: o texto da ação diz o caminho.
+_CODIGOS_DE_CFOP_EFETIVADO = frozenset(
+    {
+        "devolucao_combustivel_cfop",
+        "servico_de_comunicacao_ou_transporte",
+    }
+)
 # Códigos de bloqueio que se resolvem cadastrando ou corrigindo a atividade da empresa.
 _CODIGOS_DE_ATIVIDADE = frozenset(
     {
@@ -2342,6 +2437,14 @@ def _url_folhas(empresa, ano):
     )
 
 
+def _url_nfe_a_escriturar(empresa, ano, mes):
+    return (
+        reverse("fiscal_web:nfe_a_escriturar")
+        + "?"
+        + urlencode({"empresa": empresa.pk, "ano": ano, "mes": mes})
+    )
+
+
 def _contexto_do_filtro_de_empresa(request, empresa, competencia=None, *, algum_filtro_ativo=False):
     """Valores do filtro das telas do Simples. A lista de empresas só existe SEM empresa
     escolhida; com uma escolhida, o filtro mostra só ela (direção de arte §8.1).
@@ -2398,6 +2501,27 @@ def _acao_do_bloqueio(bloqueio, empresa, ano, mes):
         return "Cadastrar ou corrigir as atividades", _url_atividades(empresa), ""
     if codigo == "folha_nao_confirmada":
         return "Lançar e confirmar a folha", _url_folhas(empresa, ano), ""
+    # DL-082: anexo da mercadoria e devolução sem segmento se resolvem na escrituração da NF-e
+    # (confirmar a natureza, a marca e o segmento da devolução). A tela só leva até a lista.
+    if codigo in _CODIGOS_DA_ESCRITURACAO_NFE:
+        return "Abrir as NF-e a escriturar", _url_nfe_a_escriturar(empresa, ano, mes), ""
+    # DL-082 (correção da rodada 1, A2 e A5): as duas recusas são de nota já efetivada. Sem tela de
+    # estorno aqui, o texto diz o caminho, e não inventa um link.
+    if codigo in _CODIGOS_DE_CFOP_EFETIVADO:
+        return (
+            None,
+            None,
+            "Não há ação nesta tela: a nota já está efetivada. Se a natureza ou o CFOP estiver "
+            "errado, estorne a nota na escrituração e escriture de novo.",
+        )
+    # DL-088 (frente B): a recusa de 2027 por falta da opção do semestre leva à tela dela — o dado
+    # que falta se registra ali (art. 22-A da Res. CGSN 190/2026).
+    if codigo == "opcao_regime_regular_nao_informada":
+        return (
+            "Registrar a opção de regime de IBS/CBS",
+            reverse("fiscal_web:opcao_regime_ibs_cbs") + "?" + urlencode({"empresa": empresa.pk}),
+            "",
+        )
     return (
         None,
         None,
@@ -2426,26 +2550,83 @@ def _diferenca_na_tela(diferenca, tributo) -> str:
     return f"{texto}, ao tributo {_ROTULO_DO_TRIBUTO.get(tributo, tributo)}"
 
 
-def _segmento_na_tela(segmento) -> dict:
+def _rotulo_do_segmento(anexo_numero, segmento) -> str:
+    if anexo_numero in _ANEXOS_DE_MERCADORIA:
+        return _ROTULO_DO_SEGMENTO_DE_MERCADORIA[segmento]
+    return _ROTULO_DO_SEGMENTO[segmento]
+
+
+def _situacao_do_desconsiderado(tributo, segmento) -> str:
+    """Texto do tributo que sai do DAS num segmento de mercadoria, com o motivo e o dispositivo.
+
+    O texto escreve que o tributo foi DESCONSIDERADO. Não é um zero digitado: a coluna de valor
+    diz "desconsiderado", e nenhum número é mostrado para ele.
+    """
+    rotulo = _ROTULO_DO_TRIBUTO.get(tributo, tributo)
+    for tributos, motivo, dispositivo in _DESCONSIDERADOS_NA_TELA.get(segmento, ()):
+        if tributo in tributos:
+            return f"{rotulo}: desconsiderado — {motivo} ({dispositivo})"
+    # Sem motivo mapeado, a tela diz só que saiu, e não inventa motivo. A guarda de consistência
+    # reprova um segmento que chegue aqui.
+    return f"{rotulo}: desconsiderado"
+
+
+def _linha_na_tela(linha, segmento, mercadoria: bool) -> dict:
+    rotulo = _ROTULO_DO_TRIBUTO.get(linha.tributo, linha.tributo)
+    if mercadoria and linha.desconsiderado:
+        # DL-082: o tributo desconsiderado de mercadoria aparece como tal, nunca como 0,00.
+        return {
+            "tributo": rotulo,
+            "percentual": "—",
+            "valor": "desconsiderado",
+            "situacao": _situacao_do_desconsiderado(linha.tributo, segmento.segmento),
+        }
+    if linha.deduzido:
+        # DL-088 (art. 22-A): no regime regular as parcelas de CBS e IBS são DEDUZIDAS do DAS. O
+        # valor que entra no DAS é zero, e a coluna nunca mostra um zero digitado: ela diz o que foi
+        # deduzido, com o dispositivo — mesma regra do tributo desconsiderado, acima.
+        return {
+            "tributo": rotulo,
+            "percentual": _percentual_ptbr(linha.percentual),
+            "valor": f"deduzido ({_dinheiro_ptbr(linha.deduzido)})",
+            "situacao": (
+                f"Deduzido do DAS, art. 22-A (regime regular do semestre): {rotulo} não entra no "
+                "DAS deste período."
+            ),
+        }
     return {
-        "rotulo": _ROTULO_DO_SEGMENTO[segmento.segmento],
-        "receita": _dinheiro_ptbr(segmento.receita),
-        "total": _dinheiro_ptbr(segmento.total),
-        "linhas": [
-            {
-                "tributo": _ROTULO_DO_TRIBUTO.get(linha.tributo, linha.tributo),
-                "percentual": _percentual_ptbr(linha.percentual),
-                "valor": _dinheiro_ptbr(linha.valor),
-                "situacao": "Desconsiderado: valor zero" if linha.desconsiderado else "Incide",
-            }
-            for linha in segmento.linhas
-        ],
+        "tributo": rotulo,
+        "percentual": _percentual_ptbr(linha.percentual),
+        "valor": _dinheiro_ptbr(linha.valor),
+        "situacao": "Desconsiderado: valor zero" if linha.desconsiderado else "Incide",
     }
 
 
-def _anexo_na_tela(anexo) -> dict:
+def _segmento_na_tela(segmento, anexo_numero) -> dict:
+    mercadoria = anexo_numero in _ANEXOS_DE_MERCADORIA
     return {
-        "rotulo": f"{_ROTULO_DO_MERCADO[anexo.mercado]}: Anexo {anexo.anexo}",
+        "rotulo": _rotulo_do_segmento(anexo_numero, segmento.segmento),
+        "receita": _dinheiro_ptbr(segmento.receita),
+        "total": _dinheiro_ptbr(segmento.total),
+        # A receita de mercadoria já sai líquida da devolução do próprio segmento (DL-082).
+        "rotulo_receita": "Total da receita líquida de" if mercadoria else "Total da receita de",
+        "linhas": [_linha_na_tela(linha, segmento, mercadoria) for linha in segmento.linhas],
+    }
+
+
+def _rotulo_do_mercado(mercado, mercados_com_mercadoria) -> str:
+    """Rótulo do mercado no pré-DAS. O externo com mercadoria exportada não é só "exportação de
+    serviço". Mês sem mercadoria mantém o rótulo de sempre (serviço inalterado)."""
+    if mercado == MercadoReceita.EXTERNO and mercado in mercados_com_mercadoria:
+        return "Mercado externo (exportação de serviço e de mercadoria)"
+    return _ROTULO_DO_MERCADO[mercado]
+
+
+def _anexo_na_tela(anexo, mercados_com_mercadoria) -> dict:
+    return {
+        "rotulo": (
+            f"{_rotulo_do_mercado(anexo.mercado, mercados_com_mercadoria)}: Anexo {anexo.anexo}"
+        ),
         "faixa": anexo.faixa,
         "rbt12": _dinheiro_ptbr(anexo.rbt12),
         "limite_superior": _dinheiro_ptbr(anexo.limite_superior),
@@ -2459,7 +2640,7 @@ def _anexo_na_tela(anexo) -> dict:
         ),
         "diferenca": _diferenca_na_tela(anexo.diferenca, anexo.tributo_da_diferenca),
         "total": _dinheiro_ptbr(anexo.total),
-        "segmentos": [_segmento_na_tela(segmento) for segmento in anexo.segmentos],
+        "segmentos": [_segmento_na_tela(segmento, anexo.anexo) for segmento in anexo.segmentos],
     }
 
 
@@ -2485,24 +2666,47 @@ def _bloco_do_pre_das(resultado) -> dict:
         for tributo in _TRIBUTOS_NA_ORDEM
         if tributo in por_tributo
     ]
+    mercados_com_mercadoria = {
+        anexo.mercado for anexo in resultado.anexos if anexo.anexo in _ANEXOS_DE_MERCADORIA
+    }
     return {
         "total": _dinheiro_ptbr(resultado.total),
         "rbt12_por_mercado": [
-            {"rotulo": _ROTULO_DO_MERCADO[mercado], "valor": _dinheiro_ptbr(valor)}
+            {
+                "rotulo": _rotulo_do_mercado(mercado, mercados_com_mercadoria),
+                "valor": _dinheiro_ptbr(valor),
+            }
             for mercado, valor in resultado.rbt12.items()
         ],
         "fator_r": _fator_r_na_tela(resultado.fator_r),
-        "anexos": [_anexo_na_tela(anexo) for anexo in resultado.anexos],
+        "anexos": [_anexo_na_tela(anexo, mercados_com_mercadoria) for anexo in resultado.anexos],
         "tributos": tributos,
         "segregacao": [
             {
-                "mercado": _ROTULO_DO_MERCADO[anexo.mercado],
+                "mercado": _rotulo_do_mercado(anexo.mercado, mercados_com_mercadoria),
                 "anexo": anexo.anexo,
-                "segmento": _ROTULO_DO_SEGMENTO[segmento.segmento],
+                "segmento": _rotulo_do_segmento(anexo.anexo, segmento.segmento),
                 "receita": _dinheiro_ptbr(segmento.receita),
                 "tributos": _dinheiro_ptbr(segmento.total),
             }
             for anexo in resultado.anexos
+            for segmento in anexo.segmentos
+        ],
+        # DL-082: avisos que não recusam (CSOSN 900), e a venda, a devolução e a receita líquida de
+        # cada segmento de mercadoria. Mês só de serviço: aviso vazio e sem tabela de mercadoria.
+        "avisos": list(resultado.avisos),
+        "tem_mercadoria": any(anexo.anexo in _ANEXOS_DE_MERCADORIA for anexo in resultado.anexos),
+        "mercadoria_por_segmento": [
+            {
+                "mercado": _rotulo_do_mercado(anexo.mercado, mercados_com_mercadoria),
+                "anexo": anexo.anexo,
+                "segmento": _rotulo_do_segmento(anexo.anexo, segmento.segmento),
+                "bruto": _dinheiro_ptbr(segmento.bruto),
+                "deduzido": _dinheiro_ptbr(segmento.deduzido),
+                "liquido": _dinheiro_ptbr(segmento.receita),
+            }
+            for anexo in resultado.anexos
+            if anexo.anexo in _ANEXOS_DE_MERCADORIA
             for segmento in anexo.segmentos
         ],
         "memoria": [
@@ -2515,6 +2719,37 @@ def _bloco_do_pre_das(resultado) -> dict:
             for passo in resultado.memoria
         ],
     }
+
+
+def _opcao_do_semestre_na_tela(empresa, ano, mes) -> dict | None:
+    """A opção de regime de IBS/CBS do semestre que valeu para o período, ou `None` (DL-088).
+
+    É o MESMO dado que o motor do pré-DAS consumiu (`receita.opcao_regime_ibs_cbs_registrada`): a
+    tela mostra a opção com a consequência em linguagem de escritório ("CBS e IBS ficam no DAS" ×
+    "CBS e IBS são deduzidos do DAS, art. 22-A"), nunca o código do banco.
+    """
+    semestre = 1 if mes <= 6 else 2
+    linha = servico_receita.opcao_regime_ibs_cbs_registrada(empresa, ano, semestre)
+    if linha is None:
+        return None
+    return {
+        "semestre": f"{semestre}º semestre de {ano}",
+        "rotulo": _ROTULO_DO_REGIME_IBS_CBS.get(linha.regime, linha.regime),
+        "consequencia": _CONSEQUENCIA_DO_REGIME_IBS_CBS.get(linha.regime, ""),
+    }
+
+
+def _primeira_faixa_do_pre_das(empresa, ano, mes) -> bool:
+    """O RBT12 do período está no estado "1ª faixa" (1º e 2º mês de atividade; DL-088, HI-147)?
+
+    O resultado do pré-DAS não carrega o estado; ele vem de `apps.fiscal.rbt12`, a mesma fonte que o
+    motor consumiu — a tela e a API "devem ler `primeira_faixa` para dizer o motivo" (docstring de
+    `Rbt12.apuravel`). Só existe este estado a partir de 2027, então a leitura extra é só ali.
+    """
+    try:
+        return apuracao.rbt12(empresa, ano, mes).primeira_faixa
+    except apuracao.ApuracaoRecusada:
+        return False
 
 
 def _contexto_do_pre_das(empresa, ano, mes) -> dict:
@@ -2537,6 +2772,13 @@ def _contexto_do_pre_das(empresa, ano, mes) -> dict:
         contexto.update(recusado=False, erro_competencia=exc.mensagem)
         return contexto
     contexto.update(recusado=False, erro_competencia="", **_bloco_do_pre_das(resultado))
+    if ano >= 2027:
+        # DL-088 (frente B, escopo 6): em 2027 em diante a tela mostra a opção do semestre que valeu
+        # e o estado "1ª faixa" do RBT12, quando for o caso.
+        contexto.update(
+            opcao_do_semestre=_opcao_do_semestre_na_tela(empresa, ano, mes),
+            primeira_faixa=_primeira_faixa_do_pre_das(empresa, ano, mes),
+        )
     return contexto
 
 
@@ -5051,6 +5293,29 @@ def _pres_ano_padrao(request):
     return ano, None
 
 
+def _pres_mes_padrao(request):
+    """(ano, mês, erro) das telas de MÊS do presumido (pendências de cadastro do mês).
+
+    Ausente: o mês corrente (Brasília). Malformado ou fora do intervalo: erro de formulário na tela,
+    nunca 500 e nunca um mês de outro período (mesma regra de `_pres_periodo_padrao`)."""
+    ano_bruto = request.GET.get("ano", "").strip()
+    mes_bruto = request.GET.get("mes", "").strip()
+    if not ano_bruto and not mes_bruto:
+        ano, mes = _competencia_padrao()
+        return ano, mes, None
+    ano = _inteiro_de_filtro(ano_bruto)
+    mes = _inteiro_de_filtro(mes_bruto)
+    if ano is None or mes is None:
+        return None, None, "Informe o ano (AAAA) e o mês (1 a 12)."
+    try:
+        servico_presumido.validar_ano_e_trimestre(ano, 1)
+    except servico_presumido.EntradaInvalidaPresumido as exc:
+        return None, None, exc.mensagem
+    if not 1 <= mes <= 12:
+        return None, None, "Mês inválido: use 1 a 12."
+    return ano, mes, None
+
+
 def _pres_contexto(request, empresa, *, pode_escriturar, titulo, algum_filtro_ativo=False, **extra):
     """Contexto comum: a empresa escolhida (ou a escolha, sem empresa), o aviso das ADIs e o
     texto de conferência. Nenhum dado de outra empresa entra aqui (a escolha só aparece sem
@@ -5689,6 +5954,16 @@ def presumido_receita_estornar(request, empresa_id, receita_id):
 # ---------------------------------------------------------------------------
 
 
+# Coerência da CSLL retida (DL-084, item 3; HI-103): o que a tela mostra da decisão do serviço.
+# 4,65% da base confirma a estimativa; 1% da base (ou fora das faixas) fica "a classificar", com o
+# aviso do serviço. Nenhuma dedução acontece sem a confirmação do contador: a tela só informa.
+_ROTULO_CSLL_SITUACAO = {
+    "exata": "exata",
+    "estimada": "estimada",
+    "a_classificar": "a classificar",
+}
+
+
 def _pres_csll_na_tela(linha) -> str:
     """CSLL proposta com a marca da regra: exata, estimada ou a classificar (HI-102, HI-103)."""
     if linha.csll_situacao == "exata":
@@ -5705,6 +5980,11 @@ def _pres_linha_da_retencao(linha, empresa, ano, trimestre, pode_escriturar) -> 
         "valor": _valor_ptbr(linha.valor_servico),
         "irrf_proposto": _valor_ptbr(linha.irrf_proposto),
         "csll_proposta": _pres_csll_na_tela(linha),
+        # DL-084, item 3: a coerência da CSLL aparece onde a retenção é exibida e onde é
+        # confirmada. "a classificar" leva o aviso do serviço (ex.: "o tomador reteve só a CSLL?"),
+        # e a tela NUNCA confirma sozinha: quem deduz é a confirmação do contador.
+        "csll_classificacao": _ROTULO_CSLL_SITUACAO.get(linha.csll_situacao, linha.csll_situacao),
+        "csll_aviso": linha.csll_motivo if linha.csll_situacao == "a_classificar" else "",
         "irrf_confirmado": (
             _valor_ptbr(linha.irrf_confirmado)
             if linha.irrf_confirmado is not None
@@ -5932,6 +6212,20 @@ def _pres_periodo_da_medida(medida) -> str:
 
 
 def _pres_linha_da_medida(medida, empresa, pode_escriturar) -> dict:
+    """Uma medida na tela. DL-084, item 7: o encerramento em (ano, trimestre) é um ato à parte — a
+    medida continua valendo nos trimestres anteriores, o histórico não é apagado e a trilha mostra o
+    ato. A ação de encerrar só existe para medida ativa ainda não encerrada (o serviço recusa o
+    segundo encerramento), e o rótulo nomeia o alvo (direção de arte §8.4)."""
+    encerramento = next(iter(medida.encerramentos.all()), None)
+    fim_efetivo = servico_presumido.fim_efetivo_da_medida(medida)
+    ano_alvo, trimestre_alvo = _pres_periodo_padrao_atual()
+    situacao = "Ativa" if medida.ativa else f"Revogada: {medida.motivo_revogacao}"
+    if encerramento is not None:
+        situacao = (
+            f"{situacao} — encerrada a partir do "
+            f"{_pres_trimestre(encerramento.ano, encerramento.trimestre)} "
+            f"(motivo: {encerramento.motivo})"
+        )
     return {
         "tributo": _ROTULO_TRIBUTO_MEDIDA.get(medida.tributo, medida.tributo),
         "periodo": _pres_periodo_da_medida(medida),
@@ -5940,7 +6234,18 @@ def _pres_linha_da_medida(medida, empresa, pode_escriturar) -> dict:
         "data_decisao": _data_na_tela(medida.data_decisao),
         "deposito": "Sim — depositar" if medida.deposito_judicial else "Não — suspensa",
         "suporte": medida.suporte,
-        "situacao": "Ativa" if medida.ativa else f"Revogada: {medida.motivo_revogacao}",
+        "situacao": situacao,
+        "fim_efetivo": _pres_trimestre(*fim_efetivo) if fim_efetivo is not None else "",
+        # O alvo padrão do encerramento é o trimestre corrente: o rótulo da ação nomeia o alvo, e a
+        # tela de confirmação ainda deixa o contador ajustar o (ano, trimestre) antes de gravar.
+        "alvo_encerramento": _pres_trimestre(ano_alvo, trimestre_alvo),
+        "url_encerrar": (
+            reverse("fiscal_web:presumido_medida_encerrar", args=[empresa.pk, medida.pk])
+            + "?"
+            + urlencode({"ano": ano_alvo, "trimestre": trimestre_alvo})
+            if pode_escriturar and medida.ativa and encerramento is None
+            else None
+        ),
         "url_revogar": (
             reverse("fiscal_web:presumido_medida_revogar", args=[empresa.pk, medida.pk])
             if medida.ativa and pode_escriturar
@@ -6153,6 +6458,90 @@ def presumido_medida_revogar(request, empresa_id, medida_id):
     return redirect(_pres_url_consulta("fiscal_web:presumido_medidas", empresa))
 
 
+# DL-084, item 7 (BL-680): encerrar a medida em (ano, trimestre), inclusive. O alvo vem do
+# formulário — a ação de linha já nomeia o trimestre corrente como proposta, e o contador ajusta.
+_CONTRATO_PRESUMIDO_ENCERRAR_MEDIDA = _contrato_presumido(
+    {"ano", "trimestre", "motivo"}, "no encerramento da medida judicial"
+)
+
+
+def _pres_tela_encerrar_medida(request, empresa, medida, *, valores, erro=None, status=200):
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=True,
+        titulo="Encerrar medida judicial",
+        medida=_pres_linha_da_medida(medida, empresa, False),
+        valores=valores,
+        erro=erro,
+        opcoes_trimestre=[
+            (1, "1º trimestre"),
+            (2, "2º trimestre"),
+            (3, "3º trimestre"),
+            (4, "4º trimestre"),
+        ],
+        url_envio=reverse("fiscal_web:presumido_medida_encerrar", args=[empresa.pk, medida.pk]),
+        url_voltar=_pres_url_consulta("fiscal_web:presumido_medidas", empresa),
+    )
+    return render(request, "fiscal/presumido_medida_encerrar.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def presumido_medida_encerrar(request, empresa_id, medida_id):
+    """Encerra a medida judicial a partir de (ano, trimestre), inclusive (DL-084, item 7).
+
+    A medida não é apagada nem alterada: o encerramento é um ato com motivo e trilha, e os
+    trimestres anteriores continuam cobertos. O serviço recusa encerramento que estenda a medida, o
+    segundo encerramento e o de medida revogada — a recusa dele é a que a tela mostra.
+    """
+    recusa = _pres_recusa_de_escrita(request)
+    if recusa is not None:
+        return recusa
+    empresa = _empresa_escopada(request, empresa_id)
+    medida = get_object_or_404(MedidaJudicialLC224, pk=medida_id, empresa=empresa)
+    ano_padrao, trimestre_padrao = _pres_periodo_padrao_atual()
+    if request.method == "GET":
+        # O alvo chega na querystring (a ação de linha nomeia o trimestre corrente); fora isso,
+        # o formulário abre com o padrão. Valor digitado ruim é recusado no POST, pelo serviço.
+        valores = {
+            "ano": request.GET.get("ano", "").strip() or str(ano_padrao),
+            "trimestre": request.GET.get("trimestre", "").strip() or str(trimestre_padrao),
+            "motivo": "",
+        }
+        return _pres_tela_encerrar_medida(request, empresa, medida, valores=valores)
+    valores = {
+        "ano": request.POST.get("ano", ""),
+        "trimestre": request.POST.get("trimestre", ""),
+        "motivo": request.POST.get("motivo", ""),
+    }
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_PRESUMIDO_ENCERRAR_MEDIDA)
+        ano = _inteiro_de_filtro(valores["ano"].strip())
+        trimestre = _inteiro_de_filtro(valores["trimestre"].strip())
+        if ano is None or trimestre is None:
+            raise servico_presumido.EntradaInvalidaPresumido(
+                "Informe o ano (AAAA) e o trimestre (1 a 4) do último trimestre coberto."
+            )
+        servico_presumido.encerrar_medida(
+            empresa, medida.pk, ano, trimestre, valores["motivo"], request.user, request
+        )
+    except DadoNaoContratado as exc:
+        return _pres_tela_encerrar_medida(
+            request, empresa, medida, valores=valores, erro=exc.mensagem, status=400
+        )
+    except servico_presumido.PresumidoErro as exc:
+        status = 400 if isinstance(exc, servico_presumido.EntradaInvalidaPresumido) else 409
+        return _pres_tela_encerrar_medida(
+            request, empresa, medida, valores=valores, erro=exc.mensagem, status=status
+        )
+    messages.success(
+        request,
+        f"Medida judicial encerrada: ela cobre até o {_pres_trimestre(ano, trimestre)}, inclusive.",
+    )
+    return redirect(_pres_url_consulta("fiscal_web:presumido_medidas", empresa))
+
+
 # ---------------------------------------------------------------------------
 # Apuração do trimestre: a memória de conferência (tela 6)
 # ---------------------------------------------------------------------------
@@ -6203,12 +6592,22 @@ def _pres_medida_na_tela(colunas) -> dict:
 
 
 def _pres_quotas_na_tela(quotas) -> dict:
+    """Quotas na tela (DL-084, itens 1 e 2). A chave morta "aviso" ("calendário a conferir") saiu:
+    o serviço não preenche mais `aviso_calendario` desde que a HI-105 foi substituída. O que entra
+    no lugar vem pronto do serviço: `antecipada_de` (o vencimento recuou por dia sem expediente
+    bancário nacional) e `avisos_locais` (o feriado local da praça, que NUNCA muda a data)."""
+
     def parcela(p):
         return {
             "numero": p.numero,
             "valor": _valor_ptbr(p.valor),
             "vencimento": _data_na_tela(p.vencimento),
-            "aviso": "calendário a conferir" if p.aviso_calendario else "",
+            "antecipacao": (
+                f"antecipado: sem expediente bancário (era {_data_na_tela(p.antecipada_de)})"
+                if p.antecipada_de is not None
+                else ""
+            ),
+            "avisos_locais": list(p.avisos_locais),
             "juros": p.juros,
         }
 
@@ -6478,6 +6877,11 @@ def presumido_apuracao(request):
     apuracao = servico_presumido.apurar_trimestre(empresa, ano, trimestre)
     contexto.update(
         apuracao=_pres_apuracao_na_tela(apuracao, ano, trimestre),
+        # DL-084, item 8: a empresa do Presumido sem atividade de presunção padrão vigente aparece
+        # como pendência do mês, com o link do cadastro que resolve.
+        pendencias_cadastro=_pres_pendencias_do_trimestre(
+            empresa, ano, trimestre, _pode_escriturar(request)
+        ),
         url_consulta=_pres_url_consulta(
             "fiscal_web:presumido_apuracao", empresa, ano=ano, trimestre=trimestre
         ),
@@ -6573,6 +6977,1038 @@ def _pres_controle_na_tela(controle) -> dict:
             for r in controle.recusas
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Pendências de cadastro do mês (DL-084, item 8; HI-136)
+# ---------------------------------------------------------------------------
+
+
+def _pres_pendencia_na_tela(pendencia, empresa, pode_escriturar) -> dict:
+    """Uma pendência do mês na tela: a empresa, o que falta (texto do serviço) e o caminho do
+    cadastro que resolve. Quem só consulta vê a ação desabilitada, com o motivo (§2B da direção de
+    arte) — a lista nunca some dela."""
+    return {
+        "empresa": empresa.razao_social,
+        "codigo": pendencia.codigo,
+        "mensagem": pendencia.mensagem,
+        "url_cadastrar": (
+            reverse("fiscal_web:presumido_atividade_nova", args=[empresa.pk])
+            if pode_escriturar
+            else None
+        ),
+    }
+
+
+def _pres_pendencias_do_mes(empresa, ano, mes, pode_escriturar) -> list[dict]:
+    return [
+        _pres_pendencia_na_tela(pendencia, empresa, pode_escriturar)
+        for pendencia in servico_presumido.pendencias_de_cadastro(empresa, ano, mes)
+    ]
+
+
+def _pres_pendencias_do_trimestre(empresa, ano, trimestre, pode_escriturar) -> list[dict]:
+    """Pendências de cadastro de cada MÊS do trimestre (DL-084, item 8). A pendência é mensal e a
+    apuração é trimestral: a tela do trimestre lista as dois meses que ela cobre, cada uma com o
+    link para o cadastro que resolve."""
+    linhas = []
+    for mes in range((trimestre - 1) * 3 + 1, (trimestre - 1) * 3 + 4):
+        for pendencia in servico_presumido.pendencias_de_cadastro(empresa, ano, mes):
+            linha = _pres_pendencia_na_tela(pendencia, empresa, pode_escriturar)
+            linhas.append({"mes_rotulo": _mes_por_extenso(ano, mes), **linha})
+    return linhas
+
+
+@login_required
+@require_safe
+def presumido_pendencias(request):
+    """Pendências de cadastro do Presumido no mês, por empresa do escritório ativo (DL-084, item 8).
+
+    Arquétipo C (caixa de entrada e conferência): cada linha diz a empresa, o que falta e leva ao
+    cadastro que resolve. O serviço decide quem tem pendência (`pendencias_de_cadastro`); aqui só
+    se lista. Empresas de OUTRO escritório nunca entram: a lista é do escritório ativo.
+    """
+    recusa = _pres_recusa_de_consulta(request)
+    if recusa is not None:
+        return recusa
+    ano, mes, erro = _pres_mes_padrao(request)
+    pode = _pode_escriturar(request)
+    # DL-086 (A-14): o padrão desta tela é o mês corrente — "Limpar filtros" só sai de filtro
+    # além do padrão ou de filtro recusado.
+    algum_filtro_ativo = bool(erro) or (ano, mes) != _competencia_padrao()
+    contexto = {
+        "titulo": "Pendências de cadastro do mês",
+        "pode_escriturar": pode,
+        "ano_filtro": ano if not erro else request.GET.get("ano", "").strip(),
+        "mes_filtro": mes if not erro else request.GET.get("mes", "").strip(),
+        "erro": erro,
+        "mes_rotulo": _mes_por_extenso(ano, mes) if not erro else "",
+        **_limpar_filtros_da_consulta(request, None, ativo=algum_filtro_ativo),
+    }
+    if erro:
+        return render(request, "fiscal/presumido_pendencias.html", contexto, status=400)
+    linhas = []
+    for empresa in Empresa.objects.filter(escritorio=request.escritorio).order_by("razao_social"):
+        linhas.extend(_pres_pendencias_do_mes(empresa, ano, mes, pode))
+    contexto.update(
+        pendencias=linhas,
+        mes_referencia=f"{mes:02d}/{ano}",
+    )
+    return render(request, "fiscal/presumido_pendencias.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# Parâmetros do Presumido da empresa (DL-084, item 6; HI-136)
+# ---------------------------------------------------------------------------
+
+# Os rótulos de escritório vêm do próprio modelo (as escolhas do formulário): o texto que o contador
+# lê nunca é o código ("quota_unica" vira "Quota única").
+_ROTULO_FORMA_RECOLHIMENTO = dict(OPCOES_FORMA_RECOLHIMENTO)
+_ROTULO_PADRAO_COMBUSTIVEL = dict(OPCOES_PADRAO_COMBUSTIVEL)
+
+_CONTRATO_PRESUMIDO_PARAMETROS = _contrato_presumido(
+    {"forma_recolhimento", "padrao_combustivel"}, "na definição dos parâmetros do Presumido"
+)
+
+# Erros do serviço de parâmetros, campo a campo, em linguagem de escritório. A regra mora no serviço
+# (`presumido.definir_parametros`): a tela só aponta o campo que causou a recusa e diz o que fazer.
+_ERRO_FORMA_RECOLHIMENTO = "Forma de recolhimento: escolha quota única, duas quotas ou três quotas."
+_ERRO_PADRAO_COMBUSTIVEL = (
+    "Padrão de combustível: escolha posto, TRR ou distribuidora, ou deixe sem padrão."
+)
+
+
+def _pres_erros_de_parametro(exc) -> dict:
+    mensagem = exc.mensagem
+    if mensagem.startswith("Forma de recolhimento"):
+        return {"forma_recolhimento": _ERRO_FORMA_RECOLHIMENTO}
+    if mensagem.startswith("Padrão de combustível"):
+        return {"padrao_combustivel": _ERRO_PADRAO_COMBUSTIVEL}
+    return {"geral": mensagem}
+
+
+def _pres_parametros_na_tela(parametros) -> dict:
+    return {
+        "forma_recolhimento": parametros.forma_recolhimento,
+        "forma_recolhimento_rotulo": _ROTULO_FORMA_RECOLHIMENTO.get(
+            parametros.forma_recolhimento, parametros.forma_recolhimento
+        ),
+        "padrao_combustivel": parametros.padrao_combustivel,
+        "padrao_combustivel_rotulo": _ROTULO_PADRAO_COMBUSTIVEL.get(
+            parametros.padrao_combustivel, "Sem padrão"
+        ),
+        "definido": parametros.definido,
+    }
+
+
+def _pres_tela_parametros(request, empresa, *, valores=None, erros=None, status=200):
+    parametros = servico_presumido.parametros_da_empresa(empresa)
+    atuais = {
+        "forma_recolhimento": parametros.forma_recolhimento,
+        "padrao_combustivel": parametros.padrao_combustivel,
+    }
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=_pode_escriturar(request),
+        titulo="Parâmetros do Presumido",
+        # DL-086 (A-14): tela de formulário sem período — o "Limpar filtros" só sai de erro.
+        algum_filtro_ativo=bool(erros),
+        parametros=_pres_parametros_na_tela(parametros),
+        valores=atuais if valores is None else valores,
+        erros=erros or {},
+        opcoes_forma=list(OPCOES_FORMA_RECOLHIMENTO),
+        opcoes_combustivel=list(OPCOES_PADRAO_COMBUSTIVEL),
+        url_gravar=reverse("fiscal_web:presumido_parametros_gravar", args=[empresa.pk]),
+    )
+    return render(request, "fiscal/presumido_parametros.html", contexto, status=status)
+
+
+@login_required
+@require_safe
+def presumido_parametros(request):
+    """Parâmetros do Presumido da empresa: forma de recolhimento padrão e padrão de combustível.
+
+    Leitura e edição na mesma tela (DL-084, item 6). Sem linha gravada, a tela mostra o padrão do
+    escritório (três quotas, sem padrão de combustível), que é com o que a empresa nasce.
+    """
+    recusa = _pres_recusa_de_consulta(request)
+    if recusa is not None:
+        return recusa
+    empresa, erro = _empresa_da_escrituracao(request)
+    if erro:
+        contexto = _pres_contexto(
+            request,
+            empresa,
+            pode_escriturar=_pode_escriturar(request),
+            titulo="Parâmetros do Presumido",
+            algum_filtro_ativo=bool(erro),
+            erro=erro,
+        )
+        return render(request, "fiscal/presumido_parametros.html", contexto, status=400)
+    if empresa is None:
+        contexto = _pres_contexto(
+            request,
+            empresa,
+            pode_escriturar=_pode_escriturar(request),
+            titulo="Parâmetros do Presumido",
+            algum_filtro_ativo=False,
+        )
+        return render(request, "fiscal/presumido_parametros.html", contexto)
+    return _pres_tela_parametros(request, empresa)
+
+
+@login_required
+@require_http_methods(["POST"])
+def presumido_parametros_gravar(request, empresa_id):
+    """Grava os parâmetros do Presumido da empresa (DL-084, item 6).
+
+    A validação é a do serviço (`presumido.definir_parametros`), com trilha e isolamento; a tela só
+    mostra a recusa dele campo a campo, em linguagem de escritório, e não grava nada quando recusa.
+    """
+    recusa = _pres_recusa_de_escrita(request)
+    if recusa is not None:
+        return recusa
+    empresa = _empresa_escopada(request, empresa_id)
+    valores = {
+        "forma_recolhimento": request.POST.get("forma_recolhimento", ""),
+        "padrao_combustivel": request.POST.get("padrao_combustivel", ""),
+    }
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_PRESUMIDO_PARAMETROS)
+    except DadoNaoContratado as exc:
+        return _pres_tela_parametros(
+            request, empresa, valores=valores, erros={"geral": exc.mensagem}, status=400
+        )
+    try:
+        servico_presumido.definir_parametros(empresa, valores, request.user, request)
+    except servico_presumido.PresumidoErro as exc:
+        status = 400 if isinstance(exc, servico_presumido.EntradaInvalidaPresumido) else 409
+        return _pres_tela_parametros(
+            request, empresa, valores=valores, erros=_pres_erros_de_parametro(exc), status=status
+        )
+    messages.success(request, "Parâmetros do Presumido gravados.")
+    return redirect(_pres_url_consulta("fiscal_web:presumido_parametros", empresa))
+
+
+# ---------------------------------------------------------------------------
+# Feriados locais da praça (DL-084, item 2; HI-137)
+# ---------------------------------------------------------------------------
+
+# Abrangência de cada linha da tabela, na linguagem do escritório. A linha estadual sem município
+# vale para o estado todo; a linha da praça (estadual com município) traz a confirmação bancária e
+# substitui a do estado no mesmo dia; a municipal vale só para o município.
+_ABRANGENCIAS_FERIADO = ("estado", "praca", "municipio")
+
+# DE-106: a base (carga do produto — lei, data da leitura e fonte bancária) é global e somente
+# leitura; a escrita das telas é do escritório e afeta só as empresas dele. A recusa nomeia o que a
+# linha é e o que fazer, em linguagem de escritório — e a UI mostra a ação desabilitada com este
+# mesmo motivo (§2B da direção de arte).
+_MENSAGEM_LINHA_DA_BASE = (
+    "Esta é uma linha da base (lei e fonte da carga) — somente leitura: "
+    "cadastre a sua para a sua praça."
+)
+
+# As exclusões de feriado e de exceção não levam campo nenhum: o contrato recusa qualquer outro
+# (mesmo padrão dos demais atos do presumido).
+_CONTRATO_PRESUMIDO_EXCLUIR_FERIADO = _contrato_presumido(set(), "na exclusão do feriado local")
+
+
+def _pres_praca_da_empresa(empresa):
+    """(município, UF) da matriz da empresa, ou None. É a MESMA regra do serviço
+    (`presumido._praca_da_empresa`): a tela não escolhe outra praça nem inventa uma."""
+    return servico_presumido._praca_da_empresa(empresa)
+
+
+def _pres_avisos_do_feriado(fonte_bancaria: str, praca: str) -> list[str]:
+    """Avisos do feriado com os TEXTOS do serviço (`presumido_calculo.avisos_de_feriado_local`).
+
+    Com a fonte bancária, a lista confirma o fechamento da praça e o vencimento na data deve
+    antecipar ("antecipar: sem expediente bancário na praça"); sem ela, o aviso é o mais fraco
+    ("feriado local: confirmar expediente bancário na praça"). O feriado local NUNCA muda a data de
+    vencimento — a tela não escreve aviso próprio nem altera data alguma."""
+    if fonte_bancaria:
+        return [
+            calc_presumido.AVISO_LOCAL_BANCARIO.format(praca=praca),
+            calc_presumido.AVISO_LOCAL_ANTECIPAR,
+        ]
+    return [calc_presumido.AVISO_LOCAL_SEM_FONTE_BANCARIA]
+
+
+def _pres_feriados_da_praca(empresa):
+    """`(praca, uf, linhas)` da tabela da praça da empresa: a base (carga/lei) mais as linhas do
+    escritório dela (DE-106). Linha de outro escritório não aparece. Sem matriz com município e UF,
+    não há praça e não há feriado a mostrar (a tela diz isso)."""
+    praca_com_uf = _pres_praca_da_empresa(empresa)
+    if praca_com_uf is None:
+        return None, None, ()
+    municipio, uf = praca_com_uf
+    linhas = list(
+        FeriadoLocal.objects.filter(uf=uf)
+        .filter(Q(municipio="") | Q(municipio=calc_presumido.chave_municipio(municipio)))
+        .filter(Q(escritorio__isnull=True) | Q(escritorio=empresa.escritorio))
+        .prefetch_related("excecoes")
+        .order_by("mes", "dia", "municipio", "id")
+    )
+    return municipio, uf, linhas
+
+
+def _pres_abrangencia_na_tela(feriado, praca: str) -> str:
+    if feriado.municipio == "":
+        return f"Estadual — todo o {feriado.uf}"
+    if feriado.esfera == "municipal":
+        return f"Municipal — {praca}"
+    return f"Estadual — somente a praça de {praca} (linha da praça, com confirmação bancária)"
+
+
+def _pres_feriado_na_tela(feriado, empresa, praca: str, pode_escriturar: bool) -> dict:
+    """O feriado como a tela mostra, já com o escopo e as ações que cabem nele (DE-106).
+
+    Linha da base: `da_base` True, e as ações de escrita da LINHA aparecem desabilitadas com o
+    motivo (§2B da direção de arte) — a exclusão de exceção só aparece para a exceção do escritório;
+    a da base é somente leitura. Exceção de outro escritório não aparece (não é visível).
+    """
+    da_base = feriado.escritorio_id is None
+    return {
+        "id": feriado.pk,
+        "data": f"{feriado.dia:02d}/{feriado.mes:02d}",
+        "descricao": feriado.descricao,
+        "abrangencia": _pres_abrangencia_na_tela(feriado, praca),
+        "da_base": da_base,
+        "fundamento": feriado.fundamento,
+        "data_leitura": _data_na_tela(feriado.data_leitura),
+        "vigencia": (
+            f"{_data_na_tela(feriado.vigencia_inicio)} a "
+            f"{_data_na_tela(feriado.vigencia_fim) or 'em aberto'}"
+        ),
+        "fonte_bancaria": feriado.fonte_bancaria or "—",
+        "avisos": _pres_avisos_do_feriado(feriado.fonte_bancaria, praca),
+        "excecoes": [
+            {
+                "id": excecao.pk,
+                "ano": excecao.ano,
+                "data_observada": _data_na_tela(excecao.data_observada),
+                "fundamento": excecao.fundamento,
+                "fonte_bancaria": excecao.fonte_bancaria or "—",
+                "avisos": _pres_avisos_do_feriado(excecao.fonte_bancaria, praca),
+                "da_base": excecao.escritorio_id is None,
+                "url_excluir": (
+                    reverse(
+                        "fiscal_web:presumido_feriado_excecao_excluir",
+                        args=[empresa.pk, feriado.pk, excecao.pk],
+                    )
+                    # Só a exceção DO ESCRITÓRIO se exclui; a da base é a lei carregada.
+                    if pode_escriturar and excecao.escritorio_id == empresa.escritorio_id
+                    else None
+                ),
+            }
+            for excecao in feriado.excecoes.all()
+            if excecao.escritorio_id is None or excecao.escritorio_id == empresa.escritorio_id
+        ],
+        "url_editar": (
+            reverse("fiscal_web:presumido_feriado_editar", args=[empresa.pk, feriado.pk])
+            if pode_escriturar and not da_base
+            else None
+        ),
+        "url_excluir": (
+            reverse("fiscal_web:presumido_feriado_excluir", args=[empresa.pk, feriado.pk])
+            if pode_escriturar and not da_base
+            else None
+        ),
+    }
+
+
+def _pres_tela_feriados(request, empresa, *, status=200, erro=None):
+    pode = _pode_escriturar(request)
+    praca, uf, linhas = _pres_feriados_da_praca(empresa)
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=pode,
+        titulo="Feriados locais da praça",
+        # DL-086 (A-14): sem período nesta tela — o "Limpar filtros" só sai de filtro recusado.
+        algum_filtro_ativo=bool(erro),
+        erro=erro,
+        praca=praca,
+        uf=uf,
+        sem_praca=praca is None,
+        feriados=[_pres_feriado_na_tela(feriado, empresa, praca, pode) for feriado in linhas],
+        url_nova=(
+            reverse("fiscal_web:presumido_feriado_novo", args=[empresa.pk])
+            if praca is not None and pode
+            else None
+        ),
+    )
+    return render(request, "fiscal/presumido_feriados.html", contexto, status=status)
+
+
+@login_required
+@require_safe
+def presumido_feriados(request):
+    """Feriados locais que valem na praça da empresa (DL-084, item 2). Consulta; cadastro à parte.
+
+    A tabela é da PRAÇA (município e UF da matriz), não da empresa: duas empresas da mesma praça
+    veem e editam as mesmas linhas. A data normativa nunca muda na tela — o feriado local só avisa.
+    """
+    recusa = _pres_recusa_de_consulta(request)
+    if recusa is not None:
+        return recusa
+    empresa, erro = _empresa_da_escrituracao(request)
+    if erro or empresa is None:
+        contexto = _pres_contexto(
+            request,
+            empresa,
+            pode_escriturar=_pode_escriturar(request),
+            titulo="Feriados locais da praça",
+            algum_filtro_ativo=bool(erro),
+            erro=erro,
+        )
+        return render(
+            request, "fiscal/presumido_feriados.html", contexto, status=400 if erro else 200
+        )
+    return _pres_tela_feriados(request, empresa)
+
+
+def _pres_feriado_da_praca(empresa, feriado_id):
+    """O feriado pedido, desde que seja da praça ou do estado da empresa E visível a ela: da base ou
+    do escritório dela (DE-106). Linha de OUTRA praça, de outro estado ou de OUTRO escritório
+    responde 404: não confirma que o ID existe (isolamento das telas de ato).
+    """
+    praca, uf, _linhas = _pres_feriados_da_praca(empresa)
+    if praca is None:
+        raise Http404("Empresa sem matriz com município e UF: não há praça de feriados.")
+    return get_object_or_404(
+        FeriadoLocal,
+        Q(escritorio__isnull=True) | Q(escritorio=empresa.escritorio),
+        pk=feriado_id,
+        uf=uf,
+        municipio__in=("", calc_presumido.chave_municipio(praca)),
+    )
+
+
+def _pres_valores_feriado(valores=None) -> dict:
+    if valores is not None:
+        return valores
+    return {
+        "abrangencia": "municipio",
+        "dia": "",
+        "mes": "",
+        "descricao": "",
+        "fundamento": "",
+        "data_leitura": "",
+        "fonte_bancaria": "",
+        "vigencia_inicio": "",
+        "vigencia_fim": "",
+    }
+
+
+def _pres_valores_do_feriado_do_formulario(post) -> dict:
+    return {
+        "abrangencia": post.get("abrangencia", "").strip(),
+        "dia": post.get("dia", "").strip(),
+        "mes": post.get("mes", "").strip(),
+        "descricao": post.get("descricao", "").strip(),
+        "fundamento": post.get("fundamento", "").strip(),
+        "data_leitura": post.get("data_leitura", "").strip(),
+        "fonte_bancaria": post.get("fonte_bancaria", "").strip(),
+        "vigencia_inicio": post.get("vigencia_inicio", "").strip(),
+        "vigencia_fim": post.get("vigencia_fim", "").strip(),
+    }
+
+
+def _pres_valores_do_feriado_gravado(feriado) -> dict:
+    if feriado.municipio == "":
+        abrangencia = "estado"
+    elif feriado.esfera == "municipal":
+        abrangencia = "municipio"
+    else:
+        abrangencia = "praca"
+    return {
+        "abrangencia": abrangencia,
+        "dia": str(feriado.dia),
+        "mes": str(feriado.mes),
+        "descricao": feriado.descricao,
+        "fundamento": feriado.fundamento,
+        "data_leitura": _data_na_tela(feriado.data_leitura),
+        "fonte_bancaria": feriado.fonte_bancaria,
+        "vigencia_inicio": _data_na_tela(feriado.vigencia_inicio),
+        "vigencia_fim": _data_na_tela(feriado.vigencia_fim),
+    }
+
+
+def _pres_erros_do_feriado(valores, praca: str) -> tuple[dict, dict]:
+    """(erros do formulário, dados validados). Erro campo a campo, em linguagem de escritório.
+
+    A fonte é obrigatória: sem lei ou ato lido, a linha não entra — é a recusa que o próprio banco
+    já aplica (`feriado_local_fundamento_obrigatorio`), aqui traduzida para o campo que falta.
+    """
+    erros: dict = {}
+    dados: dict = {}
+    try:
+        mes = int(valores["mes"])
+        dia = int(valores["dia"])
+        date(2024, mes, dia)  # 2024 é bissexto: aceita 29/02 sem inventar regra nova
+    except (TypeError, ValueError):
+        erros["data"] = "Data do feriado: informe um dia e um mês válidos (ex.: 19/03)."
+        mes = dia = None
+    dados["mes"], dados["dia"] = mes, dia
+    if valores["abrangencia"] not in _ABRANGENCIAS_FERIADO:
+        erros["abrangencia"] = (
+            "Abrangência: escolha o estado todo, somente a praça ou o município da praça."
+        )
+    if not valores["descricao"]:
+        erros["descricao"] = "Informe a descrição do feriado."
+    if not valores["fundamento"]:
+        erros["fundamento"] = "Informe a lei ou o ato que declara o feriado: a fonte é obrigatória."
+    dados["data_leitura"] = _data_do_formulario(valores["data_leitura"])
+    if dados["data_leitura"] is None:
+        erros["data_leitura"] = "Informe a data em que a fonte foi lida, em dd/mm/aaaa."
+    dados["vigencia_inicio"] = _data_do_formulario(valores["vigencia_inicio"])
+    if dados["vigencia_inicio"] is None:
+        erros["vigencia_inicio"] = "Informe o início da vigência em dd/mm/aaaa."
+    dados["vigencia_fim"] = None
+    if valores["vigencia_fim"].strip():
+        dados["vigencia_fim"] = _data_do_formulario(valores["vigencia_fim"])
+        if dados["vigencia_fim"] is None:
+            erros["vigencia_fim"] = (
+                "O fim da vigência é uma data inválida: use dd/mm/aaaa, ou deixe em branco."
+            )
+        elif (
+            dados["vigencia_inicio"] is not None
+            and dados["vigencia_fim"] < dados["vigencia_inicio"]
+        ):
+            erros["vigencia_fim"] = "O fim da vigência não pode ser anterior ao início."
+    if not erros:
+        if valores["abrangencia"] == "estado":
+            dados["municipio"] = ""
+            dados["esfera"] = "estadual"
+        elif valores["abrangencia"] == "municipio":
+            dados["municipio"] = calc_presumido.chave_municipio(praca)
+            dados["esfera"] = "municipal"
+        else:
+            dados["municipio"] = calc_presumido.chave_municipio(praca)
+            dados["esfera"] = "estadual"
+    return erros, dados
+
+
+def _pres_tela_feriado_form(
+    request,
+    empresa,
+    *,
+    feriado=None,
+    valores=None,
+    erros=None,
+    excecao_valores=None,
+    erros_excecao=None,
+    status=200,
+):
+    praca, uf, _linhas = _pres_feriados_da_praca(empresa)
+    editando = feriado is not None
+    contexto = _pres_contexto(
+        request,
+        empresa,
+        pode_escriturar=True,
+        titulo="Alterar feriado local" if editando else "Novo feriado local",
+        # DL-086 (A-14): tela de formulário — o "Limpar filtros" só sai de erro de formulário.
+        algum_filtro_ativo=bool(erros) or bool(erros_excecao),
+        praca=praca,
+        valores=_pres_valores_feriado(valores),
+        erros=erros or {},
+        feriado=_pres_feriado_na_tela(feriado, empresa, praca, True) if editando else None,
+        excecao_valores=_pres_valores_excecao(excecao_valores),
+        erros_excecao=erros_excecao or {},
+        opcoes_dia=[(str(dia), f"{dia:02d}") for dia in range(1, 32)],
+        opcoes_mes=[(str(mes), rotulo) for mes, rotulo in enumerate(tab_presumido.MESES, start=1)],
+        opcoes_abrangencia=[
+            ("estado", f"Estadual — todo o {uf}"),
+            ("praca", f"Estadual — somente a praça de {praca} (com confirmação bancária)"),
+            ("municipio", f"Municipal — município de {praca}"),
+        ],
+        url_envio=(
+            reverse("fiscal_web:presumido_feriado_editar", args=[empresa.pk, feriado.pk])
+            if editando
+            else reverse("fiscal_web:presumido_feriado_novo", args=[empresa.pk])
+        ),
+        url_excecao=(
+            reverse("fiscal_web:presumido_feriado_excecao_nova", args=[empresa.pk, feriado.pk])
+            if editando
+            else None
+        ),
+        url_voltar=_pres_url_consulta("fiscal_web:presumido_feriados", empresa),
+    )
+    return render(request, "fiscal/presumido_feriado_form.html", contexto, status=status)
+
+
+def _pres_gravar_feriado(request, empresa, feriado=None):
+    """POST do cadastro/edição do feriado. Valida campo a campo e grava a linha DO ESCRITÓRIO.
+
+    Não há serviço de escrita de feriado na frente A (a tabela nasceu com a carga da migração 0015);
+    a validação de fonte obrigatória é a CHECK do modelo, e a recusa do banco (`IntegrityError`) é
+    reaproveitada aqui como última linha, com o mesmo texto de escritório do campo. Linha da base é
+    somente leitura (DE-106): a alteração recusa com a mensagem nomeada e nada grava.
+    """
+    valores = _pres_valores_do_feriado_do_formulario(request.POST)
+    praca, uf, _linhas = _pres_feriados_da_praca(empresa)
+    if feriado is not None and feriado.escritorio_id is None:
+        return _pres_tela_feriado_form(
+            request,
+            empresa,
+            feriado=feriado,
+            valores=valores,
+            erros={"geral": _MENSAGEM_LINHA_DA_BASE},
+            status=409,
+        )
+    # A trilha do feriado sai daqui (e não de um serviço, que a frente A não tem para esta tabela):
+    # AGENTS.md §11 registra ator, contexto, operação e resultado do ato do contador.
+    antes = (
+        {
+            "data": f"{feriado.dia:02d}/{feriado.mes:02d}",
+            "descricao": feriado.descricao,
+            "fundamento": feriado.fundamento,
+            "fonte_bancaria": feriado.fonte_bancaria,
+        }
+        if feriado is not None
+        else None
+    )
+    try:
+        recusar_dado_nao_contratado(
+            request,
+            _contrato_presumido(
+                {
+                    "abrangencia",
+                    "dia",
+                    "mes",
+                    "descricao",
+                    "fundamento",
+                    "data_leitura",
+                    "fonte_bancaria",
+                    "vigencia_inicio",
+                    "vigencia_fim",
+                },
+                "no cadastro do feriado local",
+            ),
+        )
+    except DadoNaoContratado as exc:
+        return _pres_tela_feriado_form(
+            request,
+            empresa,
+            feriado=feriado,
+            valores=valores,
+            erros={"geral": exc.mensagem},
+            status=400,
+        )
+    erros, dados = _pres_erros_do_feriado(valores, praca)
+    if erros:
+        return _pres_tela_feriado_form(
+            request, empresa, feriado=feriado, valores=valores, erros=erros, status=400
+        )
+    conflito = FeriadoLocal.objects.filter(
+        uf=uf,
+        municipio=dados["municipio"],
+        mes=dados["mes"],
+        dia=dados["dia"],
+        vigencia_inicio=dados["vigencia_inicio"],
+    )
+    if feriado is not None:
+        conflito = conflito.exclude(pk=feriado.pk)
+    if conflito.exists():
+        return _pres_tela_feriado_form(
+            request,
+            empresa,
+            feriado=feriado,
+            valores=valores,
+            erros={"data": "Já existe feriado nesta praça, neste dia, com esta vigência inicial."},
+            status=409,
+        )
+    if feriado is None:
+        # DE-106: a linha gravada pela tela nasce escopada ao escritório que agiu — só as empresas
+        # dele a herdam, e a trilha sai no mesmo escritório.
+        feriado = FeriadoLocal(uf=uf, escritorio=empresa.escritorio)
+    feriado.municipio = dados["municipio"]
+    feriado.esfera = dados["esfera"]
+    feriado.mes = dados["mes"]
+    feriado.dia = dados["dia"]
+    feriado.descricao = valores["descricao"]
+    feriado.fundamento = valores["fundamento"]
+    feriado.data_leitura = dados["data_leitura"]
+    feriado.fonte_bancaria = valores["fonte_bancaria"]
+    feriado.vigencia_inicio = dados["vigencia_inicio"]
+    feriado.vigencia_fim = dados["vigencia_fim"]
+    try:
+        # A transação pequena contém a recusa do banco: uma CHECK violada não pode contaminar as
+        # consultas seguintes da mesma requisição.
+        with transaction.atomic():
+            feriado.save()
+    except IntegrityError:
+        # A recusa do banco (CHECK de fonte obrigatória ou unicidade) reaproveitada como mensagem
+        # de campo: a linha não entra, e o formulário volta preenchido.
+        return _pres_tela_feriado_form(
+            request,
+            empresa,
+            feriado=feriado if feriado.pk else None,
+            valores=valores,
+            erros={
+                "fundamento": (
+                    "Informe a lei ou o ato que declara o feriado: a fonte é obrigatória."
+                )
+            },
+            status=409,
+        )
+    depois = {
+        "data": f"{feriado.dia:02d}/{feriado.mes:02d}",
+        "descricao": feriado.descricao,
+        "fundamento": feriado.fundamento,
+        "fonte_bancaria": feriado.fonte_bancaria,
+    }
+    registrar(
+        acao=(
+            "presumido.feriado_local_alterado"
+            if antes is not None
+            else "presumido.feriado_local_cadastrado"
+        ),
+        usuario=request.user,
+        escritorio=empresa.escritorio,
+        objeto=feriado,
+        request=request,
+        detalhes={"antes": antes, "depois": depois},
+    )
+    return feriado
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def presumido_feriado_novo(request, empresa_id):
+    """Cadastra um feriado local da praça (DL-084, item 2), com fonte e data de leitura."""
+    recusa = _pres_recusa_de_escrita(request)
+    if recusa is not None:
+        return recusa
+    empresa = _empresa_escopada(request, empresa_id)
+    if _pres_praca_da_empresa(empresa) is None:
+        raise Http404("Empresa sem matriz com município e UF: não há praça de feriados.")
+    if request.method == "GET":
+        return _pres_tela_feriado_form(request, empresa, valores=_pres_valores_feriado())
+    resultado = _pres_gravar_feriado(request, empresa)
+    if isinstance(resultado, HttpResponse):
+        return resultado
+    messages.success(request, "Feriado local cadastrado.")
+    return redirect(_pres_url_consulta("fiscal_web:presumido_feriados", empresa))
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def presumido_feriado_editar(request, empresa_id, feriado_id):
+    """Altera um feriado local da praça (data normativa, descrição, fonte e vigência).
+
+    Linha da BASE é somente leitura (DE-106): a edição recusa com a mensagem nomeada e nada grava.
+    A tela do feriado continua aparecendo — é de onde se cadastra a exceção por ano do escritório,
+    que substitui a da base só para as empresas dele.
+    """
+    recusa = _pres_recusa_de_escrita(request)
+    if recusa is not None:
+        return recusa
+    empresa = _empresa_escopada(request, empresa_id)
+    feriado = _pres_feriado_da_praca(empresa, feriado_id)
+    if feriado.escritorio_id is None:
+        return _pres_tela_feriado_form(
+            request,
+            empresa,
+            feriado=feriado,
+            valores=_pres_valores_do_feriado_gravado(feriado),
+            erros={"geral": _MENSAGEM_LINHA_DA_BASE},
+            status=409,
+        )
+    if request.method == "GET":
+        return _pres_tela_feriado_form(
+            request, empresa, feriado=feriado, valores=_pres_valores_do_feriado_gravado(feriado)
+        )
+    resultado = _pres_gravar_feriado(request, empresa, feriado=feriado)
+    if isinstance(resultado, HttpResponse):
+        return resultado
+    messages.success(request, "Feriado local alterado.")
+    return redirect(_pres_url_consulta("fiscal_web:presumido_feriados", empresa))
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def presumido_feriado_excluir(request, empresa_id, feriado_id):
+    """Exclui um feriado local da praça, com confirmação (ação sensível, §8.4 da direção de arte).
+
+    Feriado com exceção por ano NÃO se exclui: a exceção guarda o decreto que moveu a data, e
+    apagá-la junto apagaria o histórico. A tela diz qual exceção excluir antes.
+
+    Linha da BASE também não se exclui (DE-106): é a lei carregada, somente leitura — a recusa traz
+    a mensagem nomeada e nada apaga.
+    """
+    recusa = _pres_recusa_de_escrita(request)
+    if recusa is not None:
+        return recusa
+    empresa = _empresa_escopada(request, empresa_id)
+    feriado = _pres_feriado_da_praca(empresa, feriado_id)
+    praca, _uf, _linhas = _pres_feriados_da_praca(empresa)
+    if feriado.escritorio_id is None:
+        contexto = _pres_contexto(
+            request,
+            empresa,
+            pode_escriturar=True,
+            titulo="Excluir feriado local",
+            feriado=_pres_feriado_na_tela(feriado, empresa, praca, False),
+            erro=_MENSAGEM_LINHA_DA_BASE,
+            url_envio=reverse(
+                "fiscal_web:presumido_feriado_excluir", args=[empresa.pk, feriado.pk]
+            ),
+            url_voltar=_pres_url_consulta("fiscal_web:presumido_feriados", empresa),
+        )
+        return render(request, "fiscal/presumido_feriado_excluir.html", contexto, status=409)
+    if request.method == "GET":
+        contexto = _pres_contexto(
+            request,
+            empresa,
+            pode_escriturar=True,
+            titulo="Excluir feriado local",
+            feriado=_pres_feriado_na_tela(feriado, empresa, praca, False),
+            erro=None,
+            url_envio=reverse(
+                "fiscal_web:presumido_feriado_excluir", args=[empresa.pk, feriado.pk]
+            ),
+            url_voltar=_pres_url_consulta("fiscal_web:presumido_feriados", empresa),
+        )
+        return render(request, "fiscal/presumido_feriado_excluir.html", contexto)
+    if feriado.excecoes.exists():
+        contexto = _pres_contexto(
+            request,
+            empresa,
+            pode_escriturar=True,
+            titulo="Excluir feriado local",
+            feriado=_pres_feriado_na_tela(feriado, empresa, praca, False),
+            erro=(
+                "Este feriado tem exceção por ano cadastrada: exclua cada exceção antes de excluir "
+                "o feriado, para não apagar o decreto que moveu a data."
+            ),
+            url_envio=reverse(
+                "fiscal_web:presumido_feriado_excluir", args=[empresa.pk, feriado.pk]
+            ),
+            url_voltar=_pres_url_consulta("fiscal_web:presumido_feriados", empresa),
+        )
+        return render(request, "fiscal/presumido_feriado_excluir.html", contexto, status=409)
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_PRESUMIDO_EXCLUIR_FERIADO)
+    except DadoNaoContratado as exc:
+        contexto = _pres_contexto(
+            request,
+            empresa,
+            pode_escriturar=True,
+            titulo="Excluir feriado local",
+            feriado=_pres_feriado_na_tela(feriado, empresa, praca, False),
+            erro=exc.mensagem,
+            url_envio=reverse(
+                "fiscal_web:presumido_feriado_excluir", args=[empresa.pk, feriado.pk]
+            ),
+            url_voltar=_pres_url_consulta("fiscal_web:presumido_feriados", empresa),
+        )
+        return render(request, "fiscal/presumido_feriado_excluir.html", contexto, status=400)
+    descricao = f"{feriado.dia:02d}/{feriado.mes:02d} — {feriado.descricao}"
+    registrar(
+        acao="presumido.feriado_local_excluido",
+        usuario=request.user,
+        escritorio=empresa.escritorio,
+        objeto=feriado,
+        request=request,
+        detalhes={
+            "antes": {
+                "data": f"{feriado.dia:02d}/{feriado.mes:02d}",
+                "descricao": feriado.descricao,
+                "fundamento": feriado.fundamento,
+            },
+            "depois": None,
+        },
+    )
+    feriado.delete()
+    messages.success(request, f"Feriado local {descricao} excluído.")
+    return redirect(_pres_url_consulta("fiscal_web:presumido_feriados", empresa))
+
+
+def _pres_valores_excecao(valores=None) -> dict:
+    if valores is not None:
+        return valores
+    return {
+        "ano": "",
+        "data_observada": "",
+        "fundamento": "",
+        "data_leitura": "",
+        "fonte_bancaria": "",
+    }
+
+
+def _pres_erros_da_excecao(valores) -> tuple[dict, dict]:
+    erros: dict = {}
+    dados: dict = {}
+    ano = _inteiro_de_filtro(valores["ano"].strip())
+    if ano is None or not 1970 <= ano <= 2999:
+        erros["ano"] = "Informe o ano da exceção (AAAA), entre 1970 e 2999."
+        ano = None
+    dados["ano"] = ano
+    dados["data_observada"] = _data_do_formulario(valores["data_observada"])
+    if dados["data_observada"] is None:
+        erros["data_observada"] = (
+            "Informe a data observada no ano, em dd/mm/aaaa (a data que o decreto fixou)."
+        )
+    if not valores["fundamento"].strip():
+        erros["fundamento"] = "Informe o ato que moveu o feriado: a fonte da exceção é obrigatória."
+    dados["data_leitura"] = _data_do_formulario(valores["data_leitura"])
+    if dados["data_leitura"] is None:
+        erros["data_leitura"] = "Informe a data em que a fonte foi lida, em dd/mm/aaaa."
+    return erros, dados
+
+
+@login_required
+@require_http_methods(["POST"])
+def presumido_feriado_excecao_nova(request, empresa_id, feriado_id):
+    """Cadastra a exceção por ano de um feriado (o decreto que moveu a data naquele ano).
+
+    A data normativa do feriado NÃO muda: a exceção registra a data observada e o aviso passa a
+    sair nela (regra do serviço, `presumido_calculo.avisos_de_feriado_local`). A exceção nasce
+    escopada ao escritório que agiu (DE-106) e substitui a da base só para as empresas dele.
+    """
+    recusa = _pres_recusa_de_escrita(request)
+    if recusa is not None:
+        return recusa
+    empresa = _empresa_escopada(request, empresa_id)
+    feriado = _pres_feriado_da_praca(empresa, feriado_id)
+    valores = {
+        "ano": request.POST.get("ano", "").strip(),
+        "data_observada": request.POST.get("data_observada", "").strip(),
+        "fundamento": request.POST.get("fundamento", "").strip(),
+        "data_leitura": request.POST.get("data_leitura", "").strip(),
+        "fonte_bancaria": request.POST.get("fonte_bancaria", "").strip(),
+    }
+    try:
+        recusar_dado_nao_contratado(
+            request,
+            _contrato_presumido(
+                {"ano", "data_observada", "fundamento", "data_leitura", "fonte_bancaria"},
+                "no cadastro da exceção de feriado",
+            ),
+        )
+    except DadoNaoContratado as exc:
+        return _pres_tela_feriado_form(
+            request,
+            empresa,
+            feriado=feriado,
+            valores=_pres_valores_do_feriado_gravado(feriado),
+            excecao_valores=valores,
+            erros_excecao={"geral": exc.mensagem},
+            status=400,
+        )
+    erros, dados = _pres_erros_da_excecao(valores)
+    if not erros and feriado.excecoes.filter(ano=dados["ano"]).exists():
+        erros["ano"] = "Já existe exceção para este ano neste feriado."
+    if erros:
+        return _pres_tela_feriado_form(
+            request,
+            empresa,
+            feriado=feriado,
+            valores=_pres_valores_do_feriado_gravado(feriado),
+            excecao_valores=valores,
+            erros_excecao=erros,
+            status=400,
+        )
+    ExcecaoFeriadoLocal.objects.create(
+        escritorio=empresa.escritorio,
+        feriado=feriado,
+        ano=dados["ano"],
+        data_observada=dados["data_observada"],
+        fundamento=valores["fundamento"],
+        data_leitura=dados["data_leitura"],
+        fonte_bancaria=valores["fonte_bancaria"],
+    )
+    registrar(
+        acao="presumido.feriado_excecao_cadastrada",
+        usuario=request.user,
+        escritorio=empresa.escritorio,
+        objeto=feriado,
+        request=request,
+        detalhes={
+            "ano": dados["ano"],
+            "data_observada": _data_na_tela(dados["data_observada"]),
+            "data_normativa": f"{feriado.dia:02d}/{feriado.mes:02d}",
+        },
+    )
+    messages.success(request, f"Exceção de {dados['ano']} cadastrada no feriado.")
+    return redirect(_pres_url_consulta("fiscal_web:presumido_feriados", empresa))
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def presumido_feriado_excecao_excluir(request, empresa_id, feriado_id, excecao_id):
+    """Exclui a exceção por ano de um feriado, com confirmação. O feriado não muda.
+
+    Só a exceção DO ESCRITÓRIO se exclui (DE-106): a da base (lei carregada) recusa com a mensagem
+    nomeada, e a de outro escritório nem aparece (404, sem confirmar o ID).
+    """
+    recusa = _pres_recusa_de_escrita(request)
+    if recusa is not None:
+        return recusa
+    empresa = _empresa_escopada(request, empresa_id)
+    feriado = _pres_feriado_da_praca(empresa, feriado_id)
+    excecao = get_object_or_404(
+        ExcecaoFeriadoLocal,
+        Q(escritorio__isnull=True) | Q(escritorio=empresa.escritorio),
+        pk=excecao_id,
+        feriado=feriado,
+    )
+    praca, _uf, _linhas = _pres_feriados_da_praca(empresa)
+
+    def _tela(erro=None, status=200):
+        contexto = _pres_contexto(
+            request,
+            empresa,
+            pode_escriturar=True,
+            titulo="Excluir exceção de feriado",
+            feriado=_pres_feriado_na_tela(feriado, empresa, praca, False),
+            excecao={
+                "ano": excecao.ano,
+                "data_observada": _data_na_tela(excecao.data_observada),
+                "fundamento": excecao.fundamento,
+                "da_base": excecao.escritorio_id is None,
+            },
+            erro=erro,
+            url_envio=reverse(
+                "fiscal_web:presumido_feriado_excecao_excluir",
+                args=[empresa.pk, feriado.pk, excecao.pk],
+            ),
+            url_voltar=_pres_url_consulta("fiscal_web:presumido_feriados", empresa),
+        )
+        return render(
+            request, "fiscal/presumido_feriado_excecao_excluir.html", contexto, status=status
+        )
+
+    if excecao.escritorio_id is None:
+        return _tela(erro=_MENSAGEM_LINHA_DA_BASE, status=409)
+
+    if request.method == "GET":
+        return _tela()
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_PRESUMIDO_EXCLUIR_FERIADO)
+    except DadoNaoContratado as exc:
+        return _tela(erro=exc.mensagem, status=400)
+    registrar(
+        acao="presumido.feriado_excecao_excluida",
+        usuario=request.user,
+        escritorio=empresa.escritorio,
+        objeto=feriado,
+        request=request,
+        detalhes={
+            "antes": {
+                "ano": excecao.ano,
+                "data_observada": _data_na_tela(excecao.data_observada),
+                "fundamento": excecao.fundamento,
+            },
+            "depois": None,
+        },
+    )
+    excecao.delete()
+    messages.success(request, f"Exceção de {excecao.ano} excluída do feriado.")
+    return redirect(_pres_url_consulta("fiscal_web:presumido_feriados", empresa))
 
 
 # ---------------------------------------------------------------------------
@@ -6983,7 +8419,9 @@ _ANO_MINIMO_NFE, _ANO_MAXIMO_NFE = 1970, 2999
 # Reconferência da DL-083, R1: o limite vem do campo do modelo, nunca de um literal. A natureza
 # `devolucao_combustivel_consumo` tem 29 caracteres, e o 24 antigo a recusava na tela.
 _TAMANHO_NATUREZA_NFE = NaturezaItemNFe._meta.get_field("natureza").max_length
-_ACOES_ESCRITURAR_NFE = frozenset({"criar", "item", "bloco", "efetivar"})
+_ACOES_ESCRITURAR_NFE = frozenset(
+    {"criar", "item", "bloco", "efetivar", "monofasico", "segmento_devolucao"}
+)
 _ACOES_RECLASSIFICAR_NFE = frozenset({"previa", "confirmar"})
 _MENSAGEM_SEM_CONSULTA_ESCRITURACAO_NFE = "Seu papel não permite consultar a escrituração de NF-e."
 _MENSAGEM_SEM_ESCRITA_NFE = (
@@ -7010,7 +8448,10 @@ _ROTULO_MERCADO_NFE = {"interno": "Mercado interno", "externo": "Mercado externo
 _ROTULO_SEGREGACAO_NFE = {
     "normal": "Normal (revenda, produção e substituto)",
     "sujeita_st": "Sujeita a ST (natureza 3)",
-    "monofasico": "Monofásico de PIS e Cofins (natureza 5)",
+    "monofasico": "Monofásico de PIS e Cofins (natureza 5 ou marca do item)",
+    # A8 (correção da rodada 1): ST com monofásico tem linha própria, e não se junta a "sujeita a
+    # ST".
+    "st_monofasico": "ST e monofásico (natureza 3 com marca de monofásico)",
     "exportacao": "Exportação (mercado externo)",
 }
 
@@ -7262,9 +8703,25 @@ def nfe_a_escriturar(request):
 # Tela 2 — arquétipo B (formulário de documento): escriturar uma nota.
 
 _CONTRATO_ESCRITURAR_NFE = ContratoDeRequisicao(
-    campos={"csrfmiddlewaretoken", "acao", "item_id", "natureza", "sinal"},
+    campos={
+        "csrfmiddlewaretoken",
+        "acao",
+        "item_id",
+        "natureza",
+        "sinal",
+        # DL-082: a caixa de monofásico (presente só quando marcada) e o segmento da devolução.
+        "monofasico",
+        "segmento",
+    },
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na escrituração de NF-e",
+)
+
+# DL-082 (frente B): texto que a tela mostra quando o papel consulta mas não grava a marca nem o
+# segmento. O controle fica desabilitado com este motivo (direção de arte §2.B), e o servidor
+# recusa o POST com 403 de qualquer forma.
+_MOTIVO_SEM_ESCRITA_DA_MARCA_NFE = (
+    "Seu papel consulta esta nota, mas não grava a marca de monofásico nem o segmento da devolução."
 )
 
 
@@ -7277,13 +8734,85 @@ def _opcoes_de_natureza(tipo):
     ]
 
 
-def _linha_do_item_nfe(item, natureza, documento, tipo, avisos=(), receita_atribuida=None):
+def _marca_do_formulario_nfe(valor):
+    """Caixa de monofásico: marcada envia "1"; desmarcada não envia o campo. Outro valor é entrada
+    estranha e responde 400, sem gravar nada."""
+    if valor in (None, ""):
+        return False
+    if valor == "1":
+        return True
+    raise _EntradaNfeRecusada("'Monofásico' aceita só marcada ou desmarcada.")
+
+
+def _segmento_da_devolucao_na_tela(valor):
+    """Rótulo do segmento de devolução confirmado (vazio = sem confirmação)."""
+    return SegmentoDevolucao(valor).label if valor else ""
+
+
+def _marcas_do_item_na_tela(item, registro, natureza):
+    """Marca e segmento de um item: o que está gravado e o que a tela pode pedir.
+
+    A regra fica no serviço: `sugerir_segmento_devolucao` dá a sugestão (sem gravar), e
+    `definir_marca_monofasico` e `definir_segmento_devolucao` recusam o que não couber. Aqui só se
+    decide o que oferecer. A sugestão não é pré-selecionada: a escolha é do contador, e um
+    segmento só vale depois de confirmado.
+    """
+    monofasico = bool(registro is not None and registro.monofasico)
+    segmento = registro.segmento_devolucao if registro is not None else ""
+    devolucao = natureza == NaturezaOperacaoNFe.DEVOLUCAO_VENDA
+    sugerido_rotulo, sugerido_motivo = "", ""
+    if devolucao:
+        sugestao = servico_nfe.sugerir_segmento_devolucao(item, monofasico)
+        sugerido_rotulo = (
+            _segmento_da_devolucao_na_tela(sugestao.segmento)
+            if sugestao.segmento
+            else "sem sugestão — escolha"
+        )
+        sugerido_motivo = sugestao.motivo
+    return {
+        "monofasico": monofasico,
+        # A marca vale para mercadoria, e também enquanto a natureza ainda não foi confirmada.
+        "pode_marcar_monofasico": not natureza or natureza in NATUREZAS_DE_MERCADORIA,
+        "devolucao": devolucao,
+        "segmento_gravado": segmento,
+        "segmento_gravado_rotulo": _segmento_da_devolucao_na_tela(segmento),
+        "segmento_sugerido_rotulo": sugerido_rotulo,
+        "segmento_sugerido_motivo": sugerido_motivo,
+        "segmento_selecionado": segmento,
+        # A9 (correção da rodada 1): só os segmentos que o domínio aceita para o CFOP do item.
+        # Oferecer o resto dava erro 400 depois do envio. A regra é `segmentos_permitidos`, a mesma
+        # da validação.
+        "opcoes_segmento": [
+            (valor, rotulo)
+            for valor, rotulo in SegmentoDevolucao.choices
+            if valor in segmentos_permitidos(item.cfop)
+        ],
+    }
+
+
+def _linha_do_item_nfe(
+    item,
+    natureza,
+    documento,
+    tipo,
+    avisos=(),
+    receita_atribuida=None,
+    registro=None,
+    padrao_combustivel="",
+):
     """Uma linha de item. CFOP (texto da tabela oficial), CST/CSOSN, NCM, valor, receita, natureza
     gravada e sugestão com o motivo que o serviço deu. Sem sugestão, a tela diz "escolha".
 
     DL-083: a receita é `receita_do_item` (regra única; item indTot 0 entra só pelo que foi
-    cobrado) e os avisos do item vêm do serviço. A tela não soma nem decide receita."""
-    sugestao = servico_nfe.sugerir_natureza_item(documento, item, tipo)
+    cobrado) e os avisos do item vêm do serviço. A tela não soma nem decide receita.
+
+    DL-082: a marca de monofásico e o segmento da devolução vêm do `registro` (a linha da
+    escrituração do item). A sugestão do segmento vem do serviço, nunca daqui.
+
+    DL-084, item 6 (HI-136): a sugestão de natureza leva o padrão de combustível da empresa
+    (`sugerir_natureza_com_padrao`), que só decide quando o CFOP não decide. O padrão é buscado
+    UMA vez por requisição, na tela que chama."""
+    sugestao = servico_nfe.sugerir_natureza_com_padrao(documento, item, padrao_combustivel, tipo)
     info = consultar_cfop(item.cfop)
     if item.csosn:
         cst_csosn = f"CSOSN {item.csosn}"
@@ -7319,6 +8848,8 @@ def _linha_do_item_nfe(item, natureza, documento, tipo, avisos=(), receita_atrib
         "sugestao_motivo": sugestao.motivo,
         "opcoes": _opcoes_de_natureza(tipo),
         "selecionada": natureza or sugestao.natureza or "",
+        # DL-082: marca de monofásico e segmento da devolução (leitura fora do rascunho).
+        **_marcas_do_item_na_tela(item, registro, natureza),
     }
 
 
@@ -7358,7 +8889,7 @@ def _pares_da_escrituracao(documento, escrituracao):
     return [(registro.item, registro.natureza or "") for registro in registros]
 
 
-def _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada):
+def _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada, empresa):
     """(pode, motivo, conferência, divergiu). Efetivar só se habilita quando o serviço aceitaria: a
     checagem é a do próprio serviço (`conferir_valores`, função pura, sem gravar). O servidor
     recusa de novo no POST, por mais que o botão esteja habilitado."""
@@ -7368,7 +8899,10 @@ def _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada):
         return False, "Nota cancelada não pode ser efetivada.", None, False
     # A8: regra de data (receita de 2027) desabilita o botão com o motivo, antes de qualquer conta.
     # O servidor recusa de novo no POST, com a mesma mensagem.
-    motivo_de_data = servico_nfe.motivo_bloqueio_efetivacao(documento)
+    # DL-088 (frente B): a EMPRESA vai junto para o portão de 2027 dizer o motivo REAL (regime
+    # único libera; regime regular, Presumido e opção não informada recusam, cada um nomeado) —
+    # sem ela o motivo é o genérico da data, que era a pendência registrada pela frente A2.
+    motivo_de_data = servico_nfe.motivo_bloqueio_efetivacao(documento, empresa)
     if motivo_de_data is not None:
         return False, motivo_de_data, None, False
     if leitura is None or leitura.estado != LeituraItensNFe.ESTADO_LIDA:
@@ -7394,7 +8928,7 @@ def _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada):
     return True, "", conferencia, False
 
 
-def _recusa_previa_da_efetivacao(vinculo, escrituracao):
+def _recusa_previa_da_efetivacao(vinculo, escrituracao, empresa):
     """Motivo da recusa ANTES de chamar o serviço, em pt-BR, ou `None` se a checagem passa. O
     serviço continua sendo a autoridade: ele confere tudo de novo, dentro da transação."""
     documento = vinculo.documento
@@ -7405,6 +8939,7 @@ def _recusa_previa_da_efetivacao(vinculo, escrituracao):
         escrituracao,
         _pares_da_escrituracao(documento, escrituracao),
         situacao_da_nfe(documento) == "cancelada",
+        empresa,
     )
     return None if pode else motivo
 
@@ -7452,6 +8987,19 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
         tipo_da_tela = escrituracao.tipo if escrituracao is not None else tipo
         avisos_por_item = servico_nfe.avisos_da_nota(pares)
         receitas = servico_nfe.receitas_atribuidas(pares)
+        # DL-082: marca e segmento de cada item vêm da linha da escrituração (sem ela, não há
+        # marca gravada).
+        registros = (
+            {
+                registro.item_id: registro
+                for registro in NaturezaItemNFe.objects.filter(escrituracao=escrituracao)
+            }
+            if escrituracao is not None
+            else {}
+        )
+        # DL-084, item 6: o padrão de combustível da empresa entra na sugestão de natureza. Buscado
+        # UMA vez por requisição, para não repetir a consulta em cada item.
+        padrao_combustivel = servico_presumido.parametros_da_empresa(empresa).padrao_combustivel
         linhas = [
             _linha_do_item_nfe(
                 item,
@@ -7460,12 +9008,14 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
                 tipo_da_tela,
                 avisos_por_item.get(item.pk, ()),
                 None if receitas is None else receitas.get(item.pk),
+                registro=registros.get(item.pk),
+                padrao_combustivel=padrao_combustivel,
             )
             for item, natureza in pares
         ]
 
     pode_efetivar, motivo_efetivar, conferencia, divergiu = (
-        _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada)
+        _estado_da_efetivacao(documento, leitura, escrituracao, pares, cancelada, empresa)
         if pares
         else (False, "", None, False)
     )
@@ -7510,6 +9060,7 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
         "leitura_motivo": leitura.motivo if leitura else "",
         "avisos": servico_nfe.avisos_ibscbs(documento, leitura),
         "pode_escriturar": pode,
+        "motivo_sem_escrita_da_marca": _MOTIVO_SEM_ESCRITA_DA_MARCA_NFE,
         "linhas": linhas,
         "grupos_de_sinal": _grupos_de_sinal(linhas) if rascunho and pode else [],
         "pendentes": sum(1 for _, natureza in pares if not natureza),
@@ -7551,21 +9102,27 @@ def _redirecionar_escriturar_nfe(empresa, vinculo):
     return redirect("fiscal_web:nfe_escriturar", empresa_id=empresa.pk, vinculo_id=vinculo.pk)
 
 
-def _itens_com_sugestao_pendente(documento, escrituracao, sinal):
+def _itens_com_sugestao_pendente(documento, escrituracao, sinal, padrao_combustivel):
     """Itens SEM natureza confirmada cuja sugestão é `sinal`: o alvo do bloco é escolhido aqui,
-    no servidor, pelo mesmo serviço de sugestão. O cliente não envia lista de itens."""
+    no servidor, pelo mesmo serviço de sugestão (DL-084, item 6: `sugerir_natureza_com_padrao`, com
+    o padrão de combustível da empresa). O cliente não envia lista de itens."""
     registros = NaturezaItemNFe.objects.select_related("item").filter(
         escrituracao=escrituracao, natureza=""
     )
     return [
         registro.item_id
         for registro in registros
-        if servico_nfe.sugerir_natureza_item(documento, registro.item, escrituracao.tipo).natureza
+        if servico_nfe.sugerir_natureza_com_padrao(
+            documento, registro.item, padrao_combustivel, escrituracao.tipo
+        ).natureza
         == sinal
     ]
 
 
 def _escriturar_nfe_post(request, empresa, vinculo):
+    # DL-084, item 6: o padrão de combustível da empresa entra na sugestão de natureza dos itens
+    # confirmados em bloco. Buscado UMA vez por requisição.
+    padrao_combustivel = servico_presumido.parametros_da_empresa(empresa).padrao_combustivel
     try:
         recusar_dado_nao_contratado(request, _CONTRATO_ESCRITURAR_NFE)
     except DadoNaoContratado as exc:
@@ -7594,7 +9151,7 @@ def _escriturar_nfe_post(request, empresa, vinculo):
             )
         if acao == "efetivar":
             # Recusa em pt-BR antes do serviço, que continua a autoridade (ver `_recusa_previa`).
-            recusa = _recusa_previa_da_efetivacao(vinculo, escrituracao)
+            recusa = _recusa_previa_da_efetivacao(vinculo, escrituracao, empresa)
             if recusa:
                 messages.error(request, recusa)
                 return _tela_de_escriturar_nfe(request, empresa, vinculo, status=409)
@@ -7612,9 +9169,39 @@ def _escriturar_nfe_post(request, empresa, vinculo):
                 escrituracao, natureza, [item_id], usuario=request.user, request=request
             )
             messages.success(request, "Natureza do item confirmada.")
+        elif acao == "monofasico":
+            # DL-082 (HI-128): a caixa vai ao serviço, que grava só em rascunho e só em mercadoria.
+            item_id = _id_do_formulario_nfe(request.POST.get("item_id"), "Item")
+            marcado = _marca_do_formulario_nfe(request.POST.get("monofasico"))
+            servico_nfe.definir_marca_monofasico(
+                escrituracao, [item_id], marcado, usuario=request.user, request=request
+            )
+            messages.success(
+                request,
+                "Marca de monofásico gravada." if marcado else "Marca de monofásico desmarcada.",
+            )
+        elif acao == "segmento_devolucao":
+            # DL-082 (HI-129): o contador confirma o segmento; vazio desfaz. Sem sugestão gravada.
+            item_id = _id_do_formulario_nfe(request.POST.get("item_id"), "Item")
+            segmento = _texto_nfe(
+                request.POST.get("segmento"), "Segmento da devolução", TAMANHO_SEGMENTO_DEVOLUCAO
+            )
+            servico_nfe.definir_segmento_devolucao(
+                escrituracao, [item_id], segmento, usuario=request.user, request=request
+            )
+            messages.success(
+                request,
+                (
+                    "Segmento da devolução confirmado."
+                    if segmento
+                    else "Confirmação do segmento da devolução desfeita."
+                ),
+            )
         else:  # bloco
             sinal = _texto_nfe(request.POST.get("sinal"), "Sinal", _TAMANHO_NATUREZA_NFE)
-            ids = _itens_com_sugestao_pendente(vinculo.documento, escrituracao, sinal)
+            ids = _itens_com_sugestao_pendente(
+                vinculo.documento, escrituracao, sinal, padrao_combustivel
+            )
             if not ids:
                 raise servico_nfe.EntradaInvalidaNFe(
                     "Nenhum item sem natureza confirmada tem esta sugestão."
@@ -7985,3 +9572,1064 @@ def nfe_conferencia(request):
         }
     )
     return render(request, "fiscal/nfe_conferencia.html", contexto)
+
+
+# ---------------------------------------------------------------------------
+# Tela 6 — DL-085 (frente B): escrituração do mês em lote.
+#
+# Prévia por grupo, notas fora do lote com o motivo, leitura em partes e confirmação em partes.
+# A tela só monta o formulário e traduz o resultado: agrupamento, assinatura, natureza, receita e
+# efetivação são do serviço `escrituracao_nfe_lote`, e nenhuma dessas regras é repetida aqui.
+# ---------------------------------------------------------------------------
+
+# Campos fixos do formulário do lote. Os de cada grupo (`escolha_<chave>` e `assinatura_<chave>`)
+# entram em `_contrato_do_lote`, com as chaves que a própria prévia listou.
+_CAMPOS_FIXOS_DO_LOTE = frozenset(
+    {"csrfmiddlewaretoken", "acao", "ano", "mes", "assinatura", "grupo", "incluir", "lote_id"}
+)
+_ACOES_DO_LOTE_NFE = frozenset({"ler", "confirmar", "continuar"})
+# Progresso de uma parte, guardado na sessão entre o POST e o GET que o mostra (Post/Redirect/Get).
+_CHAVE_PROGRESSO_NFE = "dl085_progresso_do_lote_nfe"
+# Forma da chave que o serviço gera (tipo, hífen, 16 hexadecimais). A chave vira NOME de campo no
+# formulário, então qualquer outra forma é recusada antes de chegar ao contrato.
+_CHAVE_DO_GRUPO_NFE = re.compile(r"[a-z_]+-[0-9a-f]{16}")
+# Rótulo curto de cada código de recusa da prévia. A explicação completa é a do serviço.
+_ROTULO_MOTIVO_FORA_DO_LOTE = {
+    servico_lote.CODIGO_2027: "Receita de 2027",
+    servico_lote.CODIGO_SEM_LEITURA: "Itens não lidos",
+    servico_lote.CODIGO_ILEGIVEL: "Itens ilegíveis",
+    servico_lote.CODIGO_LEITURA_ANTIGA: "Leitura de versão anterior",
+    servico_lote.CODIGO_SEM_SUGESTAO: "Sem sugestão de natureza",
+    servico_lote.CODIGO_CONFLITO: "Sugestões em conflito",
+    servico_lote.CODIGO_ATRIBUICAO: "Atribuição do resíduo",
+    servico_lote.CODIGO_SEM_VNF: "Nota sem valor total (vNF)",
+    servico_lote.CODIGO_W16: "Não confere com o vNF",
+    servico_lote.CODIGO_CONFERENCIA: "Não fecha a conferência",
+    servico_lote.CODIGO_NATUREZA_ESCOLHIDA: "Natureza já escolhida no rascunho",
+    servico_lote.CODIGO_DEVOLUCAO_SEGMENTO: "Devolução: segmento a confirmar",
+}
+
+
+def _inteiro_do_formulario_lote(bruto, rotulo):
+    texto = _texto_nfe(bruto, rotulo, 9)
+    if not re.fullmatch(r"[0-9]{1,9}", texto):
+        raise _EntradaNfeRecusada(f"'{rotulo}' inválido.")
+    return int(texto)
+
+
+def _competencia_do_formulario_lote(post):
+    """Ano e mês do formulário. Fora do formato ou da faixa do serviço: 400, nunca 500."""
+    ano = _inteiro_do_formulario_lote(post.get("ano"), "Ano")
+    mes = _inteiro_do_formulario_lote(post.get("mes"), "Mês")
+    if not servico_lote.ANO_MINIMO <= ano <= servico_lote.ANO_MAXIMO:
+        raise _EntradaNfeRecusada(
+            f"Ano fora do intervalo aceito ({servico_lote.ANO_MINIMO} a {servico_lote.ANO_MAXIMO})."
+        )
+    if not 1 <= mes <= 12:
+        raise _EntradaNfeRecusada("Mês inválido: deve estar entre 1 e 12.")
+    return ano, mes
+
+
+def _url_previa_do_lote(empresa, ano, mes):
+    return (
+        reverse("fiscal_web:nfe_lote", args=[empresa.pk])
+        + "?"
+        + urlencode({"ano": ano, "mes": mes})
+    )
+
+
+def _grupos_do_formulario(post):
+    """Chaves dos grupos que a prévia listou, como o formulário as devolve."""
+    grupos = []
+    for bruto in post.getlist("grupo"):
+        chave = _texto_nfe(bruto, "Grupo", 80)
+        if not _CHAVE_DO_GRUPO_NFE.fullmatch(chave):
+            raise _EntradaNfeRecusada("Grupo desconhecido: atualize a prévia e confirme de novo.")
+        grupos.append(chave)
+    return grupos
+
+
+def _contrato_do_lote(grupos):
+    campos = set(_CAMPOS_FIXOS_DO_LOTE)
+    for chave in grupos:
+        campos.update((f"escolha_{chave}", f"assinatura_{chave}"))
+    return ContratoDeRequisicao(
+        campos=campos,
+        cabecalhos_ignorados=("Idempotency-Key",),
+        contexto="no lote de escrituração de NF-e",
+    )
+
+
+def _grupos_marcados(post, grupos):
+    """Grupos com a caixa "incluir" marcada. Chave que a prévia não listou: recusa."""
+    marcados = {_texto_nfe(bruto, "Grupo", 80) for bruto in post.getlist("incluir")}
+    if marcados - set(grupos):
+        raise _EntradaNfeRecusada("Grupo desconhecido: atualize a prévia e confirme de novo.")
+    return marcados
+
+
+def _escolhas_do_formulario(post, grupos):
+    """{chave: {id da combinação: natureza}}, só para os grupos com seletor trocado.
+
+    O seletor vale para TODAS as combinações CFOP/CST/natureza do grupo: os ids vêm no próprio
+    formulário, copiados da prévia. O serviço confere cada id (precisa ser do grupo) e cada natureza
+    (precisa caber no tipo) antes de gravar, e descarta a escolha igual à sugestão.
+    """
+    escolhas = {}
+    for chave in grupos:
+        natureza = _texto_nfe(post.get(f"escolha_{chave}"), "Natureza", _TAMANHO_NATUREZA_NFE)
+        if not natureza:
+            continue
+        ids = [
+            _texto_nfe(bruto, "Combinação do grupo", 100)
+            for bruto in post.getlist(f"assinatura_{chave}")
+        ]
+        if not ids:
+            raise _EntradaNfeRecusada(
+                "A prévia não trouxe as combinações do grupo: atualize a prévia."
+            )
+        escolhas[chave] = dict.fromkeys(ids, natureza)
+    return escolhas
+
+
+def _preenchimento_do_post(post, grupos):
+    """O que volta ao formulário quando a confirmação recusa: caixas e seletores como foram
+    enviados, para o contador não digitar de novo. Só valores já validados antes desta chamada."""
+    return {
+        "incluidos": _grupos_marcados(post, grupos),
+        "escolhas": {
+            chave: _texto_nfe(post.get(f"escolha_{chave}"), "Natureza", _TAMANHO_NATUREZA_NFE)
+            for chave in grupos
+        },
+    }
+
+
+def _linha_do_grupo_no_lote(grupo, posicao, preenchido):
+    chave = grupo.chave
+    return {
+        "posicao": posicao,
+        "chave": chave,
+        "tipo_rotulo": TipoEscrituracaoNFe(grupo.tipo).label,
+        "combinacoes": [
+            {
+                "id": combinacao.id,
+                "cfop": combinacao.cfop,
+                "cst_csosn": combinacao.cst_csosn or "—",
+                "natureza_rotulo": NaturezaOperacaoNFe(combinacao.natureza).label,
+            }
+            for combinacao in grupo.assinaturas
+        ],
+        "notas": grupo.quantidade_notas,
+        "itens": grupo.quantidade_itens,
+        "receita_ptbr": _valor_ptbr(grupo.receita_bruta),
+        "devolucao_ptbr": _valor_ptbr(grupo.devolucao),
+        # Nome próprio da caixa "incluir": sem ele, todas as caixas se chamam igual para o leitor de
+        # tela. Traz a posição, para ser único mesmo se dois grupos tiverem o mesmo CFOP e natureza.
+        # WCAG 2.5.3 (reconferência da DL-085, R5): o nome acessível começa pelo rótulo visível.
+        "rotulo_acessivel": "Incluir este grupo ({}: {})".format(
+            posicao,
+            "; ".join(
+                f"CFOP {combinacao.cfop}, CST ou CSOSN {combinacao.cst_csosn or '—'}, "
+                f"natureza {NaturezaOperacaoNFe(combinacao.natureza).label}"
+                for combinacao in grupo.assinaturas
+            ),
+        ),
+        "opcoes": _opcoes_de_natureza(grupo.tipo),
+        "incluido": preenchido is None or chave in preenchido["incluidos"],
+        "selecionada": preenchido["escolhas"].get(chave, "") if preenchido else "",
+    }
+
+
+def _linha_fora_do_lote(recusa, empresa):
+    return {
+        "numero": recusa.numero,
+        "serie": recusa.serie,
+        "emissao": recusa.dh_emissao,
+        # O vNF vem do domínio, junto com a recusa: a tela não consulta a nota por fora.
+        "valor_nf_ptbr": _valor_ptbr(recusa.valor_nf),
+        "rotulo_motivo": _ROTULO_MOTIVO_FORA_DO_LOTE.get(recusa.codigo, recusa.codigo),
+        "motivo": recusa.motivo,
+        "url": reverse("fiscal_web:nfe_escriturar", args=[empresa.pk, recusa.vinculo_id]),
+    }
+
+
+def _tela_do_lote_nfe(request, empresa, ano, mes, *, status=200, preenchido=None):
+    """A prévia de agora. Cada chamada recalcula a prévia: nada é guardado na tela."""
+    try:
+        previa = servico_lote.previa_do_lote(empresa, ano, mes)
+    except servico_nfe.EntradaInvalidaNFe as exc:
+        raise _EntradaNfeRecusada(exc.mensagem) from exc
+    pode = _pode_escriturar(request)
+    pagina = Paginator(previa.fora, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
+    aberto = previa.lote_em_andamento
+    lote_aberto = servico_lote.resumo_do_lote(aberto) if aberto is not None else None
+    a_ler = len(previa.a_ler)
+    # Confirmar só quando a prévia viu o mês inteiro (nada a ler) e nenhum lote está em andamento.
+    # O serviço recusa de qualquer forma; aqui a tela só deixa de oferecer o botão.
+    pode_confirmar = pode and bool(previa.grupos) and a_ler == 0 and lote_aberto is None
+    contexto = {
+        "empresa": empresa,
+        "ano": ano,
+        "mes": mes,
+        "competencia_rotulo": f"{mes:02d}/{ano}",
+        "pode_escriturar": pode,
+        "pode_confirmar": pode_confirmar,
+        "url_lote": reverse("fiscal_web:nfe_lote", args=[empresa.pk]),
+        "url_previa": _url_previa_do_lote(empresa, ano, mes),
+        "url_lista": reverse("fiscal_web:nfe_a_escriturar")
+        + "?"
+        + urlencode({"empresa": empresa.pk, "ano": ano, "mes": mes}),
+        "assinatura": previa.assinatura,
+        "grupos": [
+            _linha_do_grupo_no_lote(grupo, posicao, preenchido)
+            for posicao, grupo in enumerate(previa.grupos, start=1)
+        ],
+        "total_grupos": len(previa.grupos),
+        "total_notas_do_lote": sum(grupo.quantidade_notas for grupo in previa.grupos),
+        "total_itens_do_lote": sum(grupo.quantidade_itens for grupo in previa.grupos),
+        "total_devolucao_ptbr": _valor_ptbr(
+            sum((grupo.devolucao for grupo in previa.grupos), Decimal("0.00"))
+        ),
+        "a_ler": a_ler,
+        # O serviço lê no máximo este tanto por clique. O rótulo do botão diz quantas são desta vez.
+        "proximas_leituras": min(a_ler, servico_lote.LIMITE_PADRAO_DA_LEITURA),
+        "ja_efetivadas": previa.ja_efetivadas,
+        "canceladas": previa.canceladas,
+        "nao_elegiveis": previa.nao_elegiveis,
+        "fora_total": len(previa.fora),
+        "fora_linhas": [_linha_fora_do_lote(r, empresa) for r in pagina.object_list],
+        "pagina": pagina,
+        "querystring_sem_pagina": urlencode({"ano": ano, "mes": mes}),
+        "lote_aberto": lote_aberto,
+        "vazio": not previa.grupos and a_ler == 0 and not previa.fora and aberto is None,
+        "progresso": None,
+    }
+    return render(request, "fiscal/nfe_lote.html", contexto, status=status)
+
+
+def _dados_do_progresso(empresa, progresso) -> dict:
+    """O que a tela mostra do progresso de uma parte, em tipos simples (vai para a sessão)."""
+    return {
+        "ano": progresso.ano,
+        "mes": progresso.mes,
+        "lote_id": progresso.lote_id,
+        "assinatura": progresso.assinatura,
+        "terminou": progresso.terminou,
+        "total_notas": progresso.total_notas,
+        "efetivadas_nesta_chamada": progresso.efetivadas_nesta_chamada,
+        "efetivadas_total": progresso.efetivadas_total,
+        "ja_efetivadas_total": progresso.ja_efetivadas_total,
+        "restantes": progresso.restantes,
+        "falhas_total": progresso.falhas_total,
+        "falhas": [
+            {
+                "rotulo": f"nº {falha.numero}, série {falha.serie}",
+                "url": reverse("fiscal_web:nfe_escriturar", args=[empresa.pk, falha.vinculo_id]),
+                "motivo": falha.motivo,
+            }
+            for falha in progresso.falhas_nesta_chamada
+        ],
+    }
+
+
+def _tela_do_progresso_nfe(request, empresa, dados):
+    """O que a última parte fez: efetivadas, o que resta, falhas com motivo e o resumo do lote."""
+    contexto = {
+        "empresa": empresa,
+        "ano": dados["ano"],
+        "mes": dados["mes"],
+        "competencia_rotulo": f"{dados['mes']:02d}/{dados['ano']}",
+        "pode_escriturar": _pode_escriturar(request),
+        "pode_confirmar": False,
+        "url_lote": reverse("fiscal_web:nfe_lote", args=[empresa.pk]),
+        "url_previa": _url_previa_do_lote(empresa, dados["ano"], dados["mes"]),
+        "url_lista": reverse("fiscal_web:nfe_a_escriturar")
+        + "?"
+        + urlencode({"empresa": empresa.pk, "ano": dados["ano"], "mes": dados["mes"]}),
+        "progresso": dados,
+        "vazio": False,
+        "grupos": [],
+        "a_ler": 0,
+        "proximas_leituras": 0,
+        "lote_aberto": None,
+        "fora_total": 0,
+        "fora_linhas": [],
+        "pagina": None,
+        "querystring_sem_pagina": "",
+    }
+    return render(request, "fiscal/nfe_lote.html", contexto)
+
+
+def _redirecionar_com_progresso(request, empresa, progresso):
+    """Post/Redirect/Get (DL-085, auditoria A9): o progresso vai para a sessão e o GET o mostra uma
+    vez. Recarregar a página depois não reenvia o POST, e o POST não é repetido sem querer."""
+    request.session[_CHAVE_PROGRESSO_NFE] = {
+        "empresa_id": empresa.pk,
+        "dados": _dados_do_progresso(empresa, progresso),
+    }
+    return redirect(_url_previa_do_lote(empresa, progresso.ano, progresso.mes))
+
+
+def _progresso_guardado(request, empresa, ano, mes):
+    """O progresso que o POST deixou na sessão, se for desta empresa e deste mês. Sai da sessão ao
+    ser lido: a página seguinte, recarregada, mostra a prévia de novo."""
+    guardado = request.session.pop(_CHAVE_PROGRESSO_NFE, None)
+    if not guardado or guardado.get("empresa_id") != empresa.pk:
+        return None
+    dados = guardado["dados"]
+    if (dados["ano"], dados["mes"]) != (ano, mes):
+        return None
+    return dados
+
+
+def _progresso_ou_recusa(request, empresa, ano, mes, operacao, *, preenchido=None):
+    """(progresso, None) quando o serviço andou. Recusa: (None, resposta com a prévia de agora e a
+    mensagem). A recusa vem do serviço, que não grava nada; aqui só se escolhe o status."""
+    try:
+        return operacao(), None
+    except servico_lote.LoteNaoEncontrado as exc:
+        # Lote de outra empresa, ou inexistente: 404, sem confirmar que o ID existe.
+        raise Http404("Lote de escrituração não encontrado nesta empresa.") from exc
+    except servico_lote.PreviaDesatualizada as exc:
+        # 409: a prévia mudou desde que foi exibida. A tela recarrega a prévia de agora.
+        erro, status = exc, 409
+    except servico_lote.LoteEmAndamento as exc:
+        erro, status = exc, 409
+    except servico_nfe.EntradaInvalidaNFe as exc:
+        erro, status = exc, 400
+    except servico_nfe.EscrituracaoNFeErro as exc:
+        erro, status = exc, 409
+    messages.error(request, erro.mensagem)
+    resposta = _tela_do_lote_nfe(request, empresa, ano, mes, status=status, preenchido=preenchido)
+    return None, resposta
+
+
+def _ler_post(request, empresa, ano, mes):
+    try:
+        leitura = servico_lote.ler_notas_do_mes(
+            empresa, ano, mes, limite=servico_lote.LIMITE_PADRAO_DA_LEITURA
+        )
+    except servico_nfe.EntradaInvalidaNFe as exc:
+        raise _EntradaNfeRecusada(exc.mensagem) from exc
+    messages.success(
+        request,
+        f"Nesta parte, lidas {leitura.lidas_nesta_chamada} nota(s); restam {leitura.restam} a ler.",
+    )
+    if leitura.ilegiveis_nesta_chamada:
+        messages.info(
+            request,
+            f"{leitura.ilegiveis_nesta_chamada} nota(s) com itens ilegíveis: elas ficam fora do "
+            "lote, com o motivo.",
+        )
+    if leitura.falhas_nesta_chamada:
+        messages.error(
+            request,
+            f"{len(leitura.falhas_nesta_chamada)} nota(s) não foram lidas nesta parte: "
+            f"{leitura.falhas_nesta_chamada[0].motivo}. Repita a leitura.",
+        )
+    # Post/Redirect/Get: a prévia é recalculada uma vez, no GET, e não no POST da leitura.
+    return redirect(_url_previa_do_lote(empresa, ano, mes))
+
+
+def _continuar_post(request, empresa, ano, mes, post):
+    lote_id = _id_do_formulario_nfe(post.get("lote_id"), "Lote")
+    assinatura = _texto_nfe(post.get("assinatura"), "Assinatura da prévia", 64) or None
+    progresso, resposta = _progresso_ou_recusa(
+        request,
+        empresa,
+        ano,
+        mes,
+        lambda: servico_lote.confirmar_lote(
+            empresa,
+            None,
+            None,
+            assinatura,
+            None,
+            usuario=request.user,
+            request=request,
+            limite=servico_lote.LIMITE_PADRAO_DA_PARTE,
+            lote_id=lote_id,
+        ),
+    )
+    if resposta is not None:
+        return resposta
+    return _redirecionar_com_progresso(request, empresa, progresso)
+
+
+def _confirmar_post(request, empresa, ano, mes, post, grupos):
+    """Confirma SÓ os grupos marcados. Os desmarcados ficam intactos: o serviço não cria nada
+    para eles (DL-085, confirmação por grupo). Nenhum marcado: 400, nomeado, pelo serviço."""
+    marcados = _grupos_marcados(post, grupos)
+    grupos_marcados = [chave for chave in grupos if chave in marcados]
+    # Seletor de um grupo desmarcado não entra: a escolha seria de um grupo que não vai ao lote.
+    escolhas = _escolhas_do_formulario(post, grupos_marcados)
+    assinatura = _texto_nfe(post.get("assinatura"), "Assinatura da prévia", 64) or None
+    progresso, resposta = _progresso_ou_recusa(
+        request,
+        empresa,
+        ano,
+        mes,
+        lambda: servico_lote.confirmar_lote(
+            empresa,
+            ano,
+            mes,
+            assinatura,
+            escolhas,
+            usuario=request.user,
+            request=request,
+            limite=servico_lote.LIMITE_PADRAO_DA_PARTE,
+            grupos=grupos_marcados,
+        ),
+        preenchido=_preenchimento_do_post(post, grupos),
+    )
+    if resposta is not None:
+        return resposta
+    return _redirecionar_com_progresso(request, empresa, progresso)
+
+
+def _lote_nfe_post(request, empresa):
+    grupos = _grupos_do_formulario(request.POST)
+    try:
+        recusar_dado_nao_contratado(request, _contrato_do_lote(grupos))
+    except DadoNaoContratado as exc:
+        raise _EntradaNfeRecusada(exc.mensagem) from exc
+    acao = request.POST.get("acao", "")
+    if acao not in _ACOES_DO_LOTE_NFE:
+        raise _EntradaNfeRecusada("Ação desconhecida no lote de escrituração.")
+    ano, mes = _competencia_do_formulario_lote(request.POST)
+    if acao == "ler":
+        return _ler_post(request, empresa, ano, mes)
+    if acao == "continuar":
+        return _continuar_post(request, empresa, ano, mes, request.POST)
+    return _confirmar_post(request, empresa, ano, mes, request.POST, grupos)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+@_entrada_nfe_verificada
+def nfe_lote(request, empresa_id):
+    """Escriturar o mês em lote (DL-085). GET: a prévia. POST: ler, confirmar ou continuar."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    # POST é escrita: quem só consulta (PARALEGAL, CLIENTE) recebe 403, mesmo sem botão na tela.
+    if request.method == "POST":
+        if not _pode_escriturar(request):
+            return _resposta_sem_permissao(request, _MENSAGEM_SEM_ESCRITA_NFE)
+    elif not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_ESCRITURACAO_NFE)
+    empresa = _empresa_nfe_da_rota(request, empresa_id)
+    if request.method == "POST":
+        return _lote_nfe_post(request, empresa)
+    ano, mes = _competencia_nfe(request)
+    progresso = _progresso_guardado(request, empresa, ano, mes)
+    if progresso is not None:
+        return _tela_do_progresso_nfe(request, empresa, progresso)
+    return _tela_do_lote_nfe(request, empresa, ano, mes)
+
+
+# ---------------------------------------------------------------------------
+# DL-088, frente B (escopos 3 e 6): a opção de regime de IBS/CBS por semestre e o IPI mantido
+# (Zona Franca) na tela do Simples.
+#
+# São dados do ESCRITÓRIO sobre a empresa (o Fred confirma quais clientes optaram e quais estão na
+# Zona Franca), registrados com trilha pelo SERVIÇO (`apps.fiscal.receita`): a tela lê, mostra e
+# traduz a recusa em linguagem de escritório — nunca grava por conta própria nem transmite
+# obrigação alguma (é cadastro, não declaração). A permissão é a do servidor:
+# `papel_pode_escriturar_fiscal` para registrar e `papel_pode_consultar_documentos` para ler; quem
+# só consulta vê a ação desabilitada com o motivo (direção de arte §2B), nunca sumindo. Telas de
+# UMA empresa não listam as outras (§8.1).
+#
+# Fontes citadas na tela, e só o que elas dizem (AGENTS.md §10): consulta ao contador-senior sobre
+# a virada de 2027, leitura de 09/10/2026 (docs/projeto/consultas/
+# 2026-10-09-contador-senior-virada-2027-simples.md) — Res. CGSN 190/2026, art. 22-A (opção do
+# semestre) e art. 25, § 1º, II (IPI mantido, Zona Franca; HI-148 e HI-152).
+# ---------------------------------------------------------------------------
+
+# As duas opções do semestre, com a consequência dita em linguagem de escritório. O texto é o que o
+# contador lê na tela e na confirmação, e bate com o contrato do motor em
+# `receita.opcao_regime_ibs_cbs_do_semestre` (True/False/None).
+_ROTULO_DO_REGIME_IBS_CBS = {
+    RegimeIbsCbsSimples.REGIME_UNICO: "Regime único",
+    RegimeIbsCbsSimples.REGIME_REGULAR: "Regime regular",
+}
+_CONSEQUENCIA_DO_REGIME_IBS_CBS = {
+    RegimeIbsCbsSimples.REGIME_UNICO: "CBS e IBS ficam no DAS",
+    RegimeIbsCbsSimples.REGIME_REGULAR: "CBS e IBS são deduzidos do DAS, art. 22-A",
+}
+_ROTULO_DA_SITUACAO_IPI_MANTIDO = {
+    SituacaoIpiMantido.IPI_MANTIDO: "IPI mantido (indústria da Zona Franca)",
+    SituacaoIpiMantido.SEM_IPI_MANTIDO: "Sem IPI mantido (produção própria fora da ZFM)",
+}
+
+# O efeito do dado de IPI mantido, dito na tela (Res. CGSN 190/2026, art. 25, § 1º, II; HI-152):
+# produção própria em 2027 vai ao Anexo I; com IPI mantido, ao Anexo II. Enquanto o dado não
+# estiver informado, ele NÃO é presumido: o produto não presume Zona Franca.
+_EFEITO_IPI_MANTIDO = (
+    "O efeito é sobre o Anexo da produção própria em 2027: produção própria vai ao Anexo I; com "
+    "IPI mantido, vai ao Anexo II. Enquanto o dado não estiver informado, ele aparece como não "
+    "informado e nada se presume."
+)
+_SEM_DADO_IPI_MANTIDO = "Não informado (o produto não presume Zona Franca)"
+
+_CONTRATO_OPCAO_REGIME_IBS_CBS = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "ano", "semestre", "regime", "acao"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no registro da opção de regime de IBS/CBS",
+)
+_CONTRATO_IPI_MANTIDO = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "situacao", "fonte"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na definição do IPI mantido",
+)
+
+# Erros campo a campo, em linguagem de escritório (AGENTS.md §7: erro é texto, com o que fazer a
+# seguir). A regra mora no serviço (`receita.registrar_opcao_regime_ibs_cbs`/`definir_ipi_mantido`):
+# a tela só aponta o campo que causou a recusa, como nos parâmetros do Presumido (DL-084, item 6).
+_ERRO_ANO_OPCAO = "Ano da opção: informe o ano com quatro dígitos (AAAA)."
+_ERRO_ANO_OPCAO_FAIXA = (
+    "Ano da opção: a opção de regime de IBS/CBS só existe a partir de 2027 (Res. CGSN 190/2026)."
+)
+_ERRO_SEMESTRE_OPCAO = (
+    "Semestre: escolha o 1º semestre (janeiro a junho) ou o 2º semestre (julho a dezembro)."
+)
+_ERRO_REGIME_OPCAO = (
+    "Regime: escolha regime único (CBS e IBS ficam no DAS) ou regime regular "
+    "(CBS e IBS são deduzidos do DAS, art. 22-A)."
+)
+_ERRO_SITUACAO_IPI = "Situação: escolha IPI mantido (indústria da Zona Franca) ou sem IPI mantido."
+_TEXTO_SEM_PERMISSAO_DA_OPCAO = (
+    "Seu papel consulta a opção de regime de IBS/CBS, mas não a registra nem a cancela: "
+    "peça a um administrador ou gestor do escritório."
+)
+# A janela do cancelamento, dita na tela com a fonte (DL-088, correção do achado A1). O caso
+# específico de cada linha vem de `servico_receita.janela_de_cancelamento_da_opcao`, que é o mesmo
+# que o serviço valida — a tela nunca tem prazo próprio.
+_JANELA_DO_CANCELAMENTO_NA_TELA = (
+    "Cancelar a opção: para o 1º semestre de 2027, de 03/11/2026 a 20/12/2026 "
+    "(Res. CGSN 194/2026); nos demais semestres, até 30/11 do ano anterior (1º semestre) e até "
+    "31/05 do próprio ano "
+    "(2º semestre) (Res. CGSN 190/2026, arts. 40-C e 40-D). Fonte: consulta de 09/10/2026 "
+    "(docs/projeto/consultas/2026-10-09-contador-senior-virada-2027-simples.md)."
+)
+_TEXTO_SEM_PERMISSAO_DO_IPI = (
+    "Seu papel consulta o dado de IPI mantido, mas não o cadastra nem corrige: "
+    "peça a um administrador ou gestor do escritório."
+)
+
+
+def _erros_da_opcao(exc) -> dict:
+    """Recusa do serviço da opção, campo a campo. O resto é recusa geral — a do insert-only, por
+    exemplo, que é a recusa nomeada do serviço em linguagem de escritório, mostrada como está."""
+    mensagem = exc.mensagem
+    if "só existe a partir de 2027" in mensagem:
+        return {"ano": _ERRO_ANO_OPCAO_FAIXA}
+    if mensagem.startswith("'ano'"):
+        return {"ano": _ERRO_ANO_OPCAO}
+    if mensagem.startswith("'semestre'"):
+        return {"semestre": _ERRO_SEMESTRE_OPCAO}
+    if mensagem.startswith("Regime inválido"):
+        return {"regime": _ERRO_REGIME_OPCAO}
+    return {"geral": mensagem}
+
+
+def _erros_do_ipi_mantido(exc) -> dict:
+    """Recusa do serviço do IPI mantido, campo a campo (a `fonte` traz a própria mensagem do
+    serviço, que já é em linguagem de escritório e diz o que fazer)."""
+    mensagem = exc.mensagem
+    if mensagem.startswith("Situação inválida"):
+        return {"situacao": _ERRO_SITUACAO_IPI}
+    if mensagem.startswith("A fonte"):
+        return {"fonte": mensagem}
+    return {"geral": mensagem}
+
+
+def _opcoes_de_regime_na_tela() -> list[dict]:
+    return [
+        {
+            "valor": valor,
+            "rotulo": _ROTULO_DO_REGIME_IBS_CBS[valor],
+            "consequencia": _CONSEQUENCIA_DO_REGIME_IBS_CBS[valor],
+        }
+        for valor, _rotulo in RegimeIbsCbsSimples.choices
+    ]
+
+
+def _validar_opcao_do_formulario(valores) -> dict:
+    """Erros de FORMULÁRIO, campo a campo, antes do serviço (que continua sendo a autoridade)."""
+    erros = {}
+    ano = _inteiro_de_filtro(valores["ano"])
+    if ano is None or len(valores["ano"]) != 4:
+        erros["ano"] = _ERRO_ANO_OPCAO
+    elif ano < 2027:
+        erros["ano"] = _ERRO_ANO_OPCAO_FAIXA
+    if valores["semestre"] not in ("1", "2"):
+        erros["semestre"] = _ERRO_SEMESTRE_OPCAO
+    if valores["regime"] not in RegimeIbsCbsSimples.values:
+        erros["regime"] = _ERRO_REGIME_OPCAO
+    return erros
+
+
+def _opcoes_registradas_na_tela(empresa) -> list[dict]:
+    """As opções já registradas, com o carimbo — e, quando canceladas, o ato de cancelamento.
+
+    A lista é o histórico: a linha cancelada fica visível (não é apagada) e diz quem cancelou,
+    quando e por quê. Só a linha ATIVA oferece a ação "Cancelar a opção" (DL-088, correção do
+    achado A1).
+    """
+    linhas = []
+    for linha in (
+        OpcaoRegimeIbsCbsSimples.objects.filter(empresa=empresa)
+        .select_related("registrada_por", "cancelada_por")
+        .order_by("ano", "semestre")
+    ):
+        ativa = linha.cancelada_em is None
+        linhas.append(
+            {
+                "ano": linha.ano,
+                "semestre": f"{linha.semestre}º semestre",
+                "semestre_numero": linha.semestre,
+                "rotulo": _ROTULO_DO_REGIME_IBS_CBS.get(linha.regime, linha.regime),
+                "consequencia": _CONSEQUENCIA_DO_REGIME_IBS_CBS.get(linha.regime, ""),
+                "registrada_em": linha.registrada_em,
+                "registrada_por": _nome_de_usuario(linha.registrada_por),
+                "ativa": ativa,
+                "cancelada_em": linha.cancelada_em,
+                "cancelada_por": _nome_de_usuario(linha.cancelada_por)
+                if linha.cancelada_por_id
+                else "",
+                "motivo_cancelamento": linha.motivo_cancelamento or "",
+                "url_cancelar": (
+                    reverse("fiscal_web:opcao_regime_ibs_cbs_cancelar", args=[empresa.pk])
+                    + "?"
+                    + urlencode({"ano": linha.ano, "semestre": linha.semestre})
+                    if ativa
+                    else ""
+                ),
+            }
+        )
+    return linhas
+
+
+def _confirmacao_da_opcao(empresa, valores) -> dict:
+    """A última etapa do registro, nomeando o alvo e o que será gravado (arquétipo E, §2 da direção
+    de arte). A opção do semestre é registrada uma única vez: a tela mostra isso ANTES de gravar."""
+    ano, semestre, regime = int(valores["ano"]), int(valores["semestre"]), valores["regime"]
+    rotulo = _ROTULO_DO_REGIME_IBS_CBS[regime]
+    consequencia = _CONSEQUENCIA_DO_REGIME_IBS_CBS[regime]
+    return {
+        "ano": ano,
+        "semestre": semestre,
+        "regime": regime,
+        "empresa": empresa.razao_social,
+        "texto": (
+            f"Registrar {rotulo.lower()} para o {semestre}º semestre de {ano} de "
+            f"{empresa.razao_social}: {consequencia}. A opção do semestre é registrada uma única "
+            "vez e não pode ser alterada nesta tela: depois de registrada, só deixa de valer pelo "
+            "cancelamento, na janela legal (Res. CGSN 194/2026; Res. CGSN 190/2026, arts. 40-C e "
+            "40-D)."
+        ),
+    }
+
+
+def _tela_da_opcao_regime_ibs_cbs(
+    request, empresa, *, valores=None, erros=None, confirmacao=None, status=200
+):
+    if valores is None:
+        valores = {"ano": "", "semestre": "1", "regime": ""}
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, empresa, algum_filtro_ativo=bool(erros)),
+        "titulo": "Opção de regime de IBS/CBS",
+        "opcoes": _opcoes_registradas_na_tela(empresa),
+        "opcoes_regime": _opcoes_de_regime_na_tela(),
+        "valores": valores,
+        "erros": erros or {},
+        "confirmacao": confirmacao,
+        "pode_registrar": _pode_escriturar(request),
+        "mensagem_sem_permissao": _TEXTO_SEM_PERMISSAO_DA_OPCAO,
+        "janela_cancelamento": _JANELA_DO_CANCELAMENTO_NA_TELA,
+        "url_registrar": reverse("fiscal_web:opcao_regime_ibs_cbs_registrar", args=[empresa.pk]),
+        "url_consulta": (
+            reverse("fiscal_web:opcao_regime_ibs_cbs") + "?" + urlencode({"empresa": empresa.pk})
+        ),
+    }
+    return render(request, "fiscal/opcao_regime_ibs_cbs.html", contexto, status=status)
+
+
+def _tela_de_opcao_sem_empresa(request, *, erros=None, status=200):
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, None, algum_filtro_ativo=bool(erros)),
+        "titulo": "Opção de regime de IBS/CBS",
+        "opcoes": [],
+        "opcoes_regime": _opcoes_de_regime_na_tela(),
+        "erros": erros or {},
+        "pode_registrar": _pode_escriturar(request),
+        "mensagem_sem_permissao": _TEXTO_SEM_PERMISSAO_DA_OPCAO,
+        "janela_cancelamento": _JANELA_DO_CANCELAMENTO_NA_TELA,
+    }
+    return render(request, "fiscal/opcao_regime_ibs_cbs.html", contexto, status=status)
+
+
+@login_required
+@require_safe
+def opcao_regime_ibs_cbs(request):
+    """Opção de regime de IBS/CBS do Simples, por (ano, semestre) — DL-088, escopo 6.
+
+    Consulta por `?empresa=` (como as demais telas do Simples); o registro é POST em
+    `opcao_regime_ibs_cbs_registrar`, com a empresa no caminho. Sem empresa escolhida, a tela pede
+    a escolha; com uma escolhida, nunca lista as outras (direção de arte §8.1).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite consultar a opção de regime de IBS/CBS do Simples."
+        )
+    empresa, erro = _empresa_da_escrituracao(request)
+    if erro:
+        return _tela_de_opcao_sem_empresa(request, erros={"geral": erro}, status=400)
+    if empresa is None:
+        return _tela_de_opcao_sem_empresa(request)
+    return _tela_da_opcao_regime_ibs_cbs(request, empresa)
+
+
+@login_required
+@require_http_methods(["POST"])
+def opcao_regime_ibs_cbs_registrar(request, empresa_id):
+    """Registra a opção de regime de IBS/CBS do semestre (DL-088, escopo 6).
+
+    Insert-only: a opção do semestre é registrada uma única vez, e a segunda tentativa mostra a
+    recusa nomeada do SERVIÇO (`receita.registrar_opcao_regime_ibs_cbs`), em linguagem de
+    escritório. A trilha vem do serviço; esta tela não grava nada por conta própria. Antes de
+    gravar, a última etapa mostra o que será registrado, nomeando o alvo (direção de arte §2,
+    arquétipo E).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite registrar a opção de regime de IBS/CBS do Simples."
+        )
+    empresa = _empresa_escopada(request, empresa_id)
+    valores = {
+        "ano": request.POST.get("ano", "").strip(),
+        "semestre": request.POST.get("semestre", "").strip(),
+        "regime": request.POST.get("regime", "").strip(),
+    }
+    acao = request.POST.get("acao", "")
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_OPCAO_REGIME_IBS_CBS)
+    except DadoNaoContratado as exc:
+        return _tela_da_opcao_regime_ibs_cbs(
+            request, empresa, valores=valores, erros={"geral": exc.mensagem}, status=400
+        )
+    erros = _validar_opcao_do_formulario(valores)
+    if erros:
+        return _tela_da_opcao_regime_ibs_cbs(
+            request, empresa, valores=valores, erros=erros, status=400
+        )
+    if acao != "confirmar":
+        return _tela_da_opcao_regime_ibs_cbs(
+            request, empresa, valores=valores, confirmacao=_confirmacao_da_opcao(empresa, valores)
+        )
+    try:
+        servico_receita.registrar_opcao_regime_ibs_cbs(
+            empresa,
+            int(valores["ano"]),
+            int(valores["semestre"]),
+            valores["regime"],
+            usuario=request.user,
+            request=request,
+        )
+    except servico_receita.EntradaInvalidaReceita as exc:
+        return _tela_da_opcao_regime_ibs_cbs(
+            request, empresa, valores=valores, erros=_erros_da_opcao(exc), status=400
+        )
+    except servico_receita.ReceitaErro as exc:
+        # Recusa nomeada do insert-only (e a de empresa sem Simples no ano): nada foi gravado.
+        return _tela_da_opcao_regime_ibs_cbs(
+            request, empresa, valores=valores, erros={"geral": exc.mensagem}, status=409
+        )
+    messages.success(
+        request,
+        f"Opção registrada: {_ROTULO_DO_REGIME_IBS_CBS[valores['regime']].lower()} para o "
+        f"{valores['semestre']}º semestre de {valores['ano']} de {empresa.razao_social} — "
+        f"{_CONSEQUENCIA_DO_REGIME_IBS_CBS[valores['regime']]}. "
+        "A opção do semestre é registrada uma única vez.",
+    )
+    return redirect(
+        reverse("fiscal_web:opcao_regime_ibs_cbs") + "?" + urlencode({"empresa": empresa.pk})
+    )
+
+
+# DL-088, correção do achado A1: CANCELAR a opção de regime de IBS/CBS do semestre (Res. CGSN
+# 194/2026; Res. CGSN 190/2026, arts. 40-C e 40-D). Duas etapas, padrão de
+# `presumido_medida_encerrar`: GET nomeia o alvo (empresa, semestre e regime), diz a janela legal
+# com a fonte e pede o motivo obrigatório; POST grava pelo serviço, que trilha antes/depois e o
+# motivo. A linha não é apagada.
+_CONTRATO_CANCELAMENTO_OPCAO = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "ano", "semestre", "motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no cancelamento da opção de regime de IBS/CBS",
+)
+_TEXTO_SEM_PERMISSAO_DO_CANCELAMENTO = (
+    "Seu papel não permite cancelar a opção de regime de IBS/CBS do Simples: "
+    "peça a um administrador ou gestor do escritório."
+)
+
+
+def _erros_do_cancelamento(exc) -> dict:
+    """Recusa do serviço do cancelamento, campo a campo: o motivo é o único campo do ato."""
+    mensagem = exc.mensagem
+    if "motivo" in mensagem.lower():
+        return {"motivo": mensagem}
+    return {"geral": mensagem}
+
+
+def _validar_alvo_do_cancelamento(valores) -> dict:
+    """Erros de FORMULÁRIO do alvo (ano e semestre), campo a campo, antes do serviço."""
+    erros = {}
+    ano = _inteiro_de_filtro(valores["ano"])
+    if ano is None or len(valores["ano"]) != 4:
+        erros["ano"] = _ERRO_ANO_OPCAO
+    elif ano < 2027:
+        erros["ano"] = _ERRO_ANO_OPCAO_FAIXA
+    if valores["semestre"] not in ("1", "2"):
+        erros["semestre"] = _ERRO_SEMESTRE_OPCAO
+    return erros
+
+
+def _tela_do_cancelamento_da_opcao(
+    request, empresa, *, valores, linha=None, erros=None, status=200
+):
+    """Confirmação do cancelamento (direção de arte §2, arquétipo E), nomeando o alvo.
+
+    Com a `linha` ativa, a tela nomeia empresa, semestre e regime e traz a janela legal do
+    (ano, semestre) — lida de `servico_receita.janela_de_cancelamento_da_opcao`, a MESMA que o
+    serviço valida — com a fonte citada. Sem linha, a tela mostra a recusa nomeada do serviço.
+    """
+    confirmacao = None
+    if linha is not None:
+        janela = servico_receita.janela_de_cancelamento_da_opcao(linha.ano, linha.semestre)
+        confirmacao = {
+            "ano": linha.ano,
+            "semestre": linha.semestre,
+            "rotulo": _ROTULO_DO_REGIME_IBS_CBS.get(linha.regime, linha.regime),
+            "consequencia": _CONSEQUENCIA_DO_REGIME_IBS_CBS.get(linha.regime, ""),
+            "registrada_em": linha.registrada_em,
+            "registrada_por": _nome_de_usuario(linha.registrada_por),
+            "janela": janela.descricao,
+            "fonte": janela.fonte,
+        }
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, empresa, algum_filtro_ativo=bool(erros)),
+        "titulo": "Cancelar a opção de regime de IBS/CBS",
+        "confirmacao": confirmacao,
+        "valores": valores,
+        "erros": erros or {},
+        "motivo_maximo": servico_receita.MOTIVO_MAXIMO,
+        "motivo_minimo": servico_receita.MOTIVO_CANCELAMENTO_MINIMO,
+        "url_envio": reverse("fiscal_web:opcao_regime_ibs_cbs_cancelar", args=[empresa.pk]),
+        "url_voltar": (
+            reverse("fiscal_web:opcao_regime_ibs_cbs") + "?" + urlencode({"empresa": empresa.pk})
+        ),
+    }
+    return render(request, "fiscal/opcao_regime_ibs_cbs_cancelar.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def opcao_regime_ibs_cbs_cancelar(request, empresa_id):
+    """Cancela a opção ATIVA de regime de IBS/CBS do semestre (DL-088, correção do achado A1).
+
+    Duas etapas, no padrão de `presumido_medida_encerrar`: GET mostra a confirmação — nomeando
+    empresa, semestre e regime, com a janela legal e a fonte, e o motivo obrigatório — e POST grava
+    o cancelamento pelo SERVIÇO (`receita.cancelar_opcao_regime_ibs_cbs`), cuja trilha guarda
+    antes, depois e o motivo. A linha não é apagada, e a opção cancelada libera o semestre para
+    novo registro. O alvo (ano, semestre) vem na querystring do GET e em campo do POST. A ordem é
+    a da BL-584: escritório, permissão e SÓ ENTÃO a empresa (404 sem confirmar o id de outro
+    escritório).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _TEXTO_SEM_PERMISSAO_DO_CANCELAMENTO)
+    empresa = _empresa_escopada(request, empresa_id)
+    origem = request.GET if request.method == "GET" else request.POST
+    valores = {
+        "ano": origem.get("ano", "").strip(),
+        "semestre": origem.get("semestre", "").strip(),
+        "motivo": "" if request.method == "GET" else request.POST.get("motivo", ""),
+    }
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, _CONTRATO_CANCELAMENTO_OPCAO)
+        except DadoNaoContratado as exc:
+            return _tela_do_cancelamento_da_opcao(
+                request, empresa, valores=valores, erros={"geral": exc.mensagem}, status=400
+            )
+    erros = _validar_alvo_do_cancelamento(valores)
+    if erros:
+        return _tela_do_cancelamento_da_opcao(
+            request, empresa, valores=valores, erros=erros, status=400
+        )
+    ano, semestre = int(valores["ano"]), int(valores["semestre"])
+    linha = servico_receita.opcao_regime_ibs_cbs_registrada(empresa, ano, semestre)
+    if linha is None:
+        # As recusas nomeadas do SERVIÇO, em linguagem de escritório: sem opção ativa, ou já
+        # cancelada. Nada é gravado.
+        if OpcaoRegimeIbsCbsSimples.objects.filter(
+            empresa=empresa, ano=ano, semestre=semestre
+        ).exists():
+            geral = servico_receita.mensagem_opcao_ja_cancelada(ano, semestre)
+        else:
+            geral = servico_receita.mensagem_cancelamento_sem_opcao(ano, semestre)
+        return _tela_do_cancelamento_da_opcao(
+            request, empresa, valores=valores, erros={"geral": geral}, status=409
+        )
+    if request.method == "GET":
+        return _tela_do_cancelamento_da_opcao(request, empresa, valores=valores, linha=linha)
+    try:
+        servico_receita.cancelar_opcao_regime_ibs_cbs(
+            empresa, ano, semestre, valores["motivo"], usuario=request.user, request=request
+        )
+    except servico_receita.EntradaInvalidaReceita as exc:
+        return _tela_do_cancelamento_da_opcao(
+            request,
+            empresa,
+            valores=valores,
+            linha=linha,
+            erros=_erros_do_cancelamento(exc),
+            status=400,
+        )
+    except servico_receita.ReceitaErro as exc:
+        return _tela_do_cancelamento_da_opcao(
+            request,
+            empresa,
+            valores=valores,
+            linha=linha,
+            erros={"geral": exc.mensagem},
+            status=409,
+        )
+    messages.success(
+        request,
+        f"Opção cancelada: {_ROTULO_DO_REGIME_IBS_CBS.get(linha.regime, linha.regime).lower()} "
+        f"para o {semestre}º semestre de {ano} de {empresa.razao_social}. O cancelamento, o motivo "
+        "e a data ficam na trilha, e o semestre fica livre para novo registro.",
+    )
+    return redirect(
+        reverse("fiscal_web:opcao_regime_ibs_cbs") + "?" + urlencode({"empresa": empresa.pk})
+    )
+
+
+def _situacao_do_ipi_mantido_na_tela(linha) -> dict:
+    if linha is None:
+        return {
+            "informado": False,
+            "rotulo": _SEM_DADO_IPI_MANTIDO,
+            "fonte": "",
+            "registrada_em": None,
+            "registrada_por": "",
+        }
+    return {
+        "informado": True,
+        "rotulo": _ROTULO_DA_SITUACAO_IPI_MANTIDO.get(linha.situacao, linha.situacao),
+        "fonte": linha.fonte,
+        "registrada_em": linha.registrada_em,
+        "registrada_por": _nome_de_usuario(linha.registrada_por),
+    }
+
+
+def _tela_do_ipi_mantido(request, empresa, *, valores=None, erros=None, status=200):
+    situacao = _situacao_do_ipi_mantido_na_tela(servico_receita.ipi_mantido_registrado(empresa))
+    if valores is None:
+        valores = {"situacao": "", "fonte": ""}
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, empresa, algum_filtro_ativo=bool(erros)),
+        "titulo": "IPI mantido (Zona Franca)",
+        "situacao": situacao,
+        "efeito": _EFEITO_IPI_MANTIDO,
+        "opcoes_situacao": list(SituacaoIpiMantido.choices),
+        "valores": valores,
+        "erros": erros or {},
+        "pode_cadastrar": _pode_escriturar(request),
+        "mensagem_sem_permissao": _TEXTO_SEM_PERMISSAO_DO_IPI,
+        "url_gravar": reverse("fiscal_web:ipi_mantido_gravar", args=[empresa.pk]),
+    }
+    return render(request, "fiscal/ipi_mantido.html", contexto, status=status)
+
+
+def _tela_do_ipi_sem_empresa(request, *, erros=None, status=200):
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, None, algum_filtro_ativo=bool(erros)),
+        "titulo": "IPI mantido (Zona Franca)",
+        "efeito": _EFEITO_IPI_MANTIDO,
+        "opcoes_situacao": list(SituacaoIpiMantido.choices),
+        "erros": erros or {},
+        "pode_cadastrar": _pode_escriturar(request),
+        "mensagem_sem_permissao": _TEXTO_SEM_PERMISSAO_DO_IPI,
+    }
+    return render(request, "fiscal/ipi_mantido.html", contexto, status=status)
+
+
+@login_required
+@require_safe
+def ipi_mantido(request):
+    """IPI mantido (Zona Franca) da empresa — DL-088, escopos 3 e 6.
+
+    Consulta por `?empresa=`; a gravação é POST em `ipi_mantido_gravar`. Sem linha gravada, a tela
+    diz "não informado" — o produto NÃO presume Zona Franca — e explica o efeito do dado.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite consultar o dado de IPI mantido da empresa."
+        )
+    empresa, erro = _empresa_da_escrituracao(request)
+    if erro:
+        return _tela_do_ipi_sem_empresa(request, erros={"geral": erro}, status=400)
+    if empresa is None:
+        return _tela_do_ipi_sem_empresa(request)
+    return _tela_do_ipi_mantido(request, empresa)
+
+
+@login_required
+@require_http_methods(["POST"])
+def ipi_mantido_gravar(request, empresa_id):
+    """Grava (ou corrige) o dado de IPI mantido da empresa (DL-088, escopos 3 e 6).
+
+    Cadastro CORRIGÍVEL, com a `fonte` obrigatória: registrar de novo com outro valor atualiza a
+    linha, e a trilha do serviço guarda antes e depois. A validação é a do serviço
+    (`receita.definir_ipi_mantido`); a tela só aponta o campo que causou a recusa.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(
+            request, "Seu papel não permite cadastrar o dado de IPI mantido da empresa."
+        )
+    empresa = _empresa_escopada(request, empresa_id)
+    valores = {
+        "situacao": request.POST.get("situacao", "").strip(),
+        "fonte": request.POST.get("fonte", "").strip(),
+    }
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_IPI_MANTIDO)
+    except DadoNaoContratado as exc:
+        return _tela_do_ipi_mantido(
+            request, empresa, valores=valores, erros={"geral": exc.mensagem}, status=400
+        )
+    try:
+        servico_receita.definir_ipi_mantido(
+            empresa, valores["situacao"], valores["fonte"], usuario=request.user, request=request
+        )
+    except servico_receita.EntradaInvalidaReceita as exc:
+        return _tela_do_ipi_mantido(
+            request, empresa, valores=valores, erros=_erros_do_ipi_mantido(exc), status=400
+        )
+    except servico_receita.ReceitaErro as exc:
+        return _tela_do_ipi_mantido(
+            request, empresa, valores=valores, erros={"geral": exc.mensagem}, status=409
+        )
+    messages.success(request, "Dado de IPI mantido registrado para esta empresa.")
+    return redirect(reverse("fiscal_web:ipi_mantido") + "?" + urlencode({"empresa": empresa.pk}))
