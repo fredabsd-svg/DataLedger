@@ -83,8 +83,13 @@ def test_reversao_recusa_com_marca_em_efetivada_e_nao_muda_nada(
     try:
         with pytest.raises(RuntimeError) as erro:
             call_command("migrate", "fiscal", ULTIMA_ANTES, verbosity=0)
-        assert MENSAGEM in str(erro.value)
-        assert "1 item(ns) com marca de monofásico" in str(erro.value)
+        # DL-087 (A9 da rodada 1, ajuste do arquiteto): a nota efetivada agora tem a origem da
+        # natureza gravada, e a reversão da 0020 (DL-087) vem antes da 0014 e recusa primeiro. O
+        # que este teste protege continua igual: a reversão é recusada e nada muda no banco. A
+        # mensagem da DL-082 segue testada nos casos de rascunho, acima e abaixo.
+        mensagem = str(erro.value)
+        assert MENSAGEM in mensagem or "Reversão da DL-087 recusada" in mensagem
+        assert "monofasico" in _colunas_do_item()
         assert NaturezaItemNFe.objects.get().monofasico is True
     finally:
         call_command("migrate", verbosity=0)
