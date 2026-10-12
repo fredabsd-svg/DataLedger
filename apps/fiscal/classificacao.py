@@ -61,18 +61,31 @@ banco: quem chama carrega o contexto uma vez por chamada e o repassa a todos os 
 VIGÊNCIA (regra da data de emissão, não da data de hoje)
 - Uma regra vale para a nota quando `vigencia_inicio <= dia_da_emissão <= vigencia_fim`, com fim
   vazio = sem fim. O dia é o de `dhEmi` no fuso de São Paulo (`escrituracao_nfe.dia_e_competencia`).
-- A desativação fixa `vigencia_fim` em ONTEM (SP): a regra valeu até ontem, e para as notas de hoje
-  em diante deixa de valer. Se ela tinha fim anterior a ontem, o fim não muda. Regra criada hoje e
-  desativada hoje fica com fim anterior ao início: vigência vazia, que nenhuma nota casa.
+
+DESATIVAR É REVOGAR (correção da rodada 1, A1; DE-108)
+- A desativação grava o fim da vigência na véspera do início (`vigencia_revogada`). Vigência vazia:
+  nenhuma data de emissão cai nela. A regra revogada NÃO casa com nota nenhuma, pendente ou futura.
+- A escrituração efetivada não muda, e guarda a origem que teve (a regra segue no registro, marcada
+  como desativada). A regra não é reaproveitada: quem quer outra, cria outra.
+- A assinatura do lote muda (a fonte da sugestão some), e uma confirmação com a prévia antiga
+  recebe 409 (`PreviaDesatualizada`).
+- O gatilho do banco (migração 0019) recusa qualquer fim de vigência que não seja essa revogação.
 
 CADASTRO
 - Recusas (400): tipo ajuste, CFOP fora da tabela oficial, natureza que não cabe no tipo, NCM fora
-  do modo, CST/CSOSN e `idDest` fora do formato, fim anterior ao início.
+  do modo ou com caractere que não seja dígito ASCII ou ponto, CST/CSOSN e `idDest` fora do formato,
+  fim anterior ao início.
 - Duplicata (409): duas regras ATIVAS do mesmo escopo, com os mesmos critérios e vigências que se
-  cruzam. Regra de escopo diferente não é duplicata: é a precedência.
+  cruzam. Regra de escopo diferente não é duplicata: é a precedência. A prévia de impacto recusa a
+  duplicata com o mesmo 409, antes de calcular (A2).
 - Criar e desativar gravam a trilha (`apps.auditoria`), na mesma transação.
 - Regra de escritório só é criada por ADMINISTRADOR e GESTOR; regra de empresa, por quem escritura
   no fiscal. Quem decide isso é a API (`api_classificacao`), no servidor.
+
+CONTAGEM POR EMPRESA (A3)
+- Os itens confirmados de uma regra são contados só nas escriturações da EMPRESA da consulta. Regra
+  do escritório é compartilhada, mas a contagem de outra empresa não aparece.
+  `contagem_de_confirmados` e `confirmados_da_regra` são as duas formas de API e tela lerem isso.
 """
 
 from __future__ import annotations
@@ -85,7 +98,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from apps.auditoria.services import registrar
@@ -101,6 +114,7 @@ from apps.fiscal.models import (
     ModoNcmRegraNFe,
     NaturezaItemNFe,
     NaturezaOperacaoNFe,
+    OrigemNaturezaItemNFe,
     PapelNFe,
     RegraClassificacaoNFe,
     TipoEscrituracaoNFe,
@@ -151,6 +165,8 @@ NATUREZAS_DE_COMBUSTIVEL_QUE_EXIGEM_NCM = frozenset(
 TIPOS_COM_REGRA = frozenset(TipoRegraClassificacaoNFe.values)
 
 _CFOP_DE_4_DIGITOS = re.compile(r"[0-9]{4}")
+# `[0-9]` é ASCII de propósito: `\d` aceitaria dígitos de outros alfabetos (A5).
+_NCM_SO_DIGITOS_E_PONTOS = re.compile(r"[0-9.]+")
 _CST_CSOSN = re.compile(r"[0-9]{2,3}")
 _IDS_DEST = ("1", "2", "3")
 MENSAGEM_TIPO_AJUSTE = (
@@ -176,31 +192,89 @@ class RegraDuplicada(servico.EscrituracaoNFeErro):
 
 
 @dataclass(frozen=True)
+class _RegrasDoCfop:
+    """As regras de UM CFOP, separadas pelo critério de NCM (A6).
+
+    `sem_ncm`: casam qualquer NCM. `exatas`: NCM de 8 dígitos -> regras. `prefixos`: prefixo ->
+    regras, e `comprimentos` são os tamanhos de prefixo presentes. Para um NCM, a lista de
+    candidatas é `sem_ncm` mais a exata e o prefixo de cada comprimento: uma consulta de dict por
+    comprimento, sem percorrer as regras do CFOP. Com 50 regras que não casam, o item custa o mesmo.
+    """
+
+    sem_ncm: tuple
+    exatas: dict
+    prefixos: dict
+    comprimentos: tuple
+
+
+def _indexar_regras_do_cfop(regras) -> _RegrasDoCfop:
+    sem_ncm: list = []
+    exatas: dict[str, list] = {}
+    prefixos: dict[str, list] = {}
+    for regra in regras:
+        if not regra.ncm:
+            sem_ncm.append(regra)
+        elif regra.ncm_modo == ModoNcmRegraNFe.EXATO:
+            exatas.setdefault(regra.ncm, []).append(regra)
+        else:
+            prefixos.setdefault(regra.ncm, []).append(regra)
+    return _RegrasDoCfop(
+        sem_ncm=tuple(sem_ncm),
+        exatas={k: tuple(v) for k, v in exatas.items()},
+        prefixos={k: tuple(v) for k, v in prefixos.items()},
+        comprimentos=tuple(sorted({len(p) for p in prefixos})),
+    )
+
+
+@dataclass(frozen=True)
 class ContextoDeClassificacao:
     """O que a resolução precisa, carregado UMA vez por chamada: regras e padrão da empresa.
 
-    As regras são indexadas por CFOP na construção (`regras_do_cfop`): o CFOP é critério
-    obrigatório, então um item só pode casar regras do seu próprio CFOP. Sem o índice, cada item
-    percorria todas as regras do escritório (a medida de volume com 50 regras estourou o teto de
-    10 s por chamada).
+    As regras são indexadas por CFOP e, dentro dele, por NCM (`candidatas_do_item`): o CFOP é
+    critério obrigatório, e o NCM é a outra chave que separa a maioria das regras. Sem o índice,
+    cada item percorria todas as regras do escritório (a medida de volume com 50 regras estourou o
+    teto de 10 s por chamada, DL-087 frente A).
     """
 
     escritorio_id: int
     empresa_id: int
     padrao_combustivel: str
     regras: tuple = field(default=())
-    _por_cfop: dict = field(init=False, repr=False, compare=False, default_factory=dict)
+    _indice: dict = field(init=False, repr=False, compare=False, default_factory=dict)
 
     def __post_init__(self):
-        indice: dict[str, list] = {}
+        por_cfop: dict[str, list] = {}
         for regra in self.regras:
-            indice.setdefault(regra.cfop, []).append(regra)
+            por_cfop.setdefault(regra.cfop, []).append(regra)
         # Frozen: o índice é derivado das regras, preenchido uma vez, e não muda depois.
-        indexado = {cfop: tuple(lista) for cfop, lista in indice.items()}
-        object.__setattr__(self, "_por_cfop", indexado)
+        indice = {cfop: _indexar_regras_do_cfop(lista) for cfop, lista in por_cfop.items()}
+        object.__setattr__(self, "_indice", indice)
+
+    def candidatas_do_item(self, cfop: str, ncm_normalizado: str) -> list:
+        """Regras que PODEM casar o item (mesmo CFOP e NCM compatível). `_casa` confere o resto.
+
+        A ordem é a de criação (pk), para que as mensagens e os desempates sejam estáveis.
+        """
+        indice = self._indice.get(cfop)
+        if indice is None:
+            return []
+        achadas = list(indice.sem_ncm)
+        achadas.extend(indice.exatas.get(ncm_normalizado, ()))
+        for comprimento in indice.comprimentos:
+            achadas.extend(indice.prefixos.get(ncm_normalizado[:comprimento], ()))
+        return sorted(achadas, key=_chave_pk)
 
     def regras_do_cfop(self, cfop: str) -> tuple:
-        return self._por_cfop.get(cfop, ())
+        """Todas as regras do CFOP, sem filtro de NCM (teste e diagnóstico)."""
+        indice = self._indice.get(cfop)
+        if indice is None:
+            return ()
+        todas = list(indice.sem_ncm)
+        for lista in indice.exatas.values():
+            todas.extend(lista)
+        for lista in indice.prefixos.values():
+            todas.extend(lista)
+        return tuple(sorted(todas, key=_chave_pk))
 
 
 def contexto_da_empresa(empresa) -> ContextoDeClassificacao:
@@ -237,8 +311,28 @@ def _rotulo_do_escopo(regra) -> str:
     return "da empresa" if regra.empresa_id is not None else "do escritório"
 
 
+def _chave_pk(regra) -> int:
+    """pk para ordenar. A regra da prévia de impacto ainda não tem pk (é `None`): vale 0, e o
+    mesmo valor sai nos desempates. Sem isso, comparar `None` com `int` dava 500 (A2)."""
+    return regra.pk or 0
+
+
+def vigencia_revogada(inicio: date) -> date:
+    """Fim da vigência gravado por uma REVOGAÇÃO: a véspera do início (DL-087, A1).
+
+    Com a véspera, nenhuma data de emissão cai na vigência (`dia < início` ou `dia > fim`). Na data
+    mínima do calendário não há véspera: o fim fica no próprio início, e a conta continua sem casar
+    data real. O gatilho da 0019 faz a MESMA conta no banco; se uma mudar, mude a outra.
+    """
+    return inicio - timedelta(days=1) if inicio > date.min else inicio
+
+
 def _casa(regra, contexto: ContextoDeClassificacao, documento, item, tipo: str, dia: date) -> bool:
     """A regra vale para este item? Tipo, escopo, vigência na data de emissão e critérios."""
+    # Revogada: não casa com nota nenhuma, pendente ou futura. A vigência vazia já garante isso; a
+    # checagem explícita deixa a regra fora mesmo que a conta da vigência mude um dia.
+    if regra.desativada_em is not None:
+        return False
     if regra.tipo != tipo:
         return False
     if regra.empresa_id is not None and regra.empresa_id != contexto.empresa_id:
@@ -301,13 +395,13 @@ def sugerir_natureza_com_regras(
     if consultar_cfop(item.cfop) is None:
         return embutida()
 
-    # Só as regras do MESMO CFOP do item podem casar. Sem nenhuma, a embutida responde, e a data da
-    # nota nem é lida.
-    do_cfop = contexto.regras_do_cfop(item.cfop)
-    if not do_cfop:
+    # Só as regras do MESMO CFOP e de NCM compatível podem casar (o índice). Sem nenhuma, a embutida
+    # responde, e a data da nota nem é lida.
+    do_item = contexto.candidatas_do_item(item.cfop, normalizar_ncm(item.ncm))
+    if not do_item:
         return embutida()
     dia = servico.dia_e_competencia(documento)[0]
-    candidatas = [r for r in do_cfop if _casa(r, contexto, documento, item, tipo, dia)]
+    candidatas = [r for r in do_item if _casa(r, contexto, documento, item, tipo, dia)]
     if not candidatas:
         return embutida()
 
@@ -339,10 +433,10 @@ def sugerir_natureza_com_regras(
                 "especificidade e o mesmo escopo e apontam naturezas diferentes: escolha a natureza"
             ),
             origem=servico.ORIGEM_DA_SUGESTAO_CONFLITO_DE_REGRAS,
-            regra_ids=tuple(sorted(r.pk for r in vencedoras)),
+            regra_ids=_pks_das(vencedoras),
             escopo_regra=_escopo_da(vencedoras[0]),
         )
-    regra = min(vencedoras, key=lambda r: r.pk)
+    regra = min(vencedoras, key=_chave_pk)
     if len(vencedoras) == 1:
         motivo = (
             f"sugerida pela regra n.º {regra.pk} ({_rotulo_do_escopo(regra)}): "
@@ -358,9 +452,14 @@ def sugerir_natureza_com_regras(
         regra.natureza,
         motivo,
         origem=servico.ORIGEM_DA_SUGESTAO_REGRA,
-        regra_ids=tuple(sorted(r.pk for r in vencedoras)),
+        regra_ids=_pks_das(vencedoras),
         escopo_regra=_escopo_da(regra),
     )
+
+
+def _pks_das(regras) -> tuple[int, ...]:
+    """pks das regras gravadas, em ordem. A regra da prévia (sem pk) não entra: nunca é origem."""
+    return tuple(sorted(r.pk for r in regras if r.pk is not None))
 
 
 def chave_de_precedencia(regra) -> tuple:
@@ -424,8 +523,9 @@ def origem_da_confirmacao(sugestao: servico.Sugestao, natureza: str) -> tuple[st
 
 # Cada linha descreve UM sinal da sugestão embutida (`escrituracao_nfe.sugerir_natureza_item` e
 # vizinhas) e a fonte que o código cita. A fonte é a da documentação do código, não norma nova.
-# Quem altera a sugestão embutida atualiza esta lista no mesmo commit (teste em
-# `test_dl087_produto.py` confere que cada linha tem fonte e resultado).
+# Quem altera a sugestão embutida atualiza esta lista no mesmo commit. O teste
+# `test_dl087_correcao_rodada1.py` confere que cada linha tem sinal, resultado e fonte, e que os
+# sufixos de CFOP citados aqui são os da sugestão embutida (A12).
 REGRAS_DO_PRODUTO = (
     {
         "sinal": "Nota de ajuste: finNFe 2, 3, 5 ou 6.",
@@ -493,7 +593,7 @@ REGRAS_DO_PRODUTO = (
         "fonte": "escrituracao_nfe.sugerir_natureza_item",
     },
     {
-        "sinal": "CFOP 5501, 5502, 5910 ou 5911 (comercial exportadora e bonificação).",
+        "sinal": "CFOP x.501, x.502, x.910 ou x.911 (comercial exportadora e bonificação).",
         "resultado": "sem sugestão: a consulta não dá sinal suficiente",
         "fonte": "consulta de 09/10/2026, item 2 (HI-118)",
     },
@@ -638,7 +738,16 @@ def validar_dados_da_regra(dados: DadosDaRegra) -> DadosDaRegra:
             "da tabela."
         )
 
-    ncm = normalizar_ncm(dados.ncm)
+    # A5: só dígitos ASCII e pontos. `normalizar_ncm` tira o que não é dígito, e um "22AB" virava
+    # "22" em silêncio, um prefixo mais amplo do que o digitado. Dígitos de outro alfabeto (árabe-
+    # índico, largura total) passam pelo `\d` do Python e dariam 500 no CHECK do banco.
+    ncm_bruto = (dados.ncm or "").strip()
+    if ncm_bruto and not _NCM_SO_DIGITOS_E_PONTOS.fullmatch(ncm_bruto):
+        raise _recusa(
+            "NCM aceita só dígitos e pontos (ex.: 2203.00.00 ou 22030000). Letras, espaços e "
+            "outros caracteres não são aceitos."
+        )
+    ncm = normalizar_ncm(ncm_bruto)
     modo = (dados.ncm_modo or "").strip()
     if ncm:
         if modo == ModoNcmRegraNFe.EXATO:
@@ -740,6 +849,29 @@ def _mesmos_criterios(regra, dados: DadosDaRegra) -> bool:
     )
 
 
+def _recusar_se_duplicada(escritorio_id: int, empresa_id: int | None, dados: DadosDaRegra) -> None:
+    """409 (`RegraDuplicada`) se já há regra ATIVA do mesmo escopo, critérios e vigência cruzada.
+
+    Usada pela criação (com a trava do escritório) e pela prévia de impacto (A2): a prévia recusa
+    antes de calcular, em vez de deixar a regra igual empatar com a existente.
+    """
+    existentes = RegraClassificacaoNFe.objects.filter(
+        escritorio_id=escritorio_id,
+        empresa_id=empresa_id,
+        tipo=dados.tipo,
+        cfop=dados.cfop,
+        desativada_em__isnull=True,
+    )
+    for regra in existentes:
+        if _mesmos_criterios(regra, dados) and _vigencias_se_cruzam(
+            regra.vigencia_inicio, regra.vigencia_fim, dados.vigencia_inicio, dados.vigencia_fim
+        ):
+            raise RegraDuplicada(
+                f"Já existe a regra n.º {regra.pk} com os mesmos critérios e vigência que se "
+                "cruza, no mesmo escopo. Desative-a com motivo, ou ajuste a vigência."
+            )
+
+
 def criar_regra(
     *, escritorio: Escritorio, empresa, dados: DadosDaRegra, usuario, request=None, agora=None
 ) -> RegraClassificacaoNFe:
@@ -751,21 +883,7 @@ def criar_regra(
     dados = validar_dados_da_regra(dados)
     with transaction.atomic():
         Escritorio.objects.select_for_update(of=("self",)).get(pk=escritorio.pk)
-        existentes = RegraClassificacaoNFe.objects.filter(
-            escritorio=escritorio,
-            empresa=empresa,
-            tipo=dados.tipo,
-            cfop=dados.cfop,
-            desativada_em__isnull=True,
-        )
-        for regra in existentes:
-            if _mesmos_criterios(regra, dados) and _vigencias_se_cruzam(
-                regra.vigencia_inicio, regra.vigencia_fim, dados.vigencia_inicio, dados.vigencia_fim
-            ):
-                raise RegraDuplicada(
-                    f"Já existe a regra n.º {regra.pk} com os mesmos critérios e vigência que se "
-                    "cruza, no mesmo escopo. Desative-a com motivo, ou ajuste a vigência."
-                )
+        _recusar_se_duplicada(escritorio.pk, empresa.pk if empresa is not None else None, dados)
         regra = RegraClassificacaoNFe(
             escritorio=escritorio,
             empresa=empresa,
@@ -795,11 +913,11 @@ def criar_regra(
 def desativar_regra(
     regra: RegraClassificacaoNFe, *, motivo: str, usuario, request=None, agora=None
 ) -> RegraClassificacaoNFe:
-    """Desativa a regra: fixa o fim da vigência em ONTEM (SP) e grava quem, quando e o motivo.
+    """REVOGA a regra (DL-087, A1): ela deixa de casar com QUALQUER nota, pendente ou futura.
 
-    A regra desativada já não vale para as notas de hoje em diante, e segue valendo para as notas
-    anteriores ao fim, como o histórico pede. Não se apaga regra. Recusa 400 (motivo vazio) e 409
-    (já desativada).
+    Grava o fim da vigência na véspera do início (`vigencia_revogada`), quem, quando e o motivo. A
+    escrituração já efetivada não muda e guarda a origem que teve. Não se apaga regra. Recusa 400
+    (motivo vazio ou longo) e 409 (já revogada, ou revogada por outra ação ao mesmo tempo).
     """
     motivo = (motivo or "").strip()
     if not motivo:
@@ -807,7 +925,6 @@ def desativar_regra(
     if len(motivo) > servico.MOTIVO_MAXIMO:
         raise _recusa(f"O motivo tem no máximo {servico.MOTIVO_MAXIMO} caracteres.")
     agora = agora or timezone.now()
-    ontem = agora.astimezone(servico.FUSO_SP).date() - timedelta(days=1)
     with transaction.atomic():
         Escritorio.objects.select_for_update(of=("self",)).get(pk=regra.escritorio_id)
         atual = RegraClassificacaoNFe.objects.get(pk=regra.pk)
@@ -815,13 +932,8 @@ def desativar_regra(
             raise servico.EscrituracaoNFeErro(
                 f"A regra n.º {atual.pk} já está desativada. Nada foi alterado."
             )
-        # Nunca alarga a vigência: se já terminava antes de ontem, o fim antigo fica.
-        novo_fim = (
-            ontem
-            if atual.vigencia_fim is None or atual.vigencia_fim > ontem
-            else atual.vigencia_fim
-        )
-        # O filtro `desativada_em__isnull` torna a desativação condicional: duas chamadas ao mesmo
+        novo_fim = vigencia_revogada(atual.vigencia_inicio)
+        # O filtro `desativada_em__isnull` torna a revogação condicional: duas chamadas ao mesmo
         # tempo, só uma grava.
         gravadas = RegraClassificacaoNFe.objects.filter(
             pk=atual.pk, desativada_em__isnull=True
@@ -845,10 +957,42 @@ def desativar_regra(
             detalhes={
                 **_detalhes_da_regra(atual),
                 "motivo": motivo,
-                "vigencia_fim_fixada": novo_fim.isoformat(),
+                "efeito": "revogada",
+                "vigencia_fim_gravada": novo_fim.isoformat(),
             },
         )
     return atual
+
+
+def confirmados_da_regra(empresa, regra: RegraClassificacaoNFe):
+    """Origens gravadas (um item confirmado cada) que vieram desta regra NA EMPRESA da consulta.
+
+    É a lista de "ver notas" (A8): nota e item, a natureza confirmada e o estado da escrituração
+    (rascunho, efetivada ou estornada). Outra empresa do mesmo escritório não entra.
+    """
+    return (
+        OrigemNaturezaItemNFe.objects.filter(
+            regra_classificacao=regra,
+            natureza_item__escrituracao__empresa_id=empresa.pk,
+        )
+        .select_related(
+            "natureza_item__escrituracao",
+            "natureza_item__item__documento",
+        )
+        .order_by("natureza_item__escrituracao__pk", "natureza_item__item__n_item")
+    )
+
+
+def contagem_de_confirmados(empresa) -> Count:
+    """Anotação `Count` dos itens confirmados que vieram da regra, SÓ da empresa da consulta (A3).
+
+    Sem o filtro, a contagem da regra do escritório somava as confirmações de todas as empresas, e
+    a empresa consultada via o volume de outro cliente.
+    """
+    return Count(
+        "itens_confirmados",
+        filter=Q(itens_confirmados__natureza_item__escrituracao__empresa_id=empresa.pk),
+    )
 
 
 def _detalhes_da_regra(regra: RegraClassificacaoNFe) -> dict:
@@ -986,7 +1130,7 @@ def _itens_a_classificar(empresa, ano: int, mes: int):
     return contexto, notas, sem_leitura, pares
 
 
-def _mes_confirmado(empresa, ano: int, mes: int) -> bool:
+def mes_confirmado_da_empresa(empresa, ano: int, mes: int) -> bool:
     confirmacao = receita_servico.confirmacao_do_mes(empresa, ano, mes)
     return confirmacao is not None and confirmacao.estado == EstadoConfirmacaoMes.CONFIRMADA
 
@@ -1065,7 +1209,7 @@ def fila_a_classificar(empresa, ano: int, mes: int) -> FilaAClassificar:
             )
         )
     grupos.sort(key=lambda g: (-g.itens, g.chave))
-    mes_confirmado = _mes_confirmado(empresa, ano, mes)
+    mes_confirmado = mes_confirmado_da_empresa(empresa, ano, mes)
     return FilaAClassificar(
         ano=ano,
         mes=mes,
@@ -1093,61 +1237,91 @@ class PreviaDeImpacto:
     grupos_afetados: int
     notas_afetadas: int
     avisos: tuple[str, ...]
+    # DL-087, A7: o mês já confirmado não bloqueia, mas a prévia diz (como a fila).
+    mes_confirmado: bool = False
+    aviso_do_mes: str = ""
 
 
 def previa_de_impacto(
     empresa, ano: int, mes: int, dados: DadosDaRegra, escopo: str
 ) -> PreviaDeImpacto:
-    """Conta, sem gravar, o efeito de uma regra nova: itens cuja natureza sugerida muda, itens que
-    saem ou entram na fila, grupos e notas afetadas. UMA passada sobre os itens (sem consulta por
-    item): as regras entram no contexto em memória, como se estivessem salvas.
+    """Uma prévia de impacto. Ver `previas_de_impacto`, que é quem calcula."""
+    return previas_de_impacto(empresa, ano, mes, [dados], escopo)[0]
 
-    Os critérios passam pela mesma validação da criação (400 se inválidos). A regra não tem id:
-    as mensagens dela dizem "a regra nova".
+
+def previas_de_impacto(
+    empresa, ano: int, mes: int, dados_das_variantes, escopo: str
+) -> list[PreviaDeImpacto]:
+    """Conta, sem gravar, o efeito de uma ou mais variantes de regra AINDA NÃO salva (A6).
+
+    `dados_das_variantes[0]` é a regra completa, e é a única que checa duplicidade (409, A2). As
+    demais são variantes (p. ex., a mesma regra sem o NCM) e saem com as mesmas contagens. Tudo numa
+    PASSADA: a leitura das notas e dos itens e a sugestão ATUAL de cada item são feitas uma vez; a
+    sugestão de cada variante é a única conta extra por item.
+
+    Os critérios passam pela mesma validação da criação (400 se inválidos). A regra não tem id: as
+    mensagens dela dizem "a regra nova". Não grava nada.
     """
-    dados = validar_dados_da_regra(dados)
     if escopo not in (ESCOPO_EMPRESA, ESCOPO_ESCRITORIO):
         raise _recusa("Escopo inválido: use empresa ou escritório.")
-    virtual = RegraClassificacaoNFe(
-        escritorio_id=empresa.escritorio_id,
-        empresa_id=empresa.pk if escopo == ESCOPO_EMPRESA else None,
-        tipo=dados.tipo,
-        cfop=dados.cfop,
-        ncm=dados.ncm,
-        ncm_modo=dados.ncm_modo,
-        cst_csosn=dados.cst_csosn,
-        id_dest=dados.id_dest,
-        natureza=dados.natureza,
-        vigencia_inicio=dados.vigencia_inicio,
-        vigencia_fim=dados.vigencia_fim,
+    validadas = [validar_dados_da_regra(dados) for dados in dados_das_variantes]
+    completa = validadas[0]
+    _recusar_se_duplicada(
+        empresa.escritorio_id, empresa.pk if escopo == ESCOPO_EMPRESA else None, completa
     )
     contexto, _notas, _sem_leitura, pares = _itens_a_classificar(empresa, ano, mes)
-    contexto_com_a_nova = replace(contexto, regras=(*contexto.regras, virtual))
-    mudam = saem = entram = 0
-    notas_afetadas: set[int] = set()
-    grupos_afetados: set[tuple] = set()
-    for nota, item in pares:
-        antes = sugerir_natureza_com_regras(contexto, nota.documento, item, nota.tipo)
-        depois = sugerir_natureza_com_regras(contexto_com_a_nova, nota.documento, item, nota.tipo)
-        if antes.natureza == depois.natureza:
-            continue
-        mudam += 1
-        notas_afetadas.add(nota.documento.pk)
-        if antes.natureza is None:
-            saem += 1
-            grupos_afetados.add(_chave_do_grupo_da_fila(nota, item, antes))
-        elif depois.natureza is None:
-            entram += 1
-            grupos_afetados.add(_chave_do_grupo_da_fila(nota, item, depois))
-    return PreviaDeImpacto(
-        ano=ano,
-        mes=mes,
-        escopo=escopo,
-        itens_a_escriturar=len(pares),
-        itens_que_mudam=mudam,
-        itens_que_saem_da_fila=saem,
-        itens_que_entram_na_fila=entram,
-        grupos_afetados=len(grupos_afetados),
-        notas_afetadas=len(notas_afetadas),
-        avisos=avisos_da_regra(dados, escopo),
-    )
+    antes = [
+        sugerir_natureza_com_regras(contexto, nota.documento, item, nota.tipo)
+        for nota, item in pares
+    ]
+    mes_confirmado = mes_confirmado_da_empresa(empresa, ano, mes)
+    resultados = []
+    for dados in validadas:
+        virtual = RegraClassificacaoNFe(
+            escritorio_id=empresa.escritorio_id,
+            empresa_id=empresa.pk if escopo == ESCOPO_EMPRESA else None,
+            tipo=dados.tipo,
+            cfop=dados.cfop,
+            ncm=dados.ncm,
+            ncm_modo=dados.ncm_modo,
+            cst_csosn=dados.cst_csosn,
+            id_dest=dados.id_dest,
+            natureza=dados.natureza,
+            vigencia_inicio=dados.vigencia_inicio,
+            vigencia_fim=dados.vigencia_fim,
+        )
+        contexto_com_a_nova = replace(contexto, regras=(*contexto.regras, virtual))
+        mudam = saem = entram = 0
+        notas_afetadas: set[int] = set()
+        grupos_afetados: set[tuple] = set()
+        for (nota, item), resposta_atual in zip(pares, antes, strict=True):
+            depois = sugerir_natureza_com_regras(
+                contexto_com_a_nova, nota.documento, item, nota.tipo
+            )
+            if resposta_atual.natureza == depois.natureza:
+                continue
+            mudam += 1
+            notas_afetadas.add(nota.documento.pk)
+            if resposta_atual.natureza is None:
+                saem += 1
+                grupos_afetados.add(_chave_do_grupo_da_fila(nota, item, resposta_atual))
+            elif depois.natureza is None:
+                entram += 1
+                grupos_afetados.add(_chave_do_grupo_da_fila(nota, item, depois))
+        resultados.append(
+            PreviaDeImpacto(
+                ano=ano,
+                mes=mes,
+                escopo=escopo,
+                itens_a_escriturar=len(pares),
+                itens_que_mudam=mudam,
+                itens_que_saem_da_fila=saem,
+                itens_que_entram_na_fila=entram,
+                grupos_afetados=len(grupos_afetados),
+                notas_afetadas=len(notas_afetadas),
+                avisos=avisos_da_regra(dados, escopo),
+                mes_confirmado=mes_confirmado,
+                aviso_do_mes=MENSAGEM_MES_CONFIRMADO if mes_confirmado else "",
+            )
+        )
+    return resultados

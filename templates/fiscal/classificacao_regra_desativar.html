@@ -22,8 +22,9 @@
 
 {% comment %}
 DL-087 (frente B), arquétipo E (confirmação de ação sensível): diz o que vai acontecer e o que NÃO
-muda. Desativar não apaga a regra e não altera nota efetivada; o motivo é obrigatório e fica na
-trilha de auditoria, com quem desativou e quando.
+muda. Desativar REVOGA a regra (DL-087, A1): ela não casa com nenhuma nota, pendente ou futura. Não
+apaga a regra e não altera nota efetivada; o motivo é obrigatório e fica na trilha de auditoria, com
+quem desativou e quando.
 {% endcomment %}
 {% block titulo_pagina %}<h1>Desativar regra n.º {{ regra.id }}</h1>{% endblock %}
 
@@ -32,7 +33,7 @@ trilha de auditoria, com quem desativou e quando.
         <h2 id="id_o_que_vai_acontecer">O que vai acontecer</h2>
         {% if regra.ativa %}
             <p>{{ efeito }}</p>
-            <p>A regra não é apagada: critérios, alcance, autor e motivo ficam registrados. Para mudar um critério, desative esta e crie outra.</p>
+            <p>A regra não é apagada: critérios, alcance, autor e motivo ficam registrados. Para mudar um critério, revogue esta e crie outra.</p>
         {% endif %}
     </section>
 
@@ -75,12 +76,12 @@ trilha de auditoria, com quem desativou e quando.
             </div>
             <div class="acoes-formulario">
                 <a class="botao botao--secundario" href="{{ url_regras }}">Cancelar</a>
-                <button type="submit" class="botao botao--perigoso">Desativar a regra n.º {{ regra.id }}</button>
+                <button type="submit" class="botao botao--perigoso">Desativar (revogar) a regra n.º {{ regra.id }}</button>
             </div>
         </form>
     {% else %}
         <p class="mensagem mensagem-info" role="status">
-            Esta regra já está desativada{% if regra.desativacao %}: desativada {{ regra.desativacao }}{% endif %}. Nada a fazer.
+            Esta regra já está desativada{% if regra.desativacao %} ({{ regra.desativacao }}){% endif %}. Nada a fazer.
         </p>
         <p><a class="botao botao--secundario" href="{{ url_regras }}">Voltar para as regras</a></p>
     {% endif %}

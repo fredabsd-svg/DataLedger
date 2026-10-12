@@ -231,11 +231,18 @@ MENSAGENS_DE_RESTRICAO = {
 # o INSERT/UPDATE).
 MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
     # DL-087 (frente A): a regra de classificação de NF-e não muda depois de criada e não se apaga.
-    # O gatilho da migração 0019 recusa UPDATE de critério, natureza ou vigência, DELETE, e segunda
-    # desativação. O serviço (`apps.fiscal.classificacao`) desativa com `update()` condicionado.
+    # O gatilho da migração 0019 recusa UPDATE de critério, natureza ou vigência, DELETE, segunda
+    # desativação, fim de vigência que não seja a revogação (véspera do início), e TRUNCATE com
+    # linha. O serviço (`apps.fiscal.classificacao`) revoga com `update()` condicionado.
     "regra_classificacao_nfe_imutavel": (
         "Regra de classificação de NF-e não pode ser alterada nem excluída: desative-a com motivo "
         "e crie outra."
+    ),
+    # DL-087, correção da rodada 1 (A8): a origem é fato de auditoria. Enquanto a escrituração da
+    # natureza não está em rascunho, nenhuma linha de origem entra, muda ou sai (gatilho da 0020).
+    "origem_natureza_item_imutavel_depois_de_efetivada": (
+        "Origem da natureza de nota efetivada ou estornada não muda: ela registra de onde veio a "
+        "natureza confirmada, e o que foi efetivado não se altera."
     ),
     # DL-077 (fatia 3, frente A), gatilhos da migração 0024 de `apps.contabilidade`: a importação
     # de lançamentos é área de conferência, e depois de efetivada ou descartada nenhuma linha muda.

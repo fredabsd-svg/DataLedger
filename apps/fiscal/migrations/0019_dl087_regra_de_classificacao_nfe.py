@@ -6,6 +6,14 @@
 # Reversão (`migrate fiscal 0018`): RECUSA, sem alterar nada, enquanto houver regra gravada. Regra
 # é dado do escritório (quem criou, quando, por quê); reverter a apagaria. A guarda é a ÚLTIMA
 # operação da lista, então na reversão roda PRIMEIRO, antes de o gatilho ou a tabela saírem.
+#
+# Correção da rodada 1 (A1 e A13), editada na própria 0019 porque ela não está na `main`:
+# - DESATIVAR é REVOGAR. O único UPDATE permitido grava `vigencia_fim` = véspera do início
+#   (`vigencia_revogada`, em `apps.fiscal.classificacao`). Vigência vazia: nenhuma nota casa, nem
+#   pendente nem futura. Outro fim, por SQL, é recusado.
+# - TRUNCATE de tabela COM regra é recusado. Tabela vazia pode ser truncada: é o que o `flush` dos
+#   testes transacionais faz em todas as tabelas, e não apaga dado de ninguém. Limite declarado: quem
+#   é dono da tabela pode removê-la com DROP, e isso o banco não impede sozinho.
 
 import django.db.models.deletion
 from django.conf import settings
@@ -16,8 +24,7 @@ CREATE OR REPLACE FUNCTION fiscal_regra_classificacao_nfe_imutavel()
 RETURNS trigger AS $$
 BEGIN
     IF TG_OP = 'DELETE' THEN
-        RAISE EXCEPTION 'regra de classificação de NF-e não pode ser excluída: desative-a com
-        motivo'
+        RAISE EXCEPTION 'regra de classificação de NF-e não pode ser excluída: revogue-a com motivo'
             USING ERRCODE = '23514',
                   CONSTRAINT = 'regra_classificacao_nfe_imutavel';
     END IF;
@@ -43,6 +50,18 @@ BEGIN
             USING ERRCODE = '23514',
                   CONSTRAINT = 'regra_classificacao_nfe_imutavel';
     END IF;
+    -- A desativação é REVOGAÇÃO (A1): o fim gravado é a véspera do início, e não outra data.
+    -- A mesma conta está em `vigencia_revogada` (Python). Se mudar, mude os dois.
+    IF NEW.vigencia_fim IS DISTINCT FROM (
+        CASE WHEN OLD.vigencia_inicio > DATE '0001-01-01'
+             THEN OLD.vigencia_inicio - 1
+             ELSE OLD.vigencia_inicio
+        END
+    ) THEN
+        RAISE EXCEPTION 'regra de classificação de NF-e só pode ser desativada por revogação'
+            USING ERRCODE = '23514',
+                  CONSTRAINT = 'regra_classificacao_nfe_imutavel';
+    END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -50,9 +69,27 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_regra_classificacao_nfe_imutavel
     BEFORE UPDATE OR DELETE ON fiscal_regraclassificacaonfe
     FOR EACH ROW EXECUTE FUNCTION fiscal_regra_classificacao_nfe_imutavel();
+
+CREATE OR REPLACE FUNCTION fiscal_regra_classificacao_nfe_sem_truncate()
+RETURNS trigger AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM fiscal_regraclassificacaonfe) THEN
+        RAISE EXCEPTION 'regras de classificação de NF-e gravadas não podem ser truncadas'
+            USING ERRCODE = '23514',
+                  CONSTRAINT = 'regra_classificacao_nfe_imutavel';
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_regra_classificacao_nfe_sem_truncate
+    BEFORE TRUNCATE ON fiscal_regraclassificacaonfe
+    FOR EACH STATEMENT EXECUTE FUNCTION fiscal_regra_classificacao_nfe_sem_truncate();
 """
 
 _SQL_REVERSO_REGRA = """
+DROP TRIGGER IF EXISTS trg_regra_classificacao_nfe_sem_truncate ON fiscal_regraclassificacaonfe;
+DROP FUNCTION IF EXISTS fiscal_regra_classificacao_nfe_sem_truncate();
 DROP TRIGGER IF EXISTS trg_regra_classificacao_nfe_imutavel ON fiscal_regraclassificacaonfe;
 DROP FUNCTION IF EXISTS fiscal_regra_classificacao_nfe_imutavel();
 """

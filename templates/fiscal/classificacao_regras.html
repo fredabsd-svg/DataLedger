@@ -39,8 +39,8 @@ filtra). Desativar leva a uma confirmação (tela própria, com motivo). Tudo é
     <p class="texto-apoio">
         Uma regra sugere a natureza de um item de NF-e de saída ou de devolução de venda, por cima da
         sugestão do produto. Ela só muda a sugestão: nenhuma nota efetivada muda, e nenhuma natureza já
-        escolhida num rascunho muda. Regra criada não se altera: para mudar, desative-a com motivo e
-        crie outra.
+        escolhida num rascunho muda. Regra criada não se altera: para mudar, desative-a com motivo (ela é
+        REVOGADA: não casa com nenhuma nota, pendente ou futura) e crie outra.
     </p>
     {% if not pode_criar %}
         <p class="texto-apoio" id="id_motivo_sem_criar">{{ motivo_sem_criar }}</p>
@@ -105,7 +105,7 @@ filtra). Desativar leva a uma confirmação (tela própria, com motivo). Tudo é
                             <td>
                                 {{ linha.situacao_rotulo }}
                                 {% if linha.desativacao %}
-                                    <br><span class="texto-apoio">Desativada {{ linha.desativacao }}</span>
+                                    <br><span class="texto-apoio">Desativada: {{ linha.desativacao }}</span>
                                 {% endif %}
                             </td>
                             <td>
@@ -114,6 +114,7 @@ filtra). Desativar leva a uma confirmação (tela própria, com motivo). Tudo é
                             </td>
                             <td class="valor-monetario">{{ linha.itens_confirmados }}</td>
                             <td>
+                                <a class="botao botao--secundario botao--pequeno" href="{{ linha.url_notas }}">Ver notas<span class="visualmente-oculto"> da regra n.º {{ linha.id }}</span></a>
                                 {% if linha.url_desativar %}
                                     <a class="botao botao--perigoso botao--pequeno" href="{{ linha.url_desativar }}">Desativar<span class="visualmente-oculto"> a regra n.º {{ linha.id }}</span></a>
                                 {% elif linha.ativa %}
@@ -125,6 +126,7 @@ filtra). Desativar leva a uma confirmação (tela própria, com motivo). Tudo é
                 </tbody>
             </table>
         </div>
+        {% include "fiscal/_paginacao.html" %}
     {% else %}
         <div class="estado-vazio">
             <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>

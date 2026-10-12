@@ -54,6 +54,12 @@ POST de qualquer forma.
     {% endif %}
 
     <form method="post" action="{{ url_form }}" class="formulario">
+        {% comment %}
+        A13 (correção da rodada 1): o Enter num campo envia o PRIMEIRO botão de envio do formulário. Sem
+        este, era "Atualizar as naturezas" (troca a lista, não grava). Este botão oculto é a prévia, que
+        não grava nada; sem permissão de escrita, fica desabilitado e o Enter não envia nada.
+        {% endcomment %}
+        <button type="submit" name="acao" value="previa" class="visualmente-oculto" tabindex="-1" aria-hidden="true"{% if not pode_escrever %} disabled{% endif %}>Ver o alcance, sem gravar</button>
         {% csrf_token %}
         {% if valores.origem %}
             <input type="hidden" name="origem" value="{{ valores.origem }}">

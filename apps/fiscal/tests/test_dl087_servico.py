@@ -324,41 +324,15 @@ def test_fila_nao_lista_item_de_rascunho_com_natureza_escolhida(escritorio_a, ge
 def test_conflito_real_entre_regras_do_mesmo_escopo_vai_para_a_fila_com_as_duas_nomeadas(
     escritorio_a, gestor, empresa
 ):
-    """Como um conflito de mesmo escopo e mesma precedência surge na prática: uma regra do
-    escritório
-    desativada em 19/03 (fim da vigência) e outra criada em 10/03, ambas valendo em 15/03. A
-    duplicidade só olha regras ATIVAS, então a nova é aceita; nas notas de 15/03 as duas casam com
-    a mesma precedência e naturezas diferentes. Sem padrão silencioso: a nota vai para a fila."""
+    """Conflito REAL no banco, depois da revogação (A1).
+
+    Uma regra revogada não disputa mais nota nenhuma, então o conflito só sobra entre regras ATIVAS
+    do mesmo escopo e mesma especificidade, com critérios distintos que casam o MESMO item. Aqui: a
+    nota traz CSOSN 102 e CST 60 (os dois campos), e as regras pedem um e outro, com naturezas
+    diferentes. Sem padrão silencioso: a nota vai para a fila, com as duas regras nomeadas.
+    """
     from apps.fiscal.tests.suporte_dl085 import nfce as nfce_por_data
 
-    antiga = cl.criar_regra(
-        escritorio=escritorio_a,
-        empresa=None,
-        dados=cl.DadosDaRegra(
-            tipo="saida_propria",
-            cfop=CFOP_SEM_SINAL,
-            natureza="revenda",
-            vigencia_inicio=date(ANO, 2, 1),
-        ),
-        usuario=gestor,
-    )
-    cl.desativar_regra(
-        antiga,
-        motivo="troca de natureza",
-        usuario=gestor,
-        agora=datetime(2026, 3, 20, 9, 0, tzinfo=FUSO),
-    )
-    nova = cl.criar_regra(
-        escritorio=escritorio_a,
-        empresa=None,
-        dados=cl.DadosDaRegra(
-            tipo="saida_propria",
-            cfop=CFOP_SEM_SINAL,
-            natureza="producao_propria",
-            vigencia_inicio=date(ANO, 3, 10),
-        ),
-        usuario=gestor,
-    )
     nfce_por_data(
         escritorio_a,
         gestor,
@@ -369,10 +343,37 @@ def test_conflito_real_entre_regras_do_mesmo_escopo_vai_para_a_fila_com_as_duas_
         dh_emi="2026-03-15T10:00:00-03:00",
     )
     _ler(empresa)
+    # O item passa a ter também CST 60. Nota em rascunho: o gatilho de item não recusa.
+    ItemNFe.objects.filter(cfop=CFOP_SEM_SINAL).update(cst="60")
+    revenda = cl.criar_regra(
+        escritorio=escritorio_a,
+        empresa=None,
+        dados=cl.DadosDaRegra(
+            tipo="saida_propria",
+            cfop=CFOP_SEM_SINAL,
+            natureza="revenda",
+            vigencia_inicio=date(ANO, 3, 1),
+            cst_csosn="102",
+        ),
+        usuario=gestor,
+    )
+    producao = cl.criar_regra(
+        escritorio=escritorio_a,
+        empresa=None,
+        dados=cl.DadosDaRegra(
+            tipo="saida_propria",
+            cfop=CFOP_SEM_SINAL,
+            natureza="producao_propria",
+            vigencia_inicio=date(ANO, 3, 1),
+            cst_csosn="60",
+        ),
+        usuario=gestor,
+    )
     fila = cl.fila_a_classificar(empresa, ANO, MES)
     (grupo,) = fila.grupos
     assert grupo.situacao == "conflito"
-    assert f"regra n.º {antiga.pk}" in grupo.motivo and f"regra n.º {nova.pk}" in grupo.motivo
+    assert f"regra n.º {revenda.pk}" in grupo.motivo
+    assert f"regra n.º {producao.pk}" in grupo.motivo
 
 
 def test_fila_conta_as_notas_sem_leitura_e_marca_o_mes_confirmado(escritorio_a, gestor, empresa):

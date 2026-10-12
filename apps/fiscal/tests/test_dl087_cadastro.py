@@ -227,10 +227,13 @@ def test_duplicata_de_regra_de_outra_empresa_nao_bloqueia(
 # ---------------------------------------------------------------------------
 
 
-def test_desativar_fixa_fim_em_ontem_grava_quem_quando_e_motivo_e_audita(escritorio_a, gestor):
+def test_desativar_revoga_pela_vespera_do_inicio_grava_quem_quando_e_motivo_e_audita(
+    escritorio_a, gestor
+):
     regra = criar(escritorio_a, gestor, vigencia_inicio=date(2026, 3, 1))
     desativada = cl.desativar_regra(regra, motivo="  regra errada  ", usuario=gestor, agora=AGORA)
-    assert desativada.vigencia_fim == date(2026, 3, 19)  # ontem em São Paulo
+    # A1: revogar grava o fim na véspera do início. Nenhuma data de emissão cai nessa vigência.
+    assert desativada.vigencia_fim == date(2026, 2, 28)
     assert desativada.desativada_por_id == gestor.pk
     assert desativada.desativada_em == AGORA
     assert desativada.motivo_desativacao == "regra errada"
@@ -238,12 +241,14 @@ def test_desativar_fixa_fim_em_ontem_grava_quem_quando_e_motivo_e_audita(escrito
     assert trilha("classificacao_nfe.regra_desativada").count() == 1
 
 
-def test_desativar_nunca_alarga_uma_vigencia_que_ja_terminava(escritorio_a, gestor):
+def test_revogar_regra_com_fim_posterior_grava_a_vespera_do_inicio(escritorio_a, gestor):
+    """A1: a revogação não depende do fim anterior. Com fim em 05/03, a revogação grava 28/02."""
     regra = criar(
         escritorio_a, gestor, vigencia_inicio=date(2026, 3, 1), vigencia_fim=date(2026, 3, 5)
     )
     desativada = cl.desativar_regra(regra, motivo="fim", usuario=gestor, agora=AGORA)
-    assert desativada.vigencia_fim == date(2026, 3, 5)
+    assert desativada.vigencia_fim == date(2026, 2, 28)
+    assert desativada.vigencia_fim < desativada.vigencia_inicio
 
 
 def test_regra_criada_e_desativada_no_mesmo_dia_tem_vigencia_vazia(escritorio_a, gestor):

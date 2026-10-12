@@ -16,7 +16,7 @@ from apps.fiscal import classificacao, views_web
 from apps.fiscal import escrituracao_nfe as servico_nfe
 from apps.fiscal import escrituracao_nfe_lote as lote
 from apps.fiscal.escrituracao_nfe_lote import AssinaturaDoItem
-from apps.fiscal.models import ParametrosPresumidoEmpresa
+from apps.fiscal.models import ItemNFe, ParametrosPresumidoEmpresa
 from apps.fiscal.tests.suporte_dl081 import usuario_com_papel, vinculo
 from apps.fiscal.tests.suporte_dl085 import nfce
 from apps.fiscal.tests.test_dl087_telas import dados, url_regras
@@ -109,16 +109,18 @@ def test_escrituracao_mostra_a_sugestao_do_produto_sem_link_de_regra(
 def test_escrituracao_mostra_o_conflito_com_os_links_das_duas_regras(
     client, gestor, empresa, escritorio_a
 ):
-    """Duas regras do mesmo escopo, critérios iguais e natureza diferente, valendo no mesmo dia.
-
-    A criação recusa duplicata SÓ entre regras ativas. Por isso a primeira é desativada (a vigência
-    dela termina ontem, e ainda cobre março) antes de criar a segunda.
+    """Duas regras ATIVAS do mesmo escopo e mesma especificidade, critérios distintos que casam o
+    mesmo item (CST/CSOSN 102 e CST 60), e naturezas diferentes. Depois da revogação (A1), uma regra
+    desativada não disputa mais a nota, então o conflito é este.
     """
-    primeira = _regra_do_escritorio(escritorio_a, gestor, natureza="revenda")
-    classificacao.desativar_regra(primeira, motivo="troca para testar conflito", usuario=gestor)
-    segunda = _regra_do_escritorio(escritorio_a, gestor, natureza="producao_propria")
+    primeira = _regra_do_escritorio(escritorio_a, gestor, natureza="revenda", cst_csosn="102")
+    segunda = _regra_do_escritorio(
+        escritorio_a, gestor, natureza="producao_propria", cst_csosn="60"
+    )
     documento = nfce(escritorio_a, gestor, numero=3, cfop="5949", csosn="102", ncm="22030000")
     _ler(empresa)
+    # O item também traz CST 60 (os dois campos): as duas regras casam. Rascunho, sem gatilho.
+    ItemNFe.objects.filter(documento=documento).update(cst="60")
     client.force_login(gestor)
 
     html = client.get(_url_escriturar(empresa, vinculo(documento, empresa))).content.decode("utf-8")

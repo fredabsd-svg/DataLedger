@@ -1540,6 +1540,11 @@ NOMES_DE_TELA_ESCRITURACAO_NFE = {
         "test_desativar_sem_motivo_responde_400_e_nada_muda, "
         "test_erro_do_motivo_da_desativacao_e_associado_ao_campo"
     ),
+    # DL-087, correção da rodada 1 (A8): "ver notas" de uma regra, na empresa da URL.
+    "fiscal_web:classificacao_regra_notas": (
+        "test_ver_notas_da_regra_lista_so_a_empresa_da_url, "
+        "test_ver_notas_de_regra_de_outra_empresa_responde_404"
+    ),
     "fiscal_web:classificacao_fila": (
         "test_fila_agrupa_e_oferece_criar_regra_pre_preenchida, "
         "test_fila_vazia_diz_que_nao_ha_nada_a_classificar_no_mes, "

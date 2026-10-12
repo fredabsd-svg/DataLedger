@@ -4245,15 +4245,15 @@ class RegraClassificacaoNFe(models.Model):
     CSOSN do ICMS (opcional, comparado como está na nota) e `idDest` (opcional). O resultado é uma
     natureza de `NaturezaOperacaoNFe` permitida para o tipo.
 
-    Vigência: `vigencia_inicio` obrigatória e `vigencia_fim` opcional, comparadas com a DATA DE
-    EMISSÃO da nota (dia no fuso de São Paulo). A vigência encerrada pela desativação é a última
-    data
-    em que a regra valia (`vigencia_fim`); `vigencia_fim` anterior ao início é vigência vazia, que
-    nenhuma nota casa. Por isso o banco não tem CHECK entre início e fim.
+    Vigência: `vigencia_inicio` obrigatória e `vigencia_fim` opcional, comparadas com a DATA
+    DE EMISSÃO da nota (dia no fuso de São Paulo). Desativar é REVOGAR (correção da rodada 1,
+    A1): o fim gravado é a véspera do início (`classificacao.vigencia_revogada`), vigência vazia
+    que nenhuma nota casa, pendente ou futura. Por isso o banco não tem CHECK entre início e fim.
 
-    Imutável depois de criada. Única exceção: a desativação, que fixa o fim da vigência e o motivo,
-    e grava quem e quando. Três camadas: `save()` recusa atualização; o serviço muda só os campos
-    da desativação; o gatilho do banco (migração 0019) recusa alterar critério ou apagar.
+    Imutável depois de criada. Única exceção: a revogação, que fixa o fim da vigência (na véspera
+    do início), o motivo, quem e quando. Três camadas: `save()` recusa atualização; o serviço muda
+    só os campos da desativação; o gatilho do banco (migração 0019) recusa alterar critério,
+    apagar, truncar com linha, e qualquer fim de vigência que não seja a revogação.
     """
 
     escritorio = models.ForeignKey(

@@ -25,6 +25,7 @@ from apps.fiscal.views_web import (
     classificacao_fila,
     classificacao_produto,
     classificacao_regra_desativar,
+    classificacao_regra_notas,
     classificacao_regra_nova,
     classificacao_regras,
     conferencia_escrituracao,
@@ -164,6 +165,11 @@ urlpatterns = [
         "nfe/classificacao/empresas/<int:empresa_id>/regras/<int:regra_id>/desativar/",
         classificacao_regra_desativar,
         name="classificacao_regra_desativar",
+    ),
+    path(
+        "nfe/classificacao/empresas/<int:empresa_id>/regras/<int:regra_id>/notas/",
+        classificacao_regra_notas,
+        name="classificacao_regra_notas",
     ),
     path(
         "nfe/classificacao/empresas/<int:empresa_id>/fila/",

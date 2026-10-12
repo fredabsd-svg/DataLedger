@@ -336,6 +336,10 @@ class PreviaDoLote:
     # Vínculos das notas SEM leitura atual: a prévia não as lê. Ficam fora dos grupos e da lista
     # "fora do lote", e entram na assinatura (a confirmação recusa se o conjunto mudou).
     a_ler: tuple[int, ...] = ()
+    # DL-087, A7: mês com confirmação "confirmada". O lote NÃO bloqueia: a efetivação reabre o mês e
+    # marca "a retificar" (DL-074). O aviso aparece na prévia, como na fila.
+    mes_confirmado: bool = False
+    aviso_do_mes: str = ""
     # Dados que a confirmação usa (documento, leitura e itens com objeto). Não entram na API.
     _candidatas: dict = field(default_factory=dict, repr=False, compare=False)
 
@@ -742,6 +746,7 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
             )
         )
     grupos.sort(key=lambda g: g.chave)
+    confirmado = classificacao.mes_confirmado_da_empresa(empresa, ano, mes)
     return PreviaDoLote(
         empresa_id=empresa.pk,
         ano=ano,
@@ -754,6 +759,8 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
         nao_elegiveis=nao_elegiveis,
         lote_em_andamento=aberto,
         a_ler=tuple(sorted(a_ler)),
+        mes_confirmado=confirmado,
+        aviso_do_mes=classificacao.MENSAGEM_MES_CONFIRMADO if confirmado else "",
         _candidatas=candidatas,
     )
 
@@ -888,8 +895,15 @@ def _normalizar_escolhas(escolhas: dict | None) -> dict[str, dict[str, str]]:
     normalizadas: dict[str, dict[str, str]] = {}
     for chave_grupo, trocas in (escolhas or {}).items():
         for id_da_assinatura, natureza in trocas.items():
-            # A natureza sugerida é o terceiro campo do id (a fonte, se houver, vem depois).
-            if natureza != id_da_assinatura.split("|")[2]:
+            # A natureza sugerida é o terceiro campo do id (a fonte, se houver, vem depois). Id sem
+            # os três campos vem do cliente: 400 nomeado, nunca IndexError (A4, DL-087 rodada 1).
+            partes = str(id_da_assinatura).split("|")
+            if len(partes) < 3:
+                raise servico.EntradaInvalidaNFe(
+                    "Identificador de assinatura inválido: confira a prévia do lote. Nada foi "
+                    "efetivado."
+                )
+            if natureza != partes[2]:
                 normalizadas.setdefault(chave_grupo, {})[id_da_assinatura] = natureza
     return normalizadas
 

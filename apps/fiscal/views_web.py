@@ -60,7 +60,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal, localcontext
 from functools import wraps
 from urllib.parse import urlencode
@@ -151,6 +151,7 @@ from apps.fiscal.models import (
     NaturezaTomada,
     OpcaoRegimeCaixaSimples,
     OpcaoRegimeIbsCbsSimples,
+    OrigemNaturezaItemNFe,
     OrigemReceitaInformada,
     PapelDocumento,
     PapelNFe,
@@ -8872,6 +8873,7 @@ def _linha_do_item_nfe(
     padrao_combustivel="",
     contexto=None,
     empresa=None,
+    origem=None,
 ):
     """Uma linha de item. CFOP (texto da tabela oficial), CST/CSOSN, NCM, valor, receita, natureza
     gravada e sugestão com o motivo que o serviço deu. Sem sugestão, a tela diz "escolha".
@@ -8932,6 +8934,8 @@ def _linha_do_item_nfe(
         "sugestao_motivo": sugestao.motivo,
         # DL-087 (frente B): de onde veio a sugestão, com o link para a regra quando for regra.
         **_origem_da_sugestao_na_tela(sugestao, empresa),
+        # DL-087, A8: a origem GRAVADA da natureza confirmada (vazia sem natureza confirmada).
+        "origem_gravada": _origem_gravada_na_tela(origem, empresa) if natureza else None,
         "opcoes": _opcoes_de_natureza(tipo),
         "selecionada": natureza or sugestao.natureza or "",
         # DL-082: marca de monofásico e segmento da devolução (leitura fora do rascunho).
@@ -9086,6 +9090,7 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
         # DL-084, item 6 e DL-087: regras e padrão de combustível entram na sugestão de natureza.
         # Carregados UMA vez por requisição, para não repetir a consulta em cada item.
         contexto = classificacao.contexto_da_empresa(empresa)
+        origens = _origens_da_escrituracao(escrituracao)
         linhas = [
             _linha_do_item_nfe(
                 item,
@@ -9097,6 +9102,7 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
                 registro=registros.get(item.pk),
                 contexto=contexto,
                 empresa=empresa,
+                origem=origens.get(item.pk),
             )
             for item, natureza in pares
         ]
@@ -9923,6 +9929,8 @@ def _tela_do_lote_nfe(request, empresa, ano, mes, *, status=200, preenchido=None
         "assinatura": previa.assinatura,
         # DL-087 (frente B): a fila "a classificar" do mês, e a origem de cada sugestão do lote.
         "url_fila": _url_da_fila_de_classificacao(empresa, ano, mes),
+        # DL-087, A7: mês confirmado não bloqueia o lote, mas o aviso aparece aqui.
+        "aviso_do_mes": previa.aviso_do_mes,
         "grupos": [
             _linha_do_grupo_no_lote(
                 grupo,
@@ -10928,8 +10936,14 @@ def _criterios_da_regra_na_tela(regra):
     return "; ".join(partes)
 
 
-def _vigencia_da_regra_na_tela(inicio, fim):
-    """Vigência da regra em texto. Nome próprio: `_vigencia_na_tela` já existe, na tela de ISS."""
+def _vigencia_da_regra_na_tela(inicio, fim, ativa=True):
+    """Vigência da regra em texto. Nome próprio: `_vigencia_na_tela` já existe, na tela de ISS.
+
+    Regra desativada é REVOGADA (DL-087, A1): nenhuma nota a recebe, pendente ou futura. O fim
+    gravado é técnico (a véspera do início) e não aparece como data de vigência.
+    """
+    if not ativa:
+        return "revogada: nenhuma nota a recebe, pendente ou futura"
     if fim is None:
         return f"a partir de {inicio:%d/%m/%Y}, sem fim"
     if fim < inicio:
@@ -10946,7 +10960,8 @@ def _linha_da_regra(regra, empresa, *, pode_desativar, total_confirmados=None):
     desativacao = ""
     if not regra.ativa:
         desativacao = (
-            f"em {timezone.localtime(regra.desativada_em):%d/%m/%Y}: {regra.motivo_desativacao}"
+            f"revogada em {timezone.localtime(regra.desativada_em):%d/%m/%Y}: "
+            f"{regra.motivo_desativacao}"
         )
     return {
         "id": regra.pk,
@@ -10959,13 +10974,16 @@ def _linha_da_regra(regra, empresa, *, pode_desativar, total_confirmados=None):
         "tipo_rotulo": TipoRegraClassificacaoNFe(regra.tipo).label,
         "criterios": _criterios_da_regra_na_tela(regra),
         "natureza_rotulo": NaturezaOperacaoNFe(regra.natureza).label,
-        "vigencia": _vigencia_da_regra_na_tela(regra.vigencia_inicio, regra.vigencia_fim),
+        "vigencia": _vigencia_da_regra_na_tela(
+            regra.vigencia_inicio, regra.vigencia_fim, regra.ativa
+        ),
         "ativa": regra.ativa,
         "situacao_rotulo": "Ativa" if regra.ativa else "Desativada",
         "desativacao": desativacao,
         "autor": regra.criada_por.get_username(),
         "criada_em": timezone.localtime(regra.criada_em).strftime("%d/%m/%Y %H:%M"),
         "itens_confirmados": total_confirmados,
+        "url_notas": reverse("fiscal_web:classificacao_regra_notas", args=[empresa.pk, regra.pk]),
         "url_desativar": (
             reverse("fiscal_web:classificacao_regra_desativar", args=[empresa.pk, regra.pk])
             if regra.ativa and pode_desativar
@@ -11093,27 +11111,35 @@ def _dados_da_regra_do_formulario(valores, vigencia_inicio, vigencia_fim):
 
 def _previas_da_regra(empresa, ano, mes, dados, escopo):
     """A prévia com todos os critérios e uma por critério opcional preenchido (sem o NCM, sem o
-    CST/CSOSN, sem o idDest). Cada uma é a prévia do serviço, que não grava. Quando o serviço recusa
-    a variante (p. ex., combustível sem NCM), a recusa vai junto, com a mensagem dele."""
-    completa = classificacao.previa_de_impacto(empresa, ano, mes, dados, escopo)
-    variantes = []
+    CST/CSOSN, sem o idDest). Uma PASSADA só no serviço (DL-087, A6): as notas são lidas uma vez e
+    cada variante sai das mesmas contagens. Variante que o serviço recusa (p. ex., combustível sem
+    NCM) não entra na passada e vai com a recusa dele. Nada é gravado."""
     retiradas = (
         ("Sem o NCM", bool(dados.ncm), {"ncm": "", "ncm_modo": ""}),
         ("Sem o CST ou CSOSN", bool(dados.cst_csosn), {"cst_csosn": ""}),
         ("Sem o idDest", bool(dados.id_dest), {"id_dest": ""}),
     )
+    validas = [dados]
+    ordem = []  # (rótulo, posição em `validas` ou None, recusa)
     for rotulo, presente, troca in retiradas:
         if not presente:
             continue
         try:
-            previa = classificacao.previa_de_impacto(
-                empresa, ano, mes, replace(dados, **troca), escopo
-            )
+            validas.append(classificacao.validar_dados_da_regra(replace(dados, **troca)))
         except servico_nfe.EntradaInvalidaNFe as exc:
-            variantes.append({"rotulo": rotulo, "previa": None, "recusa": exc.mensagem})
+            ordem.append((rotulo, None, exc.mensagem))
         else:
-            variantes.append({"rotulo": rotulo, "previa": previa, "recusa": ""})
-    return completa, variantes
+            ordem.append((rotulo, len(validas) - 1, ""))
+    previas = classificacao.previas_de_impacto(empresa, ano, mes, validas, escopo)
+    variantes = [
+        {
+            "rotulo": rotulo,
+            "previa": None if posicao is None else previas[posicao],
+            "recusa": recusa,
+        }
+        for rotulo, posicao, recusa in ordem
+    ]
+    return previas[0], variantes
 
 
 def _escopos_da_tela(empresa, pode_escritorio, marcado):
@@ -11290,6 +11316,14 @@ def _regra_nova_post(request, empresa):
         except servico_nfe.EntradaInvalidaNFe as exc:
             erros[_campo_da_recusa(exc.mensagem)] = exc.mensagem
             return _tela_da_regra_nova(request, empresa, valores=valores, erros=erros, status=400)
+        except servico_nfe.EscrituracaoNFeErro as exc:
+            # A2: regra igual à existente é 409 com a mensagem, e não 500.
+            erros["geral"] = exc.mensagem
+            return _tela_da_regra_nova(request, empresa, valores=valores, erros=erros, status=409)
+        # A7: o mês confirmado aparece na prévia, sem bloquear.
+        avisos = (
+            (*completa.avisos, completa.aviso_do_mes) if completa.aviso_do_mes else completa.avisos
+        )
         return _tela_da_regra_nova(
             request,
             empresa,
@@ -11298,7 +11332,7 @@ def _regra_nova_post(request, empresa):
             status=200,
             previa=completa,
             variantes=variantes,
-            avisos=completa.avisos,
+            avisos=avisos,
         )
     return _criar_regra_na_tela(request, empresa, dados, escopo, valores, erros)
 
@@ -11342,12 +11376,14 @@ def classificacao_regras(request, empresa_id):
     regras = (
         classificacao.regras_da_empresa(empresa, escopo=escopo or None, situacao=situacao or None)
         .select_related("criada_por")
-        .annotate(total_confirmados=Count("itens_confirmados"))
+        .annotate(total_confirmados=classificacao.contagem_de_confirmados(empresa))
     )
     pode_empresa = _pode_gerir_regra(request, classificacao.ESCOPO_EMPRESA)
     pode_escritorio = _pode_gerir_regra(request, classificacao.ESCOPO_ESCRITORIO)
+    # A13: a lista pagina, como a fila. A contagem de confirmados é só da empresa (A3).
+    pagina = Paginator(regras, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
     linhas = []
-    for regra in regras:
+    for regra in pagina.object_list:
         escopo_da_regra = (
             classificacao.ESCOPO_EMPRESA if regra.empresa_id else classificacao.ESCOPO_ESCRITORIO
         )
@@ -11356,6 +11392,9 @@ def classificacao_regras(request, empresa_id):
     contexto = {
         "empresa": empresa,
         "linhas": linhas,
+        "pagina": pagina,
+        "total_regras": pagina.paginator.count,
+        "querystring_sem_pagina": _querystring_sem_pagina(request),
         "escopo_filtro": escopo,
         "situacao_filtro": situacao,
         "pode_criar": pode_empresa or pode_escritorio,
@@ -11376,22 +11415,21 @@ def classificacao_regras(request, empresa_id):
 
 
 def _tela_de_desativar_regra(request, empresa, regra, *, motivo, erro="", status=200):
-    """Confirmação da desativação: diz o que muda e o que não muda, e pede o motivo."""
-    hoje = timezone.now().astimezone(servico_nfe.FUSO_SP).date()
-    ontem = hoje - timedelta(days=1)
-    if regra.vigencia_fim is not None and regra.vigencia_fim <= ontem:
-        efeito = (
-            f"Esta regra já terminou em {regra.vigencia_fim:%d/%m/%Y}. Desativar não muda a "
-            "vigência: registra só o motivo e quem desativou."
-        )
-    else:
-        efeito = (
-            f"A vigência termina em {ontem:%d/%m/%Y}. As notas emitidas a partir de hoje "
-            f"({hoje:%d/%m/%Y}) deixam de receber esta regra. As notas emitidas até ontem "
-            "continuam com ela, como o histórico pede."
-        )
-    linha = _linha_da_regra(regra, empresa, pode_desativar=False)
-    linha["itens_confirmados"] = regra.itens_confirmados.count()
+    """Confirmação da REVOGAÇÃO: diz o efeito (vale para pendentes e futuras), o que não muda, e
+    pede o motivo. A regra não casa com nenhuma nota a partir de agora (DL-087, A1)."""
+    efeito = (
+        "A regra deixa de valer para TODAS as notas: as pendentes de escriturar e as que ainda "
+        "vierem. A sugestão dessas notas passa a ser a das outras regras que valem, ou, sem elas, "
+        "a do produto e a do padrão da empresa. A prévia do lote muda. As notas já efetivadas não "
+        "mudam e guardam a origem que tiveram, marcada como desativada. Para outra regra, crie uma "
+        "nova."
+    )
+    linha = _linha_da_regra(
+        regra,
+        empresa,
+        pode_desativar=False,
+        total_confirmados=classificacao.confirmados_da_regra(empresa, regra).count(),
+    )
     contexto = {
         "empresa": empresa,
         "regra": linha,
@@ -11456,10 +11494,111 @@ def classificacao_regra_desativar(request, empresa_id, regra_id):
         )
     messages.success(
         request,
-        f"Regra n.º {desativada.pk} desativada. Ela deixa de valer para as notas emitidas a "
-        "partir de hoje; o histórico fica na trilha.",
+        f"Regra n.º {desativada.pk} desativada (revogada). Ela não casa com nenhuma nota, "
+        "pendente ou futura. As notas já efetivadas guardam a origem que tiveram; o histórico fica "
+        "na trilha.",
     )
     return redirect(_url_das_regras_da_empresa(empresa) + f"#regra-{desativada.pk}")
+
+
+# DL-087, A8: rótulo da origem GRAVADA (a que a confirmação registrou, não a sugestão de hoje).
+_ROTULO_DA_ORIGEM_NA_TELA = {
+    classificacao.ORIGEM_NATUREZA_REGRA: "regra de classificação",
+    classificacao.ORIGEM_NATUREZA_PRODUTO: "sugestão do produto",
+    classificacao.ORIGEM_NATUREZA_PADRAO_EMPRESA: "padrão de combustível da empresa",
+    classificacao.ORIGEM_NATUREZA_MANUAL: "escolha do contador",
+}
+
+
+def _origem_gravada_na_tela(origem, empresa):
+    """De onde veio a natureza CONFIRMADA, como a confirmação gravou (A8). Regra revogada aparece
+    como desativada, com a data. Sem linha: natureza confirmada antes da DL-087. A tela da nota
+    efetivada usa isto, e não a sugestão de hoje, que pode ser de regra que nem existia na época."""
+    if origem is None:
+        return {"texto": "não registrada (confirmada antes da DL-087)", "url": ""}
+    rotulo = _ROTULO_DA_ORIGEM_NA_TELA[origem.origem]
+    if origem.origem != classificacao.ORIGEM_NATUREZA_REGRA:
+        return {"texto": rotulo, "url": ""}
+    regra = origem.regra_classificacao
+    texto = _rotulo_da_regra_na_tela(regra.pk, _escopo_da_regra_na_tela(regra))
+    if not regra.ativa:
+        texto += f", desativada (revogada) em {timezone.localtime(regra.desativada_em):%d/%m/%Y}"
+    return {
+        "texto": texto,
+        "url": f"{_url_das_regras_da_empresa(empresa)}#regra-{regra.pk}",
+    }
+
+
+def _escopo_da_regra_na_tela(regra):
+    return classificacao.ESCOPO_EMPRESA if regra.empresa_id else classificacao.ESCOPO_ESCRITORIO
+
+
+def _origens_da_escrituracao(escrituracao):
+    """{item_id: origem gravada}. Uma consulta, com a regra junto. Sem escrituração, vazio."""
+    if escrituracao is None:
+        return {}
+    return {
+        origem.natureza_item.item_id: origem
+        for origem in OrigemNaturezaItemNFe.objects.select_related(
+            "natureza_item", "regra_classificacao"
+        ).filter(natureza_item__escrituracao=escrituracao)
+    }
+
+
+def _linha_do_confirmado(origem, empresa):
+    """Uma nota e um item confirmados a partir da regra (A8). Só o que a lista mostra."""
+    natureza_item = origem.natureza_item
+    item = natureza_item.item
+    documento = item.documento
+    escrituracao = natureza_item.escrituracao
+    return {
+        "numero": documento.numero,
+        "serie": documento.serie,
+        "chave_em_grupos": _chave_em_grupos(documento.chave),
+        "emissao": timezone.localtime(documento.dh_emissao).strftime("%d/%m/%Y"),
+        "item": item.n_item,
+        "cfop": item.cfop,
+        "natureza_rotulo": (
+            NaturezaOperacaoNFe(natureza_item.natureza).label if natureza_item.natureza else "—"
+        ),
+        "estado_rotulo": EstadoEscrituracao(escrituracao.estado).label,
+        "origem_rotulo": _ROTULO_DA_ORIGEM_NA_TELA[origem.origem],
+        "url_escriturar": reverse(
+            "fiscal_web:nfe_escriturar", args=[empresa.pk, escrituracao.vinculo_id]
+        ),
+    }
+
+
+@login_required
+@require_safe
+@_entrada_nfe_verificada
+def classificacao_regra_notas(request, empresa_id, regra_id):
+    """Notas e itens CONFIRMADOS a partir desta regra, na empresa da URL (DL-087, A8). Só leitura.
+
+    A regra tem de valer para a empresa (404 para regra de outra). A contagem e a lista são da
+    empresa da URL (A3). Paginado, como a fila.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_CLASSIFICACAO)
+    empresa = _empresa_nfe_da_rota(request, empresa_id)
+    regra = _regra_da_empresa_na_tela(request, empresa, regra_id)
+    confirmados = classificacao.confirmados_da_regra(empresa, regra)
+    pagina = Paginator(confirmados, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
+    contexto = {
+        "empresa": empresa,
+        "regra": _linha_da_regra(
+            regra, empresa, pode_desativar=False, total_confirmados=pagina.paginator.count
+        ),
+        "linhas": [_linha_do_confirmado(origem, empresa) for origem in pagina.object_list],
+        "pagina": pagina,
+        "total": pagina.paginator.count,
+        "querystring_sem_pagina": _querystring_sem_pagina(request),
+        "url_regras": _url_das_regras_da_empresa(empresa),
+        "url_lista_de_regras": _url_das_regras_da_empresa(empresa),
+    }
+    return render(request, "fiscal/classificacao_regra_notas.html", contexto)
 
 
 def _url_de_criar_regra_pela_fila(grupo, empresa, ano, mes, escopo):

@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block titulo %}Notas da regra n.º {{ regra.id }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_regras }}">Regras de classificação</a></li>
+            <li aria-current="page">Notas da regra</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_regras }}">‹ Voltar para as regras</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-087 (correção da rodada 1, A8), arquétipo A (tabela de consulta): as notas e os itens CONFIRMADOS
+a partir desta regra, nesta empresa, com a natureza confirmada e o estado da escrituração. Só leitura.
+A origem é a GRAVADA na confirmação; a sugestão de hoje não entra aqui.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Notas da regra n.º {{ regra.id }}</h1>{% endblock %}
+
+{% block content %}
+    <dl class="lista-de-definicao">
+        <div>
+            <dt>Alcance</dt>
+            <dd>{{ regra.escopo_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Critérios</dt>
+            <dd>{{ regra.criterios }}</dd>
+        </div>
+        <div>
+            <dt>Natureza resultante</dt>
+            <dd>{{ regra.natureza_rotulo }}</dd>
+        </div>
+        <div>
+            <dt>Situação</dt>
+            <dd>
+                {{ regra.situacao_rotulo }}{% if regra.desativacao %}: {{ regra.desativacao }}{% endif %}
+            </dd>
+        </div>
+    </dl>
+
+    <p class="texto-apoio">
+        <strong>{{ total }}</strong> item(ns) confirmado(s) a partir desta regra, nesta empresa, em notas de
+        saída ou devolução. Rascunho e efetivada aparecem aqui, com o estado de cada escrituração.
+    </p>
+
+    {% if total %}
+        <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0" aria-label="Notas e itens confirmados a partir da regra, com emissão, item, CFOP, natureza, estado e origem">
+            <table class="tabela-dados">
+                <caption>Notas e itens confirmados a partir da regra n.º {{ regra.id }}: nota, emissão, item, CFOP, natureza confirmada, estado da escrituração e origem gravada</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Nota</th>
+                        <th scope="col">Emissão</th>
+                        <th scope="col">Item</th>
+                        <th scope="col">CFOP</th>
+                        <th scope="col">Natureza confirmada</th>
+                        <th scope="col">Escrituração</th>
+                        <th scope="col">Origem gravada</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in linhas %}
+                        <tr>
+                            <td>
+                                nº {{ linha.numero }}, série {{ linha.serie }}
+                                <br><span class="texto-apoio">{{ linha.chave_em_grupos }}</span>
+                            </td>
+                            <td>{{ linha.emissao }}</td>
+                            <td class="valor-monetario">{{ linha.item }}</td>
+                            <td class="valor-monetario">{{ linha.cfop }}</td>
+                            <td>{{ linha.natureza_rotulo }}</td>
+                            <td>
+                                {{ linha.estado_rotulo }}
+                                <br><a href="{{ linha.url_escriturar }}">Abrir a escrituração da nota</a>
+                            </td>
+                            <td>{{ linha.origem_rotulo }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include "fiscal/_paginacao.html" %}
+    {% else %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Nenhuma nota confirmada a partir desta regra, nesta empresa.</strong></p>
+            <p class="estado-vazio__descricao">
+                A regra pode não ter alcançado nota ainda, ou a sugestão pode ter sido trocada pelo contador antes da confirmação.
+            </p>
+        </div>
+    {% endif %}
+
+    <p class="texto-apoio">
+        <a href="{{ url_regras }}">Voltar para as regras de classificação</a>
+    </p>
+{% endblock %}

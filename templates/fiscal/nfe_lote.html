@@ -42,6 +42,10 @@ conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do
             <a href="{{ url_fila }}">Ver as notas a classificar do mês (sem sugestão ou em conflito)</a>
         </p>
     {% endif %}
+    {% if aviso_do_mes %}
+        {% comment %}DL-087, A7: o mês já confirmado não bloqueia o lote; o aviso vem da prévia.{% endcomment %}
+        <p id="id_aviso_do_mes" class="mensagem mensagem-warning" role="status"><strong>Aviso:</strong> {{ aviso_do_mes }}</p>
+    {% endif %}
     {% if not pode_escriturar %}
         <p id="id_motivo_sem_escrita" class="texto-apoio">Seu papel só consulta: ler e confirmar o lote é de quem escritura.</p>
     {% endif %}

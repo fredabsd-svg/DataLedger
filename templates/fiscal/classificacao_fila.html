@@ -119,7 +119,7 @@ regra" já pré-preenchida. A fila é do serviço; a tela só agrupa a leitura p
                             <td class="valor-monetario">{{ linha.valor_ptbr }}</td>
                             <td>
                                 {% if linha.url_criar %}
-                                    <a class="botao botao--primario botao--pequeno" href="{{ linha.url_criar }}">Criar regra<span class="visualmente-oculto"> para o grupo {{ linha.posicao }}</span></a>
+                                    <a class="botao botao--secundario botao--pequeno" href="{{ linha.url_criar }}">Criar regra<span class="visualmente-oculto"> para o grupo {{ linha.posicao }}</span></a>
                                 {% else %}
                                     <span class="texto-apoio">{{ linha.motivo_sem_criar }}</span>
                                 {% endif %}

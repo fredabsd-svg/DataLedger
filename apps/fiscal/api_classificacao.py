@@ -14,10 +14,14 @@ Isolamento: a empresa vem do escritório ativo (404 para outro escritório). Cad
 escritório ativo E na empresa da URL, ou regra do escritório: 404 para regra de outra empresa.
 
 Entrada estranha responde 400 (contrato, texto, faixa de data), nunca 500. Conflito de duplicidade e
-regra já desativada respondem 409.
+regra já desativada respondem 409, e a prévia de impacto responde 409 para a regra duplicada (A2).
+
+Desativar é REVOGAR (A1): a resposta traz `vigencia_fim` gravada, que é a véspera do início, e
+`ativa: false`. Não há outra forma de desativar. Os itens confirmados são contados só da empresa da
+URL (A3). `GET .../regras/<id>/notas/` lista as notas e os itens confirmados a partir da regra (A8).
 """
 
-from django.db.models import Count, Q
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers, status
 from rest_framework.exceptions import PermissionDenied
@@ -106,6 +110,8 @@ _SITUACOES = ("ativa", "desativada")
 _TAMANHO_NCM = 10
 _TAMANHO_CFOP = 5
 _TAMANHO_CST = 3
+_TAMANHO_PADRAO_DA_PAGINA = 50
+_TAMANHO_MAXIMO_DA_PAGINA = 100
 
 
 def _papel_do_request(request):
@@ -256,7 +262,7 @@ class RegrasDaEmpresaView(_EmpresaComIdValido, APIView):
             raise DRFValidationError("'situacao' deve ser ativa ou desativada.")
         regras = classificacao.regras_da_empresa(
             empresa, escopo=escopo, situacao=situacao
-        ).annotate(total_confirmados=Count("itens_confirmados"))
+        ).annotate(total_confirmados=classificacao.contagem_de_confirmados(empresa))
         return Response(
             {
                 "regras": [_regra_payload(regra) for regra in regras],
@@ -302,8 +308,72 @@ class RegrasDaEmpresaView(_EmpresaComIdValido, APIView):
         )
 
 
+def _paginacao(request) -> tuple[int, int]:
+    """(página, tamanho) da consulta. Fora da faixa ou não inteiro: 400, nunca 500."""
+    try:
+        pagina = int(request.query_params.get("pagina") or 1)
+        tamanho = int(request.query_params.get("tamanho") or _TAMANHO_PADRAO_DA_PAGINA)
+    except ValueError as exc:
+        raise DRFValidationError("'pagina' e 'tamanho' devem ser números inteiros.") from exc
+    if pagina < 1 or not 1 <= tamanho <= _TAMANHO_MAXIMO_DA_PAGINA:
+        raise DRFValidationError(
+            f"'pagina' deve ser 1 ou mais, e 'tamanho' de 1 a {_TAMANHO_MAXIMO_DA_PAGINA}."
+        )
+    return pagina, tamanho
+
+
+def _nota_da_regra_payload(origem) -> dict:
+    """Uma nota e um item confirmado a partir da regra. A chave é a da própria nota da empresa."""
+    natureza_item = origem.natureza_item
+    item = natureza_item.item
+    documento = item.documento
+    escrituracao = natureza_item.escrituracao
+    return {
+        "escrituracao_id": escrituracao.pk,
+        "estado": escrituracao.estado,
+        "numero": documento.numero,
+        "serie": documento.serie,
+        "chave": documento.chave,
+        "dh_emissao": documento.dh_emissao.isoformat(),
+        "item": item.n_item,
+        "cfop": item.cfop,
+        "ncm": item.ncm,
+        "natureza": natureza_item.natureza or None,
+        "origem": origem.origem,
+        "gravada_em": origem.gravada_em.isoformat(),
+    }
+
+
+class RegraNotasView(_EmpresaComIdValido, APIView):
+    """GET — notas e itens CONFIRMADOS a partir desta regra, na empresa da URL (DL-087, A8).
+
+    Paginado (`pagina`, `tamanho`). A regra tem de valer para a empresa (404 para regra de outra).
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
+
+    def get(self, request, empresa_id, regra_id):
+        empresa = self.get_empresa()
+        regra = _regra_da_empresa_ou_404(request, empresa, regra_id)
+        pagina, tamanho = _paginacao(request)
+        consulta = classificacao.confirmados_da_regra(empresa, regra)
+        total = consulta.count()
+        inicio = (pagina - 1) * tamanho
+        return Response(
+            {
+                "regra": regra.pk,
+                "total": total,
+                "pagina": pagina,
+                "tamanho": tamanho,
+                "notas": [
+                    _nota_da_regra_payload(origem) for origem in consulta[inicio : inicio + tamanho]
+                ],
+            }
+        )
+
+
 class RegraDesativarView(_EmpresaComIdValido, APIView):
-    """POST — desativa a regra: fixa o fim da vigência (ontem) e grava quem, quando e o motivo."""
+    """POST — REVOGA a regra (A1): fim da vigência na véspera do início; grava quem e quando."""
 
     permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
 
@@ -354,6 +424,10 @@ class PrevisaoDeImpactoView(_EmpresaComIdValido, APIView):
             )
         except servico.EntradaInvalidaNFe as exc:
             raise DRFValidationError(exc.mensagem) from exc
+        except servico.EscrituracaoNFeErro as exc:
+            # A2: regra igual à existente (mesmo escopo, critérios e vigência que se cruza) é 409,
+            # com a mensagem que nomeia a regra. Antes, a prévia dava 500.
+            return _resposta_de_conflito(exc)
         return Response(
             {
                 "ano": previa.ano,
@@ -366,6 +440,9 @@ class PrevisaoDeImpactoView(_EmpresaComIdValido, APIView):
                 "grupos_afetados": previa.grupos_afetados,
                 "notas_afetadas": previa.notas_afetadas,
                 "avisos": list(previa.avisos),
+                # A7: o mês confirmado não bloqueia; a prévia avisa.
+                "mes_confirmado": previa.mes_confirmado,
+                "aviso_do_mes": previa.aviso_do_mes or None,
             }
         )
 

@@ -486,7 +486,10 @@ def test_desativar_mostra_o_efeito_e_pede_o_motivo(client, gestor, empresa, escr
     html = client.get(url_desativar(empresa, regra)).content.decode("utf-8")
 
     assert "O que vai acontecer" in html
-    assert "As notas emitidas até ontem continuam com ela" in html
+    # A1: desativar é revogar. O texto diz que a regra vale para TODAS as notas, e que as efetivadas
+    # guardam a origem.
+    assert "deixa de valer para TODAS as notas" in html
+    assert "guardam a origem que tiveram" in html
     assert "Motivo da desativação (obrigatório)" in html
 
 
@@ -502,9 +505,7 @@ def test_desativar_sem_motivo_responde_400_e_nada_muda(client, gestor, empresa, 
     assert regra.ativa
 
 
-def test_desativar_com_motivo_fixa_o_fim_em_ontem_e_grava_quem_e_o_motivo(
-    client, gestor, empresa, escritorio_a
-):
+def test_desativar_com_motivo_revoga_e_grava_quem_e_o_motivo(client, gestor, empresa, escritorio_a):
     regra = regra_do_escritorio(escritorio_a, gestor)
     client.force_login(gestor)
 
@@ -513,7 +514,8 @@ def test_desativar_com_motivo_fixa_o_fim_em_ontem_e_grava_quem_e_o_motivo(
     assert resposta.status_code == 302
     regra.refresh_from_db()
     assert not regra.ativa
-    assert regra.vigencia_fim == ontem_sp()
+    # A1: a revogação grava o fim na véspera do início, e nenhuma nota cai nessa vigência.
+    assert regra.vigencia_fim == regra.vigencia_inicio - timedelta(days=1)
     assert regra.motivo_desativacao == "Regra errada"
     assert regra.desativada_por_id == gestor.pk
 
@@ -542,7 +544,7 @@ def test_lista_filtra_desativadas_depois_de_desativar(client, gestor, empresa, e
 
     assert "CFOP 5949" not in ativas
     assert "CFOP 5949" in desativadas
-    assert "Desativada em" in desativadas
+    assert "revogada em" in desativadas
 
 
 # ---------------------------------------------------------------------------
@@ -590,7 +592,7 @@ def test_fila_mostra_o_aviso_quando_o_mes_esta_confirmado(
     """A confirmação do mês vem do serviço. Aqui se prova só que a tela mostra o aviso dela
     (o serviço é trocado por um valor fixo, em teste isolado de apresentação)."""
     notas_sem_sugestao(escritorio_a, gestor, empresa)
-    monkeypatch.setattr(classificacao, "_mes_confirmado", lambda *_: True)
+    monkeypatch.setattr(classificacao, "mes_confirmado_da_empresa", lambda *_: True)
     client.force_login(gestor)
 
     html = client.get(url_fila(empresa)).content.decode("utf-8")

@@ -53,6 +53,7 @@ from apps.fiscal.api_classificacao import (
     FilaAClassificarView,
     PrevisaoDeImpactoView,
     RegraDesativarView,
+    RegraNotasView,
     RegrasDaEmpresaView,
     RegrasDoProdutoView,
 )
@@ -164,6 +165,11 @@ urlpatterns = [
         "empresas/<int:empresa_id>/nfe/classificacao/regras/<int:regra_id>/desativar/",
         RegraDesativarView.as_view(),
         name="nfe_classificacao_regra_desativar",
+    ),
+    path(
+        "empresas/<int:empresa_id>/nfe/classificacao/regras/<int:regra_id>/notas/",
+        RegraNotasView.as_view(),
+        name="nfe_classificacao_regra_notas",
     ),
     path(
         "empresas/<int:empresa_id>/nfe/classificacao/fila/",

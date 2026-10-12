@@ -66,6 +66,8 @@ def regra(
         ncm_modo=ncm_modo,
         cst_csosn=cst_csosn,
         id_dest=id_dest,
+        # Regra fake não revogada: o modelo tem este campo, e a resolução o lê (A1).
+        desativada_em=None,
         natureza=natureza,
         vigencia_inicio=inicio,
         vigencia_fim=fim,

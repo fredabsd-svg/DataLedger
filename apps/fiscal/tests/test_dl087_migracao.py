@@ -43,13 +43,16 @@ def test_guarda_da_0019_passa_sem_regra_e_recusa_com_regra(escritorio_a):
     assert RegraClassificacaoNFe.objects.count() == 1
 
 
-def test_guarda_da_0020_passa_sem_regra_e_recusa_com_regra(escritorio_a):
-    """A 0020 descarta a origem na reversão e só recusa com REGRA (guarda da 0019, rodada antes)."""
-    M20._guarda_da_0019(registro_de_apps, None)
+def test_guarda_da_0020_passa_sem_origem_gravada(escritorio_a):
+    """Sem origem gravada, a guarda da reversão passa (A9). Com origem, recusa: ver o teste de
+    `test_dl087_correcao_rodada1.py`, que grava a origem por uma confirmação real."""
+    M20._recusar_reversao_com_origens(registro_de_apps, None)
     assert OrigemNaturezaItemNFe.objects.count() == 0
 
 
 def test_a_guarda_e_a_ultima_operacao_de_cada_migracao():
-    """Reversão roda as operações de trás para frente: a guarda, por ser a última, roda PRIMEIRO."""
+    """Reversão roda as operações de trás para frente: as guardas, por serem as últimas, rodam
+    PRIMEIRO. Na 0020 a da origem (A9) é a última, e a da regra (0019) vem logo antes."""
     assert M19.Migration.operations[-1].reverse_code is M19._recusar_reversao_com_regras
-    assert M20.Migration.operations[-1].reverse_code is M19._recusar_reversao_com_regras
+    assert M20.Migration.operations[-1].reverse_code is M20._recusar_reversao_com_origens
+    assert M20.Migration.operations[-2].reverse_code is M19._recusar_reversao_com_regras
