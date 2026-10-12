@@ -193,8 +193,8 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
   (migrações `fiscal 0019` e `0020`; telas de regras, fila, regras do produto
   e origem da sugestão).
   [Rodada 1](../auditorias/2026-10-12-dl-087-rodada-1.md) **reprovada** (A1
-  alta: desativar não desfazia a regra nas notas pendentes); correção única em
-  andamento, com as decisões no plano e na DE-108. Outra sessão não deve mexer nos mesmos arquivos ao mesmo
+  alta: desativar não desfazia a regra nas notas pendentes); correção única
+  integrada (desativar passa a revogar; DE-108). Reconferência em andamento. Outra sessão não deve mexer nos mesmos arquivos ao mesmo
   tempo.
 - **Próximo do roteiro fiscal** (fim do
   [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md)): DL-087

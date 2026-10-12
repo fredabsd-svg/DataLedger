@@ -275,6 +275,31 @@ Decisões do arquiteto para a correção única (§3.1), reversíveis pelo Fred:
   - a lista de regras pagina;
   - o gatilho recusa TRUNCATE e desativação por SQL que não seja revogação.
 
+## Decisões tomadas na correção
+
+Correção única integrada. Medido pelo desenvolvedor, numa única invocação:
+10.113 passaram, com 2 falhas. Uma é a de ambiente; a outra foi resolvida
+pelo arquiteto (item abaixo). Os 19 mutantes da correção morrem.
+
+- **Desativar = revogar:** o fim da vigência vai para a véspera do início, e
+  o gatilho do banco recusa qualquer outro fim na desativação.
+- **Volume com 10.000 NFC-e e 50 regras nos CFOP reais das notas:**
+  - a prévia do lote, a fila, a prévia de impacto e a confirmação ficaram
+    dentro de ±5% de nenhuma regra;
+  - a prévia da tela com variantes caiu de 7,3 s para 2,8 s.
+
+  O pior caso, com regras que casam todo item, não foi medido.
+- **TRUNCATE:** a recusa ficou só na tabela de regras. Na tabela de origens
+  ela quebrava a limpeza dos testes transacionais de outras etapas.
+- **A reversão da 0020 recusa com origem de nota efetivada.** Como a 0020 é
+  revertida antes da 0014, a recusa dela vem primeiro. O teste da DL-082 que
+  reverte com nota efetivada passou a aceitar a recusa de qualquer uma das
+  duas e continua exigindo que nada mude. A mensagem da DL-082 segue testada
+  nos casos de rascunho. Ajuste do arquiteto.
+- **Limitações:**
+  - a API da lista de regras não pagina; a tela e "ver notas" paginam;
+  - o aviso do mês está no serviço e nas telas, mas não na API do lote.
+
 ## Critérios de aceite
 
 1. **Sem regra cadastrada, nada muda.**
