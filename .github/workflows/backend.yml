@@ -21,7 +21,11 @@ jobs:
     # executor; a execução do evento `pull_request` dos PRs #99 e #100 foi CANCELADA
     # por tempo (a do `push`, do mesmo conteúdo, passou). Execução cancelada não é
     # verde: o limite subiu para não esconder o resultado.
-    timeout-minutes: 20
+    # 11/10/2026: era 20 min. A suíte passou de 9.800 testes e encostou no teto
+    # (19m27s no PR #108; 20m06s no PR #109, conteúdo idêntico mais docs — o teto
+    # voltou a decidir o resultado em vez da suíte). Mesmo motivo de antes: o limite
+    # vai para 30 min para cancelamento por tempo não virar reprovação.
+    timeout-minutes: 30
     services:
       db:
         image: postgres:16-alpine
