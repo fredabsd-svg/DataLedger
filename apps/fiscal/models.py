@@ -1644,6 +1644,147 @@ class OpcaoRegimeCaixaSimples(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# DL-088 (frente A2): o dado da empresa que libera 2027 — a opção de regime de
+# IBS/CBS por semestre e o IPI mantido (Zona Franca). Fonte: Res. CGSN 190/2026;
+# HI-148 e HI-152. Ver `apps.fiscal.receita` para a leitura e a escrita com trilha.
+# ---------------------------------------------------------------------------
+
+
+class RegimeIbsCbsSimples(models.TextChoices):
+    """A opção registrada para o semestre (Res. CGSN 190/2026; art. 22-A; HI-148)."""
+
+    REGIME_UNICO = "regime_unico", "Regime único (CBS e IBS no DAS)"
+    REGIME_REGULAR = "regime_regular", "Regime regular de IBS/CBS (art. 22-A)"
+
+
+class OpcaoRegimeIbsCbsSimples(models.Model):
+    """Opção de regime de IBS/CBS do Simples, por (empresa, ano, semestre) — DL-088, frente A2.
+
+    Fonte e significado (Res. CGSN 190/2026, art. 22-A; consulta de 09/10/2026, seção 1; HI-148):
+    a cada semestre a empresa fica em UM dos dois regimes de IBS/CBS, e a escolha decide se CBS e
+    IBS entram no DAS do Simples daquele semestre:
+
+    - `regime = RegimeIbsCbsSimples.REGIME_REGULAR` = optou pelo REGIME REGULAR (art. 22-A): as
+      parcelas de CBS e IBS da faixa são DEDUZIDAS do DAS. Alimenta o motor do pré-DAS como
+      `regime_regular_ibs_cbs=True` (`pre_das._calcular_pre_das`).
+    - `regime = RegimeIbsCbsSimples.REGIME_UNICO` = REGIME ÚNICO: CBS e IBS ficam NO DAS. Alimenta
+      o motor como `regime_regular_ibs_cbs=False`.
+    - SEM LINHA = opção NÃO informada. Não se presume nenhum dos dois: o pré-DAS de 2027 continua
+      recusando com o bloqueio `opcao_regime_regular_nao_informada` (é o `None` do motor), e a
+      NF-e de 2027 não se efetiva (HI-149).
+
+    O carimbo da escolha é o campo `regime`, gravado com `registrada_em`/`registrada_por` (quem do
+    escritório registrou; o dado é cadastrado pelo escritório — o Fred confirma quais clientes
+    optaram). A opção do semestre é registrada UMA vez: a segunda tentativa é recusada pela
+    restrição única (`opcao_regime_ibs_cbs_unica_por_semestre`), como a opção pelo regime de caixa.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="opcoes_regime_ibs_cbs_simples",
+        verbose_name="empresa",
+    )
+    ano = models.PositiveSmallIntegerField("ano")
+    semestre = models.PositiveSmallIntegerField("semestre")
+    regime = models.CharField(
+        "regime escolhido", max_length=20, choices=RegimeIbsCbsSimples.choices
+    )
+    registrada_em = models.DateTimeField("registrada em", auto_now_add=True)
+    registrada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="registrada por",
+    )
+
+    class Meta:
+        verbose_name = "opção de regime de IBS/CBS (Simples)"
+        verbose_name_plural = "opções de regime de IBS/CBS (Simples)"
+        ordering = ["empresa_id", "ano", "semestre"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["empresa", "ano", "semestre"],
+                name="opcao_regime_ibs_cbs_unica_por_semestre",
+            ),
+            # A opção de regime regular só existe da virada de 2027 em diante (HI-148).
+            models.CheckConstraint(
+                condition=Q(ano__gte=2027),
+                name="opcao_regime_ibs_cbs_so_desde_2027",
+            ),
+            models.CheckConstraint(
+                condition=Q(semestre__gte=1, semestre__lte=2),
+                name="opcao_regime_ibs_cbs_semestre_valido",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"Opção {self.get_regime_display()} em {self.semestre}º/{self.ano} — "
+            f"empresa {self.empresa_id}"
+        )
+
+
+class SituacaoIpiMantido(models.TextChoices):
+    """Situação do IPI mantido da indústria (Res. CGSN 190/2026, art. 25, § 1º, II; HI-152)."""
+
+    IPI_MANTIDO = "ipi_mantido", "IPI mantido (indústria da Zona Franca)"
+    SEM_IPI_MANTIDO = "sem_ipi_mantido", "Sem IPI mantido (produção própria fora da ZFM)"
+
+
+class IpiMantidoZfmEmpresa(models.Model):
+    """Dado da empresa: a indústria tem IPI MANTIDO (Zona Franca de Manaus)? — DL-088, frente A2.
+
+    Fonte e significado (Res. CGSN 190/2026, art. 25, § 1º, II; HI-152, item 2): em 2027 o Anexo II
+    passa a valer SÓ para a indústria COM IPI mantido (Zona Franca); a produção própria fora dela
+    vai ao Anexo I (`pre_das.anexo_da_mercadoria_no_ano`). SEM LINHA = dado NÃO informado, e o
+    produto NÃO presume ZFM: a produção própria vai ao Anexo I (a regra geral) e o pré-DAS avisa
+    que o dado falta. `situacao = SituacaoIpiMantido.IPI_MANTIDO` é o ÚNICO estado que leva ao
+    Anexo II em 2027.
+
+    O dado é cadastrado pelo ESCRITÓRIO (o Fred confirma quais clientes estão na Zona Franca), com a
+    `fonte` (justificativa: declaração do cliente, ato de incentivo etc.) e o carimbo
+    `registrada_em`/`registrada_por`. Diferente da opção por semestre, é CADASTRO corrigível: a
+    gravação de novo valor atualiza a linha e a trilha guarda antes e depois.
+    """
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.PROTECT,
+        related_name="ipi_mantido_zfm",
+        verbose_name="empresa",
+    )
+    situacao = models.CharField(
+        "situação do IPI mantido", max_length=20, choices=SituacaoIpiMantido.choices
+    )
+    fonte = models.TextField(
+        "fonte ou justificativa",
+        help_text="Onde o dado foi confirmado (declaração do cliente, ato de incentivo, etc.).",
+    )
+    registrada_em = models.DateTimeField("registrada em", auto_now_add=True)
+    registrada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        verbose_name="registrada por",
+    )
+
+    class Meta:
+        verbose_name = "IPI mantido (Zona Franca) da empresa"
+        verbose_name_plural = "IPI mantido (Zona Franca) das empresas"
+        ordering = ["empresa_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["empresa"],
+                name="ipi_mantido_unico_por_empresa",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.get_situacao_display()} — empresa {self.empresa_id}"
+
+
+# ---------------------------------------------------------------------------
 # DL-075 (frente A): atividades da empresa e folha para o fator r.
 #
 # Atividade (HI-68): o pré-DAS aplica cada receita a um ANEXO, e o anexo depende
@@ -3362,8 +3503,9 @@ class EscrituracaoNFe(models.Model):
 
     Os totais (`valor_nf`, `receita_bruta`, `devolucao`, `soma_itens`) são copiados na efetivação,
     a partir dos itens lidos do XML guardado. A composição da receita lê as naturezas por item
-    (`NaturezaItemNFe`) e a receita de cada item (`itens_nfe.receita_do_item`, DL-083), não estes
-    totais.
+    (`NaturezaItemNFe`) e a receita de cada item (`itens_nfe.receita_do_item`, DL-083 — em 2027, no
+    regime único do Simples, `itens_nfe.receita_do_item_2027`, que é o `vProd`; DL-088 A2, HI-149),
+    não estes totais.
 
     Imutabilidade, em três camadas (como na DL-072): `save()` recusa alterar linha efetivada ou
     estornada; os serviços mudam estado com `update()` condicionado; e o BANCO (gatilhos da
@@ -3407,7 +3549,9 @@ class EscrituracaoNFe(models.Model):
         "valor da nota (vNF)", max_digits=15, decimal_places=2, null=True, blank=True
     )
     # Soma da receita de TODOS os itens (`receita_do_item`, DL-083), de qualquer natureza. É a
-    # conferência com o vNF: vNF − vST − vFCPST − vIPI − vII − vIPIDevol.
+    # conferência com o vNF: vNF − vST − vFCPST − vIPI − vII − vIPIDevol. Em 2027, no regime único
+    # do Simples (DL-088 A2; HI-149), é a soma do `vProd` dos itens, e a W16 não é aplicada (a
+    # composição do vNF em 2027 não está publicada — PE-84.4).
     soma_itens = models.DecimalField(
         "soma da receita dos itens", max_digits=15, decimal_places=2, null=True, blank=True
     )

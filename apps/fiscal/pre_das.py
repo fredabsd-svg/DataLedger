@@ -79,10 +79,11 @@ Segregação (HI-68, critérios 4 e 5; consulta de 08/10/2026, itens 1 a 3):
   município → ISS a outro município; retido → ISS retido. Nunca se presume "próprio".
 
 DL-088, frente A1 — motor de 2027 (Res. CGSN 190/2026; consulta de 09/10/2026, seção 1; HI-146 a
-HI-148). Fica INTERNO: `_calcular_pre_das(..., regime_regular_ibs_cbs=...)` calcula 2027 e 2028 com
-a opção pelo regime regular informada. O caminho PÚBLICO `pre_das()` continua recusando 2027: falta
-a opção pelo regime regular como dado da empresa (frente A2). Sem ela, o cálculo poria CBS e IBS no
-DAS de quem optou pelo regime regular (art. 22-A deduz essas parcelas).
+HI-148). O motor `_calcular_pre_das(..., regime_regular_ibs_cbs=...)` calcula 2027 e 2028 com a
+opção de regime de IBS/CBS informada. DL-088, frente A2: o caminho PÚBLICO `pre_das()` lê a opção
+do SEMESTRE no dado da empresa (`receita.opcao_regime_ibs_cbs_do_semestre`) e a repassa ao motor;
+sem a opção informada, 2027 continua recusando com `opcao_regime_regular_nao_informada` (calcular
+sem saber da opção poria CBS e IBS no DAS de quem optou pelo regime regular — art. 22-A).
 - Tabelas de 2027 e 2028: `tabelas.anexo(numero, ano, mes)`, com CBS e IBS no lugar de PIS e
   Cofins. Em 2029 em diante a recusa continua, com o motivo da divergência (HI-146).
 - Exportação (art. 25, § 3º): desconsiderados IBS, CBS, IPI, ICMS e ISS. No serviço, a conta é a
@@ -91,11 +92,13 @@ DAS de quem optou pelo regime regular (art. 22-A deduz essas parcelas).
   IBS em 2027. O sistema tem UMA marca de monofasia por item, herdada de PIS e Cofins; lê-la como
   tributação concentrada de CBS e IBS é hipótese (ver a docstring de `_TRIBUTOS_QUE_SAEM_2027`).
   ST de ICMS continua desconsiderando ICMS.
-- Opção pelo regime regular (art. 22-A): com `regime_regular_ibs_cbs=True`, as parcelas de CBS e
-  IBS da faixa saem do DAS (deduzidas); o valor deduzido aparece em `LinhaTributo.deduzido`.
-- Anexo II em 2027 só para indústria com IPI mantido (Zona Franca; art. 25, § 1º, II). O sistema
-  não tem o dado que a distingue: `anexo_da_mercadoria_no_ano` leva a produção própria ao Anexo I.
-  Empresa da ZFM com produção própria, em 2027, precisa desse dado antes da liberação (pendência).
+- Opção de regime de IBS/CBS (art. 22-A): com `regime_regular_ibs_cbs=True` (opção de regime
+  REGULAR), as parcelas de CBS e IBS da faixa saem do DAS (deduzidas); o valor deduzido aparece em
+  `LinhaTributo.deduzido`. Com `False` (regime ÚNICO), CBS e IBS ficam no DAS.
+- Anexo II em 2027 só para indústria com IPI mantido (Zona Franca; art. 25, § 1º, II; HI-152). O
+  dado vem da empresa (`receita.ipi_mantido_da_empresa`, cadastrado pelo escritório): `True` leva a
+  produção própria ao Anexo II; sem ele (dado não informado ou sem IPI mantido) a produção própria
+  vai ao Anexo I, sem presumir ZFM, e o pré-DAS avisa quando o dado falta.
 - RBT12 de 2027 (defasado, e a 1ª faixa): ver `apps.fiscal.rbt12`. Na 1ª faixa, o pré-DAS calcula
   com a alíquota nominal da 1ª faixa, e recusa o fator r (sem janela do FS12 lida).
 """
@@ -208,6 +211,10 @@ DISP_DEDUCAO_22A = (
     "Res. CGSN 190/2026, art. 22-A: DAS apurado na forma do art. 22, deduzidas as parcelas de CBS "
     "e IBS da faixa; a dedução não dispensa a apuração pelo regime regular (parágrafo único)"
 )
+DISP_IPI_MANTIDO = (
+    "Res. CGSN 190/2026, art. 25, § 1º, II: em 2027 o Anexo II é só da indústria com IPI mantido "
+    "(Zona Franca); a produção própria fora dela vai ao Anexo I (HI-152, item 2)"
+)
 DISP_EXPORTACAO_2027 = (
     "Res. CGSN 140/2018, art. 25, § 3º (redação da Res. CGSN 190/2026): IBS, CBS, IPI, ICMS e ISS "
     "desconsiderados; HI-148"
@@ -226,8 +233,9 @@ DISP_FATOR_R_INICIO = (
     "fator r sem janela lida do FS12 (HI-147; pendência)"
 )
 DISP_PUBLICO_2027 = (
-    "Res. CGSN 190/2026, arts. 22-A e 40-C; LC 214/2025, art. 41, § 3º (a opção pelo regime "
-    "regular é dado da empresa, ainda não cadastrado: frente A2 da DL-088)"
+    "Res. CGSN 190/2026, arts. 22-A e 40-C; LC 214/2025, art. 41, § 3º (a opção de regime de "
+    "IBS/CBS é dado da empresa, por semestre; sem ela informada, não se sabe se CBS e IBS entram "
+    "no DAS — DL-088, frente A2)"
 )
 
 DISPOSITIVO_DO_ENQUADRAMENTO = {
@@ -404,16 +412,17 @@ def _dispositivo_do_segmento(anexo_numero: str, segmento: str, ano: int = 2026) 
     return _DISP_DO_SEGMENTO_DE_SERVICO[segmento]
 
 
-def anexo_da_mercadoria_no_ano(ano: int, anexo_numero: str) -> str:
+def anexo_da_mercadoria_no_ano(ano: int, anexo_numero: str, ipi_mantido: bool = False) -> str:
     """Anexo efetivo de um item de mercadoria no ano (DL-088; Res. CGSN 190/2026, art. 25, § 1º).
 
     Até 2026, produção própria vai ao Anexo II. A partir de 2027 o Anexo II fica SÓ para a indústria
-    com IPI mantido (Zona Franca); a produção própria fora dela vai ao Anexo I. O sistema não tem o
-    dado de IPI mantido (ZFM), então toda produção própria sai no Anexo I. Isso é o correto para a
-    indústria fora da ZFM e ERRADO para a da ZFM: a diferença precisa de dado antes da liberação
-    do pré-DAS de 2027 (frente A2; pendência).
+    com IPI mantido (Zona Franca; art. 25, § 1º, II; HI-152): `ipi_mantido=True` leva a produção
+    própria ao Anexo II, e qualquer outro caso (sem IPI mantido, ou dado NÃO informado) vai ao
+    Anexo I, que é a regra geral — o produto NÃO presume ZFM. O dado é da empresa
+    (`receita.ipi_mantido_da_empresa`; cadastrado pelo escritório, com a fonte). `ipi_mantido` só
+    decide alguma coisa a partir de 2027 e para o Anexo II; o resto não muda.
     """
-    if ano >= 2027 and anexo_numero == ANEXO_II:
+    if ano >= 2027 and anexo_numero == ANEXO_II and not ipi_mantido:
         return ANEXO_I
     return anexo_numero
 
@@ -1427,22 +1436,27 @@ def pre_das(empresa: Empresa, ano: int, mes: int) -> PreDas:
     cálculo sob demanda, a partir dos lançamentos atuais. A entrada inválida
     (competência) sai como `EntradaInvalidaReceita`, antes de qualquer cálculo.
 
-    DL-088: a partir de 01/2027 este caminho recusa, com o bloqueio
-    `opcao_regime_regular_nao_informada`. Sem a opção pelo regime regular (dado da empresa, frente
-    A2), o cálculo poria CBS e IBS no DAS de quem optou. O motor de 2027 é `_calcular_pre_das`,
-    chamado com a opção explícita pelos testes e, depois da A2, pelo caminho público.
+    DL-088, frente A2: a opção de regime de IBS/CBS do SEMESTRE do PA vem do dado da empresa
+    (`receita.opcao_regime_ibs_cbs_do_semestre`) e é repassada ao motor. Sem a opção informada,
+    2027 continua recusando com o bloqueio `opcao_regime_regular_nao_informada`, exatamente como
+    antes: calcular sem saber da opção poria CBS e IBS no DAS de quem optou pelo regime regular
+    (art. 22-A). 2029 em diante continua recusado (HI-146).
     """
-    return _calcular_pre_das(empresa, ano, mes, regime_regular_ibs_cbs=None)
+    opcao = receita_servico.opcao_regime_ibs_cbs_do_semestre(empresa, ano, 1 if mes <= 6 else 2)
+    return _calcular_pre_das(empresa, ano, mes, regime_regular_ibs_cbs=opcao)
 
 
 def _calcular_pre_das(
     empresa: Empresa, ano: int, mes: int, *, regime_regular_ibs_cbs: bool | None
 ) -> PreDas:
-    """Motor do pré-DAS (interno). Ver `pre_das` para a recusa pública de 2027.
+    """Motor do pré-DAS (interno). Ver `pre_das` para como o caminho público informa a opção.
 
-    `regime_regular_ibs_cbs`: a opção pelo regime regular de IBS/CBS do PA (art. 22-A). É exigida a
-    partir de 01/2027: `None` ali recusa com o bloqueio nomeado. Antes de 2027 não existe a opção,
-    e passar `True` é erro de chamada.
+    `regime_regular_ibs_cbs`: a opção de regime de IBS/CBS do PA (art. 22-A), no vocabulário de
+    `receita.opcao_regime_ibs_cbs_do_semestre` — `True` = regime regular (CBS e IBS deduzidos),
+    `False` = regime único (CBS e IBS no DAS), `None` = opção NÃO informada. É exigida a partir de
+    01/2027: `None` ali recusa com o bloqueio nomeado. Antes de 2027 não existe a opção, e passar
+    `True` é erro de chamada. O IPI mantido (Zona Franca; HI-152) é lido do dado da empresa
+    (`receita.ipi_mantido_da_empresa`) e decide o Anexo II da produção própria em 2027.
     """
     receita_servico.validar_competencia(ano, mes)
     if regime_regular_ibs_cbs and ano < 2027:
@@ -1468,15 +1482,16 @@ def _calcular_pre_das(
             dispositivo = "LC 123/2006, art. 18; LC 155/2016, art. 11 (vigência dos anexos)"
         raise PreDasRecusado([Bloqueio("tabela_fora_de_vigencia", mensagem, dispositivo)])
 
-    # 1b. DL-088: a opção pelo regime regular (art. 22-A) é dado da empresa, e o caminho público
-    # não o tem. Sem ela, o DAS de 2027 não se calcula (CBS e IBS entram ou não, conforme a opção).
+    # 1b. DL-088: a opção de regime de IBS/CBS (art. 22-A) é dado da empresa, por semestre. Sem ela
+    # informada, o DAS de 2027 não se calcula (CBS e IBS entram ou não, conforme a opção).
     if ano >= 2027 and regime_regular_ibs_cbs is None:
         bloqueios.append(
             Bloqueio(
                 "opcao_regime_regular_nao_informada",
                 f"O pré-DAS de {_mes_rotulo(ano, mes)} não é calculado: falta a opção pelo regime "
                 "regular de IBS/CBS (art. 22-A da Res. CGSN 190/2026). Sem ela, o cálculo não sabe "
-                "se CBS e IBS entram no DAS. O sistema ainda não guarda essa opção (DL-088, A2).",
+                "se CBS e IBS entram no DAS. Registre a opção de regime de IBS/CBS do semestre "
+                "(dado da empresa; DL-088, A2).",
                 DISP_PUBLICO_2027,
             )
         )
@@ -1646,16 +1661,34 @@ def _calcular_pre_das(
     # HI-129). A receita de cada segmento já sai líquida da devolução do próprio segmento.
     recusas_nfe, avisos = _recusas_de_nfe(nfe_do_mes, mercadoria, ano, mes)
     bloqueios.extend(recusas_nfe)
-    # DL-088: o anexo de mercadoria passa pela vigência (produção própria vai ao Anexo I em 2027).
-    # Dois segmentos que passam a ter a mesma chave (mercado, anexo, segmento) SOMAM bruto e
-    # deduzido: o líquido é linear, então a soma é exata. Em 2026 nenhuma chave colide.
+    # DL-088: o anexo de mercadoria passa pela vigência (produção própria vai ao Anexo I em 2027, a
+    # não ser que a empresa tenha IPI mantido — Zona Franca; art. 25, § 1º, II; HI-152). Dois
+    # segmentos que passam a ter a mesma chave (mercado, anexo, segmento) SOMAM bruto e deduzido: o
+    # líquido é linear, então a soma é exata. Em 2026 nenhuma chave colide.
+    ipi_mantido = receita_servico.ipi_mantido_da_empresa(empresa)
     dados_mercadoria: dict[tuple[str, str, str], tuple[Decimal, Decimal]] = {}
     for seg in mercadoria.segmentos:
-        chave = (seg.mercado, anexo_da_mercadoria_no_ano(ano, seg.anexo), seg.segmento)
+        chave = (
+            seg.mercado,
+            anexo_da_mercadoria_no_ano(ano, seg.anexo, ipi_mantido=bool(ipi_mantido)),
+            seg.segmento,
+        )
         bruto_acumulado, deduzido_acumulado = dados_mercadoria.get(
             chave, (Decimal("0.00"), Decimal("0.00"))
         )
         dados_mercadoria[chave] = (bruto_acumulado + seg.bruto, deduzido_acumulado + seg.deduzido)
+    # DL-088 A2 (HI-152): produção própria em 2027 com o dado de IPI mantido NÃO informado calcula
+    # no Anexo I (não se presume ZFM), e o aviso nomeia o que falta para o Anexo II.
+    if (
+        ano >= 2027
+        and ipi_mantido is None
+        and any(seg.anexo == ANEXO_II for seg in mercadoria.segmentos)
+    ):
+        avisos.append(
+            "Dado de IPI mantido (Zona Franca) não informado: a produção própria foi calculada no "
+            "Anexo I, sem presumir ZFM (Res. CGSN 190/2026, art. 25, § 1º, II; HI-152). Se a "
+            "indústria tem IPI mantido, cadastre o dado para o Anexo II."
+        )
     # A7 (correção da rodada 1 do DL-082): segmento com VENDA no mês e líquido zero (devolução
     # integral) entra com 0,00. Antes o filtro `liquido != 0` o tirava do resultado, e a tela, a API
     # e a memória não mostravam nem a venda nem a devolução. O valor não muda: o tributo sobre 0,00
@@ -1769,6 +1802,20 @@ def _calcular_pre_das(
             "sim: CBS e IBS deduzidos do DAS" if regime else "não: CBS e IBS no DAS",
             DISP_REGIME_REGULAR,
         )
+        if any(seg.anexo == ANEXO_II for seg in mercadoria.segmentos):
+            passo.add(
+                "IPI mantido (Zona Franca) e o Anexo da produção própria",
+                (
+                    "sim: produção própria no Anexo II"
+                    if ipi_mantido
+                    else (
+                        "não informado: produção própria no Anexo I, sem presumir ZFM"
+                        if ipi_mantido is None
+                        else "não: produção própria no Anexo I"
+                    )
+                ),
+                DISP_IPI_MANTIDO,
+            )
     for mercado in (MercadoReceita.INTERNO, MercadoReceita.EXTERNO):
         if mercado in rbt_por_mercado:
             valor_do_mercado = rbt_por_mercado[mercado]

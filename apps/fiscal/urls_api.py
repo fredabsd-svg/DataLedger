@@ -28,10 +28,12 @@ from apps.fiscal.api import (
     EstornarReceitaInformadaView,
     EstornarTomadaView,
     FolhasFatorRView,
+    IpiMantidoView,
     IssRetidoTomadoView,
     LancarFolhaView,
     NotasPrestadasView,
     NotasTomadasView,
+    OpcaoRegimeIbsCbsView,
     OutrosMunicipiosIssView,
     PreDasView,
     RascunhoTomadaView,
@@ -256,6 +258,18 @@ urlpatterns = [
         "empresas/<int:empresa_id>/regime-caixa/",
         RegimeCaixaView.as_view(),
         name="regime_caixa",
+    ),
+    # DL-088 (frente A2): o dado da empresa que libera 2027 — a opção de regime de IBS/CBS por
+    # semestre e o IPI mantido (Zona Franca). GET lê, POST grava (ver `apps.fiscal.api`).
+    path(
+        "empresas/<int:empresa_id>/opcao-regime-ibs-cbs/",
+        OpcaoRegimeIbsCbsView.as_view(),
+        name="opcao_regime_ibs_cbs",
+    ),
+    path(
+        "empresas/<int:empresa_id>/ipi-mantido/",
+        IpiMantidoView.as_view(),
+        name="ipi_mantido",
     ),
     # DL-075 (frente A): pré-DAS, atividades da empresa e folha para o fator r.
     path(

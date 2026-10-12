@@ -23,7 +23,7 @@ from decimal import Decimal
 from django.shortcuts import get_object_or_404
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError as DRFValidationError
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -53,9 +53,11 @@ from apps.fiscal.models import (
     NaturezaTomada,
     OrigemReceitaInformada,
     ReceitaInformada,
+    RegimeIbsCbsSimples,
     RegimeIss,
     RegimeIssEmpresa,
     RegraIssMunicipio,
+    SituacaoIpiMantido,
     SituacaoIssReceitaInformada,
     VinculoDocumentoEmpresa,
 )
@@ -753,6 +755,169 @@ class RegimeCaixaView(EmpresaEscopadaMixin, APIView):
             {"empresa_id": empresa.pk, "ano_calendario": opcao.ano_calendario},
             status=status.HTTP_201_CREATED,
         )
+
+
+# ---------------------------------------------------------------------------
+# DL-088 (frente A2): a opção de regime de IBS/CBS por semestre e o IPI mantido (Zona Franca).
+#
+# Leitura e gravação do dado da empresa que libera 2027 (HI-148; HI-152). A regra fica em
+# `apps.fiscal.receita`; aqui só autorização (o molde é `api_presumido.ParametrosPresumidoView`:
+# GET consulta, POST escritura), isolamento (`EmpresaEscopadaMixin`) e validação de entrada, com
+# contrato de campos. O pré-DAS e a NF-e de 2027 consomem o dado; sem ele, seguem recusando com o
+# motivo nomeado.
+# ---------------------------------------------------------------------------
+
+CONTRATO_POST_OPCAO_REGIME_IBS_CBS = ContratoDeRequisicao(
+    campos={"ano", "semestre", "regime"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na opção de regime de IBS/CBS do semestre",
+)
+CONTRATO_POST_IPI_MANTIDO = ContratoDeRequisicao(
+    campos={"situacao", "fonte"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no dado de IPI mantido (Zona Franca)",
+)
+
+
+class PodeConsultarOuEscriturarFiscal(BasePermission):
+    """GET consulta; POST escritura (mesmo molde de `api_presumido.PermissaoPresumido`)."""
+
+    message = "Papel sem permissão para os dados da virada de 2027."
+
+    def has_permission(self, request, view):
+        papel = getattr(request, "papel", None)
+        if request.method in SAFE_METHODS:
+            return papel_pode_consultar_documentos(papel)
+        return papel_pode_escriturar_fiscal(papel)
+
+
+class OpcaoRegimeIbsCbsEntradaSerializer(serializers.Serializer):
+    ano = serializers.IntegerField(min_value=2027, max_value=receita_servico.ANO_MAXIMO)
+    semestre = serializers.IntegerField(min_value=1, max_value=2)
+    regime = serializers.ChoiceField(choices=RegimeIbsCbsSimples.choices)
+
+
+class IpiMantidoEntradaSerializer(serializers.Serializer):
+    # A fonte é obrigatória no SERVIÇO (com a mensagem nomeada); `allow_blank` deixa o vazio
+    # chegar até lá, como nos parâmetros do presumido.
+    situacao = serializers.ChoiceField(choices=SituacaoIpiMantido.choices)
+    fonte = serializers.CharField(
+        max_length=receita_servico.FONTE_MAXIMA, trim_whitespace=True, allow_blank=True
+    )
+
+
+def _opcao_regime_ibs_cbs_payload(linha, ano: int, semestre: int) -> dict:
+    """A opção do semestre, no formato dos parâmetros do presumido (`_parametros_payload`).
+
+    `regime` é a opção gravada (`regime_unico` ou `regime_regular`) ou `None` quando não informada;
+    `informada` diz se alguém registrou (a tela mostra "opção não informada" quando falso).
+    """
+    return {
+        "ano": ano,
+        "semestre": semestre,
+        "regime": linha.regime if linha is not None else None,
+        "informada": linha is not None,
+        "registrada_em": _iso_ou_none(linha.registrada_em) if linha is not None else None,
+    }
+
+
+def _ipi_mantido_payload(linha) -> dict:
+    return {
+        "situacao": linha.situacao if linha is not None else None,
+        "fonte": linha.fonte if linha is not None else "",
+        "informado": linha is not None,
+        "registrada_em": _iso_ou_none(linha.registrada_em) if linha is not None else None,
+    }
+
+
+class OpcaoRegimeIbsCbsView(EmpresaEscopadaMixin, APIView):
+    """GET a opção do semestre (`?ano=&semestre=`); POST a registra (uma única vez).
+
+    Sem linha, a opção está NÃO informada (`regime` nulo): é o que mantém o pré-DAS de 2027
+    recusando e a NF-e de 2027 sem efetivação. A opção do semestre não se altera depois.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarOuEscriturarFiscal]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        ano, semestre = _ano_e_semestre_da_consulta(request)
+        linha = receita_servico.opcao_regime_ibs_cbs_registrada(empresa, ano, semestre)
+        return Response(_opcao_regime_ibs_cbs_payload(linha, ano, semestre))
+
+    def post(self, request, empresa_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_OPCAO_REGIME_IBS_CBS)
+        empresa = self.get_empresa()
+        entrada = OpcaoRegimeIbsCbsEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        dados = entrada.validated_data
+        try:
+            opcao = receita_servico.registrar_opcao_regime_ibs_cbs(
+                empresa,
+                dados["ano"],
+                dados["semestre"],
+                dados["regime"],
+                usuario=request.user,
+                request=request,
+            )
+        except receita_servico.EntradaInvalidaReceita as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except receita_servico.ReceitaErro as exc:
+            return _resposta_de_conflito(exc)
+        return Response(
+            _opcao_regime_ibs_cbs_payload(opcao, opcao.ano, opcao.semestre),
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class IpiMantidoView(EmpresaEscopadaMixin, APIView):
+    """GET o dado de IPI mantido (Zona Franca) da empresa; POST o define ou corrige.
+
+    Sem linha, o dado está NÃO informado (`situacao` nula), e o produto não presume ZFM: em 2027 a
+    produção própria vai ao Anexo I e o pré-DAS avisa. A `fonte` é obrigatória ao gravar.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarOuEscriturarFiscal]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        return Response(_ipi_mantido_payload(receita_servico.ipi_mantido_registrado(empresa)))
+
+    def post(self, request, empresa_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_IPI_MANTIDO)
+        empresa = self.get_empresa()
+        entrada = IpiMantidoEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        dados = entrada.validated_data
+        try:
+            registro = receita_servico.definir_ipi_mantido(
+                empresa,
+                dados["situacao"],
+                dados["fonte"],
+                usuario=request.user,
+                request=request,
+            )
+        except receita_servico.EntradaInvalidaReceita as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except receita_servico.ReceitaErro as exc:
+            return _resposta_de_conflito(exc)
+        return Response(_ipi_mantido_payload(registro), status=status.HTTP_200_OK)
+
+
+def _ano_e_semestre_da_consulta(request):
+    """Lê `ano` e `semestre` da querystring. Ausente ou fora da faixa → 400."""
+    try:
+        ano = int(request.query_params["ano"])
+        semestre = int(request.query_params["semestre"])
+    except (KeyError, ValueError) as exc:
+        raise DRFValidationError("Informe 'ano' e 'semestre' como números inteiros.") from exc
+    if semestre not in (1, 2):
+        raise DRFValidationError(f"'semestre' inválido: {semestre} — deve ser 1 ou 2.")
+    if ano < 2027 or not (_ANO_MINIMO <= ano <= _ANO_MAXIMO):
+        raise DRFValidationError(
+            f"'ano' inválido: {ano} — a opção de regime de IBS/CBS existe a partir de 2027."
+        )
+    return ano, semestre
 
 
 # ---------------------------------------------------------------------------

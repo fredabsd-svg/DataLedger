@@ -49,13 +49,13 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, Min, OuterRef, Sum
+from django.db.models import Exists, Min, OuterRef, Q, Sum
 from django.utils import timezone
 
 from apps.auditoria.services import registrar
 from apps.empresas.models import Empresa, HistoricoRegimeTributario, RegimeTributario
 from apps.fiscal.cfop import e_devolucao_de_venda_de_combustivel
-from apps.fiscal.itens_nfe import atribuir_receita_da_nota_efetivada
+from apps.fiscal.itens_nfe import atribuicao_pelo_vprod, atribuir_receita_da_nota_efetivada
 from apps.fiscal.models import (
     ConfirmacaoReceitaMensal,
     EscrituracaoFiscal,
@@ -63,12 +63,16 @@ from apps.fiscal.models import (
     EstadoEscrituracao,
     EstadoReceitaInformada,
     EventoNFe,
+    IpiMantidoZfmEmpresa,
     MercadoReceita,
     NaturezaItemNFe,
     NaturezaOperacaoNFe,
     OpcaoRegimeCaixaSimples,
+    OpcaoRegimeIbsCbsSimples,
     OrigemReceitaInformada,
     ReceitaInformada,
+    RegimeIbsCbsSimples,
+    SituacaoIpiMantido,
     SituacaoIssReceitaInformada,
     classificacao_da_devolucao,
     classificacao_da_venda,
@@ -341,9 +345,16 @@ def linhas_nfe_do_periodo(
         por_escrituracao.setdefault(registro.escrituracao_id, []).append(registro)
     linhas = []
     for registros_da_nota in por_escrituracao.values():
-        atribuicao = atribuir_receita_da_nota_efetivada(
-            [(r.item, r.natureza) for r in registros_da_nota]
-        )
+        pares = [(r.item, r.natureza) for r in registros_da_nota]
+        # DL-088 A2 (HI-149): a nota de 2027 em diante vale o seu `vProd`, sem resíduo nem rateio.
+        # Toda escrituração EFETIVADA de 2027 em diante passou pelo portão do regime único na
+        # efetivação (`escrituracao_nfe.motivo_bloqueio_efetivacao`), então a regra vale para ela
+        # sem rechecar o regime aqui: rechecar por nota duplicaria a regra e enfiaria consulta por
+        # nota (DL-081, A6).
+        if registros_da_nota[0].escrituracao.data_emissao.year >= 2027:
+            atribuicao = atribuicao_pelo_vprod(pares)
+        else:
+            atribuicao = atribuir_receita_da_nota_efetivada(pares)
         for registro in registros_da_nota:
             papel = papel_da_natureza_nfe(registro.natureza)
             if papel not in ("receita", "deducao"):
@@ -1473,3 +1484,218 @@ def registrar_opcao_regime_caixa(
 
 def opcao_caixa_do_ano(empresa: Empresa, ano: int) -> bool:
     return OpcaoRegimeCaixaSimples.objects.filter(empresa=empresa, ano_calendario=ano).exists()
+
+
+# ---------------------------------------------------------------------------
+# DL-088, frente A2: o dado da empresa que libera 2027 — opção de regime de IBS/CBS por semestre
+# (Res. CGSN 190/2026, art. 22-A; HI-148) e IPI mantido da Zona Franca (art. 25, § 1º, II; HI-152).
+#
+# São dados do ESCRITÓRIO sobre a empresa (o Fred confirma quais clientes optaram e quais estão na
+# Zona Franca), gravados com trilha e sob a trava da empresa, como a opção pelo regime de caixa.
+# A leitura é o que o motor do pré-DAS (`pre_das._calcular_pre_das`) e a regra de receita de 2027
+# (`escrituracao_nfe`) consomem. Sem linha = dado NÃO informado, e nada se presume.
+# ---------------------------------------------------------------------------
+
+_RESTRICAO_OPCAO_IBS_CBS_UNICA = "opcao_regime_ibs_cbs_unica_por_semestre"
+_RESTRICAO_IPI_MANTIDO_UNICO = "ipi_mantido_unico_por_empresa"
+FONTE_MAXIMA = 500
+
+
+def regimes_em(empresa: Empresa, dia: date) -> set[str | None]:
+    """Regimes tributários vigentes da empresa em `dia` (histórico de regime).
+
+    Pode haver mais de um (transição no dia). `None` é o regime em branco do histórico. É o dado
+    que diz se a empresa é do Simples ou do Presumido na data da nota (HI-149).
+    """
+    return {
+        linha.regime
+        for linha in HistoricoRegimeTributario.objects.filter(
+            empresa=empresa, vigencia_inicio__lte=dia
+        ).filter(Q(vigencia_fim__isnull=True) | Q(vigencia_fim__gte=dia))
+    }
+
+
+def opcao_regime_ibs_cbs_registrada(
+    empresa: Empresa, ano: int, semestre: int
+) -> OpcaoRegimeIbsCbsSimples | None:
+    """A LINHA da opção do semestre (para a API mostrar o dado e o carimbo), ou `None`."""
+    return OpcaoRegimeIbsCbsSimples.objects.filter(
+        empresa=empresa, ano=ano, semestre=semestre
+    ).first()
+
+
+def opcao_regime_ibs_cbs_do_semestre(empresa: Empresa, ano: int, semestre: int) -> bool | None:
+    """A opção de regime de IBS/CBS registrada para o (ano, semestre), no vocabulário do motor.
+
+    O contrato do parâmetro `regime_regular_ibs_cbs` de `pre_das._calcular_pre_das`:
+
+    - `True` = REGIME REGULAR (opção `RegimeIbsCbsSimples.REGIME_REGULAR`, art. 22-A): CBS e IBS
+      são DEDUZIDOS do DAS;
+    - `False` = REGIME ÚNICO (`RegimeIbsCbsSimples.REGIME_UNICO`): CBS e IBS ficam NO DAS;
+    - `None` = opção NÃO informada (sem linha): o motor recusa 2027 com o bloqueio
+      `opcao_regime_regular_nao_informada`, e a NF-e de 2027 não se efetiva (HI-149).
+    """
+    linha = opcao_regime_ibs_cbs_registrada(empresa, ano, semestre)
+    if linha is None:
+        return None
+    return linha.regime == RegimeIbsCbsSimples.REGIME_REGULAR
+
+
+def _validar_ano_e_semestre(ano, semestre) -> tuple[int, int]:
+    if isinstance(ano, bool) or not isinstance(ano, int) or not ANO_MINIMO <= ano <= ANO_MAXIMO:
+        raise EntradaInvalidaReceita(f"'ano' inválido: {ano!r}.")
+    if ano < 2027:
+        raise EntradaInvalidaReceita(
+            f"A opção de regime de IBS/CBS só existe a partir de 2027 (Res. CGSN 190/2026; "
+            f"HI-148): {ano!r} não é aceito."
+        )
+    if isinstance(semestre, bool) or not isinstance(semestre, int) or semestre not in (1, 2):
+        raise EntradaInvalidaReceita(f"'semestre' inválido: {semestre!r}. Use 1 ou 2.")
+    return ano, semestre
+
+
+@transaction.atomic
+def registrar_opcao_regime_ibs_cbs(
+    empresa: Empresa, ano: int, semestre: int, regime: str, usuario, request=None
+) -> OpcaoRegimeIbsCbsSimples:
+    """Registra a opção de regime de IBS/CBS do semestre, com trilha, sob a trava da empresa.
+
+    O `regime` escolhido é `RegimeIbsCbsSimples.REGIME_REGULAR` ou `.REGIME_UNICO` (ver
+    `opcao_regime_ibs_cbs_do_semestre` para como ele alimenta o motor). A opção do semestre é
+    registrada UMA vez: a segunda tentativa é recusada pela restrição única (não há "mudar de
+    ideia" — a escolha do semestre é do regime fiscal, não do sistema). Empresa sem período do
+    Simples no ano é recusada antes de gravar, como na opção pelo regime de caixa.
+    """
+    ano, semestre = _validar_ano_e_semestre(ano, semestre)
+    if regime not in RegimeIbsCbsSimples.values:
+        raise EntradaInvalidaReceita(
+            "Regime inválido: use regime_unico ou regime_regular (RegimeIbsCbsSimples)."
+        )
+    travada = travar_empresa(empresa)
+    if not _simples_em_algum_dia_do_ano(travada, ano):
+        raise ReceitaErro(f"A empresa não tem período do Simples Nacional em {ano}.")
+
+    opcao = OpcaoRegimeIbsCbsSimples(
+        empresa=travada,
+        ano=ano,
+        semestre=semestre,
+        regime=regime,
+        registrada_por=usuario,
+    )
+    _inserir(
+        opcao,
+        _RESTRICAO_OPCAO_IBS_CBS_UNICA,
+        f"A opção de regime de IBS/CBS do {semestre}º semestre de {ano} já foi registrada; "
+        "a opção do semestre é registrada uma única vez.",
+    )
+    registrar(
+        acao="regime_ibs_cbs.opcao_registrada",
+        usuario=usuario,
+        escritorio=travada.escritorio,
+        objeto=opcao,
+        request=request,
+        detalhes={
+            "empresa_id": travada.pk,
+            "ano": ano,
+            "semestre": semestre,
+            "regime": regime,
+        },
+    )
+    return opcao
+
+
+def ipi_mantido_registrado(empresa: Empresa) -> IpiMantidoZfmEmpresa | None:
+    """A LINHA do dado de IPI mantido (a API mostra o dado, a fonte e o carimbo), ou `None`."""
+    return IpiMantidoZfmEmpresa.objects.filter(empresa=empresa).first()
+
+
+def ipi_mantido_da_empresa(empresa: Empresa) -> bool | None:
+    """O dado de IPI mantido (Zona Franca) da empresa, para o anexo de 2027 (HI-152, item 2).
+
+    - `True` = IPI mantido (`SituacaoIpiMantido.IPI_MANTIDO`): é o ÚNICO estado que leva a
+      produção própria ao Anexo II em 2027 (`pre_das.anexo_da_mercadoria_no_ano`);
+    - `False` = sem IPI mantido: produção própria vai ao Anexo I;
+    - `None` = NÃO informado (sem linha), e o produto NÃO presume ZFM: produção própria vai ao
+      Anexo I (a regra geral) e o pré-DAS avisa que o dado falta.
+    """
+    linha = ipi_mantido_registrado(empresa)
+    if linha is None:
+        return None
+    return linha.situacao == SituacaoIpiMantido.IPI_MANTIDO
+
+
+@transaction.atomic
+def definir_ipi_mantido(
+    empresa: Empresa, situacao: str, fonte: str, usuario, request=None
+) -> IpiMantidoZfmEmpresa:
+    """Grava (ou corrige) o dado de IPI mantido da empresa, com trilha de antes e depois.
+
+    `situacao` é `SituacaoIpiMantido.IPI_MANTIDO` ou `.SEM_IPI_MANTIDO`; a `fonte` (justificativa:
+    declaração do cliente, ato de incentivo etc.) é obrigatória — o dado é do escritório e precisa
+    dizer de onde veio. É CADASTRO corrigível (ao contrário da opção do semestre): registrar de novo
+    com outro valor atualiza a linha, e a trilha guarda as duas situações. Sem mudança real, não há
+    trilha nova.
+    """
+    if situacao not in SituacaoIpiMantido.values:
+        raise EntradaInvalidaReceita(
+            "Situação inválida: use ipi_mantido ou sem_ipi_mantido (SituacaoIpiMantido)."
+        )
+    fonte = (fonte or "").strip()
+    if not fonte:
+        raise EntradaInvalidaReceita(
+            "A fonte do dado de IPI mantido é obrigatória: diga de onde a informação veio "
+            "(declaração do cliente, ato de incentivo, etc.)."
+        )
+    if len(fonte) > FONTE_MAXIMA:
+        raise EntradaInvalidaReceita(
+            f"A fonte do dado de IPI mantido deve ter no máximo {FONTE_MAXIMA} caracteres."
+        )
+    travada = travar_empresa(empresa)
+    registro = (
+        IpiMantidoZfmEmpresa.objects.select_for_update(of=("self",)).filter(empresa=travada).first()
+    )
+    antes = None if registro is None else {"situacao": registro.situacao, "fonte": registro.fonte}
+    depois = {"situacao": situacao, "fonte": fonte}
+    if registro is None:
+        registro = IpiMantidoZfmEmpresa(
+            empresa=travada, situacao=situacao, fonte=fonte, registrada_por=usuario
+        )
+        _inserir(
+            registro,
+            _RESTRICAO_IPI_MANTIDO_UNICO,
+            "O dado de IPI mantido desta empresa acabou de ser definido por outra ação. "
+            "Atualize a tela.",
+        )
+    elif antes == depois:
+        return registro
+    else:
+        registro.situacao = situacao
+        registro.fonte = fonte
+        registro.registrada_por = usuario
+        registro.save()
+    registrar(
+        acao="ipi_mantido.definido",
+        usuario=usuario,
+        escritorio=travada.escritorio,
+        objeto=registro,
+        request=request,
+        detalhes={"empresa_id": travada.pk, "antes": antes, "depois": depois},
+    )
+    return registro
+
+
+def receita_nfe_pelo_vprod(empresa: Empresa, dia: date) -> bool:
+    """A NF-e emitida em `dia` tem receita igual ao `vProd` (DL-088 A2, HI-149)?
+
+    Sim SÓ para a empresa do Simples no regime ÚNICO do semestre de `dia`, a partir de 01/2027: a
+    NT 2026.008 v1.00 passa a compor o `vProd` com IBS, CBS e IS por dentro, e a receita bruta do
+    Simples é o preço da venda, sem exclusão de tributos (LC 123, art. 3º, § 1º, na redação da LC
+    214 — leitura do contador-senior de 09/10/2026, seção 3; HI-149). Para o Presumido e para quem
+    optou pelo REGIME REGULAR a receita de NF-e de 2027 continua bloqueada até a leitura do
+    DL 1.598, art. 12, § 4º. Antes de 2027 vale a regra do MOC (`itens_nfe.receita_do_item`).
+    """
+    if dia.year < 2027:
+        return False
+    if RegimeTributario.SIMPLES_NACIONAL not in regimes_em(empresa, dia):
+        return False
+    return opcao_regime_ibs_cbs_do_semestre(empresa, dia.year, 1 if dia.month <= 6 else 2) is False

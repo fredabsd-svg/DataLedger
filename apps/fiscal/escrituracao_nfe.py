@@ -24,8 +24,13 @@ Hipóteses HI-117 a HI-124 (requisitos.md). Decisões que o código não explica
   ausentes valem zero só nessa fórmula, e a divergência bloqueia a efetivação com os valores na
   mensagem. A atribuição (HI-138) bloqueia nos três casos de `itens_nfe`: sem item de receita, com
   resíduo negativo maior que a receita, e sem base para rateio.
-- 2027 (HI-133; consulta PE-84.4): nota com dhEmi em 2027 ou depois (fuso de São Paulo) não é
-  efetivada, porque a NT 2026.008 não diz como fica o vNF.
+- 2027 (HI-133; consulta PE-84.4; DL-088 A2, HI-149): a NT 2026.008 diz que IBS, CBS e IS compõem
+  o `vProd` a partir de 2027 e não diz como fica o vNF. Para a empresa do Simples no REGIME ÚNICO
+  do semestre, a nota de 2027 é efetivada com receita = `vProd` (`itens_nfe.receita_do_item_2027`),
+  sem a conferência W16 (não há identidade publicada para o vNF de 2027), e o `vProdLiq` vira
+  memória quando o leitor o trouxer (BL-687). Para o Presumido e para quem optou pelo regime
+  regular a recusa continua, cada caso com o motivo nomeado (`motivo_bloqueio_efetivacao`), até a
+  leitura do DL 1.598, art. 12, § 4º.
 - Competência = mês de `dhEmi` no fuso de São Paulo (consulta, item 1).
 - Nada aqui calcula ICMS, guia ou alíquota. Só se escritura e se confere.
 - Concorrência: cada serviço que escreve roda em `transaction.atomic()` e trava a EMPRESA
@@ -47,6 +52,7 @@ from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 from apps.auditoria.services import registrar
+from apps.empresas.models import RegimeTributario
 from apps.fiscal import receita as receita_servico
 from apps.fiscal import services
 from apps.fiscal.cfop import (
@@ -61,11 +67,13 @@ from apps.fiscal.itens_nfe import (
     MENSAGEM_ITEM_FORA_DO_TOTAL_COM_VALOR,  # noqa: F401 (reexportada: a API e a tela a comparam)
     VERSAO_LEITOR_ITENS,
     ResiduoNaoAtribuivel,
+    atribuicao_pelo_vprod,
     atribuir_receita_da_nota,
     atribuir_receita_da_nota_efetivada,
     avisos_da_atribuicao,
     ler_itens,
     receita_do_item,
+    receita_do_item_2027,
 )
 from apps.fiscal.models import (
     ANEXO_DA_DEVOLUCAO_DE_EXPORTACAO_DE_ENTRADA,
@@ -1030,27 +1038,86 @@ class _ConferenciaDaNota:
     valor_nf: Decimal
 
 
-# Regra de receita de 2027 pendente (HI-133; consulta PE-84.4): a NT 2026.008 diz que IBS, CBS e IS
-# compõem o vProd a partir de 2027, e não diz como fica o vNF. Até a Receita publicar a regra, a
-# nota
-# não tem receita efetivada. O texto é fixo: a tela o mostra no botão, e o servidor, na recusa.
+# Regra de receita de 2027 (HI-133; consulta PE-84.4; DL-088 A2, HI-149): a NT 2026.008 diz que
+# IBS, CBS e IS compõem o vProd a partir de 2027, e não diz como fica o vNF. Sem a regra por
+# regime, a nota não tem receita efetivada. Os textos são fixos: a tela os mostra no botão, e o
+# servidor, na recusa.
 MENSAGEM_RECEITA_2027_PENDENTE = "regra de receita de 2027 pendente: NT 2026.008 e vNF"
 # Texto da recusa de NF-e de 2027 no Presumido (A8): a nota não pode ser escriturada.
 MENSAGEM_NFE_2027_PENDENTE = (
     "NF-e de 2027 sem regra de receita (NT 2026.008 e vNF): não pode ser escriturada"
 )
+# DL-088 A2 (HI-149): só o Simples no regime único do semestre tem receita de 2027 (o `vProd`). Os
+# demais casos recusam com o motivo nomeado, cada um dizendo o que falta (o texto é o que a tela e
+# a API mostram).
+MENSAGEM_RECEITA_2027_REGIME_REGULAR = (
+    "NF-e de 2027 não se efetiva para quem optou pelo regime regular de IBS/CBS: a receita do "
+    "regime regular depende do DL 1.598, art. 12, § 4º, não lido (HI-149)"
+)
+MENSAGEM_RECEITA_2027_SEM_OPCAO = (
+    "NF-e de 2027 não se efetiva sem a opção de regime de IBS/CBS do semestre (art. 22-A da Res. "
+    "CGSN 190/2026): não se sabe se a empresa está no regime único (HI-149)"
+)
+MENSAGEM_RECEITA_2027_PRESUMIDO = (
+    "NF-e de 2027 não se efetiva no Lucro Presumido: a receita do regime depende do DL 1.598, "
+    "art. 12, § 4º, não lido (HI-149)"
+)
 
 
-def motivo_bloqueio_efetivacao(documento) -> str | None:
-    """Por que a nota não pode ser efetivada por regra de DATA, ou `None` (checagem pura, A8).
+def motivo_bloqueio_efetivacao(documento, empresa=None) -> str | None:
+    """Por que a nota não pode ser efetivada por regra de DATA e de REGIME, ou `None`.
 
-    Hoje só a receita de 2027 (HI-133). Quem chama é a tela (desabilita o botão com o motivo) e o
-    serviço de efetivação (recusa no POST). O ano é o de São Paulo: 31/12/2026 23:59 é de 2026.
+    O ano é o de São Paulo: 31/12/2026 23:59 é de 2026. Antes de 2027 nunca bloqueia. Quem chama é
+    a tela (desabilita o botão com o motivo), o serviço de efetivação (recusa no POST), a API e o
+    lote.
+
+    Em 2027 em diante (DL-088 A2; HI-149), a receita de NF-e só sai para a empresa do Simples no
+    REGIME ÚNICO do semestre da emissão (receita = `vProd`; ver `receita_servico.
+    receita_nfe_pelo_vprod`). Sem `empresa`, a checagem é a PURA DATA da DL-083 (A8): 2027 bloqueia
+    com `MENSAGEM_RECEITA_2027_PENDENTE` — é o que a tela mostra antes de saber o regime, e o que o
+    Presumido sempre verá. Com a `empresa`, cada recusa tem o motivo nomeado:
+
+    - Simples sem a opção do semestre informada → `MENSAGEM_RECEITA_2027_SEM_OPCAO`;
+    - Simples no regime regular (art. 22-A) → `MENSAGEM_RECEITA_2027_REGIME_REGULAR`;
+    - Lucro Presumido → `MENSAGEM_RECEITA_2027_PRESUMIDO`;
+    - demais (sem o Simples na data) → `MENSAGEM_RECEITA_2027_PENDENTE`.
     """
     dia, _competencia = dia_e_competencia(documento)
-    if dia.year >= 2027:
+    if dia.year < 2027:
+        return None
+    if empresa is None:
         return MENSAGEM_RECEITA_2027_PENDENTE
-    return None
+    if receita_servico.receita_nfe_pelo_vprod(empresa, dia):
+        return None
+    regimes = receita_servico.regimes_em(empresa, dia)
+    if RegimeTributario.SIMPLES_NACIONAL in regimes:
+        # Empresa do Simples, mas não no regime único do semestre: ou a opção não está informada
+        # (o pré-DAS do mês também recusa), ou ela é de regime regular. Cada caso, seu motivo.
+        opcao = receita_servico.opcao_regime_ibs_cbs_do_semestre(
+            empresa, dia.year, 1 if dia.month <= 6 else 2
+        )
+        if opcao is None:
+            return MENSAGEM_RECEITA_2027_SEM_OPCAO
+        return MENSAGEM_RECEITA_2027_REGIME_REGULAR
+    if RegimeTributario.LUCRO_PRESUMIDO in regimes:
+        return MENSAGEM_RECEITA_2027_PRESUMIDO
+    return MENSAGEM_RECEITA_2027_PENDENTE
+
+
+def memoria_v_prod_liq(itens) -> dict[str, str] | None:
+    """`vProdLiq` de cada item, para a memória da efetivação de 2027 (HI-149), ou `None`.
+
+    Guardado como memória QUANDO o leitor tiver o campo (BL-687): o leitor de hoje não o lê, e aí
+    não há valor que guardar. `getattr` porque o campo entra com o BL-687, sem subir a versão do
+    leitor desta etapa (a efetivação continua exigindo `VERSAO_LEITOR_ITENS`). Chave: `nItem` do
+    item; valor: o número como texto, sem float.
+    """
+    valores = {
+        str(item.n_item): str(valor)
+        for item in itens
+        if (valor := getattr(item, "v_prod_liq", None)) is not None
+    }
+    return valores or None
 
 
 def avisos_do_item(item) -> tuple[str, ...]:
@@ -1100,7 +1167,9 @@ def avisos_da_nota(pares) -> dict[int, tuple[str, ...]]:
     return resultado
 
 
-def conferir_valores(documento, leitura, itens_e_naturezas) -> _ConferenciaDaNota:
+def conferir_valores(
+    documento, leitura, itens_e_naturezas, *, receita_pelo_vprod: bool = False
+) -> _ConferenciaDaNota:
     """Conferência da receita com o vNF, pela regra W16 do MOC 7.0 (HI-119; DL-083).
 
     Tolerância zero.
@@ -1119,8 +1188,33 @@ def conferir_valores(documento, leitura, itens_e_naturezas) -> _ConferenciaDaNot
     bloqueios são os da atribuição, com mensagem fixa: nota sem item de receita com resíduo; resíduo
     negativo maior que a receita; resíduo sem base para ratear. A soma da nota não muda com a
     atribuição, então a W16 é a mesma. `itens_e_naturezas`: lista de (ItemNFe, natureza).
+
+    `receita_pelo_vprod=True` (DL-088 A2; HI-149) é a nota de 2027 em diante do Simples no regime
+    único: a receita é o `vProd` (`itens_nfe.receita_do_item_2027`), sem atribuição de resíduo, e a
+    W16 NÃO é aplicada — a composição do `vNF` em 2027 não está publicada (a NT 2026.008 fala do
+    `vProd`, não do `vNF`; PE-84.4), e aplicar a identidade seria presumir um leiaute. `soma_itens`
+    continua a soma do valor de TODOS os itens com natureza, para a conferência do contador.
     """
     pares = list(itens_e_naturezas)
+    if receita_pelo_vprod:
+        if documento.v_nf is None:
+            raise EscrituracaoNFeErro(
+                "A nota não tem o valor total (vNF): o total é obrigatório no XSD. Nota bloqueada."
+            )
+        soma = Decimal("0.00")
+        receita = Decimal("0.00")
+        devolucao = Decimal("0.00")
+        valores = atribuicao_pelo_vprod(pares).valores
+        for item, natureza in pares:
+            if not natureza:
+                continue
+            soma += receita_do_item_2027(item)
+            papel = papel_da_natureza_nfe(natureza)
+            if papel == "receita":
+                receita += valores[item.pk]
+            elif papel == "deducao":
+                devolucao += valores[item.pk]
+        return _ConferenciaDaNota(soma, receita, devolucao, documento.v_nf)
     try:
         atribuicao = atribuir_receita_da_nota(pares)
     except ResiduoNaoAtribuivel as exc:
@@ -1166,6 +1260,11 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
 
     Exige: itens lidos, natureza em TODOS os itens e conferência com vNF. Efetivar em mês já
     confirmado reabre a confirmação e marca "a retificar" (DL-074, critério 6), na mesma transação.
+
+    DL-088 A2 (HI-149): a nota de 2027 em diante só se efetiva para o Simples no regime único do
+    semestre (o portão é `motivo_bloqueio_efetivacao`, com a empresa), e sai com receita = `vProd`
+    (`conferir_valores(receita_pelo_vprod=True)`). A memória do `vProdLiq` vai para a trilha quando
+    o leitor o trouxer (BL-687).
     """
     empresa = receita_servico.travar_empresa(escrituracao.empresa)
     travada = (
@@ -1183,9 +1282,9 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
     documento = travada.vinculo.documento
     if services.situacao_da_nfe(documento) == "cancelada":
         raise EscrituracaoNFeErro("Nota cancelada não pode ser efetivada.")
-    # Receita de 2027 não se efetiva (HI-133). O ano é o de São Paulo, não o de UTC: 31/12/2026
-    # 23:59 em SP é 01/01/2027 02:59 UTC, e uma comparação em UTC recusaria a nota de 2026.
-    motivo = motivo_bloqueio_efetivacao(documento)
+    # O ano é o de São Paulo, não o de UTC: 31/12/2026 23:59 em SP é 01/01/2027 02:59 UTC, e uma
+    # comparação em UTC recusaria a nota de 2026. Em 2027 o motivo já vem do regime (HI-149).
+    motivo = motivo_bloqueio_efetivacao(documento, empresa)
     if motivo is not None:
         raise EscrituracaoNFeErro(motivo)
     dia, competencia = dia_e_competencia(documento)
@@ -1215,7 +1314,10 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
     for _, natureza in pares:
         _validar_natureza_para_o_tipo(natureza, travada.tipo)
 
-    conferencia = conferir_valores(documento, leitura, pares)
+    # HI-149: a receita da nota de 2027 do regime único é o vProd; a regra decide o caminho da
+    # conferência (sem W16). O portão acima já garante que só essa nota chega aqui em 2027+.
+    receita_pelo_vprod = receita_servico.receita_nfe_pelo_vprod(empresa, dia)
+    conferencia = conferir_valores(documento, leitura, pares, receita_pelo_vprod=receita_pelo_vprod)
     agora = timezone.now()
     antes = _snapshot(travada)
     atualizadas = EscrituracaoNFe.objects.filter(
@@ -1236,18 +1338,27 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
     travada.refresh_from_db()
     travada.criada_agora = True
 
+    detalhes = {
+        "vinculo_id": travada.vinculo_id,
+        "antes": antes,
+        "depois": _snapshot(travada),
+        "naturezas": {str(item.pk): natureza for item, natureza in pares},
+    }
+    if receita_pelo_vprod:
+        # Memória da receita de 2027 (HI-149): o que a regra usou, e o vProdLiq quando o leitor o
+        # trouxer (BL-687) — sem ele, só se registra a regra.
+        detalhes["receita_2027"] = {
+            "regra": "vProd (HI-149)",
+            "v_prod": str(conferencia.soma_itens),
+            "v_prod_liq": memoria_v_prod_liq(item for item, _natureza in pares),
+        }
     registrar(
         acao="escrituracao_nfe.efetivada",
         usuario=usuario,
         escritorio=travada.empresa.escritorio,
         objeto=travada,
         request=request,
-        detalhes={
-            "vinculo_id": travada.vinculo_id,
-            "antes": antes,
-            "depois": _snapshot(travada),
-            "naturezas": {str(item.pk): natureza for item, natureza in pares},
-        },
+        detalhes=detalhes,
     )
     marcar_a_retificar_do_mes(empresa, competencia, usuario, travada, request)
     return travada

@@ -406,6 +406,23 @@ def receita_do_item(item) -> Decimal:
     return total
 
 
+def receita_do_item_2027(item) -> Decimal:
+    """Receita do item de NF-e a partir de 2027, no regime ÚNICO do Simples (DL-088 A2; HI-149).
+
+    É o próprio `vProd` do item: a NT 2026.008 v1.00 passa a compor o `vProd` com IBS, CBS e IS por
+    dentro, e a receita bruta do Simples é o preço da venda, sem exclusão de tributos (LC 123,
+    art. 3º, § 1º, na redação da LC 214 — leitura do contador-senior de 09/10/2026, seção 3;
+    HI-149). O `vProdLiq` (valor sem tributos) não entra na receita: fica como memória da
+    efetivação (`escrituracao_nfe.memoria_v_prod_liq`).
+
+    O que a regra do MOC (`receita_do_item`) movia — desconto, frete, seguro, outras despesas e
+    ICMS desonerado — não move a receita de 2027: o preço da venda já está no `vProd`. Item
+    `indTot` 0 continua fora: o vProd dele não foi cobrado, e a regra do leiaute não muda com a
+    virada. Aceita um `ItemNFe` ou qualquer objeto com os mesmos campos; devolve `Decimal`.
+    """
+    return item.v_prod if item.ind_tot == "1" else Decimal("0.00")
+
+
 # ---------------------------------------------------------------------------
 # Atribuição por nota (DL-083, HI-138; consulta de 09/10/2026, item 1). Única etapa que distribui o
 # valor de item que não é receita. Todo soma de receita de NF-e passa por ela.
@@ -608,6 +625,28 @@ def atribuir_receita_da_nota(pares) -> AtribuicaoDaNota:
         for item, natureza, valor in nao_receita_itens
     )
     return AtribuicaoDaNota(valores, residuo_total, fora)
+
+
+def atribuicao_pelo_vprod(pares) -> AtribuicaoDaNota:
+    """Valores por item de uma nota de 2027 em diante, no regime único do Simples (HI-149).
+
+    A regra de 2027 dá a cada item o seu `vProd` (`receita_do_item_2027`) e não tem resíduo nem
+    rateio: não há parcela de frete, desconto ou despesa a mover entre itens. Por isso esta
+    "atribuição" devolve os valores direto, com `residuo_total` zero e nenhum item fora do total,
+    no MESMO formato de `AtribuicaoDaNota` para quem lê os valores trocar só a função. Natureza
+    vazia não entra (quem chama filtra); natureza de ajuste e o papel que não é receita nem dedução
+    valem zero, como na atribuição da regra do MOC.
+    """
+    valores: dict = {}
+    for item, natureza in pares:
+        if not natureza:
+            continue
+        papel = papel_da_natureza_nfe(natureza)
+        if natureza != _NATUREZA_AJUSTE and papel in ("receita", "deducao"):
+            valores[item.pk] = receita_do_item_2027(item)
+        else:
+            valores[item.pk] = Decimal("0.00")
+    return AtribuicaoDaNota(valores, Decimal("0.00"), ())
 
 
 def avisos_da_atribuicao(atribuicao: AtribuicaoDaNota) -> dict[int, tuple[str, ...]]:

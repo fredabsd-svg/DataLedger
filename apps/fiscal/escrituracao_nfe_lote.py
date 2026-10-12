@@ -15,11 +15,12 @@ PRÉVIA (`previa_do_lote`)
 - Devolução de venda NÃO entra no lote (A1, correção do DL-085): sai com
   `devolucao_segmento_a_confirmar` e o motivo "escriture esta nota individualmente", antes de
   qualquer leitura. O segmento da devolução é confirmado pelo contador, nota a nota.
-- Ordem das recusas, a MESMA de `efetivar`: 2027 (HI-133); itens ilegíveis; leitura de versão
-  anterior; item sem sugestão ou em conflito; atribuição do resíduo (HI-138); nota sem vNF; W16
-  (HI-119). A W16 roda com as naturezas SUGERIDAS e sem gravar nada. Nota em rascunho com
-  natureza já escolhida pelo contador, diferente da sugestão, sai com `natureza_escolhida`: o lote
-  nunca sobrescreve a escolha (DL-085, A2).
+- Ordem das recusas, a MESMA de `efetivar`: 2027 (HI-133; HI-149: a nota de 2027 só entra no lote
+  quando é do Simples no regime único do semestre, e aí a receita é o `vProd`, sem W16); itens
+  ilegíveis; leitura de versão anterior; item sem sugestão ou em conflito; atribuição do resíduo
+  (HI-138); nota sem vNF; W16 (HI-119). A W16 roda com as naturezas SUGERIDAS e sem gravar nada.
+  Nota em rascunho com natureza já escolhida pelo contador, diferente da sugestão, sai com
+  `natureza_escolhida`: o lote nunca sobrescreve a escolha (DL-085, A2).
 - Leitura de itens: a prévia NÃO lê XML. A nota sem leitura atual (nunca lida, ou de versão
   anterior e ainda não rascunho) vai para `a_ler`, e `ler_notas_do_mes` a lê em partes (endpoint
   próprio, mesmo desenho das partes de efetivação). Nota em rascunho com leitura antiga sai do lote
@@ -475,25 +476,36 @@ def _fora(nota: servico.NotaDoMes, codigo: str, motivo: str) -> ForaDoLote:
     )
 
 
-def _recusa_de_data(nota: servico.NotaDoMes) -> tuple[str, str] | None:
-    """Nota de 2027 (HI-133). Primeira recusa, como em `efetivar`."""
-    motivo = servico.motivo_bloqueio_efetivacao(nota.documento)
+def _recusa_de_data(empresa, nota: servico.NotaDoMes) -> tuple[str, str] | None:
+    """Nota de 2027 (HI-133; DL-088 A2, HI-149). Primeira recusa, como em `efetivar`, com a
+    empresa: em 2027 em diante só a nota do Simples no regime único do semestre entra no lote."""
+    motivo = servico.motivo_bloqueio_efetivacao(nota.documento, empresa)
     return (CODIGO_2027, motivo) if motivo else None
 
 
-def _conferencia_ou_recusa(documento, leitura, pares):
+def _conferencia_ou_recusa(empresa, documento, leitura, pares):
     """(conferência, None) quando a nota fecha; (None, (código, motivo)) quando não fecha.
 
-    Mesma ordem de `efetivar`: atribuição, vNF, W16. Não grava nada.
+    Mesma ordem de `efetivar`: atribuição, vNF, W16. Na nota de 2027 em diante do regime único
+    (HI-149) a receita é o `vProd`: não há atribuição de resíduo nem W16, e a conferência vai
+    direto para `conferir_valores(receita_pelo_vprod=True)`. Não grava nada.
     """
-    try:
-        atribuir_receita_da_nota(pares)
-    except ResiduoNaoAtribuivel as exc:
-        return None, (CODIGO_ATRIBUICAO, exc.motivo)
+    dia, _competencia = servico.dia_e_competencia(documento)
+    receita_pelo_vprod = receita_servico.receita_nfe_pelo_vprod(empresa, dia)
+    if not receita_pelo_vprod:
+        try:
+            atribuir_receita_da_nota(pares)
+        except ResiduoNaoAtribuivel as exc:
+            return None, (CODIGO_ATRIBUICAO, exc.motivo)
     if documento.v_nf is None:
         return None, (CODIGO_SEM_VNF, MENSAGEM_SEM_VNF)
     try:
-        return servico.conferir_valores(documento, leitura, pares), None
+        return (
+            servico.conferir_valores(
+                documento, leitura, pares, receita_pelo_vprod=receita_pelo_vprod
+            ),
+            None,
+        )
     except servico.DivergenciaComVnf as exc:
         return None, (CODIGO_W16, exc.mensagem)
     except servico.EscrituracaoNFeErro as exc:
@@ -597,7 +609,7 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
         if _sem_leitura_atual(nota):
             a_ler.append(nota.vinculo.pk)
             continue
-        recusa = _recusa_de_data(nota)
+        recusa = _recusa_de_data(empresa, nota)
         if recusa is not None:
             fora.append(_fora(nota, *recusa))
             continue
@@ -657,7 +669,7 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
             fora.append(_fora(nota, CODIGO_NATUREZA_ESCOLHIDA, MENSAGEM_NATUREZA_ESCOLHIDA))
             continue
 
-        conferencia, recusa = _conferencia_ou_recusa(documento, leitura, pares)
+        conferencia, recusa = _conferencia_ou_recusa(empresa, documento, leitura, pares)
         if recusa is not None:
             fora.append(_fora(nota, *recusa))
             continue
@@ -878,7 +890,7 @@ def _escolhas_validas(previa: PreviaDoLote, escolhas: dict) -> dict[str, dict[st
     return normalizadas
 
 
-def _fixar_naturezas(previa: PreviaDoLote, escolhas: dict) -> dict[int, list]:
+def _fixar_naturezas(empresa, previa: PreviaDoLote, escolhas: dict) -> dict[int, list]:
     """Naturezas finais de cada nota, com a W16 simulada para as notas que a escolha mudou.
 
     Devolve {vinculo_id: [[item_id, sugerida, final], ...]}. Recusa (400) antes de gravar nada,
@@ -899,14 +911,16 @@ def _fixar_naturezas(previa: PreviaDoLote, escolhas: dict) -> dict[int, list]:
                 finais.append((item, final))
                 mudou = mudou or final != sugerida
             if mudou:
-                _simular_conferencia(nota, candidata, finais)
+                _simular_conferencia(empresa, nota, candidata, finais)
             fixados[nota.vinculo_id] = itens
     return fixados
 
 
-def _simular_conferencia(nota: NotaDoLote, candidata: _Candidata, finais) -> None:
+def _simular_conferencia(empresa, nota: NotaDoLote, candidata: _Candidata, finais) -> None:
     """Recusa a escolha que deixa a nota sem fechar a conferência. Não grava nada."""
-    _conferencia, recusa = _conferencia_ou_recusa(candidata.documento, candidata.leitura, finais)
+    _conferencia, recusa = _conferencia_ou_recusa(
+        empresa, candidata.documento, candidata.leitura, finais
+    )
     if recusa is not None:
         _codigo, motivo = recusa
         raise servico.EntradaInvalidaNFe(
@@ -1014,7 +1028,7 @@ def _criar_lote(
             "escolha. Nada foi efetivado."
         )
     escolhas_validas = _escolhas_validas(previa, escolhas)
-    fixados = _fixar_naturezas(previa, escolhas_validas)
+    fixados = _fixar_naturezas(empresa, previa, escolhas_validas)
 
     # A trava da empresa e a checagem em `confirmar_lote` evitam a corrida. Se ela passar mesmo
     # assim (outra transação gravou um lote em andamento depois da checagem), a restrição do

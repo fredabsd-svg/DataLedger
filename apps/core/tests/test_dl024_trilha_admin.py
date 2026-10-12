@@ -123,6 +123,7 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         ExcecaoFeriadoLocal,
         FeriadoLocal,
         FolhaFatorR,
+        IpiMantidoZfmEmpresa,
         ItemNFe,
         LeituraItensNFe,
         LoteDeRecepcao,
@@ -131,6 +132,7 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         MedidaJudicialLC224,
         NaturezaItemNFe,
         OpcaoRegimeCaixaSimples,
+        OpcaoRegimeIbsCbsSimples,
         ParametrosPresumidoEmpresa,
         ReceitaInformada,
         ReceitaTrimestralPresumido,
@@ -236,6 +238,11 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         ReceitaInformada,
         ConfirmacaoReceitaMensal,
         OpcaoRegimeCaixaSimples,
+        # DL-088 (frente A2, 2026-10-11): `OpcaoRegimeIbsCbsSimples` e `IpiMantidoZfmEmpresa`,
+        # na cobertura "por padrão" (R1/DE-056). Sem ModelAdmin (BL-262); a escrita é pelos
+        # serviços de `apps.fiscal.receita`, que gravam a trilha na mesma transação.
+        OpcaoRegimeIbsCbsSimples,
+        IpiMantidoZfmEmpresa,
         # DL-075 (frente A, 2026-10-08): `AtividadeEmpresa` e `FolhaFatorR`, na cobertura
         # "por padrão" (R1/DE-056), como os acima. Sem ModelAdmin (BL-262); a escrita é pelos
         # serviços de `apps.fiscal.pre_das` e `apps.fiscal.folha_fator_r`, que gravam a trilha

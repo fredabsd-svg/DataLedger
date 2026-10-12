@@ -553,6 +553,11 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
     # apps.fiscal.receita (savepoint por INSERT, mesmo molde de `_inserir_escrituracao`).
     "confirmacao_mes_unica_por_empresa": "apps.fiscal.receita._inserir",
     "opcao_caixa_unica_por_ano": "apps.fiscal.receita._inserir",
+    # DL-088 (frente A2): a opção de regime de IBS/CBS do semestre é insert-only, e o IPI
+    # mantido tem INSERT com trava de unicidade (cadastro corrigível por novo INSERT). As duas
+    # unicidades saem como 409 pelo mesmo `_inserir`.
+    "opcao_regime_ibs_cbs_unica_por_semestre": "apps.fiscal.receita._inserir",
+    "ipi_mantido_unico_por_empresa": "apps.fiscal.receita._inserir",
     # DL-075 (frente A): folha, um lançamento ativo por mês → 409 (conflito de estado).
     "folha_mes_unica_ativa_por_empresa": "apps.fiscal.folha_fator_r._inserir",
     # DL-075 (frente A): atividades. A padrão em aberto e a vigência/enquadramento
@@ -601,6 +606,16 @@ RESTRICOES_TRADUZIDAS_FORA_DO_MAPA = {
 # nenhum. A forma como a restrição foi DECLARADA não muda o que acontece
 # quando ela é violada.
 RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
+    # DL-088 (frente A2): CHECKs da opção de regime de IBS/CBS do semestre. O serviço
+    # (`apps.fiscal.receita._validar_ano_e_semestre`) recusa ano anterior a 2027 e semestre fora
+    # de 1|2 ANTES do INSERT, com `EntradaInvalidaReceita` (400); nenhuma entrada de cliente
+    # alcança estas linhas.
+    "opcao_regime_ibs_cbs_so_desde_2027": (
+        "Ano anterior a 2027 na opção de regime: o serviço recusa antes. "
+    ),
+    "opcao_regime_ibs_cbs_semestre_valido": (
+        "Semestre fora de 1 e 2 na opção de regime: o serviço recusa antes. "
+    ),
     # DL-080 (frente A): `_vincular_participantes_nfe` nunca cria dois vínculos para a mesma empresa
     # no mesmo documento: emitente e destinatário que são a mesma empresa viram UM vínculo, como
     # emitente, com a marca de transferência (HI-111). Nenhum caminho de escrita do cliente.

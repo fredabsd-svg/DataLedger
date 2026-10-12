@@ -480,9 +480,12 @@ class EscrituracaoNFeDetalheView(_EmpresaComIdValido, APIView):
                 "leitura_motivo": (leitura.motivo or None) if leitura else None,
                 "itens": itens,
                 "avisos": _avisos_payload(servico.avisos_ibscbs(documento, leitura)),
-                # A8: a tela desabilita "Efetivar" com este motivo (regra de data, hoje 2027).
-                # O servidor recusa de novo no POST.
-                "motivo_bloqueio_efetivacao": servico.motivo_bloqueio_efetivacao(documento),
+                # A8: a tela desabilita "Efetivar" com este motivo (data e, em 2027, o regime:
+                # só o Simples no regime único do semestre se efetiva — DL-088 A2, HI-149).
+                # O servidor recusa de novo no POST, com o mesmo motivo.
+                "motivo_bloqueio_efetivacao": servico.motivo_bloqueio_efetivacao(
+                    documento, escrituracao.empresa
+                ),
                 "catalogo": {
                     codigo: {
                         "rotulo": NaturezaOperacaoNFe(codigo).label,
