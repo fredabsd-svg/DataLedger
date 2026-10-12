@@ -151,6 +151,7 @@ ROTULOS_DE_TELA = {
     # responde com a própria tela quando recusa.
     ("fiscal_web", "opcao_regime_ibs_cbs"): "Opção de regime IBS/CBS",
     ("fiscal_web", "opcao_regime_ibs_cbs_registrar"): "Opção de regime IBS/CBS",
+    ("fiscal_web", "opcao_regime_ibs_cbs_cancelar"): "Opção de regime IBS/CBS",
     ("fiscal_web", "ipi_mantido"): "IPI mantido (Zona Franca)",
     ("fiscal_web", "ipi_mantido_gravar"): "IPI mantido (Zona Franca)",
     # DL-075 (frente B): pré-DAS para conferência, atividades e folha para o fator r.

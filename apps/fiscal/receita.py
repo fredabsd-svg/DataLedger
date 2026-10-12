@@ -346,7 +346,8 @@ def linhas_nfe_do_periodo(
     linhas = []
     for registros_da_nota in por_escrituracao.values():
         pares = [(r.item, r.natureza) for r in registros_da_nota]
-        # DL-088 A2 (HI-149): a nota de 2027 em diante vale o seu `vProd`, sem resíduo nem rateio.
+        # DL-088 A2 (HI-149): a nota de 2027 em diante vale o seu `vProd − vDesc`, sem resíduo
+        # nem rateio.
         # Toda escrituração EFETIVADA de 2027 em diante passou pelo portão do regime único na
         # efetivação (`escrituracao_nfe.motivo_bloqueio_efetivacao`), então a regra vale para ela
         # sem rechecar o regime aqui: rechecar por nota duplicaria a regra e enfiaria consulta por
@@ -1518,9 +1519,15 @@ def regimes_em(empresa: Empresa, dia: date) -> set[str | None]:
 def opcao_regime_ibs_cbs_registrada(
     empresa: Empresa, ano: int, semestre: int
 ) -> OpcaoRegimeIbsCbsSimples | None:
-    """A LINHA da opção do semestre (para a API mostrar o dado e o carimbo), ou `None`."""
+    """A LINHA ATIVA da opção do semestre (para a API mostrar o dado e o carimbo), ou `None`.
+
+    Só a opção ATIVA conta (`cancelada_em` vazio). A linha cancelada continua na tabela (histórico
+    e trilha), mas não é a opção do semestre: o estado efetivo volta a ser "não informado", como o
+    motor vê (`opcao_regime_ibs_cbs_do_semestre`). No máximo UMA linha ativa existe por
+    (empresa, ano, semestre) — a restrição única parcial garante.
+    """
     return OpcaoRegimeIbsCbsSimples.objects.filter(
-        empresa=empresa, ano=ano, semestre=semestre
+        empresa=empresa, ano=ano, semestre=semestre, cancelada_em__isnull=True
     ).first()
 
 
@@ -1532,8 +1539,10 @@ def opcao_regime_ibs_cbs_do_semestre(empresa: Empresa, ano: int, semestre: int) 
     - `True` = REGIME REGULAR (opção `RegimeIbsCbsSimples.REGIME_REGULAR`, art. 22-A): CBS e IBS
       são DEDUZIDOS do DAS;
     - `False` = REGIME ÚNICO (`RegimeIbsCbsSimples.REGIME_UNICO`): CBS e IBS ficam NO DAS;
-    - `None` = opção NÃO informada (sem linha): o motor recusa 2027 com o bloqueio
-      `opcao_regime_regular_nao_informada`, e a NF-e de 2027 não se efetiva (HI-149).
+    - `None` = opção NÃO informada (sem linha ativa — nem nunca registrada, nem CANCELADA): o motor
+      recusa 2027 com o bloqueio `opcao_regime_regular_nao_informada`, e a NF-e de 2027 não se
+      efetiva (HI-149). A opção cancelada (DL-088, correção do achado A1) devolve `None` de novo: é
+      o comportamento conservador — o motor não calcula sem saber o regime.
     """
     linha = opcao_regime_ibs_cbs_registrada(empresa, ano, semestre)
     if linha is None:
@@ -1561,10 +1570,12 @@ def registrar_opcao_regime_ibs_cbs(
     """Registra a opção de regime de IBS/CBS do semestre, com trilha, sob a trava da empresa.
 
     O `regime` escolhido é `RegimeIbsCbsSimples.REGIME_REGULAR` ou `.REGIME_UNICO` (ver
-    `opcao_regime_ibs_cbs_do_semestre` para como ele alimenta o motor). A opção do semestre é
-    registrada UMA vez: a segunda tentativa é recusada pela restrição única (não há "mudar de
-    ideia" — a escolha do semestre é do regime fiscal, não do sistema). Empresa sem período do
-    Simples no ano é recusada antes de gravar, como na opção pelo regime de caixa.
+    `opcao_regime_ibs_cbs_do_semestre` para como ele alimenta o motor). Enquanto houver opção ATIVA
+    no (empresa, ano, semestre), a segunda tentativa é recusada pela restrição única parcial (não há
+    "mudar de ideia" — a escolha do semestre é do regime fiscal, não do sistema). A opção CANCELADA
+    (`cancelar_opcao_regime_ibs_cbs`, na janela legal) libera o semestre: registrar de novo é
+    aceito e a nova linha vira a única ativa. Empresa sem período do Simples no ano é recusada
+    antes de gravar, como na opção pelo regime de caixa.
     """
     ano, semestre = _validar_ano_e_semestre(ano, semestre)
     if regime not in RegimeIbsCbsSimples.values:
@@ -1586,7 +1597,8 @@ def registrar_opcao_regime_ibs_cbs(
         opcao,
         _RESTRICAO_OPCAO_IBS_CBS_UNICA,
         f"A opção de regime de IBS/CBS do {semestre}º semestre de {ano} já foi registrada; "
-        "a opção do semestre é registrada uma única vez.",
+        "a opção do semestre é registrada uma única vez e só deixa de valer pelo cancelamento, "
+        "na janela legal (Res. CGSN 194/2026; Res. CGSN 190/2026, arts. 40-C e 40-D).",
     )
     registrar(
         acao="regime_ibs_cbs.opcao_registrada",
@@ -1602,6 +1614,189 @@ def registrar_opcao_regime_ibs_cbs(
         },
     )
     return opcao
+
+
+# ---------------------------------------------------------------------------
+# Cancelamento da opção do semestre (DL-088, correção do achado A1 — Res. CGSN 194/2026)
+# ---------------------------------------------------------------------------
+
+# O motivo é obrigatório, como nos estornos da casa (`_motivo`): vazio ou só com espaços recusa, e
+# acima de MOTIVO_MAXIMO recusa. O piso de MOTIVO_CANCELAMENTO_MINIMO caracteres é decisão de
+# produto desta correção (a fonte legal não fixa tamanho de motivo): o ato fica na trilha, e um
+# motivo como "x" não diz nada a quem ler a trilha depois.
+MOTIVO_CANCELAMENTO_MINIMO = 5
+
+
+@dataclass(frozen=True)
+class JanelaDeCancelamentoDaOpcao:
+    """Janela legal do cancelamento da opção do (ano, semestre), com a fonte citada.
+
+    `inicio` é `None` quando a fonte fixa SÓ o prazo final (regra geral dos arts. 40-C/40-D).
+    """
+
+    inicio: date | None
+    fim: date
+    fonte: str
+
+    @property
+    def descricao(self) -> str:
+        if self.inicio is None:
+            return f"até {self.fim:%d/%m/%Y}"
+        return f"de {self.inicio:%d/%m/%Y} a {self.fim:%d/%m/%Y}"
+
+
+def janela_de_cancelamento_da_opcao(ano: int, semestre: int) -> JanelaDeCancelamentoDaOpcao:
+    """A janela de cancelamento da opção do (ano, semestre), com o dispositivo citado.
+
+    Fonte: consulta do contador-senior de 09/10/2026, seção 1
+    (docs/projeto/consultas/2026-10-09-contador-senior-virada-2027-simples.md), que registra:
+
+    - **Res. CGSN 194/2026** — para o PRIMEIRO ciclo, opção pelo regime regular de IBS/CBS para
+      jan-jun/2027 de 01/09 a 30/10/2026, com **cancelamento de 03/11 a 20/12/2026**. É o único
+      caso da fonte com janela FECHADA (início e fim), e por isso está fixado à mão abaixo.
+    - **Res. CGSN 190/2026, arts. 40-C e 40-D** — opção/renúncia irretratável por semestre, no
+      Portal: 01 a 30/09 (efeitos 01/01 seguinte) e 01 a 31/03 (efeitos 01/07), **cancelável até
+      30/11 e até 31/05**, respectivamente. A fonte fixa SÓ o prazo final, e por isso `inicio` vem
+      `None`: aplica-se o prazo (30/11 do ano anterior ao 1º semestre; 31/05 do ano do 2º) e não se
+      exige abertura de janela que a fonte não traz (AGENTS §10: nada de prazo inventado). É a
+      regra geral aplicada aos semestres que a Res. 194/2026 não cobre — o 2º semestre de 2027 e
+      2028 em diante (a fonte do primeiro ciclo só trata de jan-jun/2027).
+    """
+    if (ano, semestre) == (2027, 1):
+        return JanelaDeCancelamentoDaOpcao(
+            date(2026, 11, 3),
+            date(2026, 12, 20),
+            "Res. CGSN 194/2026 (cancelamento de 03/11 a 20/12/2026; "
+            "consulta de 09/10/2026, seção 1)",
+        )
+    if semestre == 1:
+        return JanelaDeCancelamentoDaOpcao(
+            None,
+            date(ano - 1, 11, 30),
+            "Res. CGSN 190/2026, arts. 40-C e 40-D (cancelável até 30/11; "
+            "consulta de 09/10/2026, seção 1)",
+        )
+    return JanelaDeCancelamentoDaOpcao(
+        None,
+        date(ano, 5, 31),
+        "Res. CGSN 190/2026, arts. 40-C e 40-D (cancelável até 31/05; "
+        "consulta de 09/10/2026, seção 1)",
+    )
+
+
+def mensagem_fora_da_janela_de_cancelamento(ano: int, semestre: int, hoje: date) -> str:
+    """Recusa do cancelamento fora da janela legal, citando o prazo e a fonte."""
+    janela = janela_de_cancelamento_da_opcao(ano, semestre)
+    return (
+        f"O cancelamento da opção de regime de IBS/CBS do {semestre}º semestre de {ano} só é "
+        f"admitido {janela.descricao} ({janela.fonte}). Hoje é {hoje:%d/%m/%Y}: fora da janela "
+        "de cancelamento."
+    )
+
+
+def mensagem_cancelamento_sem_opcao(ano: int, semestre: int) -> str:
+    return (
+        f"Não há opção de regime de IBS/CBS ativa do {semestre}º semestre de {ano} para cancelar: "
+        "registre a opção primeiro."
+    )
+
+
+def mensagem_opcao_ja_cancelada(ano: int, semestre: int) -> str:
+    return (
+        f"A opção de regime de IBS/CBS do {semestre}º semestre de {ano} já está cancelada: o "
+        "cancelamento da opção é um ato único."
+    )
+
+
+def _motivo_do_cancelamento(motivo) -> str:
+    """Motivo do cancelamento: obrigatório, com tamanho entre o piso e o teto da casa."""
+    limpo = _motivo(motivo)
+    if len(limpo) < MOTIVO_CANCELAMENTO_MINIMO:
+        raise EntradaInvalidaReceita(
+            f"O motivo do cancelamento tem de ter pelo menos {MOTIVO_CANCELAMENTO_MINIMO} "
+            "caracteres: diga por que a opção está sendo cancelada (ele fica na trilha)."
+        )
+    return limpo
+
+
+@transaction.atomic
+def cancelar_opcao_regime_ibs_cbs(
+    empresa: Empresa, ano: int, semestre: int, motivo: str, usuario, request=None
+) -> OpcaoRegimeIbsCbsSimples:
+    """Cancela a opção ATIVA do semestre, com motivo obrigatório, dentro da janela legal.
+
+    Ato à parte do registro (DL-088, correção do achado A1), no molde dos estornos da casa:
+
+    - `motivo` obrigatório (vazio ou só com espaços recusa; com menos de
+      `MOTIVO_CANCELAMENTO_MINIMO` caracteres recusa; acima de `MOTIVO_MAXIMO` recusa), e fica na
+      linha e na trilha;
+    - trava da empresa, e a linha ativa é travada (`select_for_update`) antes de mudar;
+    - a janela é a de `janela_de_cancelamento_da_opcao` — 03/11 a 20/12/2026 para o 1º semestre de
+      2027 (Res. CGSN 194/2026) e, nos demais semestres (a fonte do primeiro ciclo não os cobre;
+      vale a regra geral dos arts. 40-C/40-D), até 30/11 (1º semestre) ou 31/05 (2º). FORA da
+      janela, a recusa nomeia o prazo e a fonte;
+    - sem opção ATIVA recusa; já cancelada recusa (o cancelamento é ato único);
+    - a linha NÃO é apagada: `cancelada_em`/`cancelada_por`/`motivo_cancelamento` ficam nela, a
+      trilha guarda antes/depois e o motivo, e o semestre é LIBERADO para novo registro (a
+      unicidade `opcao_regime_ibs_cbs_unica_por_semestre` é parcial em `cancelada_em__isnull=True`).
+
+    Efeito: `opcao_regime_ibs_cbs_do_semestre` volta a devolver `None` — o pré-DAS de 2027 recusa
+    com `opcao_regime_regular_nao_informada` e a NF-e de 2027 não se efetiva, até que outra opção
+    seja registrada no mesmo semestre.
+    """
+    ano, semestre = _validar_ano_e_semestre(ano, semestre)
+    motivo_limpo = _motivo_do_cancelamento(motivo)
+    travada = travar_empresa(empresa)
+    linha = (
+        OpcaoRegimeIbsCbsSimples.objects.select_for_update(of=("self",))
+        .filter(empresa=travada, ano=ano, semestre=semestre, cancelada_em__isnull=True)
+        .first()
+    )
+    if linha is None:
+        if OpcaoRegimeIbsCbsSimples.objects.filter(
+            empresa=travada, ano=ano, semestre=semestre
+        ).exists():
+            raise ReceitaErro(mensagem_opcao_ja_cancelada(ano, semestre))
+        raise ReceitaErro(mensagem_cancelamento_sem_opcao(ano, semestre))
+    hoje = hoje_local()
+    janela = janela_de_cancelamento_da_opcao(ano, semestre)
+    if hoje > janela.fim or (janela.inicio is not None and hoje < janela.inicio):
+        raise ReceitaErro(mensagem_fora_da_janela_de_cancelamento(ano, semestre, hoje))
+    antes = {
+        "ativa": True,
+        "regime": linha.regime,
+        "cancelada_em": None,
+        "cancelada_por": None,
+        "motivo_cancelamento": None,
+    }
+    linha.cancelada_em = timezone.now()
+    linha.cancelada_por = usuario
+    linha.motivo_cancelamento = motivo_limpo
+    linha.save(update_fields=["cancelada_em", "cancelada_por", "motivo_cancelamento"])
+    depois = {
+        "ativa": False,
+        "regime": linha.regime,
+        "cancelada_em": _iso(linha.cancelada_em),
+        "cancelada_por": linha.cancelada_por_id,
+        "motivo_cancelamento": motivo_limpo,
+    }
+    registrar(
+        acao="regime_ibs_cbs.opcao_cancelada",
+        usuario=usuario,
+        escritorio=travada.escritorio,
+        objeto=linha,
+        request=request,
+        detalhes={
+            "empresa_id": travada.pk,
+            "ano": ano,
+            "semestre": semestre,
+            "regime": linha.regime,
+            "motivo_cancelamento": motivo_limpo,
+            "antes": antes,
+            "depois": depois,
+        },
+    )
+    return linha
 
 
 def ipi_mantido_registrado(empresa: Empresa) -> IpiMantidoZfmEmpresa | None:
@@ -1685,14 +1880,17 @@ def definir_ipi_mantido(
 
 
 def receita_nfe_pelo_vprod(empresa: Empresa, dia: date) -> bool:
-    """A NF-e emitida em `dia` tem receita igual ao `vProd` (DL-088 A2, HI-149)?
+    """A NF-e emitida em `dia` tem receita pela regra de 2027, `vProd − vDesc` (DL-088 A2, HI-149)?
 
     Sim SÓ para a empresa do Simples no regime ÚNICO do semestre de `dia`, a partir de 01/2027: a
     NT 2026.008 v1.00 passa a compor o `vProd` com IBS, CBS e IS por dentro, e a receita bruta do
-    Simples é o preço da venda, sem exclusão de tributos (LC 123, art. 3º, § 1º, na redação da LC
-    214 — leitura do contador-senior de 09/10/2026, seção 3; HI-149). Para o Presumido e para quem
-    optou pelo REGIME REGULAR a receita de NF-e de 2027 continua bloqueada até a leitura do
-    DL 1.598, art. 12, § 4º. Antes de 2027 vale a regra do MOC (`itens_nfe.receita_do_item`).
+    Simples é o produto da venda/preço dos serviços, "não incluídas as vendas canceladas e os
+    descontos incondicionais", sem exclusão de tributos (LC 123, art. 3º, § 1º, na redação da LC
+    214 — leitura do contador-senior de 09/10/2026, seção 3; HI-149; correção do achado A2: o
+    `vDesc` sai da receita, e o frete segue fora, com a dúvida P15 registrada com o Fred). Para o
+    Presumido e para quem optou pelo REGIME REGULAR a receita de NF-e de 2027 continua bloqueada até
+    a leitura do DL 1.598, art. 12, § 4º. Antes de 2027 vale a regra do MOC
+    (`itens_nfe.receita_do_item`).
     """
     if dia.year < 2027:
         return False

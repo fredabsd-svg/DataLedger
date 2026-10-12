@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block titulo %}Cancelar a opção de regime de IBS/CBS — {{ empresa_selecionada.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa_selecionada.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_voltar }}">Opção de regime de IBS/CBS</a></li>
+            <li aria-current="page">Cancelar a opção</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_voltar }}">‹ Voltar para a opção</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-088, correção do achado A1 (Res. CGSN 194/2026; Res. CGSN 190/2026, arts. 40-C e 40-D),
+arquétipo E (ação sensível), no padrão de presumido_medida_encerrar.html. O cancelamento NÃO
+apaga a opção: a linha fica no histórico, com quem cancelou, quando e por quê (e na trilha), o
+semestre é liberado para nova opção, e o motor volta a ver a opção como não informada (o pré-DAS
+de 2027 recusa). Confirmação em duas etapas nomeando empresa, semestre e regime, com a janela
+legal dita na tela e a fonte citada.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Cancelar a opção de regime de IBS/CBS</h1>{% endblock %}
+
+{% block content %}
+    {% if erros.geral %}
+        <p id="erro_do_formulario" class="mensagem mensagem-error" role="alert"><strong>Erro:</strong> {{ erros.geral }}</p>
+    {% endif %}
+
+    {% if confirmacao %}
+        <div class="painel-etapa painel-etapa--risco">
+            <h2>O que vai acontecer</h2>
+            <p>
+                A opção deixa de valer para o {{ confirmacao.semestre }}º semestre de
+                {{ confirmacao.ano }}: o pré-DAS daquele semestre volta a recusar por falta da
+                opção, e a nota de 2027 não se efetiva, até que outra opção seja registrada. A
+                linha não é apagada: o cancelamento, o motivo, a data e quem cancelou ficam no
+                registro e na trilha, e o semestre fica livre para novo registro.
+            </p>
+            <p class="texto-apoio">
+                Janela do cancelamento: {{ confirmacao.janela }} — {{ confirmacao.fonte }}.
+            </p>
+        </div>
+
+        <dl class="lista-de-definicao">
+            <div>
+                <dt>Empresa</dt>
+                <dd>{{ empresa_selecionada.razao_social }}</dd>
+            </div>
+            <div>
+                <dt>Período</dt>
+                <dd>{{ confirmacao.semestre }}º semestre de {{ confirmacao.ano }}</dd>
+            </div>
+            <div>
+                <dt>Regime da opção</dt>
+                <dd>{{ confirmacao.rotulo }} — {{ confirmacao.consequencia }}</dd>
+            </div>
+            <div>
+                <dt>Registrada</dt>
+                <dd>{{ confirmacao.registrada_em|date:"d/m/Y H:i" }} por {{ confirmacao.registrada_por }}</dd>
+            </div>
+        </dl>
+
+        <form method="post" action="{{ url_envio }}" class="formulario">
+            {% csrf_token %}
+            <input type="hidden" name="ano" value="{{ confirmacao.ano }}">
+            <input type="hidden" name="semestre" value="{{ confirmacao.semestre }}">
+            <div class="campo">
+                <label for="id_motivo">Motivo do cancelamento (obrigatório)</label>
+                <textarea id="id_motivo" name="motivo" rows="3" maxlength="{{ motivo_maximo }}" required aria-describedby="ajuda_motivo{% if erros.motivo %} erro_motivo{% endif %}">{{ valores.motivo }}</textarea>
+                <p class="texto-apoio" id="ajuda_motivo">Por exemplo: o cliente cancelou a opção no Portal em 03/11/2026; a opção foi registrada por engano. Pelo menos {{ motivo_minimo }} caracteres: o motivo fica na trilha de auditoria.</p>
+                {% if erros.motivo %}
+                    <p class="mensagem mensagem-error" role="alert" id="erro_motivo"><strong>Erro:</strong> {{ erros.motivo }}</p>
+                {% endif %}
+            </div>
+            <div class="acoes-formulario">
+                <a class="botao botao--secundario" href="{{ url_voltar }}">Cancelar</a>
+                {% comment %}
+                Direção de arte §8.4: ação sensível em `.botao--perigoso`, com rótulo que nomeia a
+                consequência e o alvo (empresa, semestre e regime) — nunca só "Confirmar".
+                {% endcomment %}
+                <button type="submit" class="botao botao--perigoso">Cancelar a opção de regime<span class="visualmente-oculto"> de {{ empresa_selecionada.razao_social }}, {{ confirmacao.semestre }}º semestre de {{ confirmacao.ano }} ({{ confirmacao.rotulo }})</span></button>
+            </div>
+        </form>
+    {% else %}
+        <div class="acoes-formulario">
+            <a class="botao botao--secundario" href="{{ url_voltar }}">Voltar para a opção</a>
+        </div>
+    {% endif %}
+{% endblock %}

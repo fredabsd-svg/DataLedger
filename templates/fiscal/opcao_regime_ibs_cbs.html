@@ -18,7 +18,10 @@ IBS/CBS do Simples é por (ano, semestre) e é registrada UMA única vez (insert
 docs/projeto/consultas/2026-10-09-contador-senior-virada-2027-simples.md). Os dois regimes vêm com
 a consequência em linguagem de escritório: "CBS e IBS ficam no DAS" × "CBS e IBS são deduzidos do
 DAS, art. 22-A". É dado do escritório sobre a empresa, com trilha vinda do serviço: nada é
-transmitido. A segunda tentativa mostra a recusa nomeada do serviço, como ela é.
+transmitido. A segunda tentativa mostra a recusa nomeada do serviço, como ela é. O CANCELAMENTO
+(DL-088, correção do achado A1; Res. CGSN 194/2026) é ato à parte, em duas etapas, na janela legal
+dita nesta tela com a fonte citada: a linha cancelada fica no histórico e o semestre é liberado
+para nova opção.
 {% endcomment %}
 {% block titulo_pagina %}<h1>Opção de regime de IBS/CBS</h1>{% endblock %}
 
@@ -57,6 +60,9 @@ transmitido. A segunda tentativa mostra a recusa nomeada do serviço, como ela �
                 nada é transmitido a órgão algum.
             </p>
             <p class="texto-apoio">
+                {{ janela_cancelamento }}
+            </p>
+            <p class="texto-apoio">
                 Fonte: Res. CGSN 190/2026, art. 22-A, na leitura de 09/10/2026
                 (docs/projeto/consultas/2026-10-09-contador-senior-virada-2027-simples.md).
             </p>
@@ -64,14 +70,16 @@ transmitido. A segunda tentativa mostra a recusa nomeada do serviço, como ela �
 
         {% if opcoes %}
             <table class="tabela-dados">
-                <caption>Opções de regime de IBS/CBS já registradas, com a consequência e o carimbo de quem registrou</caption>
+                <caption>Opções de regime de IBS/CBS já registradas, com a situação, a consequência e o carimbo de quem registrou</caption>
                 <thead>
                     <tr>
                         <th scope="col">Período</th>
                         <th scope="col">Regime</th>
                         <th scope="col">Consequência</th>
+                        <th scope="col">Situação</th>
                         <th scope="col">Registrada em</th>
                         <th scope="col">Registrada por</th>
+                        <th scope="col">Ação</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -80,8 +88,33 @@ transmitido. A segunda tentativa mostra a recusa nomeada do serviço, como ela �
                             <th scope="row">{{ opcao.semestre }} de {{ opcao.ano }}</th>
                             <td>{{ opcao.rotulo }}</td>
                             <td>{{ opcao.consequencia }}</td>
+                            <td>
+                                {% if opcao.ativa %}
+                                    Ativa
+                                {% else %}
+                                    Cancelada em {{ opcao.cancelada_em|date:"d/m/Y H:i" }}
+                                    {% if opcao.cancelada_por %}por {{ opcao.cancelada_por }}{% endif %}
+                                    — {{ opcao.motivo_cancelamento }}
+                                {% endif %}
+                            </td>
                             <td>{{ opcao.registrada_em|date:"d/m/Y H:i" }}</td>
                             <td>{{ opcao.registrada_por }}</td>
+                            <td>
+                                {% comment %}
+                                Ação sensível em `.botao--perigoso`, com rótulo que nomeia o alvo
+                                (direção de arte §8.4). Quem só consulta vê a ação desabilitada
+                                com o motivo, nunca sumindo (§2B).
+                                {% endcomment %}
+                                {% if opcao.ativa %}
+                                    {% if pode_registrar %}
+                                        <a class="botao botao--perigoso botao--pequeno" href="{{ opcao.url_cancelar }}">Cancelar a opção<span class="visualmente-oculto"> de {{ opcao.semestre }} de {{ opcao.ano }} ({{ opcao.rotulo }}) de {{ empresa_selecionada.razao_social }}</span></a>
+                                    {% else %}
+                                        <button type="button" class="botao botao--perigoso botao--pequeno" disabled aria-describedby="ajuda_sem_permissao">Cancelar a opção<span class="visualmente-oculto"> de {{ opcao.semestre }} de {{ opcao.ano }} ({{ opcao.rotulo }}) de {{ empresa_selecionada.razao_social }}</span></button>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="texto-apoio">Cancelada: sem ação</span>
+                                {% endif %}
+                            </td>
                         </tr>
                     {% endfor %}
                 </tbody>

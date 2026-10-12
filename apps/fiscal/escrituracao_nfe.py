@@ -26,7 +26,10 @@ Hipóteses HI-117 a HI-124 (requisitos.md). Decisões que o código não explica
   resíduo negativo maior que a receita, e sem base para rateio.
 - 2027 (HI-133; consulta PE-84.4; DL-088 A2, HI-149): a NT 2026.008 diz que IBS, CBS e IS compõem
   o `vProd` a partir de 2027 e não diz como fica o vNF. Para a empresa do Simples no REGIME ÚNICO
-  do semestre, a nota de 2027 é efetivada com receita = `vProd` (`itens_nfe.receita_do_item_2027`),
+  do semestre, a nota de 2027 é efetivada com receita = `vProd − vDesc`
+   (`itens_nfe.receita_do_item_2027` — o
+   desconto incondicional sai da receita bruta, LC 123, art. 3º, § 1º; correção do achado A2 da
+   auditoria da DL-088),
   sem a conferência W16 (não há identidade publicada para o vNF de 2027), e o `vProdLiq` vira
   memória quando o leitor o trouxer (BL-687). Para o Presumido e para quem optou pelo regime
   regular a recusa continua, cada caso com o motivo nomeado (`motivo_bloqueio_efetivacao`), até a
@@ -1072,7 +1075,7 @@ def motivo_bloqueio_efetivacao(documento, empresa=None) -> str | None:
     lote.
 
     Em 2027 em diante (DL-088 A2; HI-149), a receita de NF-e só sai para a empresa do Simples no
-    REGIME ÚNICO do semestre da emissão (receita = `vProd`; ver `receita_servico.
+    REGIME ÚNICO do semestre da emissão (receita = `vProd − vDesc`; ver `receita_servico.
     receita_nfe_pelo_vprod`). Sem `empresa`, a checagem é a PURA DATA da DL-083 (A8): 2027 bloqueia
     com `MENSAGEM_RECEITA_2027_PENDENTE` — é o que a tela mostra antes de saber o regime, e o que o
     Presumido sempre verá. Com a `empresa`, cada recusa tem o motivo nomeado:
@@ -1190,7 +1193,8 @@ def conferir_valores(
     atribuição, então a W16 é a mesma. `itens_e_naturezas`: lista de (ItemNFe, natureza).
 
     `receita_pelo_vprod=True` (DL-088 A2; HI-149) é a nota de 2027 em diante do Simples no regime
-    único: a receita é o `vProd` (`itens_nfe.receita_do_item_2027`), sem atribuição de resíduo, e a
+    único: a receita é o `vProd − vDesc` (`itens_nfe.receita_do_item_2027`), sem atribuição de
+    resíduo, e a
     W16 NÃO é aplicada — a composição do `vNF` em 2027 não está publicada (a NT 2026.008 fala do
     `vProd`, não do `vNF`; PE-84.4), e aplicar a identidade seria presumir um leiaute. `soma_itens`
     continua a soma do valor de TODOS os itens com natureza, para a conferência do contador.
@@ -1262,7 +1266,8 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
     confirmado reabre a confirmação e marca "a retificar" (DL-074, critério 6), na mesma transação.
 
     DL-088 A2 (HI-149): a nota de 2027 em diante só se efetiva para o Simples no regime único do
-    semestre (o portão é `motivo_bloqueio_efetivacao`, com a empresa), e sai com receita = `vProd`
+    semestre (o portão é `motivo_bloqueio_efetivacao`, com a empresa), e sai com receita =
+    `vProd − vDesc`
     (`conferir_valores(receita_pelo_vprod=True)`). A memória do `vProdLiq` vai para a trilha quando
     o leitor o trouxer (BL-687).
     """
@@ -1314,7 +1319,8 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
     for _, natureza in pares:
         _validar_natureza_para_o_tipo(natureza, travada.tipo)
 
-    # HI-149: a receita da nota de 2027 do regime único é o vProd; a regra decide o caminho da
+    # HI-149: a receita da nota de 2027 do regime único é o vProd menos o desconto incondicional
+    # (vDesc — LC 123, art. 3º, § 1º; correção do achado A2); a regra decide o caminho da
     # conferência (sem W16). O portão acima já garante que só essa nota chega aqui em 2027+.
     receita_pelo_vprod = receita_servico.receita_nfe_pelo_vprod(empresa, dia)
     conferencia = conferir_valores(documento, leitura, pares, receita_pelo_vprod=receita_pelo_vprod)
@@ -1345,11 +1351,28 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
         "naturezas": {str(item.pk): natureza for item, natureza in pares},
     }
     if receita_pelo_vprod:
-        # Memória da receita de 2027 (HI-149): o que a regra usou, e o vProdLiq quando o leitor o
-        # trouxer (BL-687) — sem ele, só se registra a regra.
+        # Memória da receita de 2027 (HI-149; LC 123, art. 3º, § 1º — correção do achado A2): o
+        # que a regra usou, item a item agregado — vProd, o desconto incondicional (vDesc) e a
+        # receita resultante (vProd − vDesc) — e o vProdLiq quando o leitor o trouxer (BL-687),
+        # que NÃO entra na receita.
+        itens_com_natureza = [item for item, natureza in pares if natureza]
+        v_prod = sum(
+            (item.v_prod for item in itens_com_natureza if item.ind_tot == "1"),
+            Decimal("0.00"),
+        )
+        v_desc = sum(
+            (
+                item.v_desc
+                for item in itens_com_natureza
+                if item.ind_tot == "1" and item.v_desc is not None
+            ),
+            Decimal("0.00"),
+        )
         detalhes["receita_2027"] = {
-            "regra": "vProd (HI-149)",
-            "v_prod": str(conferencia.soma_itens),
+            "regra": "vProd − vDesc (HI-149)",
+            "v_prod": str(v_prod),
+            "v_desc": str(v_desc),
+            "receita": str(conferencia.soma_itens),
             "v_prod_liq": memoria_v_prod_liq(item for item, _natureza in pares),
         }
     registrar(

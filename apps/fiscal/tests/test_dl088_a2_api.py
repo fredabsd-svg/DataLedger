@@ -1,4 +1,7 @@
 """DL-088, frente A2: a API da opção de regime de IBS/CBS e do IPI mantido, e o pré-DAS liberado.
+Aqui também o CANCELAMENTO da opção do semestre (correção do achado A1 da auditoria da DL-088,
+Res. CGSN 194/2026 e arts. 40-C/40-D): serviço com a janela legal citada, trilha com o motivo,
+re-registro liberado depois do cancelamento, e a API do ato com permissão e isolamento.
 
 Critério 5 da DL-088: isolamento e permissão no servidor nos caminhos novos de escrita. O molde é
 `test_dl084_parametros.py` (parâmetros do presumido): GET consulta, POST escritura, papel checado
@@ -13,7 +16,12 @@ import pytest
 
 from apps.auditoria.models import RegistroAuditoria
 from apps.fiscal import receita as servico_receita
-from apps.fiscal.models import EnquadramentoAtividade, RegimeIbsCbsSimples, SituacaoIpiMantido
+from apps.fiscal.models import (
+    EnquadramentoAtividade,
+    OpcaoRegimeIbsCbsSimples,
+    RegimeIbsCbsSimples,
+    SituacaoIpiMantido,
+)
 from apps.fiscal.tests.suporte_dl088 import (
     confirmar_janela_de_2027_01,
     receber_pa_2027_01,
@@ -336,3 +344,258 @@ def test_pre_das_da_api_de_2027_sai_com_a_opcao_informada(client, empresa, usuar
         "ISS": "258.56",
         "IBS": "1.54",
     }
+
+
+# ---------------------------------------------------------------------------
+# Cancelamento da opção do semestre (DL-088, correção do achado A1 — Res. CGSN 194/2026)
+# ---------------------------------------------------------------------------
+
+MOTIVO = "Cliente cancelou a opção no Portal em 30/11/2026 (Res. CGSN 194/2026)."
+
+
+def _url_cancelar(empresa):
+    return f"/fiscal/api/empresas/{empresa.pk}/opcao-regime-ibs-cbs/cancelar/"
+
+
+def _cancelar(empresa, usuario, *, ano=2027, semestre=1, motivo=MOTIVO):
+    return servico_receita.cancelar_opcao_regime_ibs_cbs(empresa, ano, semestre, motivo, usuario)
+
+
+def _registrar(empresa, usuario, *, ano=2027, semestre=1, regime=RegimeIbsCbsSimples.REGIME_UNICO):
+    return servico_receita.registrar_opcao_regime_ibs_cbs(empresa, ano, semestre, regime, usuario)
+
+
+def test_cancelamento_na_janela_e_feliz_com_trilha(empresa, usuario_gestor_a, monkeypatch):
+    """Cancelamento dentro da janela da Res. CGSN 194/2026 (03/11 a 20/12/2026 para o 1º semestre
+    de 2027): a linha NÃO é apagada — ganha `cancelada_em`/`cancelada_por`/`motivo_cancelamento` —
+    a opção volta a estar NÃO informada para o motor, e a trilha guarda antes, depois e o motivo.
+    """
+    _registrar(empresa, usuario_gestor_a)
+    fixar_hoje(monkeypatch, date(2026, 12, 1))
+
+    linha = _cancelar(empresa, usuario_gestor_a)
+
+    assert linha.cancelada_em is not None
+    assert linha.cancelada_por == usuario_gestor_a
+    assert linha.motivo_cancelamento == MOTIVO
+    assert OpcaoRegimeIbsCbsSimples.objects.count() == 1
+    assert servico_receita.opcao_regime_ibs_cbs_registrada(empresa, 2027, 1) is None
+    assert servico_receita.opcao_regime_ibs_cbs_do_semestre(empresa, 2027, 1) is None
+    registro = RegistroAuditoria.objects.get(acao="regime_ibs_cbs.opcao_cancelada")
+    assert registro.usuario == usuario_gestor_a
+    assert registro.detalhes["motivo_cancelamento"] == MOTIVO
+    assert registro.detalhes["antes"] == {
+        "ativa": True,
+        "regime": RegimeIbsCbsSimples.REGIME_UNICO,
+        "cancelada_em": None,
+        "cancelada_por": None,
+        "motivo_cancelamento": None,
+    }
+    assert registro.detalhes["depois"]["ativa"] is False
+    assert registro.detalhes["depois"]["motivo_cancelamento"] == MOTIVO
+
+
+def test_cancelamento_fora_da_janela_e_recusado_citando_o_prazo(
+    empresa, usuario_gestor_a, monkeypatch
+):
+    """A janela do 1º semestre de 2027 é a da fonte citada: de 03/11 a 20/12/2026 (Res. CGSN
+    194/2026). Antes e depois, a recusa nomeia o prazo — e nada muda. Nas bordas da janela, passa.
+    """
+    _registrar(empresa, usuario_gestor_a)
+    for hoje in (date(2026, 11, 2), date(2026, 12, 21)):
+        fixar_hoje(monkeypatch, hoje)
+        with pytest.raises(servico_receita.ReceitaErro) as exc:
+            _cancelar(empresa, usuario_gestor_a)
+        assert "03/11/2026 a 20/12/2026" in exc.value.mensagem
+        assert "Res. CGSN 194/2026" in exc.value.mensagem
+        assert f"Hoje é {hoje:%d/%m/%Y}" in exc.value.mensagem
+        assert servico_receita.opcao_regime_ibs_cbs_do_semestre(empresa, 2027, 1) is False
+
+    # 20/12/2026 é o último dia da janela: cancelar é admitido.
+    fixar_hoje(monkeypatch, date(2026, 12, 20))
+    linha = _cancelar(empresa, usuario_gestor_a)
+    assert linha.cancelada_em is not None
+
+
+def test_o_2_semestre_de_2027_vale_a_regra_geral_ate_31_05(empresa, usuario_gestor_a, monkeypatch):
+    """A Res. 194/2026 só trata do primeiro ciclo (jan-jun/2027); no 2º semestre de 2027 vale a
+    regra geral dos arts. 40-C/40-D: cancelável ATÉ 31/05/2027. Em 01/06/2027 a recusa cita o
+    prazo; em 31/05/2027, o cancelamento é admitido.
+    """
+    _registrar(empresa, usuario_gestor_a, semestre=2)
+    fixar_hoje(monkeypatch, date(2027, 6, 1))
+    with pytest.raises(servico_receita.ReceitaErro) as exc:
+        _cancelar(empresa, usuario_gestor_a, semestre=2)
+    assert "até 31/05/2027" in exc.value.mensagem
+    assert "arts. 40-C e 40-D" in exc.value.mensagem
+
+    fixar_hoje(monkeypatch, date(2027, 5, 31))
+    linha = _cancelar(empresa, usuario_gestor_a, semestre=2)
+    assert linha.cancelada_em is not None
+
+
+def test_cancelamento_sem_opcao_ativa_e_recusado(empresa, usuario_gestor_a, monkeypatch):
+    """Sem opção registrada no semestre, não há o que cancelar: a recusa nomeada vem do serviço."""
+    fixar_hoje(monkeypatch, date(2026, 12, 1))
+    with pytest.raises(servico_receita.ReceitaErro) as exc:
+        _cancelar(empresa, usuario_gestor_a)
+    assert exc.value.mensagem == servico_receita.mensagem_cancelamento_sem_opcao(2027, 1)
+    assert "registre a opção primeiro" in exc.value.mensagem
+
+
+def test_cancelar_duas_vezes_e_recusado(empresa, usuario_gestor_a, monkeypatch):
+    """O cancelamento é ato único: a segunda tentativa é recusada como conflito de estado, e a
+    linha cancelada continua no banco, do jeito que ficou."""
+    _registrar(empresa, usuario_gestor_a)
+    fixar_hoje(monkeypatch, date(2026, 12, 1))
+    _cancelar(empresa, usuario_gestor_a)
+
+    with pytest.raises(servico_receita.ReceitaErro) as exc:
+        _cancelar(empresa, usuario_gestor_a)
+    assert exc.value.mensagem == servico_receita.mensagem_opcao_ja_cancelada(2027, 1)
+
+    linha = OpcaoRegimeIbsCbsSimples.objects.get(empresa=empresa)
+    assert linha.motivo_cancelamento == MOTIVO
+
+
+def test_re_registro_depois_do_cancelamento_aceito_e_vira_a_unica_ativa(
+    empresa, usuario_gestor_a, monkeypatch
+):
+    """O cancelamento LIBERA o (empresa, ano, semestre): registrar de novo é aceito, e a nova
+    linha vira a única ativa (a restrição única é parcial em `cancelada_em__isnull=True`). A
+    segunda ATIVA continua impossível — é o que o insert-only protegia.
+    """
+    _registrar(empresa, usuario_gestor_a)
+    fixar_hoje(monkeypatch, date(2026, 12, 1))
+    _cancelar(empresa, usuario_gestor_a)
+
+    nova = _registrar(empresa, usuario_gestor_a, regime=RegimeIbsCbsSimples.REGIME_REGULAR)
+
+    assert nova.cancelada_em is None
+    assert OpcaoRegimeIbsCbsSimples.objects.filter(empresa=empresa).count() == 2
+    assert (
+        OpcaoRegimeIbsCbsSimples.objects.filter(empresa=empresa, cancelada_em__isnull=True).count()
+        == 1
+    )
+    # A nova opção é a que vale para o motor.
+    assert servico_receita.opcao_regime_ibs_cbs_do_semestre(empresa, 2027, 1) is True
+    # E a segunda opção ATIVA do mesmo semestre continua recusada (insert-only enquanto ativa).
+    with pytest.raises(servico_receita.ReceitaErro, match="já foi registrada"):
+        _registrar(empresa, usuario_gestor_a)
+
+
+def test_o_motivo_do_cancelamento_e_obrigatorio(empresa, usuario_gestor_a, monkeypatch):
+    """Motivo vazio, só com espaços, curto demais ou longo demais é recusado (padrão dos estornos
+    da casa, mais o piso de `MOTIVO_CANCELAMENTO_MINIMO`), e nada muda."""
+    _registrar(empresa, usuario_gestor_a)
+    fixar_hoje(monkeypatch, date(2026, 12, 1))
+    for motivo in ("", "   ", "x", "m" * (servico_receita.MOTIVO_MAXIMO + 1)):
+        with pytest.raises(servico_receita.EntradaInvalidaReceita):
+            _cancelar(empresa, usuario_gestor_a, motivo=motivo)
+        assert servico_receita.opcao_regime_ibs_cbs_do_semestre(empresa, 2027, 1) is False
+
+    # O motivo do tamanho do teto é aceito.
+    linha = _cancelar(empresa, usuario_gestor_a, motivo="m" * servico_receita.MOTIVO_MAXIMO)
+    assert linha.cancelada_em is not None
+
+
+# ---------------------------------------------------------------------------
+# API do cancelamento: permissão, isolamento, entrada e o efeito no GET
+# ---------------------------------------------------------------------------
+
+
+def test_gestor_cancela_pela_api_e_o_dado_volta_a_nao_informado(
+    client, empresa, usuario_gestor_a, monkeypatch
+):
+    """POST cancela e devolve o ato (com o motivo); depois dele, o GET de leitura volta a dizer
+    "opção não informada" — o contrato da leitura é o estado ATIVO, e a opção cancelada não é
+    ativa."""
+    _registrar(empresa, usuario_gestor_a)
+    client.force_login(usuario_gestor_a)
+    fixar_hoje(monkeypatch, date(2026, 12, 1))
+
+    resposta = client.post(
+        _url_cancelar(empresa),
+        data=json.dumps({"ano": 2027, "semestre": 1, "motivo": MOTIVO}),
+        content_type="application/json",
+    )
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["ano"] == 2027 and corpo["semestre"] == 1
+    assert corpo["regime"] == RegimeIbsCbsSimples.REGIME_UNICO
+    assert corpo["cancelada"] is True
+    assert corpo["cancelada_em"] is not None
+    assert corpo["motivo_cancelamento"] == MOTIVO
+    lido = client.get(f"{_url_opcao(empresa)}?ano=2027&semestre=1").json()
+    assert lido == {
+        "ano": 2027,
+        "semestre": 1,
+        "regime": None,
+        "informada": False,
+        "registrada_em": None,
+    }
+
+
+def test_api_de_cancelamento_sem_motivo_e_400(client, empresa, usuario_gestor_a, monkeypatch):
+    _registrar(empresa, usuario_gestor_a)
+    client.force_login(usuario_gestor_a)
+    fixar_hoje(monkeypatch, date(2026, 12, 1))
+    resposta = client.post(
+        _url_cancelar(empresa),
+        data=json.dumps({"ano": 2027, "semestre": 1, "motivo": "  "}),
+        content_type="application/json",
+    )
+    assert resposta.status_code == 400
+    assert "motivo" in resposta.json()[0]
+    assert servico_receita.opcao_regime_ibs_cbs_do_semestre(empresa, 2027, 1) is False
+
+
+def test_api_de_cancelamento_fora_da_janela_e_409_com_o_prazo(
+    client, empresa, usuario_gestor_a, monkeypatch
+):
+    _registrar(empresa, usuario_gestor_a)
+    client.force_login(usuario_gestor_a)
+    fixar_hoje(monkeypatch, date(2026, 12, 21))
+    resposta = client.post(
+        _url_cancelar(empresa),
+        data=json.dumps({"ano": 2027, "semestre": 1, "motivo": MOTIVO}),
+        content_type="application/json",
+    )
+    assert resposta.status_code == 409
+    assert "03/11/2026 a 20/12/2026" in resposta.json()["detail"]
+    assert servico_receita.opcao_regime_ibs_cbs_do_semestre(empresa, 2027, 1) is False
+
+
+def test_api_de_cancelamento_campo_fora_do_contrato_e_400(
+    client, empresa, usuario_gestor_a, monkeypatch
+):
+    _registrar(empresa, usuario_gestor_a)
+    client.force_login(usuario_gestor_a)
+    fixar_hoje(monkeypatch, date(2026, 12, 1))
+    resposta = client.post(
+        _url_cancelar(empresa),
+        data=json.dumps({"ano": 2027, "semestre": 1, "motivo": MOTIVO, "extra": "x"}),
+        content_type="application/json",
+    )
+    assert resposta.status_code == 400
+    assert servico_receita.opcao_regime_ibs_cbs_do_semestre(empresa, 2027, 1) is False
+
+
+def test_cancelamento_pela_api_respeita_permissao_e_isolamento(
+    client, empresa, escritorio_a, escritorio_b, usuario_gestor_a, monkeypatch
+):
+    """CLIENTE e PARALEGAL não cancelam (403); a empresa de OUTRO escritório é 404 sem confirmar
+    o id. Em todos os casos, nada é gravado (AGENTS §11)."""
+    _registrar(empresa, usuario_gestor_a)
+    fixar_hoje(monkeypatch, date(2026, 12, 1))
+    corpo = json.dumps({"ano": 2027, "semestre": 1, "motivo": MOTIVO})
+
+    paralegal = _usuario(escritorio_a, Papel.PARALEGAL, "paralegal-cancela-dl088")
+    cliente = _usuario(escritorio_a, Papel.CLIENTE, "cliente-cancela-dl088")
+    intruso = _usuario(escritorio_b, Papel.GESTOR, "gestor-intruso-cancela-dl088")
+    for usuario, esperado in ((paralegal, 403), (cliente, 403), (intruso, 404)):
+        client.force_login(usuario)
+        resposta = client.post(_url_cancelar(empresa), data=corpo, content_type="application/json")
+        assert resposta.status_code == esperado, usuario.username
+    assert servico_receita.opcao_regime_ibs_cbs_do_semestre(empresa, 2027, 1) is False

@@ -59,6 +59,7 @@ from apps.fiscal.views_web import (
     nfe_reclassificar,
     notas_a_escriturar,
     opcao_regime_ibs_cbs,
+    opcao_regime_ibs_cbs_cancelar,
     opcao_regime_ibs_cbs_registrar,
     pre_das,
     presumido_apuracao,
@@ -223,6 +224,13 @@ urlpatterns = [
         "simples/empresas/<int:empresa_id>/opcao-regime-ibs-cbs/",
         opcao_regime_ibs_cbs_registrar,
         name="opcao_regime_ibs_cbs_registrar",
+    ),
+    # DL-088 (correção do achado A1): cancelar a opção do semestre, na janela legal (Res. CGSN
+    # 194/2026; arts. 40-C/40-D). GET é a confirmação (nomeia o alvo e pede o motivo); POST grava.
+    path(
+        "simples/empresas/<int:empresa_id>/opcao-regime-ibs-cbs/cancelar/",
+        opcao_regime_ibs_cbs_cancelar,
+        name="opcao_regime_ibs_cbs_cancelar",
     ),
     path("simples/ipi-mantido/", ipi_mantido, name="ipi_mantido"),
     path(

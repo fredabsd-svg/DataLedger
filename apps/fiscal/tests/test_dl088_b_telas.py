@@ -682,6 +682,13 @@ def _post_ipi_mantido():
     return {"situacao": SituacaoIpiMantido.IPI_MANTIDO, "fonte": "Declaração do cliente."}
 
 
+MOTIVO_CANCELAMENTO = "Cliente cancelou a opção no Portal em 30/11/2026 (Res. CGSN 194/2026)."
+
+
+def _post_cancelar_opcao():
+    return {"ano": "2027", "semestre": "1", "motivo": MOTIVO_CANCELAMENTO}
+
+
 def test_cliente_recebe_403_nas_telas_novas_e_nada_grava(client, simples, usuario_cliente_a):
     """MUTANTE (critério 9): inverter a checagem de permissão de qualquer tela nova derruba este
     teste — o CLIENTE não consulta nem escreve, e nada é gravado."""
@@ -696,6 +703,20 @@ def test_cliente_recebe_403_nas_telas_novas_e_nada_grava(client, simples, usuari
         # Rotas só de POST: o GET é 405 para todo mundo, e o POST do CLIENTE é 403 no servidor.
         assert client.get(_url(nome, *args)).status_code == 405, nome
         assert client.post(_url(nome, *args), corpo).status_code == 403, nome
+    # A rota de cancelamento aceita GET (a confirmação) e POST: o CLIENTE leva 403 nos dois, com a
+    # permissão checada ANTES de resolver a empresa (BL-584).
+    assert (
+        client.get(
+            _url("opcao_regime_ibs_cbs_cancelar", simples.pk, ano="2027", semestre="1")
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            _url("opcao_regime_ibs_cbs_cancelar", simples.pk), _post_cancelar_opcao()
+        ).status_code
+        == 403
+    )
     assert _contagens_de_dado() == antes
 
 
@@ -712,6 +733,12 @@ def test_paralegal_le_e_nao_escreve_nas_telas_novas(client, simples, paralegal):
     )
     assert (
         client.post(_url("ipi_mantido_gravar", simples.pk), _post_ipi_mantido()).status_code == 403
+    )
+    assert (
+        client.post(
+            _url("opcao_regime_ibs_cbs_cancelar", simples.pk), _post_cancelar_opcao()
+        ).status_code
+        == 403
     )
     assert _contagens_de_dado() == antes
     # Quem só consulta vê a ação desabilitada com o motivo, nunca sumindo (§2B).
@@ -736,4 +763,182 @@ def test_outro_escritorio_recebe_404_nas_telas_novas(client, simples, gestor_b):
     assert (
         client.post(_url("ipi_mantido_gravar", simples.pk), _post_ipi_mantido()).status_code == 404
     )
+    assert (
+        client.get(
+            _url("opcao_regime_ibs_cbs_cancelar", simples.pk, ano="2027", semestre="1")
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            _url("opcao_regime_ibs_cbs_cancelar", simples.pk), _post_cancelar_opcao()
+        ).status_code
+        == 404
+    )
     assert _contagens_de_dado() == antes
+
+
+# ---------------------------------------------------------------------------
+# 7. Cancelamento da opção do semestre (correção do achado A1 — Res. CGSN 194/2026) e o
+# cruzamento do achado A4 (CLIENTE com empresa de OUTRO escritório)
+# ---------------------------------------------------------------------------
+
+
+def test_a_tela_da_opcao_mostra_a_janela_do_cancelamento_e_a_fonte(
+    client, simples, usuario_gestor_a
+):
+    """A janela do cancelamento é dita na tela, com a fonte citada (Res. CGSN 194/2026 para o
+    1º semestre de 2027; arts. 40-C e 40-D para os demais), e a ação de cancelar aparece nomeando
+    o alvo. Nada de prazo sem fonte (AGENTS §10)."""
+    servico_receita.registrar_opcao_regime_ibs_cbs(
+        simples, 2027, 1, RegimeIbsCbsSimples.REGIME_UNICO, usuario_gestor_a
+    )
+    client.force_login(usuario_gestor_a)
+    resposta = client.get(_url("opcao_regime_ibs_cbs", empresa=simples.pk))
+    html = _html(resposta)
+    assert_moldura_acessivel(html)
+    assert not _ids_referenciados_existem(html), _ids_referenciados_existem(html)
+    texto = _texto(html)
+    assert "de 03/11/2026 a 20/12/2026" in texto
+    assert "Res. CGSN 194/2026" in texto
+    assert "até 30/11 do ano anterior" in texto
+    assert "até 31/05 do próprio ano" in texto
+    assert "arts. 40-C e 40-D" in texto
+    assert "09/10/2026" in texto
+    assert "Cancelar a opção" in html
+    assert "Ativa" in html
+
+
+def test_cancelar_a_opcao_pela_tela_confirma_nomeando_o_alvo_e_trilha_o_motivo(
+    client, simples, usuario_gestor_a, monkeypatch
+):
+    """Duas etapas, padrão de `presumido_medida_encerrar`: GET nomeia empresa, semestre e regime,
+    diz a janela legal com a fonte e pede o motivo obrigatório; POST grava pelo SERVIÇO (a trilha
+    guarda o motivo e antes/depois). A linha não é apagada: a lista mostra "Cancelada" com o
+    motivo e sem ação. `.botao--perigoso` nomeia o alvo (direção de arte §8.4)."""
+    servico_receita.registrar_opcao_regime_ibs_cbs(
+        simples, 2027, 1, RegimeIbsCbsSimples.REGIME_REGULAR, usuario_gestor_a
+    )
+    client.force_login(usuario_gestor_a)
+    fixar_hoje(monkeypatch, date(2026, 12, 1))
+
+    confirmacao = client.get(
+        _url("opcao_regime_ibs_cbs_cancelar", simples.pk, ano="2027", semestre="1")
+    )
+    assert confirmacao.status_code == 200
+    html = _html(confirmacao)
+    assert_moldura_acessivel(html)
+    assert not _ids_referenciados_existem(html), _ids_referenciados_existem(html)
+    texto = _texto(html)
+    assert simples.razao_social in texto
+    assert "1º semestre de 2027" in texto
+    assert "Regime regular" in texto
+    assert "de 03/11/2026 a 20/12/2026" in texto
+    assert "Res. CGSN 194/2026" in texto
+    assert "Motivo do cancelamento (obrigatório)" in html
+    assert 'class="botao botao--perigoso"' in html
+    assert simples.razao_social in _texto(html.split('class="botao botao--perigoso"')[-1])
+    assert (
+        OpcaoRegimeIbsCbsSimples.objects.filter(empresa=simples, cancelada_em__isnull=True).count()
+        == 1
+    )
+
+    grava = client.post(
+        _url("opcao_regime_ibs_cbs_cancelar", simples.pk),
+        _post_cancelar_opcao(),
+    )
+    assert grava.status_code == 302
+    linha = OpcaoRegimeIbsCbsSimples.objects.get(empresa=simples)
+    assert linha.cancelada_em is not None
+    assert linha.cancelada_por == usuario_gestor_a
+    assert linha.motivo_cancelamento == MOTIVO_CANCELAMENTO
+    registro = RegistroAuditoria.objects.get(acao="regime_ibs_cbs.opcao_cancelada")
+    assert registro.usuario == usuario_gestor_a
+    assert registro.detalhes["motivo_cancelamento"] == MOTIVO_CANCELAMENTO
+
+    # A lista é o histórico: a linha cancelada aparece com o motivo e sem ação nova.
+    lista = _texto(_html(client.get(_url("opcao_regime_ibs_cbs", empresa=simples.pk))))
+    assert "Cancelada em" in lista
+    assert MOTIVO_CANCELAMENTO in lista
+    assert "Cancelada: sem ação" in lista
+
+
+def test_cancelar_a_opcao_fora_da_janela_mostra_o_prazo_e_nao_grava(
+    client, simples, usuario_gestor_a, monkeypatch
+):
+    """Fora da janela da Res. CGSN 194/2026 (depois de 20/12/2026), o POST é recusado com o prazo
+    citado na própria tela, e nada é gravado."""
+    servico_receita.registrar_opcao_regime_ibs_cbs(
+        simples, 2027, 1, RegimeIbsCbsSimples.REGIME_UNICO, usuario_gestor_a
+    )
+    client.force_login(usuario_gestor_a)
+    fixar_hoje(monkeypatch, date(2026, 12, 21))
+
+    grava = client.post(
+        _url("opcao_regime_ibs_cbs_cancelar", simples.pk),
+        _post_cancelar_opcao(),
+    )
+
+    assert grava.status_code == 409
+    texto = _texto(_html(grava))
+    assert "03/11/2026 a 20/12/2026" in texto
+    assert "Res. CGSN 194/2026" in texto
+    assert "Hoje é 21/12/2026" in texto
+    assert OpcaoRegimeIbsCbsSimples.objects.get(empresa=simples).cancelada_em is None
+
+
+def test_cancelamento_pela_tela_exige_motivo(client, simples, usuario_gestor_a, monkeypatch):
+    """Motivo vazio é erro de campo (id `erro_motivo`), nada é gravado e a confirmação volta com o
+    que o usuário digitou."""
+    servico_receita.registrar_opcao_regime_ibs_cbs(
+        simples, 2027, 1, RegimeIbsCbsSimples.REGIME_UNICO, usuario_gestor_a
+    )
+    client.force_login(usuario_gestor_a)
+    fixar_hoje(monkeypatch, date(2026, 12, 1))
+
+    resposta = client.post(
+        _url("opcao_regime_ibs_cbs_cancelar", simples.pk),
+        {"ano": "2027", "semestre": "1", "motivo": "   "},
+    )
+
+    assert resposta.status_code == 400
+    html = _html(resposta)
+    assert 'id="erro_motivo"' in html
+    assert "Informe o motivo" in html
+    assert not _ids_referenciados_existem(html), _ids_referenciados_existem(html)
+    assert OpcaoRegimeIbsCbsSimples.objects.get(empresa=simples).cancelada_em is None
+
+
+def test_paralegal_ve_a_acao_de_cancelar_desabilitada_com_o_motivo(
+    client, simples, paralegal, usuario_gestor_a
+):
+    """Quem só consulta vê a ação desabilitada com o motivo, nunca sumindo (§2B) — e o POST do
+    paralegal é 403 no servidor."""
+    servico_receita.registrar_opcao_regime_ibs_cbs(
+        simples, 2027, 1, RegimeIbsCbsSimples.REGIME_UNICO, usuario_gestor_a
+    )
+    client.force_login(paralegal)
+    html = _html(client.get(_url("opcao_regime_ibs_cbs", empresa=simples.pk)))
+    assert (
+        'class="botao botao--perigoso botao--pequeno" disabled '
+        'aria-describedby="ajuda_sem_permissao"' in html
+    )
+    assert "não a registra nem a cancela" in html
+    assert (
+        client.post(
+            _url("opcao_regime_ibs_cbs_cancelar", simples.pk), _post_cancelar_opcao()
+        ).status_code
+        == 403
+    )
+    assert OpcaoRegimeIbsCbsSimples.objects.get(empresa=simples).cancelada_em is None
+
+
+def test_cliente_com_empresa_de_outro_escritorio_recebe_403_nas_consultas_novas(
+    client, empresa_b, usuario_cliente_a
+):
+    """Achado A4 — o cruzamento que distingue as ordens (BL-584): CLIENTE + empresa de OUTRO
+    escritório responde 403 (a permissão é checada ANTES de resolver a empresa) e nunca 404, que
+    confirmaria que o id existe. Nas telas de consulta novas, o alvo vem na querystring."""
+    client.force_login(usuario_cliente_a)
+    for nome in ("opcao_regime_ibs_cbs", "ipi_mantido"):
+        assert client.get(_url(nome, empresa=empresa_b.pk)).status_code == 403, nome

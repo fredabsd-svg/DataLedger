@@ -777,6 +777,12 @@ CONTRATO_POST_IPI_MANTIDO = ContratoDeRequisicao(
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="no dado de IPI mantido (Zona Franca)",
 )
+# DL-088, correção do achado A1: o cancelamento da opção do semestre (Res. CGSN 194/2026).
+CONTRATO_POST_CANCELAMENTO_OPCAO = ContratoDeRequisicao(
+    campos={"ano", "semestre", "motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no cancelamento da opção de regime de IBS/CBS",
+)
 
 
 class PodeConsultarOuEscriturarFiscal(BasePermission):
@@ -803,6 +809,16 @@ class IpiMantidoEntradaSerializer(serializers.Serializer):
     situacao = serializers.ChoiceField(choices=SituacaoIpiMantido.choices)
     fonte = serializers.CharField(
         max_length=receita_servico.FONTE_MAXIMA, trim_whitespace=True, allow_blank=True
+    )
+
+
+class OpcaoCancelamentoEntradaSerializer(serializers.Serializer):
+    ano = serializers.IntegerField(min_value=2027, max_value=receita_servico.ANO_MAXIMO)
+    semestre = serializers.IntegerField(min_value=1, max_value=2)
+    # O motivo é obrigatório no SERVIÇO (com a mensagem nomeada, inclusive o piso de tamanho);
+    # `allow_blank` deixa o vazio chegar até lá, como na `fonte` do IPI mantido.
+    motivo = serializers.CharField(
+        max_length=receita_servico.MOTIVO_MAXIMO, trim_whitespace=True, allow_blank=True
     )
 
 
@@ -868,6 +884,55 @@ class OpcaoRegimeIbsCbsView(EmpresaEscopadaMixin, APIView):
             _opcao_regime_ibs_cbs_payload(opcao, opcao.ano, opcao.semestre),
             status=status.HTTP_201_CREATED,
         )
+
+
+def _opcao_cancelada_payload(linha) -> dict:
+    """Confirmação do cancelamento (DL-088, correção do achado A1): o que foi cancelado, com o
+    motivo. É o contrato PRÓPRIO deste ato; o GET de leitura continua devolvendo o estado ATIVO
+    (`regime` nulo depois do cancelamento — a opção cancelada volta a ser "não informada")."""
+    return {
+        "ano": linha.ano,
+        "semestre": linha.semestre,
+        "regime": linha.regime,
+        "cancelada": True,
+        "cancelada_em": _iso_ou_none(linha.cancelada_em),
+        "motivo_cancelamento": linha.motivo_cancelamento,
+    }
+
+
+class OpcaoRegimeIbsCbsCancelarView(EmpresaEscopadaMixin, APIView):
+    """POST cancela a opção ATIVA do semestre (DL-088, correção do achado A1; Res. CGSN 194/2026).
+
+    Corpo: `ano`, `semestre` e `motivo` (obrigatório; fica na linha e na trilha). A janela é a
+    legal — 03/11 a 20/12/2026 para o 1º semestre de 2027 (Res. CGSN 194/2026) e, nos demais
+    semestres, até 30/11 (1º) ou 31/05 (2º) (Res. CGSN 190/2026, arts. 40-C e 40-D); fora dela, 409
+    com o prazo citado. Sem opção ativa ou já cancelada, 409 (é o conflito de estado, como o
+    insert-only do registro). Efeito: o motor volta a ver a opção como NÃO informada (o pré-DAS de
+    2027 recusa e a NF-e de 2027 não se efetiva) e o semestre é liberado para novo registro.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarOuEscriturarFiscal]
+
+    def post(self, request, empresa_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_POST_CANCELAMENTO_OPCAO)
+        empresa = self.get_empresa()
+        entrada = OpcaoCancelamentoEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        dados = entrada.validated_data
+        try:
+            linha = receita_servico.cancelar_opcao_regime_ibs_cbs(
+                empresa,
+                dados["ano"],
+                dados["semestre"],
+                dados["motivo"],
+                usuario=request.user,
+                request=request,
+            )
+        except receita_servico.EntradaInvalidaReceita as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except receita_servico.ReceitaErro as exc:
+            return _resposta_de_conflito(exc)
+        return Response(_opcao_cancelada_payload(linha), status=status.HTTP_200_OK)
 
 
 class IpiMantidoView(EmpresaEscopadaMixin, APIView):

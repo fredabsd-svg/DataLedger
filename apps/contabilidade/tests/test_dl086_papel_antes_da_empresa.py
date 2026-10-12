@@ -207,3 +207,57 @@ def test_papel_que_le_acessa_a_empresa_do_proprio_escritorio(client, cenario_cli
     endereco = reverse("contabilidade_web:plano_de_contas", kwargs={"empresa_id": empresa.pk})
     resposta = client.get(endereco)
     assert resposta.status_code == 200
+
+
+def test_cliente_com_empresa_de_outro_escritorio_recebe_403_nao_404(client, cenario_cliente):
+    """O cruzamento que distingue as ordens (achado A4 da auditoria da DL-088, sobre as rotas
+    novas do Fiscal): CLIENTE com empresa de OUTRO escritório.
+
+    Com a ordem certa — permissão ANTES de resolver a empresa — a resposta é 403, a MESMA de
+    qualquer alvo. Com a ordem invertida (a empresa resolvida antes da permissão), a recusa viraria
+    404 e confirmaria que o id existe — exatamente o oráculo que a BL-584 fechou. O teste derivado
+    de cima já derruba esse mutante (compara 403/403 com 403/404); este caso prende o cruzamento
+    nomeado pelo auditor nas rotas de registro, cancelamento e gravação da opção de regime e do IPI
+    mantido (DL-088, achado A1).
+    """
+    from apps.fiscal.models import IpiMantidoZfmEmpresa, OpcaoRegimeIbsCbsSimples
+
+    escritorio, empresa = cenario_cliente
+    outro = Escritorio.objects.create(nome="Escritório DL-086 B", cnpj="11222333000199")
+    empresa_alheia = Empresa.objects.create(
+        escritorio=outro, razao_social="Empresa Alheia Ltda", cnpj="11122233000177"
+    )
+    assert client.login(username="cliente-dl086", password="senha-forte-123")
+
+    for rota, metodos, corpo in (
+        (
+            "fiscal_web:opcao_regime_ibs_cbs_registrar",
+            # Rota só de POST: o GET é 405 por despacho (o decorador), para todo mundo — não é
+            # recusa de permissão e não diz nada sobre a ordem. O POST é o que prova a ordem.
+            ("POST",),
+            {"ano": "2027", "semestre": "1", "regime": "regime_unico", "acao": "confirmar"},
+        ),
+        (
+            "fiscal_web:opcao_regime_ibs_cbs_cancelar",
+            # GET (a confirmação) e POST (o ato): os dois são handlers de verdade e os dois têm de
+            # recusar 403 antes de resolver a empresa.
+            ("GET", "POST"),
+            {"ano": "2027", "semestre": "1", "motivo": "Cancelamento sintético de teste."},
+        ),
+        (
+            "fiscal_web:ipi_mantido_gravar",
+            ("POST",),
+            {"situacao": "ipi_mantido", "fonte": "Declaração sintética de teste."},
+        ),
+    ):
+        endereco = reverse(rota, kwargs={"empresa_id": empresa_alheia.pk})
+        for metodo in metodos:
+            resposta = (
+                client.get(endereco) if metodo == "GET" else client.post(endereco, data=corpo)
+            )
+            assert resposta.status_code == 403, (rota, metodo, resposta.status_code)
+            assert empresa_alheia.razao_social not in resposta.content.decode(), (rota, metodo)
+
+    # Nada foi gravado — nem para a empresa alheia, nem para a própria.
+    assert not OpcaoRegimeIbsCbsSimples.objects.exists()
+    assert not IpiMantidoZfmEmpresa.objects.exists()

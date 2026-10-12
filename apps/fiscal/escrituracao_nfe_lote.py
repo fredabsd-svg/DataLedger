@@ -16,7 +16,8 @@ PRÉVIA (`previa_do_lote`)
   `devolucao_segmento_a_confirmar` e o motivo "escriture esta nota individualmente", antes de
   qualquer leitura. O segmento da devolução é confirmado pelo contador, nota a nota.
 - Ordem das recusas, a MESMA de `efetivar`: 2027 (HI-133; HI-149: a nota de 2027 só entra no lote
-  quando é do Simples no regime único do semestre, e aí a receita é o `vProd`, sem W16); itens
+  quando é do Simples no regime único do semestre, e aí a receita é o `vProd − vDesc`, sem W16);
+   itens
   ilegíveis; leitura de versão anterior; item sem sugestão ou em conflito; atribuição do resíduo
   (HI-138); nota sem vNF; W16 (HI-119). A W16 roda com as naturezas SUGERIDAS e sem gravar nada.
   Nota em rascunho com natureza já escolhida pelo contador, diferente da sugestão, sai com
@@ -487,7 +488,8 @@ def _conferencia_ou_recusa(empresa, documento, leitura, pares):
     """(conferência, None) quando a nota fecha; (None, (código, motivo)) quando não fecha.
 
     Mesma ordem de `efetivar`: atribuição, vNF, W16. Na nota de 2027 em diante do regime único
-    (HI-149) a receita é o `vProd`: não há atribuição de resíduo nem W16, e a conferência vai
+    (HI-149) a receita é o `vProd − vDesc`: não há atribuição de resíduo nem W16, e a conferência
+    vai
     direto para `conferir_valores(receita_pelo_vprod=True)`. Não grava nada.
     """
     dia, _competencia = servico.dia_e_competencia(documento)

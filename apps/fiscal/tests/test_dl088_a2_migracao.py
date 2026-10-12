@@ -1,17 +1,28 @@
-"""DL-088, frente A2: a migração 0017 aplicada, revertida e reaplicada pelo `migrate` do Django.
+"""DL-088: as migrações 0017 e 0018 aplicadas, revertidas e reaplicadas pelo `migrate` do Django.
 
-- Volta com a opção de regime de IBS/CBS registrada ou com o dado de IPI mantido gravado: RECUSA,
-  e nada muda no banco (instantâneo antes/depois; a guarda roda PRIMEIRO na reversão).
-- Volta sem esses dados: passa, e a reaplicação recria as duas tabelas.
+0017 (a opção de regime e o IPI mantido):
+- volta com a opção registrada ou com o dado de IPI mantido gravado: RECUSA, e nada muda no banco
+  (instantâneo antes/depois; a guarda roda PRIMEIRO na reversão);
+- volta sem esses dados: passa, e a reaplicação recria as duas tabelas.
+
+0018 (o cancelamento da opção — correção do achado A1; Res. CGSN 194/2026):
+- a unicidade do semestre vira PARCIAL (`cancelada_em__isnull=True`) e a opção ganha
+  `cancelada_em`/`cancelada_por`/`motivo_cancelamento`;
+- volta com dado do contador (opção registrada, com ou sem cancelamento, ou IPI mantido): RECUSA,
+  sem alterar nada — a guarda é ampliada como a da 0016, porque as duas migrações da DL-088 se
+  revertem juntas e cada uma tem a sua transação;
+- volta sem dado: só os campos de cancelamento saem (e a unicidade total volta), e a reaplicação
+  os devolve.
 
 Usa `transaction=True`: a reversão precisa rodar fora de transação de teste. Cada teste termina no
-head, como estava. A aplicação em banco vazio é a própria criação do banco de teste, que migra do
+HEAD, como estava. A aplicação em banco vazio é a própria criação do banco de teste, que migra do
 zero até o head antes da primeira chamada.
 """
 
 import pytest
 from django.core.management import call_command
 from django.db import connection
+from django.utils import timezone
 
 from apps.empresas.models import Empresa
 from apps.fiscal.models import (
@@ -23,6 +34,7 @@ from apps.fiscal.models import (
 
 ULTIMA_ANTES = "0016_dl084_escopo_do_escritorio_feriados"
 ULTIMA = "0017_dl088_opcao_regime_ibs_cbs_e_ipi_mantido"
+HEAD = "0018_dl088_cancelamento_da_opcao_de_regime"
 
 _TABELAS = ("fiscal_opcaoregimeibscbssimples", "fiscal_ipimantidozfmempresa")
 
@@ -34,6 +46,18 @@ def _tabelas_existem() -> bool:
             f"AND to_regclass('{_TABELAS[1]}') IS NOT NULL"
         )
         return cursor.fetchone()[0]
+
+
+def _campos_de_cancelamento_existem() -> bool:
+    """Os três campos da 0018 na tabela da opção (o `cancelada_em` é a marca de cancelada; a FK
+    `cancelada_por` vira coluna `cancelada_por_id`)."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT count(*) FROM information_schema.columns "
+            "WHERE table_name = 'fiscal_opcaoregimeibscbssimples' "
+            "AND column_name IN ('cancelada_em', 'cancelada_por_id', 'motivo_cancelamento')"
+        )
+        return cursor.fetchone()[0] == 3
 
 
 def _usuario_gestor(escritorio, username):
@@ -54,7 +78,8 @@ def _usuario_gestor(escritorio, username):
 
 @pytest.mark.django_db(transaction=True)
 def test_ida_volta_e_ida_sem_dado():
-    """Sem dado gravado, a reversão só tira as duas tabelas, e a reaplicação as recria."""
+    """Sem dado gravado, a reversão só tira as tabelas/campos, e a reaplicação os recria. O teste
+    termina no HEAD (0018), como estava antes da execução."""
     call_command("migrate", "fiscal", ULTIMA_ANTES, verbosity=0)
     assert _tabelas_existem() is False
     call_command("migrate", "fiscal", ULTIMA, verbosity=0)
@@ -63,6 +88,8 @@ def test_ida_volta_e_ida_sem_dado():
     assert _tabelas_existem() is False
     call_command("migrate", "fiscal", ULTIMA, verbosity=0)
     assert _tabelas_existem() is True
+    call_command("migrate", "fiscal", HEAD, verbosity=0)
+    assert _campos_de_cancelamento_existem() is True
 
 
 def _cenario_opcao(empresa, usuario):
@@ -135,3 +162,71 @@ def test_volta_sem_dado_passa_e_a_reaplicacao_recria_as_tabelas(escritorio_a):
     assert _tabelas_existem() is False
     call_command("migrate", "fiscal", ULTIMA, verbosity=0)
     assert _tabelas_existem() is True
+    call_command("migrate", "fiscal", HEAD, verbosity=0)
+    assert _campos_de_cancelamento_existem() is True
+
+
+def _cenario_cancelada(empresa, usuario):
+    """Opção registrada e CANCELADA (dado direto: o teste é de migração, não do serviço)."""
+    opcao = _cenario_opcao(empresa, usuario)
+    OpcaoRegimeIbsCbsSimples.objects.filter(pk=opcao.pk).update(
+        cancelada_em=timezone.now(),
+        cancelada_por=usuario,
+        motivo_cancelamento="Cancelamento sintético de teste.",
+    )
+    opcao.refresh_from_db()
+    return opcao
+
+
+@pytest.mark.django_db(transaction=True)
+def test_volta_da_0018_recusa_com_o_cancelamento_gravado(escritorio_a):
+    """Achado A1: o cancelamento é dado do contador (quem, quando e por quê). Com ele gravado, a
+    reversão da 0018 é recusada ANTES de qualquer campo sair: sem isso, a opção cancelada voltaria
+    a valer como ativa (a unicidade total seria restaurada e os campos de cancelamento apagados).
+    """
+    empresa = Empresa.objects.create(
+        escritorio=escritorio_a,
+        razao_social="Cliente migração DL088 cancelada Ltda",
+        cnpj="77888999000179",
+    )
+    usuario = _usuario_gestor(escritorio_a, "gestor-migracao-cancelada-dl088")
+    opcao = _cenario_cancelada(empresa, usuario)
+
+    antes = (
+        OpcaoRegimeIbsCbsSimples.objects.count(),
+        opcao.cancelada_em,
+        opcao.motivo_cancelamento,
+    )
+    with pytest.raises(RuntimeError, match="Reversão da DL-088 recusada"):
+        call_command("migrate", "fiscal", ULTIMA, verbosity=0)
+
+    assert _campos_de_cancelamento_existem() is True
+    opcao.refresh_from_db()
+    assert (
+        OpcaoRegimeIbsCbsSimples.objects.count(),
+        opcao.cancelada_em,
+        opcao.motivo_cancelamento,
+    ) == antes
+
+
+@pytest.mark.django_db(transaction=True)
+def test_volta_da_0018_recusa_com_a_opcao_registrada_mesmo_sem_cancelamento(escritorio_a):
+    """A guarda da 0018 é ampliada no padrão da 0016 (que contou as cinco classes da DL-084): as
+    duas migrações da DL-088 se revertem juntas em `migrate fiscal 0016`, cada uma com a sua
+    transação, e sem contar as classes da 0017 a 0018 sairia (com os campos de cancelamento) antes
+    de a guarda da 0017 ver a opção gravada — "sem alterar nada" seria mentira.
+    """
+    empresa = Empresa.objects.create(
+        escritorio=escritorio_a,
+        razao_social="Cliente migração DL088 ativa Ltda",
+        cnpj="77888999000180",
+    )
+    usuario = _usuario_gestor(escritorio_a, "gestor-migracao-ativa-dl088")
+    opcao = _cenario_opcao(empresa, usuario)
+
+    with pytest.raises(RuntimeError, match="Reversão da DL-088 recusada"):
+        call_command("migrate", "fiscal", ULTIMA_ANTES, verbosity=0)
+
+    assert _tabelas_existem() is True
+    assert _campos_de_cancelamento_existem() is True
+    assert OpcaoRegimeIbsCbsSimples.objects.filter(pk=opcao.pk).exists()

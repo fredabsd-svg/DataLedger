@@ -33,7 +33,9 @@ Hipóteses HI-146 a HI-149; pendência PE-92 com o Fred.
    01/01/2027 a 31/12/2028:
    - os cinco Anexos, com CBS e IBS;
    - os tetos do ISS dos Anexos III e IV, com o IBS na redistribuição;
-   - as fórmulas do sublimite;
+   - as fórmulas do sublimite — **saíram desta etapa** (ver "Fica fora"):
+     a do Anexo II para o ICMS usa parâmetros do Anexo III na consulta e
+     precisa de confirmação do domínio antes de virar código (BL-704);
    - a fonte (DOU, edição, URL e data da leitura).
 
    A escolha da tabela passa a ser pela data do período. 2029 em diante
@@ -75,6 +77,9 @@ Hipóteses HI-146 a HI-149; pendência PE-92 com o Fred.
 
 **Fica fora:**
 - 6ª faixa e excesso de sublimite;
+- as fórmulas do sublimite (eram do escopo 1; saíram na correção da rodada 1
+  — BL-704 — porque a do Anexo II para o ICMS usa parâmetros do Anexo III na
+  consulta e não está confirmada pelo domínio);
 - 2029 em diante;
 - a CBS e o IBS do regime regular em si (alíquota de referência ainda não
   publicada, P4);

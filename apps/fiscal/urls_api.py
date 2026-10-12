@@ -33,6 +33,7 @@ from apps.fiscal.api import (
     LancarFolhaView,
     NotasPrestadasView,
     NotasTomadasView,
+    OpcaoRegimeIbsCbsCancelarView,
     OpcaoRegimeIbsCbsView,
     OutrosMunicipiosIssView,
     PreDasView,
@@ -265,6 +266,13 @@ urlpatterns = [
         "empresas/<int:empresa_id>/opcao-regime-ibs-cbs/",
         OpcaoRegimeIbsCbsView.as_view(),
         name="opcao_regime_ibs_cbs",
+    ),
+    # DL-088 (correção do achado A1): o cancelamento da opção do semestre, na janela legal
+    # (Res. CGSN 194/2026; arts. 40-C/40-D). POST com `ano`, `semestre` e `motivo`.
+    path(
+        "empresas/<int:empresa_id>/opcao-regime-ibs-cbs/cancelar/",
+        OpcaoRegimeIbsCbsCancelarView.as_view(),
+        name="opcao_regime_ibs_cbs_cancelar",
     ),
     path(
         "empresas/<int:empresa_id>/ipi-mantido/",

@@ -10098,8 +10098,18 @@ _ERRO_REGIME_OPCAO = (
 )
 _ERRO_SITUACAO_IPI = "Situação: escolha IPI mantido (indústria da Zona Franca) ou sem IPI mantido."
 _TEXTO_SEM_PERMISSAO_DA_OPCAO = (
-    "Seu papel consulta a opção de regime de IBS/CBS, mas não a registra: "
+    "Seu papel consulta a opção de regime de IBS/CBS, mas não a registra nem a cancela: "
     "peça a um administrador ou gestor do escritório."
+)
+# A janela do cancelamento, dita na tela com a fonte (DL-088, correção do achado A1). O caso
+# específico de cada linha vem de `servico_receita.janela_de_cancelamento_da_opcao`, que é o mesmo
+# que o serviço valida — a tela nunca tem prazo próprio.
+_JANELA_DO_CANCELAMENTO_NA_TELA = (
+    "Cancelar a opção: para o 1º semestre de 2027, de 03/11/2026 a 20/12/2026 "
+    "(Res. CGSN 194/2026); nos demais semestres, até 30/11 do ano anterior (1º semestre) e até "
+    "31/05 do próprio ano "
+    "(2º semestre) (Res. CGSN 190/2026, arts. 40-C e 40-D). Fonte: consulta de 09/10/2026 "
+    "(docs/projeto/consultas/2026-10-09-contador-senior-virada-2027-simples.md)."
 )
 _TEXTO_SEM_PERMISSAO_DO_IPI = (
     "Seu papel consulta o dado de IPI mantido, mas não o cadastra nem corrige: "
@@ -10160,20 +10170,44 @@ def _validar_opcao_do_formulario(valores) -> dict:
 
 
 def _opcoes_registradas_na_tela(empresa) -> list[dict]:
-    """As opções já registradas, com o carimbo — o insert-only faz da lista o histórico."""
-    return [
-        {
-            "ano": linha.ano,
-            "semestre": f"{linha.semestre}º semestre",
-            "rotulo": _ROTULO_DO_REGIME_IBS_CBS.get(linha.regime, linha.regime),
-            "consequencia": _CONSEQUENCIA_DO_REGIME_IBS_CBS.get(linha.regime, ""),
-            "registrada_em": linha.registrada_em,
-            "registrada_por": _nome_de_usuario(linha.registrada_por),
-        }
-        for linha in OpcaoRegimeIbsCbsSimples.objects.filter(empresa=empresa)
-        .select_related("registrada_por")
+    """As opções já registradas, com o carimbo — e, quando canceladas, o ato de cancelamento.
+
+    A lista é o histórico: a linha cancelada fica visível (não é apagada) e diz quem cancelou,
+    quando e por quê. Só a linha ATIVA oferece a ação "Cancelar a opção" (DL-088, correção do
+    achado A1).
+    """
+    linhas = []
+    for linha in (
+        OpcaoRegimeIbsCbsSimples.objects.filter(empresa=empresa)
+        .select_related("registrada_por", "cancelada_por")
         .order_by("ano", "semestre")
-    ]
+    ):
+        ativa = linha.cancelada_em is None
+        linhas.append(
+            {
+                "ano": linha.ano,
+                "semestre": f"{linha.semestre}º semestre",
+                "semestre_numero": linha.semestre,
+                "rotulo": _ROTULO_DO_REGIME_IBS_CBS.get(linha.regime, linha.regime),
+                "consequencia": _CONSEQUENCIA_DO_REGIME_IBS_CBS.get(linha.regime, ""),
+                "registrada_em": linha.registrada_em,
+                "registrada_por": _nome_de_usuario(linha.registrada_por),
+                "ativa": ativa,
+                "cancelada_em": linha.cancelada_em,
+                "cancelada_por": _nome_de_usuario(linha.cancelada_por)
+                if linha.cancelada_por_id
+                else "",
+                "motivo_cancelamento": linha.motivo_cancelamento or "",
+                "url_cancelar": (
+                    reverse("fiscal_web:opcao_regime_ibs_cbs_cancelar", args=[empresa.pk])
+                    + "?"
+                    + urlencode({"ano": linha.ano, "semestre": linha.semestre})
+                    if ativa
+                    else ""
+                ),
+            }
+        )
+    return linhas
 
 
 def _confirmacao_da_opcao(empresa, valores) -> dict:
@@ -10190,7 +10224,9 @@ def _confirmacao_da_opcao(empresa, valores) -> dict:
         "texto": (
             f"Registrar {rotulo.lower()} para o {semestre}º semestre de {ano} de "
             f"{empresa.razao_social}: {consequencia}. A opção do semestre é registrada uma única "
-            "vez e não pode ser alterada nesta tela."
+            "vez e não pode ser alterada nesta tela: depois de registrada, só deixa de valer pelo "
+            "cancelamento, na janela legal (Res. CGSN 194/2026; Res. CGSN 190/2026, arts. 40-C e "
+            "40-D)."
         ),
     }
 
@@ -10210,6 +10246,7 @@ def _tela_da_opcao_regime_ibs_cbs(
         "confirmacao": confirmacao,
         "pode_registrar": _pode_escriturar(request),
         "mensagem_sem_permissao": _TEXTO_SEM_PERMISSAO_DA_OPCAO,
+        "janela_cancelamento": _JANELA_DO_CANCELAMENTO_NA_TELA,
         "url_registrar": reverse("fiscal_web:opcao_regime_ibs_cbs_registrar", args=[empresa.pk]),
         "url_consulta": (
             reverse("fiscal_web:opcao_regime_ibs_cbs") + "?" + urlencode({"empresa": empresa.pk})
@@ -10227,6 +10264,7 @@ def _tela_de_opcao_sem_empresa(request, *, erros=None, status=200):
         "erros": erros or {},
         "pode_registrar": _pode_escriturar(request),
         "mensagem_sem_permissao": _TEXTO_SEM_PERMISSAO_DA_OPCAO,
+        "janela_cancelamento": _JANELA_DO_CANCELAMENTO_NA_TELA,
     }
     return render(request, "fiscal/opcao_regime_ibs_cbs.html", contexto, status=status)
 
@@ -10317,6 +10355,166 @@ def opcao_regime_ibs_cbs_registrar(request, empresa_id):
         f"{valores['semestre']}º semestre de {valores['ano']} de {empresa.razao_social} — "
         f"{_CONSEQUENCIA_DO_REGIME_IBS_CBS[valores['regime']]}. "
         "A opção do semestre é registrada uma única vez.",
+    )
+    return redirect(
+        reverse("fiscal_web:opcao_regime_ibs_cbs") + "?" + urlencode({"empresa": empresa.pk})
+    )
+
+
+# DL-088, correção do achado A1: CANCELAR a opção de regime de IBS/CBS do semestre (Res. CGSN
+# 194/2026; Res. CGSN 190/2026, arts. 40-C e 40-D). Duas etapas, padrão de
+# `presumido_medida_encerrar`: GET nomeia o alvo (empresa, semestre e regime), diz a janela legal
+# com a fonte e pede o motivo obrigatório; POST grava pelo serviço, que trilha antes/depois e o
+# motivo. A linha não é apagada.
+_CONTRATO_CANCELAMENTO_OPCAO = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "ano", "semestre", "motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="no cancelamento da opção de regime de IBS/CBS",
+)
+_TEXTO_SEM_PERMISSAO_DO_CANCELAMENTO = (
+    "Seu papel não permite cancelar a opção de regime de IBS/CBS do Simples: "
+    "peça a um administrador ou gestor do escritório."
+)
+
+
+def _erros_do_cancelamento(exc) -> dict:
+    """Recusa do serviço do cancelamento, campo a campo: o motivo é o único campo do ato."""
+    mensagem = exc.mensagem
+    if "motivo" in mensagem.lower():
+        return {"motivo": mensagem}
+    return {"geral": mensagem}
+
+
+def _validar_alvo_do_cancelamento(valores) -> dict:
+    """Erros de FORMULÁRIO do alvo (ano e semestre), campo a campo, antes do serviço."""
+    erros = {}
+    ano = _inteiro_de_filtro(valores["ano"])
+    if ano is None or len(valores["ano"]) != 4:
+        erros["ano"] = _ERRO_ANO_OPCAO
+    elif ano < 2027:
+        erros["ano"] = _ERRO_ANO_OPCAO_FAIXA
+    if valores["semestre"] not in ("1", "2"):
+        erros["semestre"] = _ERRO_SEMESTRE_OPCAO
+    return erros
+
+
+def _tela_do_cancelamento_da_opcao(
+    request, empresa, *, valores, linha=None, erros=None, status=200
+):
+    """Confirmação do cancelamento (direção de arte §2, arquétipo E), nomeando o alvo.
+
+    Com a `linha` ativa, a tela nomeia empresa, semestre e regime e traz a janela legal do
+    (ano, semestre) — lida de `servico_receita.janela_de_cancelamento_da_opcao`, a MESMA que o
+    serviço valida — com a fonte citada. Sem linha, a tela mostra a recusa nomeada do serviço.
+    """
+    confirmacao = None
+    if linha is not None:
+        janela = servico_receita.janela_de_cancelamento_da_opcao(linha.ano, linha.semestre)
+        confirmacao = {
+            "ano": linha.ano,
+            "semestre": linha.semestre,
+            "rotulo": _ROTULO_DO_REGIME_IBS_CBS.get(linha.regime, linha.regime),
+            "consequencia": _CONSEQUENCIA_DO_REGIME_IBS_CBS.get(linha.regime, ""),
+            "registrada_em": linha.registrada_em,
+            "registrada_por": _nome_de_usuario(linha.registrada_por),
+            "janela": janela.descricao,
+            "fonte": janela.fonte,
+        }
+    contexto = {
+        **_contexto_do_filtro_de_empresa(request, empresa, algum_filtro_ativo=bool(erros)),
+        "titulo": "Cancelar a opção de regime de IBS/CBS",
+        "confirmacao": confirmacao,
+        "valores": valores,
+        "erros": erros or {},
+        "motivo_maximo": servico_receita.MOTIVO_MAXIMO,
+        "motivo_minimo": servico_receita.MOTIVO_CANCELAMENTO_MINIMO,
+        "url_envio": reverse("fiscal_web:opcao_regime_ibs_cbs_cancelar", args=[empresa.pk]),
+        "url_voltar": (
+            reverse("fiscal_web:opcao_regime_ibs_cbs") + "?" + urlencode({"empresa": empresa.pk})
+        ),
+    }
+    return render(request, "fiscal/opcao_regime_ibs_cbs_cancelar.html", contexto, status=status)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def opcao_regime_ibs_cbs_cancelar(request, empresa_id):
+    """Cancela a opção ATIVA de regime de IBS/CBS do semestre (DL-088, correção do achado A1).
+
+    Duas etapas, no padrão de `presumido_medida_encerrar`: GET mostra a confirmação — nomeando
+    empresa, semestre e regime, com a janela legal e a fonte, e o motivo obrigatório — e POST grava
+    o cancelamento pelo SERVIÇO (`receita.cancelar_opcao_regime_ibs_cbs`), cuja trilha guarda
+    antes, depois e o motivo. A linha não é apagada, e a opção cancelada libera o semestre para
+    novo registro. O alvo (ano, semestre) vem na querystring do GET e em campo do POST. A ordem é
+    a da BL-584: escritório, permissão e SÓ ENTÃO a empresa (404 sem confirmar o id de outro
+    escritório).
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_escriturar(request):
+        return _resposta_sem_permissao(request, _TEXTO_SEM_PERMISSAO_DO_CANCELAMENTO)
+    empresa = _empresa_escopada(request, empresa_id)
+    origem = request.GET if request.method == "GET" else request.POST
+    valores = {
+        "ano": origem.get("ano", "").strip(),
+        "semestre": origem.get("semestre", "").strip(),
+        "motivo": "" if request.method == "GET" else request.POST.get("motivo", ""),
+    }
+    if request.method == "POST":
+        try:
+            recusar_dado_nao_contratado(request, _CONTRATO_CANCELAMENTO_OPCAO)
+        except DadoNaoContratado as exc:
+            return _tela_do_cancelamento_da_opcao(
+                request, empresa, valores=valores, erros={"geral": exc.mensagem}, status=400
+            )
+    erros = _validar_alvo_do_cancelamento(valores)
+    if erros:
+        return _tela_do_cancelamento_da_opcao(
+            request, empresa, valores=valores, erros=erros, status=400
+        )
+    ano, semestre = int(valores["ano"]), int(valores["semestre"])
+    linha = servico_receita.opcao_regime_ibs_cbs_registrada(empresa, ano, semestre)
+    if linha is None:
+        # As recusas nomeadas do SERVIÇO, em linguagem de escritório: sem opção ativa, ou já
+        # cancelada. Nada é gravado.
+        if OpcaoRegimeIbsCbsSimples.objects.filter(
+            empresa=empresa, ano=ano, semestre=semestre
+        ).exists():
+            geral = servico_receita.mensagem_opcao_ja_cancelada(ano, semestre)
+        else:
+            geral = servico_receita.mensagem_cancelamento_sem_opcao(ano, semestre)
+        return _tela_do_cancelamento_da_opcao(
+            request, empresa, valores=valores, erros={"geral": geral}, status=409
+        )
+    if request.method == "GET":
+        return _tela_do_cancelamento_da_opcao(request, empresa, valores=valores, linha=linha)
+    try:
+        servico_receita.cancelar_opcao_regime_ibs_cbs(
+            empresa, ano, semestre, valores["motivo"], usuario=request.user, request=request
+        )
+    except servico_receita.EntradaInvalidaReceita as exc:
+        return _tela_do_cancelamento_da_opcao(
+            request,
+            empresa,
+            valores=valores,
+            linha=linha,
+            erros=_erros_do_cancelamento(exc),
+            status=400,
+        )
+    except servico_receita.ReceitaErro as exc:
+        return _tela_do_cancelamento_da_opcao(
+            request,
+            empresa,
+            valores=valores,
+            linha=linha,
+            erros={"geral": exc.mensagem},
+            status=409,
+        )
+    messages.success(
+        request,
+        f"Opção cancelada: {_ROTULO_DO_REGIME_IBS_CBS.get(linha.regime, linha.regime).lower()} "
+        f"para o {semestre}º semestre de {ano} de {empresa.razao_social}. O cancelamento, o motivo "
+        "e a data ficam na trilha, e o semestre fica livre para novo registro.",
     )
     return redirect(
         reverse("fiscal_web:opcao_regime_ibs_cbs") + "?" + urlencode({"empresa": empresa.pk})

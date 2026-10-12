@@ -1,14 +1,18 @@
 """DL-088, frente A2: a receita de NF-e de 2027 (HI-149) e os motivos nomeados das recusas.
 
-O contrato (HI-149; NT 2026.008 v1.00, lida em cópia local; consulta de 09/10/2026, seção 3):
+O contrato (HI-149; NT 2026.008 v1.00, lida em cópia local; consulta de 09/10/2026, seção 3; e a
+correção do achado A2 da auditoria da DL-088):
 
 - para a empresa do Simples no REGIME ÚNICO do semestre, a nota de 2027 se efetiva com receita
-  igual ao `vProd` (que passa a conter IBS e CBS por dentro); o `vProdLiq` vira memória quando o
-  leitor o trouxer (BL-687 — o leitor de hoje não o tem);
+  igual ao `vProd − vDesc` (o desconto incondicional sai da receita bruta — LC 123, art. 3º, § 1º,
+  na redação da LC 214), que passa a conter IBS e CBS por dentro; o `vProdLiq` vira memória quando
+  o leitor o trouxer (BL-687 — o leitor de hoje não o tem) e NUNCA é receita (achado A5);
 - para o Presumido, para quem optou pelo regime REGULAR e para o Simples sem a opção do semestre
   informada, a recusa continua, cada caso com o motivo nomeado.
 
-O MUTANTE que os testes de recusa derrubam: aceitar a nota de 2027 sem checar o regime.
+O MUTANTE que os testes de recusa derrubam: aceitar a nota de 2027 sem checar o regime. Os
+mutantes que os testes de receita derrubam: (a) voltar a usar o `vProd` cheio, sem descontar o
+`vDesc` (achado A2); (b) usar o `vProdLiq` como receita quando o campo existir (achado A5).
 """
 
 from datetime import date, datetime
@@ -21,6 +25,7 @@ import pytest
 from apps.auditoria.models import RegistroAuditoria
 from apps.empresas.models import Empresa, HistoricoRegimeTributario, RegimeTributario
 from apps.fiscal import escrituracao_nfe as servico
+from apps.fiscal import itens_nfe
 from apps.fiscal import receita as servico_receita
 from apps.fiscal.models import (
     EstadoEscrituracao,
@@ -71,11 +76,12 @@ def empresa_presumida(escritorio_a):
 
 
 def _nota_de_2027(numero=1, emitente_cnpj=CNPJ_EMITENTE_A) -> bytes:
-    """NF-e de saída emitida em 10/02/2027, UM item: vProd 100,00 e frete 10,00.
+    """NF-e de saída emitida em 10/02/2027, UM item: vProd 100,00 e frete 10,00, SEM desconto.
 
     Pela regra do MOC (`itens_nfe.receita_do_item`) a receita seria 110,00 (vProd + frete); pela
-    regra de 2027 (HI-149) é o `vProd`, 100,00. O vNF 110,00 fecha a W16, mas a W16 não é aplicada
-    em 2027 (a composição do vNF não está publicada — PE-84.4).
+    regra de 2027 (HI-149) é o `vProd − vDesc`, 100,00 (sem desconto, o vDesc não move nada). O
+    vNF 110,00 fecha a W16, mas a W16 não é aplicada em 2027 (a composição do vNF não está
+    publicada — PE-84.4).
     """
     return xml.nfe(
         dets=[xml.det(1, vprod="100.00", vfrete="10.00", icms_xml=xml.icms(csosn="102"))],
@@ -87,8 +93,26 @@ def _nota_de_2027(numero=1, emitente_cnpj=CNPJ_EMITENTE_A) -> bytes:
     )
 
 
-def _efetivar(escritorio, gestor, empresa, *, emitente_cnpj=CNPJ_EMITENTE_A, numero=1):
-    documento = receber(escritorio, gestor, _nota_de_2027(numero, emitente_cnpj))
+def _nota_de_2027_com_desconto(numero=3, emitente_cnpj=CNPJ_EMITENTE_A) -> bytes:
+    """NF-e de saída emitida em 10/02/2027, UM item com DESCONTO INCONDICIONAL (achado A2):
+
+    vProd 100,00 e vDesc 5,00, sem frete. vNF 95,00 = 100,00 − 5,00 (a composição do vNF é a do
+    leiaute clássico; a W16 não é aplicada em 2027). Pela fonte citada (LC 123, art. 3º, § 1º, na
+    redação da LC 214: receita bruta "não incluídas … os descontos incondicionais") a receita é
+    95,00 — e não 100,00.
+    """
+    return xml.nfe(
+        dets=[xml.det(1, vprod="100.00", vdesc="5.00", icms_xml=xml.icms(csosn="102"))],
+        vnf="95.00",
+        totais={"vProd": "100.00", "vDesc": "5.00"},
+        numero=str(numero),
+        dh_emi="2027-02-10T10:00:00-03:00",
+        emitente=("CNPJ", emitente_cnpj),
+    )
+
+
+def _efetivar(escritorio, gestor, empresa, *, emitente_cnpj=CNPJ_EMITENTE_A, numero=1, nota=None):
+    documento = receber(escritorio, gestor, nota or _nota_de_2027(numero, emitente_cnpj))
     esc = servico.criar_rascunho(vinculo(documento, empresa), usuario=gestor)
     ids = list(NaturezaItemNFe.objects.filter(escrituracao=esc).values_list("item_id", flat=True))
     servico.definir_natureza(esc, NaturezaOperacaoNFe.REVENDA, ids, gestor)
@@ -100,18 +124,19 @@ def _opcao(empresa, gestor, regime, semestre=1):
 
 
 # ---------------------------------------------------------------------------
-# Aceita: Simples no regime único, com receita igual ao vProd
+# Aceita: Simples no regime único, com receita igual ao vProd − vDesc
 # ---------------------------------------------------------------------------
 
 
 def test_nota_de_2027_no_regime_unico_efetiva_com_receita_igual_ao_vprod(
     escritorio_a, gestor, empresa_simples
 ):
-    """Opção REGIME ÚNICO do 1º semestre de 2027: a nota de 10/02/2027 efetiva com receita 100,00
-    (o `vProd`), e NÃO 110,00 (o que a regra do MOC somaria com o frete).
+    """Opção REGIME ÚNICO do 1º semestre de 2027: a nota de 10/02/2027, SEM desconto, efetiva com
+    receita 100,00 (o `vProd`), e NÃO 110,00 (o que a regra do MOC somaria com o frete). Nota sem
+    desconto continua igual a antes: o `vDesc` ausente soma zero.
 
-    A memória da efetivação registra a regra e o `vProdLiq` quando existir: com o leitor de hoje
-    (sem o campo, BL-687), `v_prod_liq` sai nulo.
+    A memória da efetivação registra a regra e as parcelas (vProd, vDesc e a receita), e o
+    `vProdLiq` quando existir: com o leitor de hoje (sem o campo, BL-687), `v_prod_liq` sai nulo.
     """
     _opcao(empresa_simples, gestor, RegimeIbsCbsSimples.REGIME_UNICO)
 
@@ -126,8 +151,43 @@ def test_nota_de_2027_no_regime_unico_efetiva_com_receita_igual_ao_vprod(
     assert esc.competencia == date(2027, 2, 1)
     registro = RegistroAuditoria.objects.get(acao="escrituracao_nfe.efetivada")
     assert registro.detalhes["receita_2027"] == {
-        "regra": "vProd (HI-149)",
+        "regra": "vProd − vDesc (HI-149)",
         "v_prod": "100.00",
+        "v_desc": "0.00",
+        "receita": "100.00",
+        "v_prod_liq": None,
+    }
+
+
+def test_nota_de_2027_com_desconto_incondicional_efetiva_com_vprod_menos_vdesc(
+    escritorio_a, gestor, empresa_simples
+):
+    """Achado A2, valores escritos à mão: vProd 100,00 e vDesc 5,00 → receita 95,00.
+
+    A fonte citada manda tirar o desconto incondicional da receita bruta (LC 123, art. 3º, § 1º,
+    na redação da LC 214; HI-149). MUTANTE que este teste derruba: voltar a dar ao item o `vProd`
+    cheio (receita 100,00 com a nota com desconto).
+    """
+    _opcao(empresa_simples, gestor, RegimeIbsCbsSimples.REGIME_UNICO)
+
+    esc = _efetivar(
+        escritorio_a,
+        gestor,
+        empresa_simples,
+        nota=_nota_de_2027_com_desconto(),
+    )
+
+    assert esc.estado == EstadoEscrituracao.EFETIVADA
+    assert esc.receita_bruta == D("95.00")
+    assert esc.soma_itens == D("95.00")
+    assert esc.devolucao == D("0.00")
+    assert esc.valor_nf == D("95.00")
+    registro = RegistroAuditoria.objects.get(acao="escrituracao_nfe.efetivada")
+    assert registro.detalhes["receita_2027"] == {
+        "regra": "vProd − vDesc (HI-149)",
+        "v_prod": "100.00",
+        "v_desc": "5.00",
+        "receita": "95.00",
         "v_prod_liq": None,
     }
 
@@ -143,6 +203,47 @@ def test_a_composicao_do_mes_usa_o_vprod_da_nota_de_2027(escritorio_a, gestor, e
     (linha,) = linhas
     assert linha.papel == "receita"
     assert linha.valor == D("100.00")
+
+
+def test_a_composicao_do_mes_tambem_desconta_o_vdesc(escritorio_a, gestor, empresa_simples):
+    """Achado A2, nos DOIS caminhos: a composição do mês (o que o pré-DAS e o RBT12 leem) também
+    traz 95,00 — `vProd` 100,00 menos o desconto incondicional de 5,00 — e não 100,00."""
+    _opcao(empresa_simples, gestor, RegimeIbsCbsSimples.REGIME_UNICO)
+    _efetivar(escritorio_a, gestor, empresa_simples, nota=_nota_de_2027_com_desconto())
+
+    linhas = servico_receita.linhas_nfe_do_periodo(empresa_simples, (2027, 2), (2027, 2))
+
+    (linha,) = linhas
+    assert linha.papel == "receita"
+    assert linha.valor == D("95.00")
+
+
+def test_a_regra_de_2027_nao_usa_o_v_prod_liq_como_receita():
+    """Achado A5: mesmo com o `vProdLiq` no item (o leitor o traz a partir do BL-687), a receita
+    segue sendo `vProd − vDesc` — 95,00, e não os 90,00 do valor líquido.
+
+    MUTANTE que este teste derruba: usar o `vProdLiq` como receita quando o campo existir
+    (devolveria 90,00). O `vProdLiq` continua SÓ como memória (`memoria_v_prod_liq`).
+    """
+    item_com_campo = SimpleNamespace(
+        n_item=1, ind_tot="1", v_prod=D("100.00"), v_desc=D("5.00"), v_prod_liq=D("90.00")
+    )
+    assert itens_nfe.receita_do_item_2027(item_com_campo) == D("95.00")
+
+    # Sem desconto, a receita é o vProd cheio — e mesmo assim não é o vProdLiq.
+    item_sem_desconto = SimpleNamespace(
+        n_item=1, ind_tot="1", v_prod=D("100.00"), v_desc=None, v_prod_liq=D("90.00")
+    )
+    assert itens_nfe.receita_do_item_2027(item_sem_desconto) == D("100.00")
+
+    # Item fora do total continua fora por inteiro, mesmo com desconto.
+    item_fora = SimpleNamespace(
+        n_item=2, ind_tot="0", v_prod=D("100.00"), v_desc=D("5.00"), v_prod_liq=D("90.00")
+    )
+    assert itens_nfe.receita_do_item_2027(item_fora) == D("0.00")
+
+    # E o vProdLiq segue só na memória, nunca na receita.
+    assert servico.memoria_v_prod_liq([item_com_campo]) == {"1": "90.00"}
 
 
 def test_memoria_do_v_prod_liq_sai_quando_o_leitor_tiver_o_campo():

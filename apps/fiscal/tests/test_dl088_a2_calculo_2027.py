@@ -343,3 +343,106 @@ def test_revenda_nao_depende_do_dado_de_ipi_mantido(empresa_a, usuario_gestor_a,
     assert [(a.anexo, a.mercado) for a in resultado.anexos] == [(ANEXO_I, "interno")]
     assert resultado.total == D("532.00")
     assert not any("IPI mantido" in aviso for aviso in resultado.avisos)
+
+
+# ---------------------------------------------------------------------------
+# A correção da auditoria: o SEMESTRE da opção no pré-DAS público (achado A3) e o cancelamento
+# da opção (achado A1 — Res. CGSN 194/2026)
+# ---------------------------------------------------------------------------
+
+# A janela do § 1º para o PA 07/2027, defasada: os 12 meses antecedentes ao mês ANTERIOR
+# (06/2027), ou seja 06/2026 a 05/2027 (o mesmo cálculo da A1: para o PA 01/2027, 12/2026 menos
+# 12 meses dá 12/2025 e menos 1 mês dá 11/2026). O mês anterior ao PA, 06/2027, NÃO entra.
+JANELA_DE_2027_07 = [(2026, mes) for mes in range(6, 13)] + [(2027, mes) for mes in range(1, 6)]
+
+
+def _cenario_julho_2027(empresa_a, usuario, *, valor_mensal=25000, pa=10000):
+    """Serviço, Anexo III, Simples desde 2018, PA 07/2027: janela de 25.000/mês (RBT12 300.000),
+    06/2027 confirmado sem receita (mês anterior) e o PA de 10.000 confirmado."""
+    empresa = cenario_simples(empresa_a)
+    atividade_padrao(empresa, usuario, ANEXO_III)
+    for ano, mes in JANELA_DE_2027_07:
+        receber_e_confirmar_mes(empresa, usuario, ano, mes, valor_mensal)
+    servico_receita.confirmar_mes(empresa, 2027, 6, usuario)
+    receber_e_confirmar_mes(empresa, usuario, 2027, 7, pa)
+    return empresa
+
+
+def test_o_pre_das_publico_le_a_opcao_do_2_semestre_em_julho(empresa_a, usuario_gestor_a):
+    """Achado A3: o caminho PÚBLICO do pré-DAS lê a opção do SEMESTRE do PA. PA 07/2027 (2º
+    semestre) com a opção REGIME REGULAR do 2º semestre de 2027 registrada.
+
+    Mesma conta da faixa 2 do Anexo III (efetiva 8,08% sobre RBT12 300.000), sobre o PA de 10.000:
+    IRPJ 32,32 · CSLL 28,28 · CBS 136,63 · CPP 350,67 · ISS 258,56 · IBS 1,54 = 808,00, e o
+    art. 22-A deduz CBS 136,63 e IBS 1,54: total 669,83.
+
+    MUTANTE que este teste derruba: o pré-DAS ler sempre o 1º semestre
+    (`opcao_regime_ibs_cbs_do_semestre(empresa, ano, 1)` em `pre_das.pre_das`) — com a opção só no
+    2º semestre, o mutante recusaria com `opcao_regime_regular_nao_informada` em vez de apurar.
+    """
+    empresa = _cenario_julho_2027(empresa_a, usuario_gestor_a)
+    registrar_opcao(empresa, usuario_gestor_a, RegimeIbsCbsSimples.REGIME_REGULAR, semestre=2)
+
+    assert servico_receita.opcao_regime_ibs_cbs_do_semestre(empresa, 2027, 2) is True
+    assert servico_receita.opcao_regime_ibs_cbs_do_semestre(empresa, 2027, 1) is None
+    resultado = motor.pre_das(empresa, 2027, 7)
+
+    assert resultado.rbt12["interno"] == D("300000")
+    assert por_tributo(resultado)["CBS"] == D("0.00")
+    assert por_tributo(resultado)["IBS"] == D("0.00")
+    assert por_tributo(resultado)["ISS"] == D("258.56")
+    assert resultado.total == D("669.83")
+    linhas = {linha.tributo: linha for linha in resultado.anexos[0].segmentos[0].linhas}
+    assert linhas["CBS"].deduzido == D("136.63")
+    assert linhas["IBS"].deduzido == D("1.54")
+
+
+def test_a_opcao_do_1_semestre_nao_libera_o_pa_de_julho(empresa_a, usuario_gestor_a):
+    """Espelho do achado A3: com a opção SÓ do 1º semestre, o PA 07/2027 continua recusando com
+    `opcao_regime_regular_nao_informada` — a opção é por semestre, não por ano.
+
+    MUTANTE que este teste também derruba: ler sempre o 1º semestre — o mutante apuraria 669,83 em
+    vez de recusar.
+    """
+    empresa = _cenario_julho_2027(empresa_a, usuario_gestor_a)
+    registrar_opcao(empresa, usuario_gestor_a, RegimeIbsCbsSimples.REGIME_REGULAR, semestre=1)
+
+    assert servico_receita.opcao_regime_ibs_cbs_do_semestre(empresa, 2027, 1) is True
+    assert servico_receita.opcao_regime_ibs_cbs_do_semestre(empresa, 2027, 2) is None
+    with pytest.raises(motor.PreDasRecusado) as excecao:
+        motor.pre_das(empresa, 2027, 7)
+    assert {b.codigo for b in excecao.value.bloqueios} == {"opcao_regime_regular_nao_informada"}
+
+
+def test_o_cancelamento_da_opcao_faz_o_motor_voltar_a_recusar_2027(
+    empresa_a, usuario_gestor_a, monkeypatch
+):
+    """Achado A1, o efeito no motor: registrada, a opção libera o pré-DAS de 2027 (808,00);
+    cancelada na janela legal, a opção volta a estar NÃO informada e o motor recusa de novo com
+    `opcao_regime_regular_nao_informada` — o comportamento conservador (nada presume regime).
+
+    O cancelamento usa a janela da Res. CGSN 194/2026 (03/11 a 20/12/2026 para o 1º semestre de
+    2027), com o relógio fixado dentro dela.
+    """
+    empresa = cenario_servico(
+        empresa_a, usuario_gestor_a, valor_mensal=25000, valor_mes_anterior=900000
+    )
+    registrar_opcao(empresa, usuario_gestor_a, RegimeIbsCbsSimples.REGIME_UNICO)
+    assert motor.pre_das(empresa, 2027, 1).total == D("808.00")
+
+    fixar_hoje(monkeypatch, date(2026, 12, 1))
+    servico_receita.cancelar_opcao_regime_ibs_cbs(
+        empresa,
+        2027,
+        1,
+        "Cliente cancelou a opção no Portal em 30/11/2026 (Res. CGSN 194/2026).",
+        usuario_gestor_a,
+    )
+    fixar_hoje(monkeypatch, date(2028, 3, 15))
+
+    assert servico_receita.opcao_regime_ibs_cbs_do_semestre(empresa, 2027, 1) is None
+    with pytest.raises(motor.PreDasRecusado) as excecao:
+        motor.pre_das(empresa, 2027, 1)
+    (bloqueio,) = excecao.value.bloqueios
+    assert bloqueio.codigo == "opcao_regime_regular_nao_informada"
+    assert "regime regular" in bloqueio.mensagem

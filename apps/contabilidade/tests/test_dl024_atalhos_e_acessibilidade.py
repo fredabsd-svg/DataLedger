@@ -1225,6 +1225,12 @@ NOMES_DE_TELA_FISCAL_FORA_DA_CONTABILIDADE = {
         "test_registrar_opcao_pela_tela_confirma_nomeando_o_alvo_e_e_insert_only, "
         "test_opcao_ja_registrada_mostra_a_recusa_nomeada_do_servico"
     ),
+    # DL-088, correção do achado A1 (apps/fiscal/tests/test_dl088_b_telas.py): cancelar a opção
+    # do semestre, em duas etapas, na janela legal (Res. CGSN 194/2026; arts. 40-C/40-D).
+    "fiscal_web:opcao_regime_ibs_cbs_cancelar": (
+        "test_cancelar_a_opcao_pela_tela_confirma_nomeando_o_alvo_e_trilha_o_motivo, "
+        "test_cancelar_a_opcao_fora_da_janela_mostra_o_prazo_e_nao_grava"
+    ),
     "fiscal_web:ipi_mantido": (
         "test_tela_ipi_mantido_e_acessivel, test_tela_ipi_mantido_sem_empresa_pede_a_escolha"
     ),

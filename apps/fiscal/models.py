@@ -1675,8 +1675,18 @@ class OpcaoRegimeIbsCbsSimples(models.Model):
 
     O carimbo da escolha é o campo `regime`, gravado com `registrada_em`/`registrada_por` (quem do
     escritório registrou; o dado é cadastrado pelo escritório — o Fred confirma quais clientes
-    optaram). A opção do semestre é registrada UMA vez: a segunda tentativa é recusada pela
-    restrição única (`opcao_regime_ibs_cbs_unica_por_semestre`), como a opção pelo regime de caixa.
+    optaram). Enquanto estiver ATIVA, a opção do semestre é registrada UMA vez: a segunda tentativa
+    é recusada pela restrição única (`opcao_regime_ibs_cbs_unica_por_semestre`, PARCIAL em
+    `cancelada_em__isnull=True`). O CANCELAMENTO (DL-088, correção do achado A1) é ato à parte, na
+    janela legal (`receita.cancelar_opcao_regime_ibs_cbs`): a opção cancelada fica na linha, com
+    `cancelada_em`/`cancelada_por`/`motivo_cancelamento`, deixa de valer para o motor (volta a ser
+    "opção não informada") e LIBERA o (empresa, ano, semestre) para novo registro. Duas opções
+    ATIVAS do mesmo semestre continuam impossíveis.
+
+    Fonte do cancelamento (consulta de 09/10/2026, seção 1; `docs/projeto/consultas/
+    2026-10-09-contador-senior-virada-2027-simples.md`): Res. CGSN 194/2026 — cancelamento de
+    03/11 a 20/12/2026 para o 1º semestre de 2027; Res. CGSN 190/2026, arts. 40-C e 40-D — opção/
+    renúncia irretratável por semestre, cancelável até 30/11 (1º semestre) e 31/05 (2º).
     """
 
     empresa = models.ForeignKey(
@@ -1697,14 +1707,30 @@ class OpcaoRegimeIbsCbsSimples(models.Model):
         related_name="+",
         verbose_name="registrada por",
     )
+    # O cancelamento NÃO apaga a linha: quem cancelou, quando e por quê ficam no próprio registro
+    # (e na trilha). `cancelada_em` preenchida é a única marca de "não vale mais" — a unicidade do
+    # semestre é parcial exatamente para a linha cancelada poder conviver com a nova opção.
+    cancelada_em = models.DateTimeField("cancelada em", null=True, blank=True)
+    cancelada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="+",
+        null=True,
+        blank=True,
+        verbose_name="cancelada por",
+    )
+    motivo_cancelamento = models.TextField("motivo do cancelamento", null=True, blank=True)
 
     class Meta:
         verbose_name = "opção de regime de IBS/CBS (Simples)"
         verbose_name_plural = "opções de regime de IBS/CBS (Simples)"
         ordering = ["empresa_id", "ano", "semestre"]
         constraints = [
+            # PARCIAL (DL-088, correção do achado A1): só as opções ATIVAS disputam o semestre.
+            # Duas ativas seguem impossíveis; a cancelada libera o (empresa, ano, semestre).
             models.UniqueConstraint(
                 fields=["empresa", "ano", "semestre"],
+                condition=Q(cancelada_em__isnull=True),
                 name="opcao_regime_ibs_cbs_unica_por_semestre",
             ),
             # A opção de regime regular só existe da virada de 2027 em diante (HI-148).
@@ -3504,7 +3530,8 @@ class EscrituracaoNFe(models.Model):
     Os totais (`valor_nf`, `receita_bruta`, `devolucao`, `soma_itens`) são copiados na efetivação,
     a partir dos itens lidos do XML guardado. A composição da receita lê as naturezas por item
     (`NaturezaItemNFe`) e a receita de cada item (`itens_nfe.receita_do_item`, DL-083 — em 2027, no
-    regime único do Simples, `itens_nfe.receita_do_item_2027`, que é o `vProd`; DL-088 A2, HI-149),
+    regime único do Simples, `itens_nfe.receita_do_item_2027`, que é o `vProd − vDesc`;
+    DL-088 A2, HI-149),
     não estes totais.
 
     Imutabilidade, em três camadas (como na DL-072): `save()` recusa alterar linha efetivada ou
@@ -3550,8 +3577,8 @@ class EscrituracaoNFe(models.Model):
     )
     # Soma da receita de TODOS os itens (`receita_do_item`, DL-083), de qualquer natureza. É a
     # conferência com o vNF: vNF − vST − vFCPST − vIPI − vII − vIPIDevol. Em 2027, no regime único
-    # do Simples (DL-088 A2; HI-149), é a soma do `vProd` dos itens, e a W16 não é aplicada (a
-    # composição do vNF em 2027 não está publicada — PE-84.4).
+    # do Simples (DL-088 A2; HI-149), é a soma do `vProd − vDesc` dos itens, e a W16 não é
+    # aplicada (a composição do vNF em 2027 não está publicada — PE-84.4).
     soma_itens = models.DecimalField(
         "soma da receita dos itens", max_digits=15, decimal_places=2, null=True, blank=True
     )
