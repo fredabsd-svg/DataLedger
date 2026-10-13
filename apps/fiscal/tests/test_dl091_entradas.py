@@ -185,23 +185,70 @@ def test_devolucao_de_venda_recebida_continua_devolucao_e_nao_vira_entrada(
     assert servico.tipo_da_nota(documento, PapelNFe.DESTINATARIO) == TipoEscrituracaoNFe.DEVOLUCAO
 
 
-def test_finnfe_4_em_saida_com_cfop_de_devolucao_de_compra_e_recusada(
-    escritorio_a, usuario_gestor_a, empresa
-):
-    documento = _nota(
-        escritorio_a,
-        usuario_gestor_a,
+def _saida_finnfe_4(escritorio, usuario, empresa, *, cfop, numero, ncm="22030000"):
+    """Saída própria (a empresa emite, tpNF 1) com finNFe 4: devolução ou retorno genérico."""
+    return _nota(
+        escritorio,
+        usuario,
         empresa,
-        cfop="5202",
+        cfop=cfop,
+        ncm=ncm,
         tp_nf="1",
         fin_nfe="4",
+        numero=numero,
         emitente=("CNPJ", CNPJ_DESTINATARIO_A),
         destinatario=("CNPJ", CNPJ_EMITENTE_A),
-        numero="5",
     )
+
+
+def test_finnfe_4_em_saida_com_cfop_de_devolucao_de_compra_e_escrituravel_so_com_devolucao(
+    escritorio_a, usuario_gestor_a, empresa
+):
+    """DL-091, contrato do arquiteto: a devolução de compra do cliente sai com tpNF 1 e finNFe 4.
+    É DEVOLUCAO_COMPRA, e só a natureza `devolucao_compra` cabe. Revenda não cabe: é o que protege a
+    receita."""
+    documento = _saida_finnfe_4(escritorio_a, usuario_gestor_a, empresa, cfop="5202", numero="5")
+    assert (
+        servico.tipo_da_nota(documento, PapelNFe.EMITENTE) == TipoEscrituracaoNFe.DEVOLUCAO_COMPRA
+    )
+    esc = servico.criar_rascunho(vinculo(documento, empresa), usuario=usuario_gestor_a)
+    assert esc.tipo == TipoEscrituracaoNFe.DEVOLUCAO_COMPRA
+    item = documento.itens.get(n_item=1)
+    assert servico.sugerir_natureza_item(documento, item).natureza == N.DEVOLUCAO_COMPRA
+
+    ids = [item.pk]
+    with pytest.raises(servico.EntradaInvalidaNFe):
+        servico.definir_natureza(esc, N.REVENDA, ids, usuario=usuario_gestor_a)
+    with pytest.raises(servico.EntradaInvalidaNFe):
+        servico.definir_natureza(esc, N.COMBUSTIVEL, ids, usuario=usuario_gestor_a)
+    servico.definir_natureza(esc, N.DEVOLUCAO_COMPRA, ids, usuario=usuario_gestor_a)
+    efetivada = servico.efetivar(esc, usuario=usuario_gestor_a)
+    assert efetivada.estado == EstadoEscrituracao.EFETIVADA
+    assert efetivada.receita_bruta == Decimal("0.00") and efetivada.devolucao == Decimal("0.00")
+
+
+def test_finnfe_4_com_cfop_de_retorno_nao_devolucao_fica_sem_sugestao_e_nao_efetiva(
+    escritorio_a, usuario_gestor_a, empresa
+):
+    """DL-091, contrato (item 3): retorno em finNFe 4 que não é devolução de compra (5.915, remessa
+    para conserto) não tem sugestão, com o motivo nomeado. Sem natureza, a nota não efetiva."""
+    documento = _saida_finnfe_4(escritorio_a, usuario_gestor_a, empresa, cfop="5915", numero="6")
+    esc = servico.criar_rascunho(vinculo(documento, empresa), usuario=usuario_gestor_a)
+    sugestao = servico.sugerir_natureza_item(documento, documento.itens.get(n_item=1))
+    assert sugestao.natureza is None
+    assert "retorno em finNFe 4: fora do catálogo do corte 1" in sugestao.motivo
     with pytest.raises(servico.EscrituracaoNFeErro) as erro:
-        servico.criar_rascunho(vinculo(documento, empresa), usuario=usuario_gestor_a)
-    assert erro.value.mensagem == servico.MENSAGEM_FIN_4_EM_SAIDA_COM_DEVOLUCAO_DE_COMPRA
+        servico.efetivar(esc, usuario=usuario_gestor_a)
+    assert "Falta a natureza" in erro.value.mensagem
+
+
+def test_naturezas_permitidas_de_devolucao_de_compra_sao_so_devolucao_de_compra():
+    """A regra que protege a receita: finNFe 4 em saída só leva devolucao_compra."""
+    assert servico.naturezas_permitidas(TipoEscrituracaoNFe.DEVOLUCAO_COMPRA) == {
+        N.DEVOLUCAO_COMPRA
+    }
+    saida = servico.naturezas_permitidas(TipoEscrituracaoNFe.SAIDA_PROPRIA)
+    assert N.REVENDA in saida and N.DEVOLUCAO_COMPRA in saida  # finNFe 1 continua como antes
 
 
 def test_uma_escrituracao_ativa_por_nota(escritorio_a, usuario_gestor_a, empresa):
@@ -865,3 +912,50 @@ def test_posto_compra_com_icms_monofasico_e_lida_sem_valor_e_marca_monofasico_pe
     assert item.v_icms is None  # o valor monofásico não é lido pelo leitor de hoje
     marca, credito = entradas.marca_do_credito(documento, item, N.ENTRADA_COMBUSTIVEL_REVENDA)
     assert (marca, credito) == (MarcaCreditoEntrada.MONOFASICO, None)
+
+
+@pytest.mark.parametrize(
+    ("ncm", "marca", "descricao"),
+    [
+        # Art. 2º da LC 192, pela enumeração da consulta de 13/10/2026, seção 5: diesel e GLP.
+        ("27101921", MarcaCreditoEntrada.MONOFASICO, "óleo diesel (art. 2º)"),
+        ("27111910", MarcaCreditoEntrada.MONOFASICO, "GLP (art. 2º)"),
+        # Combustível da lista fora do art. 2º: a regra não se afirma (a conferir).
+        ("27101911", MarcaCreditoEntrada.A_CONFERIR, "querosene de aviação (fora do art. 2º)"),
+        ("27101251", MarcaCreditoEntrada.A_CONFERIR, "óleo leve de aviação (fora do art. 2º)"),
+        ("27101922", MarcaCreditoEntrada.A_CONFERIR, "fuel-oil (fora do art. 2º)"),
+        ("27111100", MarcaCreditoEntrada.A_CONFERIR, "gás natural liquefeito (fora do art. 2º)"),
+        # Na lista, mas a descrição não separa com segurança: conferir o NCM.
+        ("27101259", MarcaCreditoEntrada.MONOFASICO_CONFERIR_NCM, "óleo leve, outras"),
+    ],
+)
+def test_monofasico_so_para_o_art_2_da_lc_192_o_resto_da_lista_e_conferido(
+    escritorio_a, usuario_gestor_a, empresa, ncm, marca, descricao
+):
+    documento = _nota(
+        escritorio_a,
+        usuario_gestor_a,
+        empresa,
+        ncm=ncm,
+        cfop="5655",
+        numero=f"7{ncm[-3:]}",
+    )
+    item = documento.itens.get(n_item=1)
+    assert marca_e_credito(documento, item, N.ENTRADA_COMBUSTIVEL_REVENDA)[0] == marca, descricao
+
+
+def marca_e_credito(documento, item, natureza):
+    return entradas.marca_do_credito(documento, item, natureza)
+
+
+def test_querosene_fora_do_art_2_gera_aviso_e_nao_e_monofasico(
+    escritorio_a, usuario_gestor_a, empresa
+):
+    documento = _nota(
+        escritorio_a, usuario_gestor_a, empresa, ncm="27101911", cfop="5655", numero="790"
+    )
+    contexto = entradas.contexto_da_entrada(empresa, date(2026, 3, 15))
+    avisos = entradas.avisos_da_entrada(
+        documento, documento.itens.get(n_item=1), N.ENTRADA_COMBUSTIVEL_REVENDA, contexto
+    )
+    assert entradas.AVISO_COMBUSTIVEL_FORA_DO_ART_2 in avisos

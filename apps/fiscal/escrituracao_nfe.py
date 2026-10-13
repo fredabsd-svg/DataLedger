@@ -131,6 +131,7 @@ _NATUREZAS_DE_DEVOLUCAO = frozenset(
     }
 )
 _NATUREZA_DE_DEVOLUCAO = NaturezaOperacaoNFe.DEVOLUCAO_VENDA
+_NATUREZA_DE_DEVOLUCAO_DE_COMPRA = NaturezaOperacaoNFe.DEVOLUCAO_COMPRA
 
 # Situações da nota, como a tela e a API as mostram.
 SITUACAO_A_ESCRITURAR = "a_escriturar"
@@ -206,6 +207,10 @@ def tipo_da_nota(documento, papel: str) -> str | None:
     if papel == PapelNFe.EMITENTE:
         if tp_nf == "1" and fin == "1":
             return TipoEscrituracaoNFe.SAIDA_PROPRIA
+        if tp_nf == "1" and fin == "4" and documento.modelo == "55":
+            # DL-091 (contrato do arquiteto): finNFe 4 é devolução/retorno genérico. A devolução de
+            # compra do cliente sai assim. Só `devolucao_compra` cabe aqui (`naturezas_permitidas`).
+            return TipoEscrituracaoNFe.DEVOLUCAO_COMPRA
         if tp_nf == "1" and fin in ("2", "3", "5", "6"):
             return TipoEscrituracaoNFe.AJUSTE
         if tp_nf == "0" and fin == "4":
@@ -265,6 +270,11 @@ def naturezas_permitidas(tipo: str) -> frozenset[str]:
     if tipo == TipoEscrituracaoNFe.ENTRADA:
         # DL-091 (A1): só E1 a E11. Nenhuma natureza de saída ou de devolução de venda cabe aqui.
         return frozenset(NATUREZAS_DE_ENTRADA)
+    if tipo == TipoEscrituracaoNFe.DEVOLUCAO_COMPRA:
+        # DL-091 (contrato do arquiteto): finNFe 4 em saída própria só leva devolução de compra.
+        # Revenda
+        # e as demais naturezas de receita não cabem: é o que protege a receita.
+        return frozenset({_NATUREZA_DE_DEVOLUCAO_DE_COMPRA})
     # Saída própria (e o tipo vazio das consultas de sugestão): tudo do catálogo de saída, inclusive
     # `devolucao_compra` (saída com indDevol 1). Naturezas de entrada não cabem.
     return (
@@ -443,6 +453,20 @@ def sugerir_natureza_item(documento, item, tipo: str | None = None) -> Sugestao:
     info = consultar_cfop(item.cfop)
     if info is None:
         return Sugestao(None, "a classificar: CFOP fora da tabela oficial (Informe 2023.002 v2.10)")
+
+    if tipo == TipoEscrituracaoNFe.DEVOLUCAO_COMPRA:
+        # DL-091 (contrato do arquiteto, item 3): saída própria com finNFe 4. Só a devolução de
+        # compra
+        # oficial é sugerida. Qualquer outro CFOP de retorno (conserto, remessa, consignação) fica
+        # sem
+        # sugestão, com o motivo, e a nota não efetiva enquanto o item não tiver natureza.
+        if info.ind_devol and info.descricao.startswith(TEXTOS_DE_DEVOLUCAO_DE_COMPRA):
+            return Sugestao(
+                NaturezaOperacaoNFe.DEVOLUCAO_COMPRA,
+                f"devolução de compra: finNFe 4 e CFOP {item.cfop} com indDevol 1 "
+                "e descrição oficial",
+            )
+        return Sugestao(None, "retorno em finNFe 4: fora do catálogo do corte 1")
 
     if fin == "4":
         # Devolução: a coluna indDevol da tabela decide. A faixa do CFOP não decide.
@@ -767,12 +791,6 @@ def _validar_natureza_para_o_tipo(natureza: str, tipo: str) -> None:
         )
 
 
-MENSAGEM_FIN_4_EM_SAIDA_COM_DEVOLUCAO_DE_COMPRA = (
-    "finNFe 4 em saída própria com CFOP de devolução de compra: a finalidade contradiz a natureza "
-    "(HI-157). Recusada: confirme a finalidade da nota."
-)
-
-
 def criar_rascunho(
     vinculo: VinculoNFeEmpresa, usuario, request=None, data_entrada: date | None = None
 ) -> EscrituracaoNFe:
@@ -794,12 +812,6 @@ def criar_rascunho(
 
     documento = vinculo.documento
     tipo = tipo_da_nota(documento, vinculo.papel)
-    if tipo is None and vinculo.papel == PapelNFe.EMITENTE and documento.fin_nfe == "4":
-        if documento.tp_nf == "1" and any(
-            consultar_cfop(item.cfop) is not None and consultar_cfop(item.cfop).ind_devol
-            for item in ItemNFe.objects.filter(documento=documento)
-        ):
-            raise EscrituracaoNFeErro(MENSAGEM_FIN_4_EM_SAIDA_COM_DEVOLUCAO_DE_COMPRA)
     if tipo is None:
         raise EscrituracaoNFeErro(motivo_fora_da_escrituracao(documento, vinculo.papel))
     if tipo == TipoEscrituracaoNFe.ENTRADA:

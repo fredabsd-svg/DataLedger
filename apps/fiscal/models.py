@@ -3755,6 +3755,15 @@ class TipoEscrituracaoNFe(models.TextChoices):
     # DL-091 (A1): compra de NF-e modelo 55 com finNFe 1, em que a empresa é a destinatária. Fora
     # da receita: nenhuma natureza de entrada compõe receita (consulta de 13/10/2026, seção 2).
     ENTRADA = "entrada", "Entrada de compra (NF-e de terceiro, finNFe 1)"
+    # DL-091 (arquiteto, correção do contrato): finNFe 4 é "Devolução/Retorno" genérico no leiaute
+    # (leiauteNFe_v4.00.xsd, PL_010f, linha 185). A devolução de compra do cliente sai com tpNF 1 e
+    # finNFe 4. Este tipo é a SAÍDA própria com finNFe 4 (modelo 55): só `devolucao_compra` cabe
+    # nele,
+    # e nenhuma natureza de receita. É o que protege a receita de uma nota de finNFe 4.
+    DEVOLUCAO_COMPRA = (
+        "devolucao_compra",
+        "Devolução de compra ou retorno (saída própria, finNFe 4)",
+    )
 
 
 class EscrituracaoNFe(models.Model):
@@ -4347,6 +4356,12 @@ class MarcaCreditoEntrada(models.TextChoices):
     SEM_CREDITO_PLENO = (
         "sem_credito_pleno_pelo_cst",
         "CST/CSOSN sem direito a crédito pleno: conferir (LC 87, art. 20, § 1º)",
+    )
+    # DL-091 (correção): NCM de combustível da lista, mas que a lista NÃO separa com segurança como
+    # um dos combustíveis do art. 2º da LC 192. Não se afirma monofásico: pede conferência do NCM.
+    MONOFASICO_CONFERIR_NCM = (
+        "monofasico_conferir_ncm",
+        "Monofásico (LC 192): conferir o NCM; a lista não separa com segurança",
     )
     A_CONFERIR = "a_conferir", "A conferir: a regra do caso não foi lida ou falta o dado"
 

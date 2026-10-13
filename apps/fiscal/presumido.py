@@ -1877,7 +1877,13 @@ def _nfe_nao_escriturada(empresa: Empresa, ano: int, meses) -> list[Recusa]:
         for nota in nfe_servico.notas_do_mes(empresa, ano, mes):
             # DL-091 (A1): a compra não é receita; a NF-e de entrada pendente não bloqueia o
             # trimestre.
-            if nota.tipo is None or nota.tipo == TipoEscrituracaoNFe.ENTRADA:
+            # DL-091: a compra e a devolução de compra (finNFe 4) não são receita: não bloqueiam o
+            # trimestre.
+            if nota.tipo in (
+                None,
+                TipoEscrituracaoNFe.ENTRADA,
+                TipoEscrituracaoNFe.DEVOLUCAO_COMPRA,
+            ):
                 continue
             if nota.situacao in (nfe_servico.SITUACAO_A_ESCRITURAR, nfe_servico.SITUACAO_RASCUNHO):
                 rotulo = f"NF-e nº {nota.documento.numero}"

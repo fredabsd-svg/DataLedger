@@ -140,7 +140,8 @@ def _icms_00(vprod: str) -> str:
 
 
 def _devolucao_de_compra(escritorio, usuario, empresa):
-    """Devolução de compra (saída própria, CFOP 5.202, indDevol 1) de 300,00 em março."""
+    """Devolução de compra do cliente, saída própria com finNFe 4 (contrato do arquiteto: tipo
+    DEVOLUCAO_COMPRA), CFOP 5.202, indDevol 1, de 300,00 em março."""
     documento = _nota(
         escritorio,
         usuario,
@@ -150,6 +151,7 @@ def _devolucao_de_compra(escritorio, usuario, empresa):
         cfop="5202",
         vprod="300.00",
         tp_nf="1",
+        fin_nfe="4",
     )
     esc = servico.criar_rascunho(vinculo(documento, empresa), usuario=usuario)
     ids = list(NaturezaItemNFe.objects.filter(escrituracao=esc).values_list("item_id", flat=True))
@@ -303,3 +305,26 @@ def test_devolucao_de_compra_nao_entra_em_linhas_nem_em_parcelas_de_deducao(
     _devolucao_de_compra(escritorio_a, gestor, simples)
     assert receita_servico.linhas_nfe_do_periodo(simples, (2026, 1), (2026, 3)) == linhas_antes
     assert receita_servico._parcelas_do_periodo(simples, (2026, 1), (2026, 3)) == parcelas_antes
+
+
+def test_devolucao_de_compra_finnfe_4_pendente_nao_bloqueia_o_presumido(
+    escritorio_a, gestor, presumido
+):
+    """DEVOLUCAO_COMPRA não é receita: a nota de finNFe 4 ainda NÃO escriturada não bloqueia o
+    trimestre do Presumido (como a compra, DL-091)."""
+    _vendas_do_simples(escritorio_a, gestor, presumido)
+    antes = _apuracao_do_presumido(presumido)
+    _nota(
+        escritorio_a,
+        gestor,
+        numero="402",
+        cnpj_emitente=CNPJ_EMITENTE_A,
+        cnpj_destinatario=CNPJ_DESTINATARIO_A,
+        cfop="5202",
+        vprod="150.00",
+        tp_nf="1",
+        fin_nfe="4",
+    )
+    depois = _apuracao_do_presumido(presumido)
+    assert depois == antes
+    assert not any(recusa.codigo == "nfe_nao_escriturada" for recusa in depois["recusas"])

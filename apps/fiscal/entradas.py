@@ -83,6 +83,21 @@ CST_COM_CREDITO_PLENO = frozenset({"00", "10", "20", "70"})
 CRTS_DO_SIMPLES = frozenset({"1", "2"})
 CRT_REGIME_NORMAL = "3"
 
+# Monofásico do combustível do art. 2º da LC 192 (DL-091, correção do arquiteto). A enumeração é a
+# da
+# consulta de 13/10/2026, seção 5 (lida no Planalto): gasolina e correntes, etanol anidro, diesel e
+# correntes, biodiesel e GLP. Este filtro por NCM é só da entrada: `ncm_combustivel.py` serve à
+# saída
+# e NÃO é alterado. Quando a lista não separa com segurança, não se afirma monofásico.
+# - Diesel (27101921, óleo diesel) e GLP (27111910): monofásico (art. 2º, diesel e correntes; GLP).
+NCM_MONOFASICO_DO_ART_2_DA_LC_192 = frozenset({"27101921", "27111910"})
+# - Combustível da lista que NÃO está na enumeração do art. 2º (querosene de aviação, óleos
+#   combustíveis, gás natural): a regra não se afirma. Marca "a conferir" e aviso.
+NCM_DE_COMBUSTIVEL_FORA_DO_ART_2 = frozenset(
+    {"27101251", "27101911", "27101919", "27101922", "27101929", "27111100", "27112100"}
+)
+# - Demais NCM da lista, cuja descrição não separa a gasolina com segurança: "conferir NCM".
+
 # Avisos nomeados (item 6). Texto fixo: a tela e a API mostram este texto, sem valor.
 AVISO_SIMPLES_OUTRO_ESTADO = (
     "compra de outro estado por optante do Simples: possível antecipação ou DIFAL fora do DAS "
@@ -114,6 +129,10 @@ AVISO_UF_DA_EMPRESA_NAO_CADASTRADA = (
     "UF da matriz não cadastrada: avisos de outro estado não avaliados"
 )
 AVISO_DEVOLUCAO_DE_COMPRA = "estorno do crédito de ICMS: etapa do ICMS (não feita no corte 1)"
+AVISO_COMBUSTIVEL_FORA_DO_ART_2 = (
+    "NCM de combustível fora da enumeração do art. 2º da LC 192 (consulta de 13/10/2026, seção 5): "
+    "regra de monofásico não afirmada; conferir"
+)
 
 # Textos oficiais que sugerem devolução de compra (DL-091, item 7), pela descrição do CFOP.
 TEXTOS_DE_DEVOLUCAO_DE_COMPRA = (
@@ -375,19 +394,26 @@ def marca_do_credito(documento, item, natureza: str) -> tuple[str, Decimal | Non
     """Marca de crédito de UM item, e o valor que a regra admite (ou `None`). Função pura.
 
     A ordem importa e está aqui por motivo:
-    1. NCM de combustível da lista positiva: monofásico, sem crédito, qualquer que seja a natureza.
+    1. NCM de combustível: monofásico SÓ para o art. 2º da LC 192 (diesel e GLP); o combustível da
+       lista fora do art. 2º fica "a conferir"; o demais da lista fica "monofásico: conferir NCM".
     2. Natureza que veda ou restringe o crédito (E4 até 2032, E5 em 1/48, E6 e E11 a conferir):
        nunca vira "crédito destacado", mesmo com `vICMS` destacado (criterio 5, E4).
     3. ST retido (CST 60, CSOSN 500, `vICMSSTRet` > 0): sem crédito, compõe o custo.
     4. Natureza sem crédito (E7, E10, E3 sem ST retido).
     5. Fornecedor do Simples (CRT 1 ou 2): só o `vCredICMSSN`, com `pCredSN` (LC 123, art. 23, §§ 1º
-       a 4º). Sem `pCredSN`, não há crédito (§ 4º, II). Nunca se presume o destacado como crédito.
+       a
+       4º). Sem `pCredSN`, não há crédito (§ 4º, II). Nunca se presume o destacado como crédito.
     6. Regime normal (CRT 3): o ICMS destacado, se o CST dá crédito pleno.
     CRT ausente ou de outro valor: "a conferir". Não se presume o regime do fornecedor.
     """
     efeitos = CATALOGO_EFEITOS_NATUREZA_NFE[natureza]
-    if normalizar_ncm(item.ncm) in NCM_COMBUSTIVEL:
+    ncm = normalizar_ncm(item.ncm)
+    if ncm in NCM_MONOFASICO_DO_ART_2_DA_LC_192:
         return MarcaCreditoEntrada.MONOFASICO, None
+    if ncm in NCM_DE_COMBUSTIVEL_FORA_DO_ART_2:
+        return MarcaCreditoEntrada.A_CONFERIR, None
+    if ncm in NCM_COMBUSTIVEL:
+        return MarcaCreditoEntrada.MONOFASICO_CONFERIR_NCM, None
     credito = efeitos.credito
     if credito == "vedado_ate_2032":
         return MarcaCreditoEntrada.VEDADO_ATE_2032, None
@@ -467,6 +493,8 @@ def avisos_da_entrada(
                 avisos.append(AVISO_UF_INCOERENTE)
             if item.cfop[0] == "6" and uf_do_emitente == contexto.uf_empresa:
                 avisos.append(AVISO_UF_INCOERENTE)
+    if ncm in NCM_DE_COMBUSTIVEL_FORA_DO_ART_2:
+        avisos.append(AVISO_COMBUSTIVEL_FORA_DO_ART_2)
     if natureza == NaturezaOperacaoNFe.DEVOLUCAO_COMPRA:
         avisos.append(AVISO_DEVOLUCAO_DE_COMPRA)
     return tuple(avisos)

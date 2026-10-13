@@ -74,7 +74,8 @@ _NATUREZAS_NOVAS_DA_0021 = (
     "devolucao_compra",
 )
 _TIPOS_ANTES = ("saida_propria", "devolucao", "ajuste")
-_TIPOS_DEPOIS = _TIPOS_ANTES + ("entrada",)
+# DL-091 (contrato do arquiteto): a saída própria com finNFe 4 ganha tipo próprio.
+_TIPOS_DEPOIS = _TIPOS_ANTES + ("entrada", "devolucao_compra")
 
 
 def _lista(valores) -> str:
@@ -178,8 +179,11 @@ def _recusar_reversao_com_entrada(apps, schema_editor):
     # estado da escrituração de entrada (rascunho inclusive: a compra já foi recebida e classificada).
     # Também recusa natureza de entrada ou de devolução de compra gravada, porque o CHECK antigo não
     # a aceita.
+    # Tipo `devolucao_compra` (finNFe 4 em saída própria) também recusa: o CHECK antigo não o aceita.
     escrituracoes = (
-        apps.get_model("fiscal", "EscrituracaoNFe").objects.filter(tipo="entrada").count()
+        apps.get_model("fiscal", "EscrituracaoNFe")
+        .objects.filter(tipo__in=["entrada", "devolucao_compra"])
+        .count()
     )
     naturezas = (
         apps.get_model("fiscal", "NaturezaItemNFe")
@@ -189,9 +193,9 @@ def _recusar_reversao_com_entrada(apps, schema_editor):
     if escrituracoes or naturezas:
         raise RuntimeError(
             "Reversão da DL-091 recusada, sem alterar nada: "
-            f"{escrituracoes} escrituração(ões) de entrada e {naturezas} natureza(s) de entrada ou "
-            "de devolução de compra gravada(s). Elas dizem de onde veio cada compra escriturada: "
-            "registre-as ou trate-as antes de reverter."
+            f"{escrituracoes} escrituração(ões) de entrada ou de devolução de compra (finNFe 4) e "
+            f"{naturezas} natureza(s) de entrada ou de devolução de compra gravada(s). Elas dizem de "
+            "onde veio cada compra escriturada: registre-as ou trate-as antes de reverter."
         )
 
 
@@ -255,6 +259,10 @@ class Migration(migrations.Migration):
                                 "sem_credito_pleno_pelo_cst",
                                 "CST/CSOSN sem direito a crédito pleno: conferir "
                                 "(LC 87, art. 20, § 1º)",
+                            ),
+                            (
+                                "monofasico_conferir_ncm",
+                                "Monofásico (LC 192): conferir o NCM; a lista não separa com segurança",
                             ),
                             (
                                 "a_conferir",
@@ -443,6 +451,10 @@ class Migration(migrations.Migration):
                     ("devolucao", "Devolução de venda recebida (finNFe 4)"),
                     ("ajuste", "Ajuste (finNFe 2, 3, 5 ou 6)"),
                     ("entrada", "Entrada de compra (NF-e de terceiro, finNFe 1)"),
+                    (
+                        "devolucao_compra",
+                        "Devolução de compra ou retorno (saída própria, finNFe 4)",
+                    ),
                 ],
                 max_length=16,
                 verbose_name="tipo da escrituração",
