@@ -397,12 +397,14 @@ def test_escriturar_mostra_o_motivo_da_sugestao_e_cfop_com_descricao_oficial(cli
 
 
 def test_nota_fora_da_escrituracao_explica_o_motivo_e_nao_cria_rascunho(client, gestor, emitente):
-    # Nota de entrada (compra): a empresa é destinatária e não emitente.
+    # Nota de entrada com tpNF 0 de terceiro: a empresa é destinatária e não emitente. (DL-091: a
+    # compra com tpNF 1 e finNFe 1 agora é escriturável; esta recusa é a de tpNF 0, que continua.)
     _logar(client, gestor)
     compra = xml.nfe(
         dets=[xml.det(1, cfop="1102", vprod="100.00", icms_xml=xml.icms(csosn="102"))],
         vnf="100.00",
         totais={"vProd": "100.00"},
+        tp_nf="0",
         emitente=("CNPJ", CNPJ_DESTINATARIO_A),
         emitente_nome="Fornecedor Sintetico Ltda",
         destinatario=("CNPJ", CNPJ_EMITENTE_A),

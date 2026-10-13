@@ -7,7 +7,8 @@ Hipóteses HI-117 a HI-124 (requisitos.md). Decisões que o código não explica
 - ELEGIBILIDADE. Saída própria: a empresa é emitente, `tpNF` 1 e `finNFe` 1, modelos 55 e 65.
   Devolução de venda: `finNFe` 4, em nota de terceiro em que a empresa é destinatária, ou nota
   própria de entrada (emitente com `tpNF` 0). Ajuste: `finNFe` 2, 3, 5 ou 6, só na saída própria.
-  Compras e demais entradas ficam fora (a recepção da DL-080 continua valendo como está).
+  Compra de NF-e modelo 55 com finNFe 1 (empresa destinatária, tpNF 1) é ENTRADA, da DL-091
+  (`entradas.py`). Os outros casos de entrada continuam fora (a recepção da DL-080 vale como está).
 - SUGESTÃO DE NATUREZA, por item, sem gravar nada. Sinais (consulta, item 2): `finNFe` decide
   devolução e ajuste; depois CFOP (com a tabela oficial), CST/CSOSN e `idDest`. Se dois sinais
   apontam naturezas DIFERENTES, a sugestão fica em branco ("conflito"). CFOP fora da tabela
@@ -34,7 +35,8 @@ Hipóteses HI-117 a HI-124 (requisitos.md). Decisões que o código não explica
   memória quando o leitor o trouxer (BL-687). Para o Presumido e para quem optou pelo regime
   regular a recusa continua, cada caso com o motivo nomeado (`motivo_bloqueio_efetivacao`), até a
   leitura do DL 1.598, art. 12, § 4º.
-- Competência = mês de `dhEmi` no fuso de São Paulo (consulta, item 1).
+- Competência = mês de `dhEmi` no fuso de São Paulo (consulta, item 1). Na ENTRADA (DL-091), o
+  mês da `data_entrada` (HI-158).
 - Nada aqui calcula ICMS, guia ou alíquota. Só se escritura e se confere.
 - Concorrência: cada serviço que escreve roda em `transaction.atomic()` e trava a EMPRESA
   (`receita.travar_empresa`) antes do vínculo, na mesma ordem da DL-072/DL-074. A restrição
@@ -65,6 +67,7 @@ from apps.fiscal.cfop import (
     e_devolucao_de_combustivel,
     e_devolucao_de_combustivel_para_consumo,
 )
+from apps.fiscal.entradas import AVISO_DEVOLUCAO_DE_COMPRA, TEXTOS_DE_DEVOLUCAO_DE_COMPRA
 from apps.fiscal.formatacao_ptbr import valor_ptbr
 from apps.fiscal.itens_nfe import (
     MENSAGEM_ITEM_FORA_DO_TOTAL_COM_VALOR,  # noqa: F401 (reexportada: a API e a tela a comparam)
@@ -84,6 +87,7 @@ from apps.fiscal.models import (
     ANEXO_I,
     ANEXO_II,
     CATALOGO_NATUREZA_NFE,
+    NATUREZAS_DE_ENTRADA,
     NATUREZAS_DE_MERCADORIA,
     EscrituracaoNFe,
     EstadoEscrituracao,
@@ -211,6 +215,10 @@ def tipo_da_nota(documento, papel: str) -> str | None:
     if papel == PapelNFe.DESTINATARIO and fin == "4":
         # Devolução de venda recebida: a nota é de terceiro e a empresa é a destinatária.
         return TipoEscrituracaoNFe.DEVOLUCAO
+    if papel == PapelNFe.DESTINATARIO and fin == "1" and tp_nf == "1" and documento.modelo == "55":
+        # DL-091 (A1): compra de NF-e modelo 55 (tpNF 1 do fornecedor, finNFe 1). NFC-e (65) e
+        # tpNF 0 de terceiro ficam de fora, com motivo nomeado (`motivo_fora_da_escrituracao`).
+        return TipoEscrituracaoNFe.ENTRADA
     return None
 
 
@@ -219,6 +227,23 @@ def motivo_fora_da_escrituracao(documento, papel: str) -> str:
     if documento.modelo not in ("55", "65"):
         return "modelo fora da escrituração de NF-e (só 55 e 65)."
     if papel == PapelNFe.DESTINATARIO:
+        # DL-091 (A1): recusas nomeadas da compra. Entrada de terceiro com finNFe 1 e modelo 55 é
+        # escriturável; o que sobra aqui tem motivo próprio.
+        if documento.modelo == "65" and documento.fin_nfe != "4":
+            return (
+                "NFC-e em que a empresa é destinatária: fora desta escrituração "
+                "(NFC-e como compra: confirmar)."
+            )
+        if documento.tp_nf == "0" and documento.fin_nfe != "4":
+            return (
+                "entrada emitida por terceiro com tpNF 0: confirme o fato antes de escriturar "
+                f"(finNFe {documento.fin_nfe})."
+            )
+        if documento.fin_nfe in ("2", "3"):
+            return (
+                f"nota de terceiro com finNFe {documento.fin_nfe} (ajuste de entrada): "
+                "fora desta escrituração, como antes da DL-091."
+            )
         return "nota de entrada (compra): fora desta escrituração, só a recepção."
     if documento.tp_nf == "0":
         return (
@@ -237,7 +262,17 @@ def naturezas_permitidas(tipo: str) -> frozenset[str]:
         return frozenset({_NATUREZA_DE_AJUSTE})
     if tipo == TipoEscrituracaoNFe.DEVOLUCAO:
         return frozenset(_NATUREZAS_DE_DEVOLUCAO)
-    return frozenset(CATALOGO_NATUREZA_NFE) - {_NATUREZA_DE_AJUSTE} - _NATUREZAS_DE_DEVOLUCAO
+    if tipo == TipoEscrituracaoNFe.ENTRADA:
+        # DL-091 (A1): só E1 a E11. Nenhuma natureza de saída ou de devolução de venda cabe aqui.
+        return frozenset(NATUREZAS_DE_ENTRADA)
+    # Saída própria (e o tipo vazio das consultas de sugestão): tudo do catálogo de saída, inclusive
+    # `devolucao_compra` (saída com indDevol 1). Naturezas de entrada não cabem.
+    return (
+        frozenset(CATALOGO_NATUREZA_NFE)
+        - {_NATUREZA_DE_AJUSTE}
+        - _NATUREZAS_DE_DEVOLUCAO
+        - NATUREZAS_DE_ENTRADA
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -394,6 +429,11 @@ def sugerir_natureza_item(documento, item, tipo: str | None = None) -> Sugestao:
     Ordem: finalidade (`finNFe`) primeiro. Depois, na saída própria, os sinais do item. Sinais que
     apontam naturezas diferentes dão `None` com o motivo "conflito". Sem sinal, `None`.
     """
+    if tipo == TipoEscrituracaoNFe.ENTRADA:
+        # DL-091 (A1): a compra tem os seus próprios sinais (CFOP do emitente, CST, NCM, CRT).
+        from apps.fiscal import entradas
+
+        return entradas.sugerir_natureza_de_entrada(documento, item)
     if tipo is None:
         tipo = tipo_da_nota(documento, PapelNFe.EMITENTE) or ""
     fin = documento.fin_nfe
@@ -416,7 +456,15 @@ def sugerir_natureza_item(documento, item, tipo: str | None = None) -> Sugestao:
             None, f"sem sugestão: CFOP {item.cfop} (comercial exportadora, bonificação)"
         )
     if info.ind_devol:
-        # Saída com indDevol 1 é devolução de COMPRA: não tem natureza no catálogo de venda.
+        # Saída com indDevol 1 é devolução de COMPRA (DL-091, item 7). A natureza `devolucao_compra`
+        # é sugerida só pelas descrições oficiais listadas (HI-157). Outras descrições (por exemplo
+        # "Devolução de mercadoria recebida em consignação") continuam sem sugestão.
+        if info.descricao.startswith(TEXTOS_DE_DEVOLUCAO_DE_COMPRA):
+            return Sugestao(
+                NaturezaOperacaoNFe.DEVOLUCAO_COMPRA,
+                f"devolução de compra: CFOP {item.cfop} com indDevol 1 e descrição oficial de "
+                f"devolução",
+            )
         return Sugestao(None, "sem sugestão: devolução de compra em saída, fora do catálogo")
 
     candidatos = _candidatos_do_item(documento, item)
@@ -719,28 +767,57 @@ def _validar_natureza_para_o_tipo(natureza: str, tipo: str) -> None:
         )
 
 
-def criar_rascunho(vinculo: VinculoNFeEmpresa, usuario, request=None) -> EscrituracaoNFe:
+MENSAGEM_FIN_4_EM_SAIDA_COM_DEVOLUCAO_DE_COMPRA = (
+    "finNFe 4 em saída própria com CFOP de devolução de compra: a finalidade contradiz a natureza "
+    "(HI-157). Recusada: confirme a finalidade da nota."
+)
+
+
+def criar_rascunho(
+    vinculo: VinculoNFeEmpresa, usuario, request=None, data_entrada: date | None = None
+) -> EscrituracaoNFe:
     """Cria o rascunho de uma nota elegível, com uma linha de natureza por item (vazia).
 
-    Idempotente: se já há rascunho, devolve-o com `criada_agora = False`. Efetivada, recusa (409).
+    Idempotente: se já há rascunho, devolve-o com `criada_agora = False` (a data de entrada passada
+    nesse caso não muda o rascunho: use `entradas.definir_data_de_entrada`). Efetivada, recusa
+    (409).
     Itens ilegíveis ou nota cancelada bloqueiam, com o motivo.
+
+    DL-091 (A1): na ENTRADA, `data_entrada` é opcional e vale a data de emissão (HI-158); data
+    anterior à emissão é recusada. Nas outras, `data_entrada` é recusada.
 
     A LEITURA dos itens roda ANTES da transação de escrita, em transação própria. Assim, a nota
     ilegível fica gravada como tal (idempotente), mesmo com a recusa do rascunho logo depois.
     Dentro de uma transação só, a recusa desfaria a leitura e ela seria refeita a cada clique.
     """
+    from apps.fiscal import entradas
+
     documento = vinculo.documento
     tipo = tipo_da_nota(documento, vinculo.papel)
+    if tipo is None and vinculo.papel == PapelNFe.EMITENTE and documento.fin_nfe == "4":
+        if documento.tp_nf == "1" and any(
+            consultar_cfop(item.cfop) is not None and consultar_cfop(item.cfop).ind_devol
+            for item in ItemNFe.objects.filter(documento=documento)
+        ):
+            raise EscrituracaoNFeErro(MENSAGEM_FIN_4_EM_SAIDA_COM_DEVOLUCAO_DE_COMPRA)
     if tipo is None:
         raise EscrituracaoNFeErro(motivo_fora_da_escrituracao(documento, vinculo.papel))
+    if tipo == TipoEscrituracaoNFe.ENTRADA:
+        data_entrada = entradas.validar_data_de_entrada(
+            documento, data_entrada or dia_e_competencia(documento)[0]
+        )
+    elif data_entrada is not None:
+        raise EntradaInvalidaNFe("A data de entrada só existe na escrituração de entrada.")
     if services.situacao_da_nfe(documento) == "cancelada":
         raise EscrituracaoNFeErro("Nota cancelada não pode ser escriturada.")
     ler_itens(documento)
-    return _criar_rascunho_travado(vinculo, usuario, request)
+    return _criar_rascunho_travado(vinculo, usuario, request, data_entrada)
 
 
 @transaction.atomic
-def _criar_rascunho_travado(vinculo: VinculoNFeEmpresa, usuario, request) -> EscrituracaoNFe:
+def _criar_rascunho_travado(
+    vinculo: VinculoNFeEmpresa, usuario, request, data_entrada: date | None = None
+) -> EscrituracaoNFe:
     # Ajuste do arquiteto depois da correção da DL-085 (A5): a empresa é travada ANTES do vínculo,
     # na mesma ordem da efetivação e do lote (empresa → vínculo → escrituração). Antes, a criação
     # individual pegava o vínculo e depois precisava da linha da empresa (o INSERT da escrituração
@@ -767,6 +844,7 @@ def _criar_rascunho_travado(vinculo: VinculoNFeEmpresa, usuario, request) -> Esc
         tipo=tipo_da_nota(documento, travado.papel),
         estado=EstadoEscrituracao.RASCUNHO,
         criado_por=usuario,
+        data_entrada=data_entrada,
     )
     _inserir(escrituracao)
     NaturezaItemNFe.objects.bulk_create(
@@ -854,6 +932,12 @@ def definir_natureza(
         raise EscrituracaoNFeErro(
             "Esta escrituração não é mais rascunho. Estornada ou efetivada, a natureza não muda."
         )
+    if travada.tipo == TipoEscrituracaoNFe.ENTRADA:
+        # DL-091 (A1): a natureza de entrada só entra com o CFOP de entrada, item a item.
+        raise EntradaInvalidaNFe(
+            "Na escrituração de entrada, a natureza e o CFOP de entrada se confirmam juntos: "
+            "use a confirmação de entrada."
+        )
     _validar_natureza_para_o_tipo(natureza, travada.tipo)
 
     alvos = list(
@@ -867,6 +951,11 @@ def definir_natureza(
     for alvo in alvos:
         if natureza_incompativel_com_marca(natureza, alvo.monofasico, alvo.segmento_devolucao):
             raise EntradaInvalidaNFe(MENSAGEM_NATUREZA_COM_MARCA)
+        if natureza == NaturezaOperacaoNFe.DEVOLUCAO_COMPRA:
+            # DL-091 (A1): devolução de compra exige CFOP de indDevol 1 no item.
+            from apps.fiscal import entradas
+
+            entradas.validar_devolucao_de_compra(alvo.item)
     antes = {a.item_id: a.natureza for a in alvos}
     # Origem: a sugestão de HOJE, com as regras de agora. Agrupa os itens por origem para gravar
     # com um UPDATE por grupo, e não um por item.
@@ -1225,8 +1314,14 @@ def avisos_da_nota(pares) -> dict[int, tuple[str, ...]]:
         atribuicao = None
     por_numero = avisos_da_atribuicao(atribuicao) if atribuicao is not None else {}
     resultado: dict[int, tuple[str, ...]] = {}
-    for item, _natureza in pares:
-        resultado[item.pk] = avisos_do_item(item) + por_numero.get(item.n_item, ())
+    for item, natureza in pares:
+        # DL-091 (item 7): a devolução de compra avisa o estorno do crédito (etapa do ICMS).
+        aviso_de_devolucao = (
+            (AVISO_DEVOLUCAO_DE_COMPRA,) if natureza == NaturezaOperacaoNFe.DEVOLUCAO_COMPRA else ()
+        )
+        resultado[item.pk] = (
+            avisos_do_item(item) + por_numero.get(item.n_item, ()) + aviso_de_devolucao
+        )
     return resultado
 
 
@@ -1347,6 +1442,14 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
     documento = travada.vinculo.documento
     if services.situacao_da_nfe(documento) == "cancelada":
         raise EscrituracaoNFeErro("Nota cancelada não pode ser efetivada.")
+    if travada.tipo == TipoEscrituracaoNFe.ENTRADA:
+        # DL-091 (A1): a entrada não tem receita, então não passa pelo portão de receita de 2027,
+        # pela
+        # conferência com vNF nem pelo gatilho de mês confirmado. Tem caminho próprio, na mesma
+        # transação (`efetivar` é atômica).
+        from apps.fiscal import entradas
+
+        return entradas.efetivar_entrada(travada, usuario, request)
     # O ano é o de São Paulo, não o de UTC: 31/12/2026 23:59 em SP é 01/01/2027 02:59 UTC, e uma
     # comparação em UTC recusaria a nota de 2026. Em 2027 o motivo já vem do regime (HI-149).
     motivo = motivo_bloqueio_efetivacao(documento, empresa)
@@ -1507,14 +1610,16 @@ def estornar(escrituracao: EscrituracaoNFe, motivo: str, usuario, request=None) 
         request=request,
         detalhes={"vinculo_id": travada.vinculo_id, "antes": antes, "depois": _snapshot(travada)},
     )
-    receita_servico.marcar_a_retificar_por_estorno(
-        empresa,
-        travada.competencia.year,
-        travada.competencia.month,
-        usuario,
-        origem=f"escrituração de NF-e nº {travada.pk}",
-        request=request,
-    )
+    # DL-091 (A1): o estorno de entrada não mexe em receita: não há mês de receita a retificar.
+    if travada.tipo != TipoEscrituracaoNFe.ENTRADA:
+        receita_servico.marcar_a_retificar_por_estorno(
+            empresa,
+            travada.competencia.year,
+            travada.competencia.month,
+            usuario,
+            origem=f"escrituração de NF-e nº {travada.pk}",
+            request=request,
+        )
     return travada
 
 
@@ -1806,6 +1911,9 @@ def conferencia_do_mes(empresa, ano: int, mes: int) -> ConferenciaDoMes:
         if nota.tipo is None:
             resultado.nao_elegiveis += 1
             continue
+        if nota.tipo == TipoEscrituracaoNFe.ENTRADA:
+            # DL-091 (A1): a compra tem conferência própria (A2). Não entra nos números de saída.
+            continue
         resultado.recebidas += 1
         if nota.situacao == SITUACAO_EFETIVADA:
             resultado.escrituradas += 1
@@ -1836,6 +1944,7 @@ def _itens_sem_sugestao_do_mes(notas: list[NotaDoMes], empresa) -> dict[int, int
         nota.documento.pk: nota
         for nota in notas
         if nota.tipo is not None
+        and nota.tipo != TipoEscrituracaoNFe.ENTRADA
         and nota.leitura_estado == LeituraItensNFe.ESTADO_LIDA
         and nota.situacao in (SITUACAO_A_ESCRITURAR, SITUACAO_RASCUNHO)
     }
@@ -1877,6 +1986,8 @@ def _preencher_receita(empresa, ano: int, mes: int, resultado: ConferenciaDoMes)
             escrituracao__competencia__lt=proximo,
         )
         .exclude(natureza="")
+        # DL-091 (A1): a compra não é receita nem dedução de nenhum regime.
+        .exclude(escrituracao__tipo=TipoEscrituracaoNFe.ENTRADA)
         .filter(~Exists(receita_servico._cancelada_depois_de_escriturada("escrituracao__")))
     )
     por_escrituracao: dict[int, list] = {}

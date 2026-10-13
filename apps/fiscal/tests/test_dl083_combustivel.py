@@ -32,6 +32,7 @@ from apps.fiscal.tests.xml_nfe_dl080 import CNPJ_EMITENTE_A
 from apps.tenancy.models import Papel
 
 MIGRACAO = importlib.import_module("apps.fiscal.migrations.0012_dl083_combustivel_revenda")
+MIGRACAO_0021 = importlib.import_module("apps.fiscal.migrations.0021_dl091_entrada_nfe")
 
 pytestmark = pytest.mark.django_db
 
@@ -64,12 +65,16 @@ def test_combustivel_revenda_tem_papel_mercado_e_segregacao_da_combustivel():
 def test_lista_do_check_de_banco_e_igual_ao_enum_de_naturezas():
     """A migração 0012 recria o CHECK com a lista literal. Se o enum mudar sem a migração, o banco
     recusa uma natureza que o Python aceita. Esta conferência pega o desvio."""
-    assert set(MIGRACAO._NATUREZAS_NOVAS) == set(NaturezaOperacaoNFe.values)
+    # DL-091 (A1): a 0021 acrescenta as naturezas de entrada e `devolucao_compra` ao CHECK. O CHECK
+    # vigente é a lista da 0012 mais a da 0021; a igualdade com o enum continua exigida.
+    assert set(MIGRACAO._NATUREZAS_NOVAS) | set(MIGRACAO_0021._NATUREZAS_NOVAS_DA_0021) == set(
+        NaturezaOperacaoNFe.values
+    )
     assert len(MIGRACAO._NATUREZAS_NOVAS) == len(set(MIGRACAO._NATUREZAS_NOVAS))
     assert set(MIGRACAO._NATUREZAS_ANTIGAS) == set(NaturezaOperacaoNFe.values) - {
         "combustivel_revenda",
         "devolucao_combustivel_consumo",
-    }
+    } - set(MIGRACAO_0021._NATUREZAS_NOVAS_DA_0021)
 
 
 def _sugestao(cfop, csosn="102", cst=None, ncm="27101259"):

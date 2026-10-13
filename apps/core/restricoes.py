@@ -244,6 +244,12 @@ MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
         "Origem da natureza de nota efetivada ou estornada não muda: ela registra de onde veio a "
         "natureza confirmada, e o que foi efetivado não se altera."
     ),
+    # DL-091 (A1): gatilho da memória de entrada (migração 0021). Só entra com a escrituração em
+    # rascunho; nunca muda; sai só com a exclusão do rascunho.
+    "memoria_entrada_imutavel_depois_de_efetivada": (
+        "a memória de entrada só entra com a escrituração em rascunho (gatilho da migração 0021), "
+        "nunca muda e só sai com a exclusão do rascunho. Estornar não a apaga: é fato de auditoria."
+    ),
     # DL-077 (fatia 3, frente A), gatilhos da migração 0024 de `apps.contabilidade`: a importação
     # de lançamentos é área de conferência, e depois de efetivada ou descartada nenhuma linha muda.
     "importacao_lancamentos_sem_exclusao": (
@@ -1311,6 +1317,25 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
         "as linhas de natureza são criadas uma por item, em `criar_rascunho`, com `bulk_create` "
         "sobre os itens da nota. Nenhum caminho do cliente insere uma segunda linha para o mesmo "
         "item: o pedido de natureza só atualiza as linhas existentes."
+    ),
+    # DL-091 (A1). A data de entrada é obrigatória na escrituração de entrada: o serviço a grava na
+    # criação (por padrão, a data de emissão) e a troca só em rascunho. Nenhum caminho deixa vazia.
+    "escrituracao_nfe_entrada_com_data_de_entrada": (
+        "a escrituração de entrada sempre tem data de entrada: `criar_rascunho` grava a data "
+        "(padrão: a emissão) e `definir_data_de_entrada` só troca em rascunho. Nota de entrada "
+        "sem data não existe."
+    ),
+    "natureza_item_nfe_cfop_entrada_so_na_entrada": (
+        "o CFOP de entrada só é gravado por `definir_natureza_de_entrada`, que valida o primeiro "
+        "dígito e o grupo, e só para natureza de entrada. Nenhum caminho grava CFOP de entrada em "
+        "natureza de saída ou de devolução."
+    ),
+    # DL-091 (A1): a memória de crédito é gravada só por `efetivar_entrada`, com a escrituração
+    # ainda em rascunho, e uma linha por item. Nenhum caminho do cliente a grava.
+    "memoria_entrada_unica_por_item": (
+        "uma memória por item de entrada: `efetivar_entrada` grava uma linha por natureza, "
+        "na mesma "
+        "transação da efetivação. Nenhum caminho do cliente insere memória."
     ),
     # DL-085 (frente A): `CheckConstraint` do lote. Só `_criar_lote` (cria em andamento) e
     # `_concluir_se_terminou` (passa a concluído) escrevem o estado, com valores fixos no código.

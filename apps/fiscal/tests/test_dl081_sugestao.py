@@ -76,10 +76,15 @@ def test_comercial_exportadora_e_bonificacao_nunca_tem_sugestao(cfop):
 
 
 def test_devolucao_de_compra_em_saida_nao_vira_devolucao_de_venda():
-    """5.202 tem indDevol 1 na tabela, mas em saída é devolução de compra: fora do catálogo."""
+    """5.202 tem indDevol 1 na tabela, em saída é devolução de COMPRA: nunca de venda.
+
+    DL-091 (item 7): a sugestão agora é `devolucao_compra`, a natureza de saída própria. Antes era
+    "fora do catálogo", sem natureza. O que continua valendo é a separação: não é devolução de
+    venda.
+    """
     sugestao = servico.sugerir_natureza_item(nota(), item("5202", csosn="102"))
-    assert sugestao.natureza is None
-    assert "devolução de compra" in sugestao.motivo
+    assert sugestao.natureza == N.DEVOLUCAO_COMPRA
+    assert sugestao.natureza != N.DEVOLUCAO_VENDA
 
 
 # --- sinais de CST/CSOSN ----------------------------------------------------------------------
@@ -200,8 +205,12 @@ def test_devolucao_propria_de_entrada_e_emitente_com_tpNF_0_e_finNFe_4():
     )
 
 
-def test_compra_e_entrada_de_terceiro_ficam_fora():
-    assert servico.tipo_da_nota(nota(tp_nf="1", fin_nfe="1"), PapelNFe.DESTINATARIO) is None
+def test_compra_com_tpnf_1_e_escrituravel_e_tpnf_0_de_terceiro_fica_fora():
+    """DL-091 (A1): a compra (tpNF 1, finNFe 1) é ENTRADA. tpNF 0 de terceiro continua fora."""
+    assert (
+        servico.tipo_da_nota(nota(tp_nf="1", fin_nfe="1"), PapelNFe.DESTINATARIO)
+        == TipoEscrituracaoNFe.ENTRADA
+    )
     assert servico.tipo_da_nota(nota(tp_nf="0", fin_nfe="1"), PapelNFe.DESTINATARIO) is None
 
 

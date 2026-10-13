@@ -60,6 +60,7 @@ from apps.fiscal.api_classificacao import (
 from apps.fiscal.api_escrituracao_nfe import (
     ConferenciaNFeView,
     ConfirmarLoteNFeView,
+    DefinirDataEntradaView,
     DefinirMarcaMonofasicoView,
     DefinirNaturezasView,
     DefinirSegmentoDevolucaoView,
@@ -124,6 +125,12 @@ urlpatterns = [
         "empresas/<int:empresa_id>/nfe/escrituracao/<int:escrituracao_id>/naturezas/",
         DefinirNaturezasView.as_view(),
         name="nfe_escrituracao_naturezas",
+    ),
+    # DL-091 (A1, HI-158): data de entrada da escrituração de entrada, em rascunho.
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/<int:escrituracao_id>/data-entrada/",
+        DefinirDataEntradaView.as_view(),
+        name="nfe_escrituracao_data_entrada",
     ),
     path(
         "empresas/<int:empresa_id>/nfe/escrituracao/<int:escrituracao_id>/marca-monofasico/",
