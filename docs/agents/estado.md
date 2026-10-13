@@ -213,8 +213,18 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
   `fiscal 0021`), com a correção do `finNFe` 4, que o leiaute oficial define
   como "Devolução/Retorno". **Frente A2 integrada** (migração `fiscal 0022`: regras
   de entrada com CRT e UF do emitente, lote de compras, conferência de
-  entradas). **Frente B integrada** (telas). Auditoria, rodada 1, em
-  andamento.
+  entradas). **Frente B integrada** (telas).
+  - **Auditoria, rodada 1, interrompida** pelo reinício da sessão em
+    13/10/2026, antes do relatório. É preciso relançá-la sobre a versão
+    integrada.
+  - Chegou só o resultado parcial de um auxiliar: 24 defeitos plantados,
+    19 pegos pelos testes. Os 5 sobreviventes são:
+    - a troca da data de entrada sem teste de permissão;
+    - o aviso por `idDest` 2 sem teste próprio;
+    - duas defesas redundantes sem teste;
+    - um equivalente ao código original.
+
+    Esse resultado não substitui o relatório.
 - **Próximo do roteiro fiscal** (fim do
   [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md)): o corte 2 da
   DL-087 (naturezas como tabela e regras tributárias) e depois:
