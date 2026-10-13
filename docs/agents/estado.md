@@ -176,7 +176,7 @@ publicação ou exclusão (HI-55). Roteiro de execução no fim do
 [consultas/](../projeto/consultas/2026-10-08-contador-senior-fiscal.md);
 hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 
-**AGORA, em 13/10/2026 (após o merge do PR #110):**
+**AGORA, em 13/10/2026 (após o merge do PR #111):**
 
 - **Integrado na `main` (PR #108, squash `7474b12`)**: DL-082, DL-084, DL-085,
   DL-088, DL-089 e DL-090, mais a integração da revisão de layout e a
@@ -203,25 +203,34 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
   - Suíte completa medida pelo arquiteto: 10.120/1/56 (a falha é a de
     ambiente). Na CI, "Lint e testes" levou 22,5 min, dentro do limite de
     30.
-- **Em andamento:** [DL-091](../planos/DL-091-nfe-de-entrada.md), NF-e de
-  entrada (compras), corte 1. Base: o
-  [mapa do código](../projeto/mapa-nfe-de-entrada-2026-10-13.md) e a
-  [consulta ao `contador-senior`](../projeto/consultas/2026-10-13-contador-senior-nfe-de-entrada.md)
-  (HI-154 a HI-158; PE-93 para o Fred, que não bloqueia). Nada de ICMS
-  estadual calculado: a legislação do Tocantins não foi lida, porque a
-  SEFAZ-TO estava fora do ar. **Frente A1 integrada** (migração
-  `fiscal 0021`), com a correção do `finNFe` 4, que o leiaute oficial define
-  como "Devolução/Retorno". **Frente A2 integrada** (migração `fiscal 0022`: regras
-  de entrada com CRT e UF do emitente, lote de compras, conferência de
-  entradas). **Frente B integrada** (telas).
-  - [Rodada 1](../auditorias/2026-10-13-dl-091-rodada-1.md), relançada
-    depois do reinício: **reprovada**. A1 é alto: o comprador do Simples
-    recebia "crédito elegível", o que a LC 123, art. 23, veda. Correção
-    única integrada (migração `fiscal 0023`).
-    [Reconferência](../auditorias/2026-10-13-dl-091-reconferencia.md)
-    **aprovada com ressalvas**. Os ajustes do arquiteto N1, N2, N3 e N5
-    estão feitos; os resíduos foram para o BL-706. **Ciclo de auditoria
-    encerrado.** Próximo: suíte completa, PR e merge (RC-171).
+- **[DL-091](../planos/DL-091-nfe-de-entrada.md) — NF-e de entrada
+  (compras), corte 1: INTEGRADA** pelo
+  [PR #111](https://github.com/fredabsd-svg/DataLedger/pull/111), squash
+  `83370ae`, em 13/10/2026. Os quatro checks ficaram verdes em todas as
+  execuções do último commit (RC-171).
+  - **O que entrega:**
+    - compra escriturável, com data de entrada e onze naturezas fora da
+      receita;
+    - CFOP de entrada pela natureza;
+    - memória de crédito com as marcas federais, pelo regime do comprador;
+    - avisos de compra de outro estado;
+    - devolução de compra com `finNFe` 4;
+    - regras de entrada, lote de compras, conferência de entradas e telas.
+  - **Nada de ICMS do Tocantins calculado**, porque a legislação estadual não
+    foi lida.
+  - **Base:**
+    [mapa do código](../projeto/mapa-nfe-de-entrada-2026-10-13.md) e
+    [consulta ao `contador-senior`](../projeto/consultas/2026-10-13-contador-senior-nfe-de-entrada.md)
+    (HI-154 a HI-158; PE-93 para o Fred).
+  - **Auditoria (ciclo do §3.1):**
+    - [rodada 1](../auditorias/2026-10-13-dl-091-rodada-1.md)
+      **reprovada**: o comprador do Simples recebia "crédito elegível";
+    - correção única;
+    - [reconferência](../auditorias/2026-10-13-dl-091-reconferencia.md)
+      **aprovada com ressalvas**; resíduos no BL-706.
+  - **Medidas:** suíte completa medida pelo arquiteto, 10.407/1/56 (a falha
+    é a de ambiente). Na CI, "Lint e testes" levou 24 min, dentro do limite
+    de 30. **A margem está encurtando**: a suíte local já passa de 27 min.
 - **Próximo do roteiro fiscal** (fim do
   [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md)): o corte 2 da
   DL-087 (naturezas como tabela e regras tributárias) e depois:
@@ -234,7 +243,8 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 - **Para o Fred decidir ou validar:** PE-90, PE-91 e PE-92 (calendário da
   virada); HI-150 e DE-104 (importação e zeramento contam como automáticos
   no estorno?); HI-151 (encerramento da medida cobre o trimestre?); HI-152
-  (monofasia em 2027; algum cliente na Zona Franca?); HI-153 (quem cria regra
+  (monofasia em 2027; algum cliente na Zona Franca?); PE-93 (entradas: data de
+  entrada, regime especial de ICMS, CIAP, bonificação); HI-153 (quem cria regra
   de classificação; pesos fixos); DE-108 (mês confirmado só avisa); P15
   (frete na receita de 2027).
 - **Aberto no produto:** BL-701 (estado do trimestre no Presumido), BL-702,
