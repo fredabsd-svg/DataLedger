@@ -44,7 +44,8 @@ Tocantins e não gera guia (HI-54, HI-55).
      - NFC-e (modelo 65) em que a empresa é destinatária;
      - `tpNF` 0 emitida por terceiro em que a empresa é destinatária e
        `finNFe` diferente de 4;
-     - `finNFe` 4 em saída própria com CFOP de devolução de compra.
+     - ~~`finNFe` 4 em saída própria com CFOP de devolução de compra~~:
+     **retirada em 13/10/2026** (ver "Correção do contrato" abaixo).
    - `finNFe` 2 e 3 de terceiro ficam como hoje (fora), com o motivo.
 2. **Competência pela data de entrada.**
    - A escrituração de entrada tem **data de entrada**, obrigatória,
@@ -147,6 +148,29 @@ Tocantins e não gera guia (HI-54, HI-55).
 - importação de SPED Fiscal (RC-44);
 - PIS/Cofins não cumulativo;
 - regime de caixa.
+
+## Correção do contrato (13/10/2026, arquiteto)
+
+A frente A1 levantou uma dúvida, e ela procede. O leiaute oficial da NF-e
+(`leiauteNFe_v4.00.xsd` do pacote PL_010f, campo `finNFe`, lido em cópia
+local em 13/10/2026) define o `finNFe` 4 como **"Devolução/Retorno"**, de
+forma genérica. A consulta partiu da premissa de que o 4 seria só devolução
+de venda, e isso não vale. A devolução de compra que o cliente emite sai
+normalmente com `tpNF` 1 e `finNFe` 4.
+
+**Decisão:**
+- Tipo novo `DEVOLUCAO_COMPRA` para a nota emitida pela empresa com `tpNF` 1
+  e `finNFe` 4. Esse tipo aceita **só** a natureza `devolucao_compra`, e
+  isso protege a receita: uma nota de devolução nunca recebe natureza de
+  venda.
+- O item de retorno (conserto, remessa) numa nota com `finNFe` 4 fica sem
+  sugestão, com o motivo, e a nota não efetiva enquanto houver item sem
+  natureza.
+- A recusa que o plano previa sai.
+
+Também foi decidido: a marca "monofásico" vale só para os combustíveis do
+art. 2º da LC 192 (gasolina e etanol anidro, diesel e biodiesel, GLP). Fora
+deles, "conferir NCM".
 
 ## Critérios de aceite
 
