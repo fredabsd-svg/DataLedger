@@ -258,6 +258,54 @@ completa 10.353/1/56 (a falha é a de ambiente).
 - a conferência pede a empresa na URL e é aberta a partir da lista e do
   lote.
 
+## Decisões para a correção (rodada 1)
+
+A [rodada 1](../auditorias/2026-10-13-dl-091-rodada-1.md) foi **reprovada**:
+A1 é alto, A2 a A9 são médios e A10 a A13 são baixos.
+
+O que se sustenta:
+- a compra não mexe em receita, RBT12, pré-DAS nem Presumido;
+- as migrações recusam a reversão quando há dado;
+- a autorização é verificada no servidor;
+- não há `float` nem alíquota do Tocantins no código;
+- a suíte completa não regrediu: 10.353 passaram, com a falha de ambiente.
+
+Decisões do arquiteto para a correção única (§3.1), reversíveis pelo Fred:
+
+- **A1 (alta): a marca de crédito olha o regime do COMPRADOR na data de
+  entrada.**
+  - Comprador do Simples: marca nova "sem crédito, optante do Simples"
+    (LC 123, art. 23, caput), sem valor elegível.
+  - Regime desconhecido na data: "a conferir".
+  - Só o regime normal (Presumido ou Real) chega a "crédito destacado" ou
+    "limitado".
+  - A conferência soma só essas duas marcas.
+
+  O erro foi de desenho do arquiteto: a HI-155 falava de crédito "no regime
+  normal" e o plano não amarrou isso ao regime do comprador.
+- **A2:** a devolução de compra (`finNFe` 4) não reabre o mês confirmado,
+  nem na efetivação nem no estorno, como a compra. Ela só admite natureza
+  fora da receita, então o mês não muda.
+- **A3:** a reclassificação em massa trabalha só com rascunhos de saída e de
+  devolução de venda. Compra e devolução de compra ficam fora dela.
+- **A4:** no lote, o CFOP de entrada escolhido no rascunho conta como escolha
+  do contador. Se diferir do sugerido, a nota sai do lote com o motivo, como
+  já acontece com a natureza.
+- **A5 a A8:** os testes T5 a T12 da auditoria: permissão e trilha da data de
+  entrada e da natureza; conferência de saída sem compras; segunda camada da
+  receita; regime pela data; avisos por `idDest` 2 e UF incoerente; compra
+  de 2027; escolha no lote; CFOP de entrada recusado em saída.
+- **A9:** o contexto da entrada é calculado uma vez por requisição, e as
+  memórias são carregadas de uma vez, na tela e na API. Vale o teste T14.
+- **A10:** o `aria-describedby` passa a apontar para um elemento que existe,
+  com o teste T13.
+- **A11:** data de entrada **posterior a hoje** é recusada. Limite mais
+  apertado depende do Fred (PE-93).
+- **A12:** o estorno da devolução de compra usa o texto da compra ("não
+  compõe a receita").
+- **A13** e a observação sobre o destinatário com `finNFe` 4 que é retorno
+  foram para o BL-706.
+
 ## Critérios de aceite
 
 1. **Nenhuma entrada mexe em receita, RBT12, pré-DAS ou Presumido.** Teste
