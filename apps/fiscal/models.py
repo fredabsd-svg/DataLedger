@@ -4344,6 +4344,12 @@ class MarcaCreditoEntrada(models.TextChoices):
         "sem_credito_sem_pcredsn",
         "Sem crédito: fornecedor do Simples sem pCredSN (LC 123, art. 23, § 4º)",
     )
+    # DL-091 (rodada 1, A1): o COMPRADOR é optante do Simples na data de entrada. O optante não se
+    # apropria de crédito (LC 123, art. 23, caput), então nenhum valor é elegível.
+    SEM_CREDITO_OPTANTE_DO_SIMPLES = (
+        "sem_credito_optante_do_simples",
+        "Sem crédito: comprador optante do Simples (LC 123, art. 23, caput)",
+    )
     VEDADO_ATE_2032 = "vedado_ate_2032", "Crédito vedado até 31/12/2032 (LC 87, art. 33, I)"
     UM_QUARENTA_OITAVO = (
         "um_quarenta_oitavo",

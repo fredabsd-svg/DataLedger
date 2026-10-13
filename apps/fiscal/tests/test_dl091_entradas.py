@@ -436,8 +436,13 @@ def test_sugestao_nao_grava_nada(escritorio_a, usuario_gestor_a, empresa):
 # ---------------------------------------------------------------------------
 
 
-def _marca(documento, item, natureza):
-    marca, credito = entradas.marca_do_credito(documento, item, natureza)
+# DL-091 (rodada 1, A1): a marca depende do regime do COMPRADOR na data. Os testes de regra pura
+# passam o contexto explícito; o padrão é o de comprador do Presumido, o regime normal.
+PRESUMIDO = entradas.ContextoDaEntrada(simples=False, normal=True, uf_empresa="TO")
+
+
+def _marca(documento, item, natureza, contexto=PRESUMIDO):
+    marca, credito = entradas.marca_do_credito(documento, item, natureza, contexto)
     return marca, credito
 
 
@@ -522,6 +527,7 @@ def test_regime_fora_do_crt_conhecido_fica_a_conferir(escritorio_a, usuario_gest
 def test_memoria_gravada_na_efetivacao_copia_fcp_ipi_pis_cofins_e_e_imutavel(
     escritorio_a, usuario_gestor_a, empresa
 ):
+    _com_regime(empresa, RegimeTributario.LUCRO_PRESUMIDO)
     icms = xml.icms(
         cst="00",
         filhos="<modBC>3</modBC><vBC>100.00</vBC><pICMS>18.00</pICMS>"
@@ -910,7 +916,9 @@ def test_posto_compra_com_icms_monofasico_e_lida_sem_valor_e_marca_monofasico_pe
     item = documento.itens.get(n_item=1)
     assert item.cst == cst
     assert item.v_icms is None  # o valor monofásico não é lido pelo leitor de hoje
-    marca, credito = entradas.marca_do_credito(documento, item, N.ENTRADA_COMBUSTIVEL_REVENDA)
+    marca, credito = entradas.marca_do_credito(
+        documento, item, N.ENTRADA_COMBUSTIVEL_REVENDA, PRESUMIDO
+    )
     assert (marca, credito) == (MarcaCreditoEntrada.MONOFASICO, None)
 
 
@@ -945,7 +953,7 @@ def test_monofasico_so_para_o_art_2_da_lc_192_o_resto_da_lista_e_conferido(
 
 
 def marca_e_credito(documento, item, natureza):
-    return entradas.marca_do_credito(documento, item, natureza)
+    return entradas.marca_do_credito(documento, item, natureza, PRESUMIDO)
 
 
 def test_querosene_fora_do_art_2_gera_aviso_e_nao_e_monofasico(

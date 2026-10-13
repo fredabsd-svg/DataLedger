@@ -146,6 +146,11 @@ TEXTOS_DE_DEVOLUCAO_DE_COMPRA = (
 MOTIVO_DATA_ANTERIOR_A_EMISSAO = (
     "data de entrada anterior à data de emissão da nota: a entrada não pode ser antes da emissão."
 )
+# DL-091 (rodada 1, A11): data de entrada no futuro é erro de digitação (p. ex., 2062), e a nota
+# sumiria da lista do mês. O motivo é nomeado, para o contador corrigir a data.
+MOTIVO_DATA_POSTERIOR_A_HOJE = (
+    "data de entrada posterior a hoje: confira a data digitada. A entrada não pode ser futura."
+)
 MENSAGEM_CFOP_FORA_DA_TABELA = (
     "CFOP de entrada fora da tabela oficial (Informe 2023.002 v2.10): recusado."
 )
@@ -178,10 +183,22 @@ class ContextoDaEntrada:
 # ---------------------------------------------------------------------------
 
 
-def validar_data_de_entrada(documento, data) -> date:
-    """A data de entrada, se for uma data e não for anterior à emissão. Recusa com motivo nomeado.
+def hoje_em_sao_paulo() -> date:
+    """O dia de hoje em São Paulo. O relógio é o de `timezone.now()`, para o teste controlar."""
+    from apps.fiscal.escrituracao_nfe import FUSO_SP
 
-    A emissão é o dia de `dhEmi` no fuso de São Paulo (`escrituracao_nfe.dia_e_competencia`).
+    return timezone.now().astimezone(FUSO_SP).date()
+
+
+def validar_data_de_entrada(documento, data) -> date:
+    """A data de entrada, se for uma data, não for anterior à emissão e não for posterior a hoje.
+
+    Recusa com motivo nomeado. A emissão é o dia de `dhEmi` no fuso de São Paulo
+    (`escrituracao_nfe.dia_e_competencia`).
+
+    DL-091 (rodada 1, A11): o teto é HOJE. Se a própria emissão for posterior a hoje (relógio do
+    emitente adiantado), o teto passa a ser a emissão, senão a data-padrão (= emissão) seria
+    recusada e a nota não entraria em nenhum mês. Quem chama a tela, a API e o lote passa por aqui.
     """
     from apps.fiscal.escrituracao_nfe import EntradaInvalidaNFe, dia_e_competencia
 
@@ -190,6 +207,8 @@ def validar_data_de_entrada(documento, data) -> date:
     emissao, _ = dia_e_competencia(documento)
     if data < emissao:
         raise EntradaInvalidaNFe(MOTIVO_DATA_ANTERIOR_A_EMISSAO)
+    if data > max(hoje_em_sao_paulo(), emissao):
+        raise EntradaInvalidaNFe(MOTIVO_DATA_POSTERIOR_A_HOJE)
     return data
 
 
@@ -422,21 +441,29 @@ def _st_retido(item) -> bool:
     )
 
 
-def marca_do_credito(documento, item, natureza: str) -> tuple[str, Decimal | None]:
+def marca_do_credito(
+    documento, item, natureza: str, contexto: ContextoDaEntrada
+) -> tuple[str, Decimal | None]:
     """Marca de crédito de UM item, e o valor que a regra admite (ou `None`). Função pura.
 
     A ordem importa e está aqui por motivo:
     1. NCM de combustível: monofásico SÓ para o art. 2º da LC 192 (diesel e GLP); o combustível da
        lista fora do art. 2º fica "a conferir"; o demais da lista fica "monofásico: conferir NCM".
-    2. Natureza que veda ou restringe o crédito (E4 até 2032, E5 em 1/48, E6 e E11 a conferir):
+    2. REGIME DO COMPRADOR na data de entrada (DL-091, rodada 1, A1; HI-155). Regime desconhecido,
+       ou ambíguo no dia (transição: Simples e normal ao mesmo tempo), é "a conferir". Comprador
+       optante do Simples não se apropria de crédito (LC 123, art. 23, caput): "sem crédito,
+       optante", sem valor elegível, qualquer que seja a natureza. Só o regime normal (Presumido
+       ou Real) chega às regras de crédito seguintes.
+    3. Natureza que veda ou restringe o crédito (E4 até 2032, E5 em 1/48, E6 e E11 a conferir):
        nunca vira "crédito destacado", mesmo com `vICMS` destacado (criterio 5, E4).
-    3. ST retido (CST 60, CSOSN 500, `vICMSSTRet` > 0): sem crédito, compõe o custo.
-    4. Natureza sem crédito (E7, E10, E3 sem ST retido).
-    5. Fornecedor do Simples (CRT 1 ou 2): só o `vCredICMSSN`, com `pCredSN` (LC 123, art. 23, §§ 1º
-       a
-       4º). Sem `pCredSN`, não há crédito (§ 4º, II). Nunca se presume o destacado como crédito.
-    6. Regime normal (CRT 3): o ICMS destacado, se o CST dá crédito pleno.
-    CRT ausente ou de outro valor: "a conferir". Não se presume o regime do fornecedor.
+    4. ST retido (CST 60, CSOSN 500, `vICMSSTRet` > 0): sem crédito, compõe o custo.
+    5. Natureza sem crédito (E7, E10, E3 sem ST retido).
+    6. Fornecedor do Simples (CRT 1 ou 2): só o `vCredICMSSN`, com `pCredSN` (LC 123, art. 23, §§ 1º
+       a 4º). Sem `pCredSN`, não há crédito (§ 4º, II). Nunca se presume o destacado como crédito.
+       Vale para comprador do regime normal, que pode tomar esse crédito do fornecedor do Simples.
+    7. Regime normal (CRT 3): o ICMS destacado, se o CST dá crédito pleno.
+    CRT do fornecedor ausente ou de outro valor: "a conferir". Não se presume o regime do
+    fornecedor.
     """
     efeitos = CATALOGO_EFEITOS_NATUREZA_NFE[natureza]
     ncm = normalizar_ncm(item.ncm)
@@ -446,6 +473,12 @@ def marca_do_credito(documento, item, natureza: str) -> tuple[str, Decimal | Non
         return MarcaCreditoEntrada.A_CONFERIR, None
     if ncm in NCM_COMBUSTIVEL:
         return MarcaCreditoEntrada.MONOFASICO_CONFERIR_NCM, None
+    # DL-091 (rodada 1, A1): o regime é do comprador, não do fornecedor. Ambíguo no dia também é
+    # "a conferir": não há como escolher entre os dois regimes sem o dado.
+    if not contexto.regime_conhecido or (contexto.simples and contexto.normal):
+        return MarcaCreditoEntrada.A_CONFERIR, None
+    if contexto.simples:
+        return MarcaCreditoEntrada.SEM_CREDITO_OPTANTE_DO_SIMPLES, None
     credito = efeitos.credito
     if credito == "vedado_ate_2032":
         return MarcaCreditoEntrada.VEDADO_ATE_2032, None
@@ -532,10 +565,12 @@ def avisos_da_entrada(
     return tuple(avisos)
 
 
-def memoria_do_item(documento, item, natureza: str, cfop_entrada: str, contexto) -> dict:
+def memoria_do_item(
+    documento, item, natureza: str, cfop_entrada: str, contexto: ContextoDaEntrada
+) -> dict:
     """Valores da memória de UM item, copiados do XML lido e a marca/avisos calculados. Sem
-    alíquota."""
-    marca, credito_elegivel = marca_do_credito(documento, item, natureza)
+    alíquota. `contexto` é o regime do comprador na data de entrada (DL-091, A1)."""
+    marca, credito_elegivel = marca_do_credito(documento, item, natureza, contexto)
     return {
         "marca_credito": marca,
         "credito_elegivel": credito_elegivel,
@@ -806,11 +841,22 @@ def efetivar_entrada(travada: EscrituracaoNFe, usuario, request=None) -> Escritu
     return travada
 
 
-def previa_do_item(escrituracao: EscrituracaoNFe, item, natureza: str, cfop_entrada: str) -> dict:
-    """Marca e avisos de UM item ANTES da efetivação, para a tela e a API. Não grava nada."""
-    contexto = contexto_da_entrada(escrituracao.empresa, escrituracao.data_entrada)
+def previa_do_item(
+    escrituracao: EscrituracaoNFe,
+    item,
+    natureza: str,
+    cfop_entrada: str,
+    contexto: ContextoDaEntrada | None = None,
+) -> dict:
+    """Marca e avisos de UM item ANTES da efetivação, para a tela e a API. Não grava nada.
+
+    DL-091 (A9): quem mostra vários itens passa o `contexto` já lido (uma vez por requisição). Sem
+    ele, lê o da escrituração, o que custa consultas por item.
+    """
+    if contexto is None:
+        contexto = contexto_da_entrada(escrituracao.empresa, escrituracao.data_entrada)
     documento = escrituracao.vinculo.documento
-    marca, credito = marca_do_credito(documento, item, natureza)
+    marca, credito = marca_do_credito(documento, item, natureza, contexto)
     return {
         "marca_credito": marca,
         "credito_elegivel": credito,

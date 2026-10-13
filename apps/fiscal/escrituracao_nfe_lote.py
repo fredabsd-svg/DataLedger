@@ -593,32 +593,46 @@ def _lote_da_empresa(empresa, lote_id: int) -> LoteEscrituracaoNFe:
     return lote
 
 
-def _naturezas_dos_rascunhos(escrituracao_ids) -> dict[int, dict[int, str]]:
-    """{escrituração: {item: natureza}} das naturezas JÁ GRAVADAS nos rascunhos (só as não vazias).
+def _escolhas_dos_rascunhos(escrituracao_ids) -> dict[int, dict[int, tuple[str, str]]]:
+    """{escrituração: {item: (natureza, CFOP de entrada)}} do que JÁ ESTÁ GRAVADO nos rascunhos.
 
-    Uma consulta para o mês inteiro: a prévia não paga uma consulta por nota.
+    Só os itens com natureza gravada. Uma consulta para o mês inteiro: a prévia não paga uma
+    consulta por nota. O CFOP vem junto porque, na compra, a escolha é a natureza E o CFOP (DL-091,
+    rodada 1, A4); na saída ele é vazio.
     """
     ids = list(escrituracao_ids)
-    gravadas: dict[int, dict[int, str]] = {}
+    gravadas: dict[int, dict[int, tuple[str, str]]] = {}
     if not ids:
         return gravadas
     linhas = (
         NaturezaItemNFe.objects.filter(escrituracao_id__in=ids)
         .exclude(natureza="")
-        .values_list("escrituracao_id", "item_id", "natureza")
+        .values_list("escrituracao_id", "item_id", "natureza", "cfop_entrada")
     )
-    for escrituracao_id, item_id, natureza in linhas:
-        gravadas.setdefault(escrituracao_id, {})[item_id] = natureza
+    for escrituracao_id, item_id, natureza, cfop in linhas:
+        gravadas.setdefault(escrituracao_id, {})[item_id] = (natureza, cfop)
     return gravadas
 
 
-def _diverge_do_rascunho(gravadas: dict[int, str], sugeridas) -> bool:
-    """True se o rascunho já tem natureza escolhida que não é a sugerida de algum item.
+def _diverge_do_rascunho(gravadas: dict[int, tuple[str, str]], sugeridas) -> bool:
+    """True se o rascunho já tem escolha do contador que difere da sugestão de algum item.
 
-    `sugeridas`: pares (item_id, natureza sugerida). Item sem natureza gravada não diverge: o
-    rascunho sem escolha entra no lote como antes (DL-085, auditoria A2, opção (a)).
+    `sugeridas`: (item_id, natureza sugerida, CFOP de entrada sugerido; vazio fora da compra).
+    A escolha é a natureza gravada e, na compra, o CFOP de entrada gravado (DL-091, rodada 1, A4):
+    um CFOP gravado que difere do sugerido também é escolha do contador, e a nota não é trocada
+    em silêncio. Item sem natureza gravada não diverge: o rascunho sem escolha entra no lote como
+    antes (DL-085, auditoria A2, opção (a)).
     """
-    return any(gravadas.get(item_id) not in (None, sugerida) for item_id, sugerida in sugeridas)
+    for item_id, natureza_sugerida, cfop_sugerido in sugeridas:
+        gravada = gravadas.get(item_id)
+        if gravada is None:
+            continue
+        natureza_gravada, cfop_gravado = gravada
+        if natureza_gravada != natureza_sugerida:
+            return True
+        if cfop_gravado and cfop_gravado != cfop_sugerido:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -699,7 +713,7 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
             continue
         lidas.append((nota, leitura))
 
-    gravadas_dos_rascunhos = _naturezas_dos_rascunhos(
+    gravadas_dos_rascunhos = _escolhas_dos_rascunhos(
         nota.escrituracao.pk for nota, _ in lidas if nota.escrituracao is not None
     )
     itens_das_notas = _itens_dos_documentos([nota.documento.pk for nota, _ in lidas])
@@ -761,7 +775,14 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
             if nota.escrituracao is not None
             else {}
         )
-        if _diverge_do_rascunho(gravadas, [(item.pk, natureza) for item, natureza in pares]):
+        # DL-091 (rodada 1, A4): na compra, o CFOP de entrada gravado também é escolha do contador.
+        if _diverge_do_rascunho(
+            gravadas,
+            [
+                (item.pk, natureza, cfop)
+                for (item, natureza), cfop in zip(pares, cfops_de_entrada, strict=True)
+            ],
+        ):
             fora.append(_fora(nota, CODIGO_NATUREZA_ESCOLHIDA, MENSAGEM_NATUREZA_ESCOLHIDA))
             continue
 
@@ -1442,9 +1463,11 @@ def _processar_nota_uma_vez(
             if ativa is not None:
                 # Rascunho com natureza escolhida que difere da sugestão gravada: a nota não é
                 # sobrescrita. É a mesma regra da prévia, revalidada no momento da efetivação.
-                gravadas = _naturezas_dos_rascunhos([ativa.pk]).get(ativa.pk, {})
+                gravadas = _escolhas_dos_rascunhos([ativa.pk]).get(ativa.pk, {})
+                # O CFOP sugerido é o da confirmação: `linha.itens[4]`, só na compra (DL-091, A4).
                 sugeridas = [
-                    (item_id, sugerida) for item_id, sugerida, _f, _o in _entradas_de_itens(linha)
+                    (int(entrada[0]), entrada[1], entrada[4] if len(entrada) > 4 else "")
+                    for entrada in linha.itens
                 ]
                 if _diverge_do_rascunho(gravadas, sugeridas):
                     raise servico.EscrituracaoNFeErro(MENSAGEM_NATUREZA_ESCOLHIDA)

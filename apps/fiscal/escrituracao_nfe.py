@@ -1590,7 +1590,10 @@ def efetivar(escrituracao: EscrituracaoNFe, usuario, request=None) -> Escriturac
         request=request,
         detalhes=detalhes,
     )
-    marcar_a_retificar_do_mes(empresa, competencia, usuario, travada, request)
+    # DL-091 (rodada 1, A2): a devolução de compra (finNFe 4, natureza `devolucao_compra`, fora da
+    # receita) não muda a receita do mês, como a compra. Não reabre a confirmação.
+    if travada.tipo != TipoEscrituracaoNFe.DEVOLUCAO_COMPRA:
+        marcar_a_retificar_do_mes(empresa, competencia, usuario, travada, request)
     return travada
 
 
@@ -1655,7 +1658,8 @@ def estornar(escrituracao: EscrituracaoNFe, motivo: str, usuario, request=None) 
         detalhes={"vinculo_id": travada.vinculo_id, "antes": antes, "depois": _snapshot(travada)},
     )
     # DL-091 (A1): o estorno de entrada não mexe em receita: não há mês de receita a retificar.
-    if travada.tipo != TipoEscrituracaoNFe.ENTRADA:
+    # DL-091 (rodada 1, A2): nem o de devolução de compra, que também está fora da receita.
+    if travada.tipo not in (TipoEscrituracaoNFe.ENTRADA, TipoEscrituracaoNFe.DEVOLUCAO_COMPRA):
         receita_servico.marcar_a_retificar_por_estorno(
             empresa,
             travada.competencia.year,
@@ -1738,20 +1742,29 @@ def reclassificar_em_massa(
 ) -> ResultadoReclassificacao:
     """Troca a natureza dos itens que casam com os filtros, SÓ em rascunho, com trilha por nota.
 
-    Nunca toca efetivada nem estornada, e nunca nota de outra empresa ou de outro escritório
-    (filtros de empresa e de escritório, e a trava nas escriturações). Se algum item que casa
-    pertence a nota cujo tipo não aceita a natureza, a operação inteira é recusada e nada muda.
+    Só mexe em rascunho de saída e de devolução de venda: compra e devolução de compra ficam fora
+    (DL-091, rodada 1, A3). Nunca toca efetivada nem estornada, e nunca nota de outra empresa ou de
+    outro escritório (filtros de empresa e de escritório, e a trava nas escriturações). Se algum
+    item que casa pertence a nota cujo tipo não aceita a natureza, a operação inteira é recusada e
+    nada muda.
     """
     if not natureza or natureza not in CATALOGO_NATUREZA_NFE:
         raise EntradaInvalidaNFe("Escolha a natureza da operação.")
     empresa = receita_servico.travar_empresa(empresa)
 
+    # DL-091 (rodada 1, A3): a troca em massa é de saída (venda e devolução de venda). A compra e a
+    # devolução de compra têm natureza e CFOP de entrada confirmados juntos (`definir_natureza_de_
+    # entrada`); trocar só a natureza deixaria o CFOP de entrada fora do grupo. Ficam de fora.
     candidatas = list(
         EscrituracaoNFe.objects.filter(
             empresa=empresa,
             estado=EstadoEscrituracao.RASCUNHO,
             vinculo__documento__escritorio=empresa.escritorio,
-        ).values_list("pk", flat=True)
+        )
+        .exclude(
+            tipo__in=(TipoEscrituracaoNFe.ENTRADA, TipoEscrituracaoNFe.DEVOLUCAO_COMPRA),
+        )
+        .values_list("pk", flat=True)
     )
     travadas = list(
         EscrituracaoNFe.objects.select_for_update(of=("self",)).filter(

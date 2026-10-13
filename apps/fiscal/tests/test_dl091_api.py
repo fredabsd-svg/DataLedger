@@ -7,11 +7,12 @@ Os dados são sintéticos. Plano: docs/planos/DL-091-nfe-de-entrada.md, critéri
 """
 
 import json
+from datetime import date
 
 import pytest
 from django.urls import reverse
 
-from apps.empresas.models import Empresa
+from apps.empresas.models import Empresa, HistoricoRegimeTributario, RegimeTributario
 from apps.fiscal.itens_nfe import ler_itens
 from apps.fiscal.models import EscrituracaoNFe, NaturezaItemNFe, TipoEscrituracaoNFe
 from apps.fiscal.tests import xml_nfe_dl081 as xml
@@ -48,7 +49,14 @@ def outra_empresa(escritorio_a):
 
 @pytest.fixture
 def compra(escritorio_a, usuario_gestor_a, empresa):
-    """Compra de 100,00 de SP para a empresa, CFOP 6.102 (interestadual), CST 00, CRT 3."""
+    """Compra de 100,00 de SP para a empresa, CFOP 6.102 (interestadual), CST 00, CRT 3.
+
+    A empresa é do Presumido na data (DL-091, rodada 1, A1): a marca de crédito depende do regime
+    do comprador, e sem regime cadastrado ela seria "a conferir".
+    """
+    HistoricoRegimeTributario.objects.create(
+        empresa=empresa, regime=RegimeTributario.LUCRO_PRESUMIDO, vigencia_inicio=date(2026, 1, 1)
+    )
     icms = xml.icms(
         cst="00",
         filhos="<modBC>3</modBC><vBC>100.00</vBC><pICMS>12.00</pICMS><vICMS>12.00</vICMS>",

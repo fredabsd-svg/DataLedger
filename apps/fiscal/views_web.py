@@ -9321,9 +9321,10 @@ def _motivo_de_efetivar_compra(documento, leitura, escrituracao, cancelada, regi
     return ""
 
 
-def _previa_da_compra(escrituracao, item, natureza, cfop):
-    """Marca e avisos do item, ANTES da efetivação, pelo serviço (`previa_do_item`)."""
-    previa = servico_entradas.previa_do_item(escrituracao, item, natureza, cfop)
+def _previa_da_compra(escrituracao, item, natureza, cfop, contexto_entrada=None):
+    """Marca e avisos do item, ANTES da efetivação, pelo serviço (`previa_do_item`). O
+    `contexto_entrada` é lido UMA vez pela tela (DL-091, A9)."""
+    previa = servico_entradas.previa_do_item(escrituracao, item, natureza, cfop, contexto_entrada)
     credito = previa["credito_elegivel"]
     return {
         "marca_rotulo": MarcaCreditoEntrada(previa["marca_credito"]).label,
@@ -9350,7 +9351,16 @@ def _memoria_da_compra(memoria):
 
 
 def _linha_da_compra(
-    item, registro, *, documento, contexto, empresa, origem, escrituracao, digitado=None
+    item,
+    registro,
+    *,
+    documento,
+    contexto,
+    empresa,
+    origem,
+    escrituracao,
+    digitado=None,
+    contexto_entrada=None,
 ):
     """Uma linha da compra. `registro` é a linha gravada (natureza e CFOP de entrada), ou None.
     Em `digitado` vai o que o formulário mandou quando o serviço recusou a confirmação: a tela
@@ -9383,7 +9393,9 @@ def _linha_da_compra(
         and escrituracao is not None
         and escrituracao.estado == EstadoEscrituracao.RASCUNHO
     ):
-        previa = _previa_da_compra(escrituracao, item, natureza_gravada, cfop_gravado)
+        previa = _previa_da_compra(
+            escrituracao, item, natureza_gravada, cfop_gravado, contexto_entrada
+        )
     info = consultar_cfop(item.cfop)
     if item.csosn:
         cst_csosn = f"CSOSN {item.csosn}"
@@ -9449,6 +9461,13 @@ def _tela_de_escriturar_compra(
         else competencia_emissao
     )
     contexto_empresa = classificacao.contexto_da_empresa(empresa)
+    # DL-091 (rodada 1, A9): o regime da data de entrada é lido UMA vez para a tela inteira. Por
+    # item, a prévia da memória custaria consultas que crescem com o número de itens.
+    contexto_entrada = (
+        servico_entradas.contexto_da_entrada(empresa, escrituracao.data_entrada)
+        if lida and rascunho
+        else None
+    )
     linhas: list[dict] = []
     memorias: list[dict] = []
     registros: list = []
@@ -9476,6 +9495,7 @@ def _tela_de_escriturar_compra(
                     origem=origens.get(item.pk),
                     escrituracao=escrituracao,
                     digitado=digitado,
+                    contexto_entrada=contexto_entrada,
                 )
             )
     if escrituracao is not None and (rascunho or efetivada):
@@ -9844,8 +9864,10 @@ def _tela_de_estornar_nfe(request, empresa, escrituracao, *, motivo, status=200)
         "receita_ptbr": _valor_ptbr(escrituracao.receita_bruta),
         "devolucao_ptbr": _valor_ptbr(escrituracao.devolucao),
         # DL-091 (frente B): a compra não compõe receita. A tela não diz que o estorno "sai da
-        # receita do mês" numa escrituração que nunca esteve nela.
-        "compra": escrituracao.tipo == TipoEscrituracaoNFe.ENTRADA,
+        # receita do mês" numa escrituração que nunca esteve nela. A devolução de compra (rodada 1,
+        # A12) também está fora da receita: usa o mesmo texto.
+        "compra": escrituracao.tipo
+        in (TipoEscrituracaoNFe.ENTRADA, TipoEscrituracaoNFe.DEVOLUCAO_COMPRA),
         "motivo": motivo,
         "motivo_maximo": servico_nfe.MOTIVO_MAXIMO,
         "url_detalhe": reverse(

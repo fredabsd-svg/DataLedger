@@ -382,13 +382,21 @@ def _sugestao_segmento_payload(item: ItemNFe, natureza: NaturezaItemNFe) -> dict
 
 
 def _entrada_do_item(
-    escrituracao: EscrituracaoNFe, natureza: NaturezaItemNFe, sugestao: servico.Sugestao
+    escrituracao: EscrituracaoNFe,
+    natureza: NaturezaItemNFe,
+    sugestao: servico.Sugestao,
+    contexto_entrada: entradas.ContextoDaEntrada,
+    memorias: dict[int, MemoriaEntradaItemNFe],
 ) -> dict:
     """Campos da escrituração de ENTRADA de UM item (DL-091, A1).
 
     `cfop_entrada` é o confirmado (ou nulo). `cfop_entrada_sugerido` é o par que o produto sugere a
     partir do CFOP do emitente, do CST, do NCM e do CRT, sem gravar nada. `memoria` é a memória
     gravada na efetivação (imutável) ou, no rascunho, a prévia da marca e dos avisos.
+
+    DL-091 (rodada 1, A9): `contexto_entrada` (regime e UF na data de entrada) e `memorias` (as
+    memórias gravadas, por id do item da escrituração) vêm lidos UMA vez pelo chamador. Ler por item
+    faz a consulta crescer com o número de itens.
     """
     item = natureza.item
     documento = escrituracao.vinculo.documento
@@ -400,7 +408,7 @@ def _entrada_do_item(
         else ""
     )
     memoria = None
-    gravada = MemoriaEntradaItemNFe.objects.filter(natureza_item=natureza).first()
+    gravada = memorias.get(natureza.pk)
     if gravada is not None:
         memoria = {
             "fonte": "efetivada",
@@ -410,7 +418,7 @@ def _entrada_do_item(
         }
     elif natureza.natureza and natureza.cfop_entrada:
         previa = entradas.previa_do_item(
-            escrituracao, item, natureza.natureza, natureza.cfop_entrada
+            escrituracao, item, natureza.natureza, natureza.cfop_entrada, contexto_entrada
         )
         memoria = {
             "fonte": "previa",
@@ -531,6 +539,24 @@ class EscrituracaoNFeDetalheView(_EmpresaComIdValido, APIView):
             # por
             # requisição e repassados a todos os itens (BL-698).
             contexto = classificacao.contexto_da_empresa(empresa)
+            # DL-091 (rodada 1, A9): na compra, o regime da data de entrada e as memórias gravadas
+            # são lidos UMA vez por requisição, e não por item.
+            e_entrada = escrituracao.tipo == TipoEscrituracaoNFe.ENTRADA
+            contexto_entrada = (
+                entradas.contexto_da_entrada(empresa, escrituracao.data_entrada)
+                if e_entrada
+                else None
+            )
+            memorias = (
+                {
+                    memoria.natureza_item_id: memoria
+                    for memoria in MemoriaEntradaItemNFe.objects.filter(
+                        natureza_item__escrituracao=escrituracao
+                    )
+                }
+                if e_entrada
+                else {}
+            )
             for natureza in naturezas:
                 sugestao = classificacao.sugerir_natureza_com_regras(
                     contexto, documento, natureza.item, escrituracao.tipo
@@ -541,8 +567,12 @@ class EscrituracaoNFeDetalheView(_EmpresaComIdValido, APIView):
                     avisos_por_item.get(natureza.item_id, ()),
                     None if receitas is None else receitas.get(natureza.item_id),
                 )
-                if escrituracao.tipo == TipoEscrituracaoNFe.ENTRADA:
-                    payload_do_item.update(_entrada_do_item(escrituracao, natureza, sugestao))
+                if e_entrada:
+                    payload_do_item.update(
+                        _entrada_do_item(
+                            escrituracao, natureza, sugestao, contexto_entrada, memorias
+                        )
+                    )
                 itens.append(payload_do_item)
         payload = _escrituracao_payload(escrituracao)
         payload.update(

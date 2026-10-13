@@ -216,7 +216,13 @@ def _preencher_totais(empresa, resultado: ConferenciaDeEntradas, efetivadas) -> 
     avisos_por_nota: dict[int, set[str]] = defaultdict(set)
     for memoria in memorias:
         marcas[memoria.marca_credito][0] += 1
-        if memoria.credito_elegivel is not None:
+        # DL-091 (rodada 1, A1): só as marcas de crédito elegível entram no total. Um valor
+        # preenchido em outra marca (p. ex., o comprador do Simples) não é crédito aproveitável.
+        elegivel = (
+            memoria.marca_credito in MARCAS_DE_CREDITO_ELEGIVEL
+            and memoria.credito_elegivel is not None
+        )
+        if elegivel:
             credito_total += memoria.credito_elegivel
             marcas[memoria.marca_credito][1] += memoria.credito_elegivel
         if memoria.v_icms_st_ret is not None and memoria.v_icms_st_ret > 0:

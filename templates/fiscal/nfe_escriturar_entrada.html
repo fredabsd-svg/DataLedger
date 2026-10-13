@@ -96,7 +96,7 @@ receita do mês. A tela não calcula: o serviço da frente A1 e a A2 dizem a reg
                     <input type="text" id="id_data_entrada_criar" name="data_entrada" value="{{ data_entrada_valor }}" maxlength="10" inputmode="numeric"
                            aria-describedby="ajuda_data_entrada_criar{% if erro_data_entrada %} erro_data_entrada_criar{% endif %}">
                     <p class="texto-apoio" id="ajuda_data_entrada_criar">
-                        Sugerida igual à data de emissão. A competência é o mês desta data. Data anterior à emissão é recusada.
+                        Sugerida igual à data de emissão. A competência é o mês desta data. Data anterior à emissão ou posterior a hoje é recusada.
                     </p>
                     {% if erro_data_entrada %}
                         <p class="mensagem mensagem-error" role="alert" id="erro_data_entrada_criar"><strong>Erro:</strong> {{ erro_data_entrada }}</p>
@@ -143,7 +143,7 @@ receita do mês. A tela não calcula: o serviço da frente A1 e a A2 dizem a reg
                     <input type="text" id="id_data_entrada" name="data_entrada" value="{{ data_entrada_valor }}" maxlength="10" inputmode="numeric"
                            aria-describedby="ajuda_data_entrada{% if erro_data_entrada %} erro_data_entrada{% endif %}">
                     <p class="texto-apoio" id="ajuda_data_entrada">
-                        Competência atual: {{ competencia_rotulo }}. Data anterior à emissão é recusada.
+                        Competência atual: {{ competencia_rotulo }}. Data anterior à emissão ou posterior a hoje é recusada.
                     </p>
                     {% if erro_data_entrada %}
                         <p class="mensagem mensagem-error" role="alert" id="erro_data_entrada"><strong>Erro:</strong> {{ erro_data_entrada }}</p>
@@ -193,8 +193,9 @@ receita do mês. A tela não calcula: o serviço da frente A1 e a A2 dizem a reg
                                         <input type="hidden" name="acao" value="item">
                                         <input type="hidden" name="item_id" value="{{ linha.item_id }}">
                                         <label for="id_natureza_{{ linha.item_id }}">Natureza do item {{ linha.n_item }}</label>
+                                        {# DL-091 (rodada 1, A10): aria-describedby só aponta para id que existe na página. #}
                                         <select id="id_natureza_{{ linha.item_id }}" name="natureza" required
-                                                aria-describedby="ajuda_natureza_{{ linha.item_id }}{% if linha.erro %} erro_item_{{ linha.item_id }}{% endif %}">
+                                                {% if linha.erro %}aria-describedby="erro_item_{{ linha.item_id }}"{% endif %}>
                                             {% if not linha.selecionada %}
                                                 <option value="" selected>Escolha a natureza</option>
                                             {% endif %}
