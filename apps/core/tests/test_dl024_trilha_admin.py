@@ -130,6 +130,7 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         LoteEscrituracaoNFe,
         LoteEscrituracaoNFeNota,
         MedidaJudicialLC224,
+        MemoriaEntradaItemNFe,
         NaturezaItemNFe,
         OpcaoRegimeCaixaSimples,
         OpcaoRegimeIbsCbsSimples,
@@ -325,6 +326,9 @@ def test_cobertura_da_trilha_e_todo_modelo_concreto_dos_apps_do_projeto_menos_ex
         # ModelAdmin; só `_gravar_origem` (apps.fiscal.escrituracao_nfe) grava, na transação da
         # natureza.
         OrigemNaturezaItemNFe,
+        # DL-091 (A1): memória de crédito por item de entrada. Gravada só por `efetivar_entrada`, na
+        # mesma transação da efetivação. Sem ModelAdmin e sem exclusão.
+        MemoriaEntradaItemNFe,
     }
     assert cobertos == esperados_cobertos, (
         f"DL-030: cobertura da trilha divergente.\n"

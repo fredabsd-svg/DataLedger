@@ -25,6 +25,9 @@
         {% if url_regras %}
             <a class="botao botao--fantasma" href="{{ url_regras }}">Regras de classificação</a>
         {% endif %}
+        {% if url_conferencia_entradas %}
+            <a class="botao botao--fantasma" href="{{ url_conferencia_entradas }}">Conferência de entradas</a>
+        {% endif %}
         {% if pode_escriturar %}
             <a class="botao botao--secundario" href="{{ url_reclassificar }}">Reclassificar em massa</a>
         {% endif %}
@@ -39,9 +42,10 @@ da frente A (`notas_do_mes`). A tela não recalcula nada: traduz a situação pa
 
 {% block content %}
     <p class="texto-apoio">
-        Notas fiscais de saída (venda própria e ajuste) em que a empresa escolhida é a emitente, e
-        devoluções de venda, pela competência (mês da data de emissão). Escriturar confirma a natureza
-        de cada item. Esta tela não calcula ICMS nem guia.
+        Notas fiscais em que a empresa escolhida é a emitente (saída, devolução de venda e devolução de compra) ou a
+        destinatária (compra e devolução de venda recebida). A competência é o mês da data de emissão; a compra
+        escriturada conta pelo mês da data de entrada. Escriturar confirma a natureza de cada item. Esta tela não
+        calcula ICMS nem guia.
     </p>
 
     <form method="get" action="{{ request.path }}" class="formulario-periodo formulario-periodo--rotulo-acima">
@@ -78,8 +82,8 @@ da frente A (`notas_do_mes`). A tela não recalcula nada: traduz a situação pa
         </div>
     {% else %}
         <p class="texto-apoio">
-            {{ total_elegiveis }} nota(s) de saída ou devolução em {{ mes|stringformat:"02d" }}/{{ ano }}.
-            {{ fora_da_escrituracao }} nota(s) recebida(s) ficam fora desta escrituração (entrada de compra, por exemplo).
+            {{ total_elegiveis }} nota(s) escriturável(is) em {{ mes|stringformat:"02d" }}/{{ ano }}.
+            {{ fora_da_escrituracao }} nota(s) ficam fora desta escrituração, com o motivo na tela de cada uma.
         </p>
 
         {% if not pode_escriturar %}
@@ -91,11 +95,13 @@ da frente A (`notas_do_mes`). A tela não recalcula nada: traduz a situação pa
         {% if linhas %}
             <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0" aria-label="Notas da empresa no mês e situação de escrituração">
             <table class="tabela-dados">
-                <caption>NF-e de saída e devolução da empresa no mês, com a situação de escrituração</caption>
+                <caption>NF-e da empresa no mês, com o tipo, a competência e a situação de escrituração</caption>
                 <thead>
                     <tr>
                         <th scope="col">Nota</th>
+                        <th scope="col">Tipo</th>
                         <th scope="col">Emissão</th>
+                        <th scope="col">Competência</th>
                         <th scope="col">Valor da nota (vNF)</th>
                         <th scope="col">Leitura dos itens</th>
                         <th scope="col">Situação</th>
@@ -106,7 +112,9 @@ da frente A (`notas_do_mes`). A tela não recalcula nada: traduz a situação pa
                     {% for linha in linhas %}
                         <tr>
                             <td>{{ linha.modelo }} nº {{ linha.numero }}, série {{ linha.serie }}</td>
+                            <td>{{ linha.tipo_rotulo }}</td>
                             <td>{{ linha.emissao|date:"d/m/Y H:i" }}</td>
+                            <td>{{ linha.competencia_rotulo }}</td>
                             <td class="valor-monetario">{{ linha.valor_nf_ptbr }}</td>
                             <td>
                                 {{ linha.leitura }}
@@ -142,7 +150,7 @@ da frente A (`notas_do_mes`). A tela não recalcula nada: traduz a situação pa
             <div class="estado-vazio">
                 <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
                 <p class="estado-vazio__titulo">
-                    <strong>Nenhuma NF-e de saída ou devolução desta empresa em {{ mes|stringformat:"02d" }}/{{ ano }}.</strong>
+                    <strong>Nenhuma NF-e escriturável desta empresa em {{ mes|stringformat:"02d" }}/{{ ano }}.</strong>
                 </p>
                 <p class="estado-vazio__descricao">Escolha outra competência.</p>
             </div>

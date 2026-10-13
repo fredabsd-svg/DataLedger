@@ -58,8 +58,10 @@ from apps.fiscal.api_classificacao import (
     RegrasDoProdutoView,
 )
 from apps.fiscal.api_escrituracao_nfe import (
+    ConferenciaEntradasView,
     ConferenciaNFeView,
     ConfirmarLoteNFeView,
+    DefinirDataEntradaView,
     DefinirMarcaMonofasicoView,
     DefinirNaturezasView,
     DefinirSegmentoDevolucaoView,
@@ -125,6 +127,12 @@ urlpatterns = [
         DefinirNaturezasView.as_view(),
         name="nfe_escrituracao_naturezas",
     ),
+    # DL-091 (A1, HI-158): data de entrada da escrituração de entrada, em rascunho.
+    path(
+        "empresas/<int:empresa_id>/nfe/escrituracao/<int:escrituracao_id>/data-entrada/",
+        DefinirDataEntradaView.as_view(),
+        name="nfe_escrituracao_data_entrada",
+    ),
     path(
         "empresas/<int:empresa_id>/nfe/escrituracao/<int:escrituracao_id>/marca-monofasico/",
         DefinirMarcaMonofasicoView.as_view(),
@@ -149,6 +157,12 @@ urlpatterns = [
         "empresas/<int:empresa_id>/nfe/conferencia/",
         ConferenciaNFeView.as_view(),
         name="nfe_conferencia",
+    ),
+    # DL-091 (A2): conferência das entradas do mês (classe "conferência", sem impressão oficial).
+    path(
+        "empresas/<int:empresa_id>/nfe/conferencia-entradas/",
+        ConferenciaEntradasView.as_view(),
+        name="nfe_conferencia_entradas",
     ),
     # DL-087 (frente A): regras de classificação de NF-e, fila "a classificar" e regras do produto.
     path(

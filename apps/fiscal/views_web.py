@@ -88,6 +88,8 @@ from apps.core.requisicao import (
 )
 from apps.empresas.models import Empresa
 from apps.fiscal import api_classificacao, classificacao
+from apps.fiscal import conferencia_entradas as servico_conferencia
+from apps.fiscal import entradas as servico_entradas
 from apps.fiscal import escrituracao as servico_escrituracao
 from apps.fiscal import escrituracao_nfe as servico_nfe
 from apps.fiscal import escrituracao_nfe_lote as servico_lote
@@ -141,7 +143,9 @@ from apps.fiscal.models import (
     ItemNFe,
     LeituraItensNFe,
     LoteDeRecepcao,
+    MarcaCreditoEntrada,
     MedidaJudicialLC224,
+    MemoriaEntradaItemNFe,
     MercadoReceita,
     ModeloNFe,
     ModoNcmRegraNFe,
@@ -8427,8 +8431,12 @@ _ANO_MINIMO_NFE, _ANO_MAXIMO_NFE = 1970, 2999
 # `devolucao_combustivel_consumo` tem 29 caracteres, e o 24 antigo a recusava na tela.
 _TAMANHO_NATUREZA_NFE = NaturezaItemNFe._meta.get_field("natureza").max_length
 _ACOES_ESCRITURAR_NFE = frozenset(
-    {"criar", "item", "bloco", "efetivar", "monofasico", "segmento_devolucao"}
+    {"criar", "item", "bloco", "efetivar", "monofasico", "segmento_devolucao", "data_entrada"}
 )
+# DL-091 (frente B): ações que só existem na escrituração de SAÍDA (marca de monofásico, segmento
+# da devolução de venda, bloco por sugestão). Na compra, a tela não as oferece, e o POST recusa
+# com 400.
+_ACOES_SO_DA_SAIDA = frozenset({"bloco", "monofasico", "segmento_devolucao"})
 _ACOES_RECLASSIFICAR_NFE = frozenset({"previa", "confirmar"})
 _MENSAGEM_SEM_CONSULTA_ESCRITURACAO_NFE = "Seu papel não permite consultar a escrituração de NF-e."
 _MENSAGEM_SEM_ESCRITA_NFE = (
@@ -8616,6 +8624,22 @@ def _escrituracao_ativa_nfe(vinculo):
     ).first()
 
 
+def _competencia_da_linha_nfe(nota):
+    """Mês de competência de uma linha da lista. Compra escriturada conta pela data de entrada
+    (HI-158, `entradas.competencia_da_entrada`); as outras, e a compra ainda não escriturada, pela
+    emissão. O rótulo diz qual das duas, para o contador não ler uma pela outra."""
+    escrituracao = nota.escrituracao
+    if (
+        nota.tipo == TipoEscrituracaoNFe.ENTRADA
+        and escrituracao is not None
+        and escrituracao.data_entrada is not None
+    ):
+        competencia = servico_entradas.competencia_da_entrada(escrituracao.data_entrada)
+        return f"{competencia:%m/%Y} (data de entrada)"
+    _, competencia = servico_nfe.dia_e_competencia(nota.documento)
+    return f"{competencia:%m/%Y} (emissão)"
+
+
 def _linha_nfe_a_escriturar(nota, empresa, pode_escriturar, estornadas):
     """Linha da lista e da conferência. A situação vem do serviço; a tela só a traduz."""
     documento = nota.documento
@@ -8643,6 +8667,10 @@ def _linha_nfe_a_escriturar(nota, empresa, pode_escriturar, estornadas):
         "modelo": documento.get_modelo_display(),
         "emissao": documento.dh_emissao,
         "valor_nf_ptbr": _valor_ptbr(documento.v_nf),
+        # DL-091 (frente B): o tipo da escrituração e a competência. Na compra escriturada, a
+        # competência é a da data de entrada (HI-158); sem escrituração, a da emissão.
+        "tipo_rotulo": (TipoEscrituracaoNFe(nota.tipo).label if nota.tipo else "—"),
+        "competencia_rotulo": _competencia_da_linha_nfe(nota),
         "situacao": rotulo,
         "destaque": situacao == servico_nfe.SITUACAO_CANCELADA_DEPOIS_DE_ESCRITURADA,
         "leitura": _ROTULO_LEITURA_NFE.get(nota.leitura_estado, "Ainda não lida"),
@@ -8689,6 +8717,9 @@ def nfe_a_escriturar(request):
             {
                 "url_fila": _url_da_fila_de_classificacao(empresa, ano, mes),
                 "url_regras": _url_das_regras_da_empresa(empresa),
+                # DL-091 (frente B): a conferência de entradas leva a empresa no caminho (a lista
+                # dela é da empresa escolhida); daqui é o link, e não o menu.
+                "url_conferencia_entradas": _url_da_conferencia_de_entradas(empresa, ano, mes),
             }
         )
     if empresa is None:
@@ -8727,6 +8758,9 @@ _CONTRATO_ESCRITURAR_NFE = ContratoDeRequisicao(
         # DL-082: a caixa de monofásico (presente só quando marcada) e o segmento da devolução.
         "monofasico",
         "segmento",
+        # DL-091 (frente B): CFOP de entrada do item e data de entrada (só na compra).
+        "cfop_entrada",
+        "data_entrada",
     },
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na escrituração de NF-e",
@@ -8817,6 +8851,16 @@ def _juntar_com_e(partes):
     if len(partes) <= 1:
         return "".join(partes)
     return ", ".join(partes[:-1]) + " e " + partes[-1]
+
+
+def _url_da_conferencia_de_entradas(empresa, ano, mes):
+    """Conferência de entradas da empresa no mês (DL-091, frente B). A empresa vai no caminho; o
+    mês, na querystring. Sem empresa, não há link: a conferência é de uma empresa."""
+    return (
+        reverse("fiscal_web:nfe_conferencia_entradas", args=[empresa.pk])
+        + "?"
+        + urlencode({"ano": ano, "mes": mes})
+    )
 
 
 def _url_das_regras_da_empresa(empresa):
@@ -9064,6 +9108,10 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
     tipo = servico_nfe.tipo_da_nota(documento, vinculo.papel)
     leitura = LeituraItensNFe.objects.filter(documento=documento).first()
     escrituracao = _escrituracao_ativa_nfe(vinculo)
+    if _e_compra(vinculo, escrituracao):
+        # DL-091 (frente B): a compra tem tela própria (natureza e CFOP de entrada, data de entrada,
+        # prévia e memória). A saída e a devolução de compra seguem abaixo, como antes.
+        return _tela_de_escriturar_compra(request, empresa, vinculo, status=status)
     # A nota é buscada direto pelo vínculo, sem listar o mês inteiro (DL-081, A6).
     nota = servico_nfe.nota_do_vinculo(empresa, vinculo)
     lida = leitura is not None and leitura.estado == LeituraItensNFe.ESTADO_LIDA
@@ -9119,6 +9167,13 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
         "vinculo": vinculo,
         "documento": documento,
         "papel_rotulo": _ROTULO_PAPEL_NFE[vinculo.papel],
+        # DL-091 (frente B): o tipo da escrituração. A devolução de compra (finNFe 4, saída própria)
+        # aparece aqui com o nome dela, para o contador não ler como devolução de venda.
+        "tipo_rotulo": (
+            TipoEscrituracaoNFe(escrituracao.tipo if escrituracao is not None else tipo).label
+            if (escrituracao is not None or tipo is not None)
+            else ""
+        ),
         "modelo_rotulo": documento.get_modelo_display(),
         "chave_em_grupos": _chave_em_grupos(documento.chave),
         "tp_nf_rotulo": _ROTULO_TP_NF.get(documento.tp_nf, documento.tp_nf),
@@ -9191,6 +9246,456 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
     return render(request, "fiscal/nfe_escriturar.html", contexto, status=status)
 
 
+# ---------------------------------------------------------------------------
+# DL-091 (frente B): escrituração de COMPRA (tipo ENTRADA, NF-e de terceiro com finNFe 1, em que a
+# empresa é a destinatária). A tela não decide nada: a elegibilidade, a data de entrada, a natureza
+# e o CFOP de entrada, a prévia, a memória e os avisos são do serviço (`entradas` e
+# `escrituracao_nfe`). A view só lê, pede ao serviço e leva a recusa ao campo que a causou.
+# ---------------------------------------------------------------------------
+
+# CRT do emitente, como a NF-e o traz (campo CRT do leiaute). Só para exibir.
+_NOME_DO_CRT = {
+    "1": "Simples Nacional",
+    "2": "Simples Nacional, com excesso de sublimite",
+    "3": "regime normal",
+    "4": "MEI",
+}
+_MOTIVO_SEM_ESCRITA_NA_COMPRA = _MENSAGEM_SEM_ESCRITA_NFE
+
+
+def _e_compra(vinculo, escrituracao):
+    """A nota é compra (tipo ENTRADA): pela escrituração ativa, ou pela regra de elegibilidade
+    quando ainda não há rascunho. Só a regra do serviço decide o tipo; a tela não reconhece NF-e
+    por conta própria."""
+    tipo = (
+        escrituracao.tipo
+        if escrituracao is not None
+        else servico_nfe.tipo_da_nota(vinculo.documento, vinculo.papel)
+    )
+    return tipo == TipoEscrituracaoNFe.ENTRADA
+
+
+def _uf_do_emitente_na_tela(documento):
+    """Sigla da UF do emitente, pelo `cUF` da chave (tabela IBGE do serviço). Sem código conhecido,
+    mostra o código, e não uma UF inventada."""
+    sigla = servico_entradas.CODIGO_IBGE_DA_UF.get(documento.c_uf)
+    return sigla or f"código IBGE {documento.c_uf}"
+
+
+def _crt_do_emitente_na_tela(documento):
+    nome = _NOME_DO_CRT.get(documento.emitente_crt)
+    if nome is None:
+        return documento.emitente_crt or "não informado"
+    return f"{documento.emitente_crt}: {nome}"
+
+
+def _data_do_formulario_de_compra(bruto):
+    """Data de entrada do formulário. Vazia = o serviço usa a emissão. Formato errado é erro do
+    campo, na própria tela; a regra (não anterior à emissão) é do serviço, que recusa com a
+    mensagem dele."""
+    return _data_nfe(bruto, "Data de entrada")
+
+
+def _motivo_de_efetivar_compra(documento, leitura, escrituracao, cancelada, registros):
+    """Motivo, em pt-BR, de a compra não estar pronta para efetivar, ou "" se estiver.
+
+    Espelha a PRESENÇA que `entradas.efetivar_entrada` exige: nota lida, natureza e CFOP de
+    entrada em todos os itens. NÃO aplica o portão de receita de 2027 nem a conferência com o vNF,
+    que são da
+    saída: a compra não tem receita (DL-091, A1). O serviço continua sendo a autoridade no POST.
+    """
+    if cancelada:
+        return "Nota cancelada não pode ser efetivada."
+    if leitura is None or leitura.estado != LeituraItensNFe.ESTADO_LIDA:
+        motivo = "itens ainda não lidos" if leitura is None else leitura.motivo
+        return f"Itens ilegíveis, nota bloqueada: {motivo}"
+    faltam_natureza = sum(1 for registro in registros if not registro.natureza)
+    if faltam_natureza:
+        return (
+            f"Falta a natureza de {faltam_natureza} item(ns). "
+            "Confirme a natureza de cada item antes de efetivar."
+        )
+    faltam_cfop = sum(1 for registro in registros if not registro.cfop_entrada)
+    if faltam_cfop:
+        return f"Falta o CFOP de entrada de {faltam_cfop} item(ns). Confirme-o antes de efetivar."
+    return ""
+
+
+def _previa_da_compra(escrituracao, item, natureza, cfop, contexto_entrada=None):
+    """Marca e avisos do item, ANTES da efetivação, pelo serviço (`previa_do_item`). O
+    `contexto_entrada` é lido UMA vez pela tela (DL-091, A9)."""
+    previa = servico_entradas.previa_do_item(escrituracao, item, natureza, cfop, contexto_entrada)
+    credito = previa["credito_elegivel"]
+    return {
+        "marca_rotulo": MarcaCreditoEntrada(previa["marca_credito"]).label,
+        "credito_ptbr": _valor_ptbr(credito) if credito is not None else "nenhum",
+        "avisos": list(previa["avisos"]),
+    }
+
+
+def _memoria_da_compra(memoria):
+    """Uma linha da memória gravada na efetivação. Valores copiados do XML; o texto é da tela."""
+    credito = memoria.credito_elegivel
+    return {
+        "n_item": memoria.natureza_item.item.n_item,
+        "v_icms_ptbr": _valor_ptbr(memoria.v_icms),
+        "marca_rotulo": MarcaCreditoEntrada(memoria.marca_credito).label,
+        "credito_ptbr": _valor_ptbr(credito) if credito is not None else "nenhum",
+        "v_icms_st_ret_ptbr": _valor_ptbr(memoria.v_icms_st_ret),
+        "v_fcp_ptbr": _valor_ptbr(memoria.v_fcp),
+        "v_ipi_ptbr": _valor_ptbr(memoria.v_ipi),
+        "v_pis_ptbr": _valor_ptbr(memoria.v_pis),
+        "v_cofins_ptbr": _valor_ptbr(memoria.v_cofins),
+        "avisos": list(memoria.avisos or []),
+    }
+
+
+def _linha_da_compra(
+    item,
+    registro,
+    *,
+    documento,
+    contexto,
+    empresa,
+    origem,
+    escrituracao,
+    digitado=None,
+    contexto_entrada=None,
+):
+    """Uma linha da compra. `registro` é a linha gravada (natureza e CFOP de entrada), ou None.
+    Em `digitado` vai o que o formulário mandou quando o serviço recusou a confirmação: a tela
+    devolve o valor no campo, com o erro, e não o apaga.
+
+    O CFOP do EMITENTE é só leitura: ele não é campo, e a confirmação não o recebe (o serviço grava
+    só o CFOP de entrada, `ItemNFe.cfop` não muda).
+    """
+    sugestao = classificacao.sugerir_natureza_com_regras(
+        contexto, documento, item, TipoEscrituracaoNFe.ENTRADA
+    )
+    natureza_gravada = registro.natureza if registro is not None else ""
+    cfop_gravado = registro.cfop_entrada if registro is not None else ""
+    selecionada = (
+        digitado["natureza"] if digitado else (natureza_gravada or sugestao.natureza or "")
+    )
+    # Sem padrão para a natureza escolhida, o campo fica vazio: o contador digita (o serviço diz se
+    # o CFOP digitado vale). O padrão é o do próprio serviço, `cfop_de_entrada_para`.
+    cfop_padrao = (
+        servico_entradas.cfop_de_entrada_para(documento, item, selecionada, sugestao)
+        if selecionada
+        else ""
+    )
+    cfop_valor = digitado["cfop"] if digitado else (cfop_gravado or cfop_padrao)
+    previa = None
+    # A prévia é ANTES da efetivação. Depois dela, a memória gravada é o que vale (outra seção).
+    if (
+        natureza_gravada
+        and cfop_gravado
+        and escrituracao is not None
+        and escrituracao.estado == EstadoEscrituracao.RASCUNHO
+    ):
+        previa = _previa_da_compra(
+            escrituracao, item, natureza_gravada, cfop_gravado, contexto_entrada
+        )
+    info = consultar_cfop(item.cfop)
+    if item.csosn:
+        cst_csosn = f"CSOSN {item.csosn}"
+    elif item.cst:
+        cst_csosn = f"CST {item.cst}"
+    else:
+        cst_csosn = "—"
+    origem_gravada = _origem_gravada_na_tela(origem, empresa) if natureza_gravada else None
+    return {
+        "item_id": item.pk,
+        "n_item": item.n_item,
+        "x_prod": item.x_prod,
+        "ncm": item.ncm,
+        "cfop_emitente": item.cfop,
+        "cfop_emitente_descricao": (
+            info.descricao if info else "CFOP fora da tabela oficial: a classificar"
+        ),
+        "cst_csosn": cst_csosn,
+        "v_prod_ptbr": _valor_ptbr(item.v_prod),
+        "natureza_gravada": natureza_gravada,
+        "natureza_gravada_rotulo": (
+            NaturezaOperacaoNFe(natureza_gravada).label if natureza_gravada else ""
+        ),
+        "cfop_entrada_gravado": cfop_gravado,
+        "opcoes": _opcoes_de_natureza(TipoEscrituracaoNFe.ENTRADA),
+        "selecionada": selecionada,
+        "cfop_valor": cfop_valor,
+        "cfop_sugerido": cfop_padrao,
+        "sugestao_rotulo": (
+            NaturezaOperacaoNFe(sugestao.natureza).label
+            if sugestao.natureza
+            else "sem sugestão — escolha"
+        ),
+        "sugestao_motivo": sugestao.motivo,
+        **_origem_da_sugestao_na_tela(sugestao, empresa),
+        "origem_gravada_texto": origem_gravada["texto"] if origem_gravada else "",
+        "erro": digitado["erro"] if digitado else "",
+        "previa": previa,
+    }
+
+
+def _tela_de_escriturar_compra(
+    request, empresa, vinculo, *, status=200, erro_data="", valor_data=None, erro_item=None
+):
+    """Escrituração de uma compra (arquétipo B). `erro_data` e `erro_item` levam a recusa ao campo
+    que a causou; `valor_data` devolve a data digitada. A competência é a do mês da data de entrada
+    quando escriturada, e a da emissão enquanto não está (HI-158)."""
+    documento = vinculo.documento
+    emissao, competencia_emissao = servico_nfe.dia_e_competencia(documento)
+    escrituracao = _escrituracao_ativa_nfe(vinculo)
+    # A nota é buscada direto pelo vínculo, sem listar o mês inteiro (DL-081, A6).
+    nota = servico_nfe.nota_do_vinculo(empresa, vinculo)
+    leitura = LeituraItensNFe.objects.filter(documento=documento).first()
+    lida = leitura is not None and leitura.estado == LeituraItensNFe.ESTADO_LIDA
+    cancelada = situacao_da_nfe(documento) == "cancelada"
+    pode = _pode_escriturar(request)
+    rascunho = escrituracao is not None and escrituracao.estado == EstadoEscrituracao.RASCUNHO
+    efetivada = escrituracao is not None and escrituracao.estado == EstadoEscrituracao.EFETIVADA
+    data_gravada = escrituracao.data_entrada if escrituracao is not None else None
+    competencia = (
+        servico_entradas.competencia_da_entrada(data_gravada)
+        if data_gravada
+        else competencia_emissao
+    )
+    contexto_empresa = classificacao.contexto_da_empresa(empresa)
+    # DL-091 (rodada 1, A9): o regime da data de entrada é lido UMA vez para a tela inteira. Por
+    # item, a prévia da memória custaria consultas que crescem com o número de itens.
+    contexto_entrada = (
+        servico_entradas.contexto_da_entrada(empresa, escrituracao.data_entrada)
+        if lida and rascunho
+        else None
+    )
+    linhas: list[dict] = []
+    memorias: list[dict] = []
+    registros: list = []
+    motivo_efetivar = ""
+    if escrituracao is not None:
+        registros = list(
+            NaturezaItemNFe.objects.select_related("item")
+            .filter(escrituracao=escrituracao)
+            .order_by("item__n_item")
+        )
+    if lida:
+        gravados = {registro.item_id: registro for registro in registros}
+        origens = _origens_da_escrituracao(escrituracao)
+        for item in ItemNFe.objects.filter(documento=documento).order_by("n_item"):
+            digitado = None
+            if erro_item is not None and erro_item["item_id"] == item.pk:
+                digitado = erro_item
+            linhas.append(
+                _linha_da_compra(
+                    item,
+                    gravados.get(item.pk),
+                    documento=documento,
+                    contexto=contexto_empresa,
+                    empresa=empresa,
+                    origem=origens.get(item.pk),
+                    escrituracao=escrituracao,
+                    digitado=digitado,
+                    contexto_entrada=contexto_entrada,
+                )
+            )
+    if escrituracao is not None and (rascunho or efetivada):
+        if efetivada:
+            memorias = [
+                _memoria_da_compra(memoria)
+                for memoria in MemoriaEntradaItemNFe.objects.select_related("natureza_item__item")
+                .filter(natureza_item__escrituracao=escrituracao)
+                .order_by("natureza_item__item__n_item")
+            ]
+        if rascunho:
+            motivo_efetivar = _motivo_de_efetivar_compra(
+                documento, leitura, escrituracao, cancelada, registros
+            )
+    pendentes = sum(
+        1 for registro in registros if not registro.natureza or not registro.cfop_entrada
+    )
+    contexto = {
+        "empresa": empresa,
+        "vinculo": vinculo,
+        "documento": documento,
+        "tipo_rotulo": TipoEscrituracaoNFe.ENTRADA.label,
+        "modelo_rotulo": documento.get_modelo_display(),
+        "chave_em_grupos": _chave_em_grupos(documento.chave),
+        "tp_nf_rotulo": _ROTULO_TP_NF.get(documento.tp_nf, documento.tp_nf),
+        "fin_nfe_rotulo": _ROTULO_FIN_NFE.get(documento.fin_nfe, documento.fin_nfe),
+        "emissao": documento.dh_emissao,
+        "emitente_documento": _documento_na_tela(
+            documento.emitente_tipo_documento, documento.emitente_documento
+        ),
+        "destinatario_documento": _documento_na_tela(
+            documento.destinatario_tipo_documento, documento.destinatario_documento
+        ),
+        "crt_rotulo": _crt_do_emitente_na_tela(documento),
+        "uf_emitente_rotulo": _uf_do_emitente_na_tela(documento),
+        "valor_nf_ptbr": _valor_ptbr(documento.v_nf),
+        "competencia_rotulo": f"{competencia:%m/%Y}",
+        "situacao_rotulo": (
+            _ROTULO_SITUACAO_NFE_ESCRITURACAO.get(nota.situacao, nota.situacao)
+            if nota is not None
+            else ""
+        ),
+        "cancelada": cancelada,
+        "lida": lida,
+        "leitura_rotulo": _ROTULO_LEITURA_NFE.get(
+            leitura.estado if leitura else None, "Ainda não lida"
+        ),
+        "leitura_motivo": leitura.motivo if leitura else "",
+        "escrituracao": escrituracao,
+        "rascunho": rascunho,
+        "efetivada": efetivada,
+        "data_entrada_valor": (
+            valor_data if valor_data is not None else f"{(data_gravada or emissao):%d/%m/%Y}"
+        ),
+        "erro_data_entrada": erro_data,
+        "pode_escriturar": pode,
+        "motivo_sem_escrita": _MOTIVO_SEM_ESCRITA_NA_COMPRA,
+        "linhas": linhas,
+        "pendentes": pendentes,
+        "motivo_efetivar": motivo_efetivar,
+        "pode_efetivar": rascunho and not motivo_efetivar,
+        "memorias": memorias,
+        "url_escriturar": reverse("fiscal_web:nfe_escriturar", args=[empresa.pk, vinculo.pk]),
+        "url_lista": reverse("fiscal_web:nfe_a_escriturar")
+        + "?"
+        + urlencode({"empresa": empresa.pk, "ano": competencia.year, "mes": competencia.month}),
+        "url_estornar": (
+            reverse("fiscal_web:nfe_estornar", args=[empresa.pk, escrituracao.pk])
+            if efetivada
+            else ""
+        ),
+        "url_conferencia": _url_da_conferencia_de_entradas(
+            empresa, competencia.year, competencia.month
+        ),
+    }
+    return render(request, "fiscal/nfe_escriturar_entrada.html", contexto, status=status)
+
+
+def _escriturar_compra_post(request, empresa, vinculo, acao):
+    """POST da compra. Cada ação vai ao serviço da A1 (`entradas` e `escrituracao_nfe`), e a recusa
+    volta ao campo que a causou. Ação só da saída, na compra, responde 400 sem gravar nada."""
+    usuario = request.user
+    if acao in _ACOES_SO_DA_SAIDA:
+        raise _EntradaNfeRecusada(
+            "Esta ação é da escrituração de saída. A compra não tem marca de monofásico, segmento "
+            "de devolução nem bloco por sugestão."
+        )
+    escrituracao = _escrituracao_ativa_nfe(vinculo)
+    if acao == "criar":
+        bruto = request.POST.get("data_entrada", "")
+        try:
+            data = _data_do_formulario_de_compra(bruto)
+            escrituracao = servico_nfe.criar_rascunho(
+                vinculo, usuario=usuario, request=request, data_entrada=data
+            )
+        except (_EntradaNfeRecusada, servico_nfe.EntradaInvalidaNFe) as exc:
+            return _tela_de_escriturar_compra(
+                request,
+                empresa,
+                vinculo,
+                status=400,
+                erro_data=exc.mensagem,
+                valor_data=bruto,
+            )
+        except servico_nfe.EscrituracaoNFeErro as exc:
+            messages.error(request, exc.mensagem)
+            return _tela_de_escriturar_compra(request, empresa, vinculo, status=409)
+        if escrituracao.criada_agora:
+            messages.success(
+                request,
+                "Rascunho da compra criado. Confirme a natureza e o CFOP de entrada de cada item.",
+            )
+        else:
+            messages.info(request, "Esta nota já tinha rascunho. Nada foi alterado.")
+        return _redirecionar_escriturar_nfe(empresa, vinculo)
+
+    if escrituracao is None:
+        messages.error(
+            request, "Esta nota não tem rascunho. Crie o rascunho antes de confirmar a compra."
+        )
+        return _tela_de_escriturar_compra(request, empresa, vinculo, status=409)
+
+    if acao == "data_entrada":
+        bruto = request.POST.get("data_entrada", "")
+        try:
+            data = _data_do_formulario_de_compra(bruto)
+            servico_entradas.definir_data_de_entrada(
+                escrituracao, data, usuario=usuario, request=request
+            )
+        except (_EntradaNfeRecusada, servico_nfe.EntradaInvalidaNFe) as exc:
+            return _tela_de_escriturar_compra(
+                request, empresa, vinculo, status=400, erro_data=exc.mensagem, valor_data=bruto
+            )
+        except servico_nfe.EscrituracaoNFeErro as exc:
+            messages.error(request, exc.mensagem)
+            return _tela_de_escriturar_compra(request, empresa, vinculo, status=409)
+        messages.success(
+            request, "Data de entrada gravada. A competência da compra é o mês desta data."
+        )
+        return _redirecionar_escriturar_nfe(empresa, vinculo)
+
+    if acao == "item":
+        item_id = _id_do_formulario_nfe(request.POST.get("item_id"), "Item")
+        natureza = _texto_nfe(request.POST.get("natureza"), "Natureza", _TAMANHO_NATUREZA_NFE)
+        cfop = _texto_nfe(request.POST.get("cfop_entrada"), "CFOP de entrada", 5)
+        try:
+            servico_entradas.definir_natureza_de_entrada(
+                escrituracao, natureza, cfop, [item_id], usuario=usuario, request=request
+            )
+        except servico_nfe.EntradaInvalidaNFe as exc:
+            # A recusa fica no item: a tela devolve a natureza e o CFOP digitados, com a mensagem.
+            return _tela_de_escriturar_compra(
+                request,
+                empresa,
+                vinculo,
+                status=400,
+                erro_item={
+                    "item_id": item_id,
+                    "natureza": natureza,
+                    "cfop": cfop,
+                    "erro": exc.mensagem,
+                },
+            )
+        except servico_nfe.EscrituracaoNFeErro as exc:
+            messages.error(request, exc.mensagem)
+            return _tela_de_escriturar_compra(request, empresa, vinculo, status=409)
+        messages.success(request, "Natureza e CFOP de entrada do item confirmados.")
+        return _redirecionar_escriturar_nfe(empresa, vinculo)
+
+    if acao == "efetivar":
+        documento = vinculo.documento
+        registros = list(NaturezaItemNFe.objects.filter(escrituracao=escrituracao))
+        motivo = _motivo_de_efetivar_compra(
+            documento,
+            LeituraItensNFe.objects.filter(documento=documento).first(),
+            escrituracao,
+            situacao_da_nfe(documento) == "cancelada",
+            registros,
+        )
+        if motivo:
+            messages.error(request, motivo)
+            return _tela_de_escriturar_compra(request, empresa, vinculo, status=409)
+        try:
+            efetivada = servico_nfe.efetivar(escrituracao, usuario=usuario, request=request)
+        except servico_nfe.EscrituracaoNFeErro as exc:
+            messages.error(request, exc.mensagem)
+            return _tela_de_escriturar_compra(request, empresa, vinculo, status=409)
+        if efetivada.criada_agora:
+            messages.success(
+                request,
+                "Escrituração de compra efetivada. A memória de cada item está gravada. "
+                "A receita do mês não mudou.",
+            )
+        else:
+            messages.info(request, "Esta escrituração já estava efetivada. Nada foi alterado.")
+        return _redirecionar_escriturar_nfe(empresa, vinculo)
+
+    raise _EntradaNfeRecusada("Ação desconhecida na escrituração de NF-e.")
+
+
 def _redirecionar_escriturar_nfe(empresa, vinculo):
     return redirect("fiscal_web:nfe_escriturar", empresa_id=empresa.pk, vinculo_id=vinculo.pk)
 
@@ -9224,6 +9729,9 @@ def _escriturar_nfe_post(request, empresa, vinculo):
     acao = request.POST.get("acao", "")
     if acao not in _ACOES_ESCRITURAR_NFE:
         raise _EntradaNfeRecusada("Ação desconhecida na escrituração de NF-e.")
+    if _e_compra(vinculo, _escrituracao_ativa_nfe(vinculo)):
+        # DL-091 (frente B): a compra tem o próprio POST (CFOP de entrada e data de entrada).
+        return _escriturar_compra_post(request, empresa, vinculo, acao)
 
     try:
         if acao == "criar":
@@ -9355,6 +9863,13 @@ def _tela_de_estornar_nfe(request, empresa, escrituracao, *, motivo, status=200)
         ),
         "receita_ptbr": _valor_ptbr(escrituracao.receita_bruta),
         "devolucao_ptbr": _valor_ptbr(escrituracao.devolucao),
+        # DL-091 (frente B): a compra não compõe receita. A tela não diz que o estorno "sai da
+        # receita do mês" numa escrituração que nunca esteve nela. A devolução de compra (rodada 1,
+        # A12) também está fora da receita: usa o mesmo texto.
+        "compra": escrituracao.tipo
+        in (TipoEscrituracaoNFe.ENTRADA, TipoEscrituracaoNFe.DEVOLUCAO_COMPRA),
+        # Reconferência, N5 (ajuste do arquiteto): a devolução de compra é chamada pelo nome.
+        "devolucao_de_compra": escrituracao.tipo == TipoEscrituracaoNFe.DEVOLUCAO_COMPRA,
         "motivo": motivo,
         "motivo_maximo": servico_nfe.MOTIVO_MAXIMO,
         "url_detalhe": reverse(
@@ -9699,6 +10214,8 @@ _ROTULO_MOTIVO_FORA_DO_LOTE = {
     servico_lote.CODIGO_CONFERENCIA: "Não fecha a conferência",
     servico_lote.CODIGO_NATUREZA_ESCOLHIDA: "Natureza já escolhida no rascunho",
     servico_lote.CODIGO_DEVOLUCAO_SEGMENTO: "Devolução: segmento a confirmar",
+    # DL-091 (A2): a natureza escolhida para a compra não tem CFOP de entrada padrão para o item.
+    servico_lote.CODIGO_CFOP_DE_ENTRADA_A_ESCOLHER: "Compra: CFOP de entrada a escolher",
 }
 
 
@@ -9728,6 +10245,113 @@ def _url_previa_do_lote(empresa, ano, mes):
         + "?"
         + urlencode({"ano": ano, "mes": mes})
     )
+
+
+# ---------------------------------------------------------------------------
+# DL-091 (frente B): conferência de entradas do mês. Classe "conferência": relatório de LEITURA, sem
+# impressão oficial e sem timbre. Todo número vem do serviço (`conferencia_entradas`, DL-091 A2); a
+# tela só traduz os rótulos. Empresa de outro escritório é 404 (`_empresa_nfe_da_rota`).
+# ---------------------------------------------------------------------------
+
+_ROTULO_DO_CODIGO_FORA_DA_COMPRA = {
+    servico_conferencia.CODIGO_CANCELADA: "Cancelada",
+    servico_conferencia.CODIGO_CANCELADA_DEPOIS_DE_ESCRITURADA: "Cancelada depois de escriturada",
+    servico_conferencia.CODIGO_DEVOLUCAO_DE_VENDA: "Devolução de venda recebida",
+    servico_conferencia.CODIGO_FORA_DA_ESCRITURACAO: "Fora da escrituração de compra",
+}
+
+
+def _cfop_com_ponto(cfop):
+    """'1102' -> '1.102', como o contador lê. Fora de quatro dígitos, devolve como veio."""
+    return f"{cfop[0]}.{cfop[1:]}" if len(cfop) == 4 else cfop
+
+
+def _linhas_de_total_da_compra(linhas, rotulo_de):
+    return [
+        {
+            "rotulo": rotulo_de(linha),
+            "itens": linha.itens,
+            "valor_ptbr": _valor_ptbr(linha.valor),
+        }
+        for linha in linhas
+    ]
+
+
+@login_required
+@require_safe
+@_entrada_nfe_verificada
+def nfe_conferencia_entradas(request, empresa_id):
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_ESCRITURACAO_NFE)
+    empresa = _empresa_nfe_da_rota(request, empresa_id)
+    ano, mes = _competencia_nfe(request)
+    resultado = servico_conferencia.conferencia_de_entradas(empresa, ano, mes)
+    pagina = Paginator(resultado.fora, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
+    situacao = [
+        {"rotulo": "Recebidas no mês (empresa destinatária)", "quantidade": resultado.recebidas},
+        {"rotulo": "Escrituradas (compra efetivada)", "quantidade": resultado.escrituradas},
+        {
+            "rotulo": "A escriturar (sem escrituração ou em rascunho)",
+            "quantidade": resultado.a_escriturar,
+        },
+        {"rotulo": "Fora da escrituração de compra", "quantidade": len(resultado.fora)},
+    ]
+    contexto = {
+        "empresa": empresa,
+        "ano": ano,
+        "mes": mes,
+        "competencia_rotulo": f"{mes:02d}/{ano}",
+        "vazio": resultado.recebidas == 0,
+        "situacao": situacao,
+        "por_natureza": _linhas_de_total_da_compra(
+            resultado.por_natureza, lambda linha: linha.rotulo
+        ),
+        "por_cfop": _linhas_de_total_da_compra(
+            resultado.por_cfop_de_entrada, lambda linha: _cfop_com_ponto(linha.chave)
+        ),
+        "credito_ptbr": _valor_ptbr(resultado.credito_destacado_elegivel),
+        "st_retido_ptbr": _valor_ptbr(resultado.st_retido),
+        "itens_com_st_retido": resultado.itens_com_st_retido,
+        "por_marca": [
+            {
+                "rotulo": MarcaCreditoEntrada(marca.marca).label,
+                "itens": marca.itens,
+                "credito_ptbr": _valor_ptbr(marca.credito),
+            }
+            for marca in resultado.por_marca
+        ],
+        "avisos": [
+            {
+                "numero": nota.numero,
+                "serie": nota.serie,
+                "avisos": "; ".join(nota.avisos),
+                "url": reverse("fiscal_web:nfe_escriturar", args=[empresa.pk, nota.vinculo_id]),
+            }
+            for nota in resultado.notas_com_aviso_de_outro_estado
+        ],
+        "pagina": pagina,
+        "fora_linhas": [
+            {
+                "numero": nota.numero,
+                "serie": nota.serie,
+                "emissao": nota.dh_emissao,
+                "rotulo_codigo": _ROTULO_DO_CODIGO_FORA_DA_COMPRA.get(nota.codigo, nota.codigo),
+                "motivo": nota.motivo,
+                "url": reverse("fiscal_web:nfe_escriturar", args=[empresa.pk, nota.vinculo_id]),
+            }
+            for nota in pagina.object_list
+        ],
+        "querystring_sem_pagina": urlencode({"ano": ano, "mes": mes}),
+        "url_lista": reverse("fiscal_web:nfe_a_escriturar")
+        + "?"
+        + urlencode({"empresa": empresa.pk, "ano": ano, "mes": mes}),
+        "url_lote": reverse("fiscal_web:nfe_lote", args=[empresa.pk])
+        + "?"
+        + urlencode({"ano": ano, "mes": mes}),
+    }
+    return render(request, "fiscal/nfe_entradas_conferencia.html", contexto)
 
 
 def _grupos_do_formulario(post):
@@ -9860,6 +10484,10 @@ def _linha_do_grupo_no_lote(grupo, posicao, preenchido, empresa=None, regras=Non
                 "cfop": combinacao.cfop,
                 "cst_csosn": combinacao.cst_csosn or "—",
                 "natureza_rotulo": NaturezaOperacaoNFe(combinacao.natureza).label,
+                # DL-091 (frente B): na compra, o CFOP de entrada sugerido é o que o lote escreve.
+                "cfop_entrada_rotulo": (
+                    f"CFOP de entrada {combinacao.cfop_entrada}" if combinacao.cfop_entrada else ""
+                ),
                 # DL-087 (frente B): de onde veio a sugestão deste par, com o link da regra.
                 **_origem_da_assinatura_na_tela(combinacao, empresa, regras or {}),
             }
@@ -9867,7 +10495,12 @@ def _linha_do_grupo_no_lote(grupo, posicao, preenchido, empresa=None, regras=Non
         ],
         "notas": grupo.quantidade_notas,
         "itens": grupo.quantidade_itens,
-        "receita_ptbr": _valor_ptbr(grupo.receita_bruta),
+        # A compra não tem receita: o grupo de compra não mostra "valor de receita" como se tivesse.
+        "receita_ptbr": (
+            "fora da receita (compra)"
+            if grupo.tipo == TipoEscrituracaoNFe.ENTRADA
+            else _valor_ptbr(grupo.receita_bruta)
+        ),
         "devolucao_ptbr": _valor_ptbr(grupo.devolucao),
         # Nome próprio da caixa "incluir": sem ele, todas as caixas se chamam igual para o leitor de
         # tela. Traz a posição, para ser único mesmo se dois grupos tiverem o mesmo CFOP e natureza.
@@ -9929,6 +10562,8 @@ def _tela_do_lote_nfe(request, empresa, ano, mes, *, status=200, preenchido=None
         "assinatura": previa.assinatura,
         # DL-087 (frente B): a fila "a classificar" do mês, e a origem de cada sugestão do lote.
         "url_fila": _url_da_fila_de_classificacao(empresa, ano, mes),
+        # DL-091 (frente B): as compras do mês, na conferência de entradas (link, não menu).
+        "url_conferencia_entradas": _url_da_conferencia_de_entradas(empresa, ano, mes),
         # DL-087, A7: mês confirmado não bloqueia o lote, mas o aviso aparece aqui.
         "aviso_do_mes": previa.aviso_do_mes,
         "grupos": [
@@ -10834,6 +11469,10 @@ _TAMANHO_DOS_CAMPOS_DA_REGRA = {
     "vigencia_inicio": 10,
     "vigencia_fim": 10,
     "competencia": 7,
+    # DL-091 (A2): só a regra de ENTRADA usa estes três (o serviço recusa nos outros tipos).
+    "crt_emitente": 1,
+    "uf_emitente": 2,
+    "cfop_entrada": 5,
 }
 _ROTULO_DO_CAMPO = {
     "escopo": "Alcance da regra",
@@ -10848,12 +11487,20 @@ _ROTULO_DO_CAMPO = {
     "vigencia_fim": "Fim da vigência",
     "competencia": "Competência da prévia",
     "motivo": "Motivo da desativação",
+    "crt_emitente": "CRT do emitente",
+    "uf_emitente": "UF do emitente",
+    "cfop_entrada": "CFOP de entrada",
 }
 # A mensagem do serviço nomeia o campo que a recusou. A ORDEM importa: a recusa de natureza de
-# combustível diz "exige NCM" e "CFOP", e tem de cair em natureza, antes de NCM e de CFOP.
+# combustível diz "exige NCM" e "CFOP", e tem de cair em natureza, antes de NCM e de CFOP. O CFOP de
+# entrada e o CRT/UF (DL-091, A2) vêm antes de "CFOP", que os casaria por engano.
 _CAMPO_DA_RECUSA = (
+    ("só valem para a regra de entrada", "tipo"),
     ("Tipo da nota", "tipo"),
     ("Nota de ajuste", "tipo"),
+    ("CFOP de entrada", "cfop_entrada"),
+    ("CRT do emitente", "crt_emitente"),
+    ("UF do emitente", "uf_emitente"),
     ("Natureza", "natureza"),
     ("natureza", "natureza"),
     ("CFOP", "cfop"),
@@ -10881,6 +11528,10 @@ _CONTRATO_REGRA_NOVA = ContratoDeRequisicao(
         "natureza",
         "vigencia_inicio",
         "vigencia_fim",
+        # DL-091 (A2): critérios da regra de ENTRADA. Fora do contrato, o POST seria recusado.
+        "crt_emitente",
+        "uf_emitente",
+        "cfop_entrada",
     },
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na criação de regra de classificação de NF-e pela tela",
@@ -10925,7 +11576,12 @@ def _competencia_padrao_da_tela():
 
 def _criterios_da_regra_na_tela(regra):
     """'CFOP 5102; NCM exato 22030000; CST/CSOSN 102; idDest 1'. Só o que a regra usa."""
-    partes = [f"CFOP {regra.cfop}"]
+    # Na compra, o CFOP da regra é o do EMITENTE: a tela diz isso, para não lê-lo como de entrada.
+    partes = [
+        f"CFOP do emitente {regra.cfop}"
+        if regra.tipo == TipoRegraClassificacaoNFe.ENTRADA
+        else f"CFOP {regra.cfop}"
+    ]
     if regra.ncm:
         modo = "NCM exato" if regra.ncm_modo == ModoNcmRegraNFe.EXATO else "NCM por prefixo"
         partes.append(f"{modo} {regra.ncm}")
@@ -10933,6 +11589,13 @@ def _criterios_da_regra_na_tela(regra):
         partes.append(f"CST/CSOSN {regra.cst_csosn}")
     if regra.id_dest:
         partes.append(f"idDest {regra.id_dest}")
+    # DL-091 (A2): critérios que só a regra de compra tem (o serviço os recusa nas outras).
+    if regra.crt_emitente:
+        partes.append(f"CRT do emitente {regra.crt_emitente}")
+    if regra.uf_emitente:
+        partes.append(f"UF do emitente {regra.uf_emitente}")
+    if regra.cfop_entrada:
+        partes.append(f"CFOP de entrada fixado {regra.cfop_entrada}")
     return "; ".join(partes)
 
 
@@ -10999,8 +11662,11 @@ def _ordem_de_decisao_na_tela():
         "Vence a de maior especificidade. Os pesos são: CFOP "
         f"{classificacao.PESO_CFOP}, NCM exato {classificacao.PESO_NCM_EXATO}, NCM por prefixo "
         f"{classificacao.PESO_NCM_PREFIXO}, CST/CSOSN {classificacao.PESO_CST_CSOSN}, idDest "
-        f"{classificacao.PESO_ID_DEST}. Como são potências de dois, conjuntos diferentes de "
-        "critérios nunca empatam.",
+        f"{classificacao.PESO_ID_DEST}, UF do emitente {classificacao.PESO_UF_EMITENTE} e CRT do "
+        f"emitente {classificacao.PESO_CRT_EMITENTE}. Como são potências de dois, conjuntos "
+        "diferentes de critérios nunca empatam.",
+        "CRT do emitente e UF do emitente só valem para a regra de compra (tipo Entrada). Na saída "
+        "a regra os recusa, e o produto não os lê na nota de saída.",
         "Entre prefixos de NCM que casam o mesmo item, vence o mais longo.",
         "Empate de especificidade: vence a regra da empresa sobre a do escritório.",
         "Empate com a mesma natureza não é conflito: a sugestão sai, e o motivo nomeia as regras.",
@@ -11106,6 +11772,9 @@ def _dados_da_regra_do_formulario(valores, vigencia_inicio, vigencia_fim):
         ncm_modo=valores["ncm_modo"],
         cst_csosn=valores["cst_csosn"],
         id_dest=valores["id_dest"],
+        crt_emitente=valores["crt_emitente"],
+        uf_emitente=valores["uf_emitente"],
+        cfop_entrada=valores["cfop_entrada"],
     )
 
 
@@ -11231,6 +11900,12 @@ def _tela_da_regra_nova(
             "ou por prefixo. Prefixo que alcança lubrificante gera aviso antes de gravar."
         ),
         "ordem_de_decisao": _ordem_de_decisao_na_tela(),
+        # DL-091 (A2): CRT e UF do emitente, e CFOP de entrada, só para o tipo Entrada. As opções
+        # vêm da mesma lista que o serviço valida (`classificacao`), não de uma cópia desta tela.
+        "crt_opcoes": [("", "Qualquer (não usa o CRT)")]
+        + [(valor, f"{valor}: {nome}") for valor, nome in _NOME_DO_CRT.items()],
+        "uf_opcoes": [("", "Qualquer (não usa a UF)")]
+        + [(sigla, sigla) for sigla in classificacao.SIGLAS_DE_UF_DO_EMITENTE_NA_REGRA],
     }
     return render(request, "fiscal/classificacao_regra_form.html", contexto, status=status)
 

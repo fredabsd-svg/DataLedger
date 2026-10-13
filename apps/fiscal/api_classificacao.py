@@ -73,6 +73,10 @@ CONTRATO_CRIAR_REGRA = ContratoDeRequisicao(
         "ncm_modo",
         "cst_csosn",
         "id_dest",
+        # DL-091 (A2): critérios do fornecedor e CFOP de entrada (só na regra de entrada).
+        "crt_emitente",
+        "uf_emitente",
+        "cfop_entrada",
         "natureza",
         "vigencia_inicio",
         "vigencia_fim",
@@ -89,6 +93,9 @@ CONTRATO_PREVIA_DE_IMPACTO = ContratoDeRequisicao(
         "ncm_modo",
         "cst_csosn",
         "id_dest",
+        "crt_emitente",
+        "uf_emitente",
+        "cfop_entrada",
         "natureza",
         "vigencia_inicio",
         "vigencia_fim",
@@ -163,6 +170,21 @@ class _CriterioEntradaSerializer(serializers.Serializer):
         validators=[_sem_caractere_invalido],
     )
     id_dest = serializers.CharField(max_length=1, required=False, allow_blank=True, allow_null=True)
+    # DL-091 (A2): critérios do fornecedor e CFOP de entrada, só na regra de entrada (o serviço
+    # recusa nas outras, com 400).
+    crt_emitente = serializers.CharField(
+        max_length=1, required=False, allow_blank=True, allow_null=True
+    )
+    uf_emitente = serializers.CharField(
+        max_length=2, required=False, allow_blank=True, allow_null=True
+    )
+    cfop_entrada = serializers.CharField(
+        max_length=5,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        validators=[_sem_caractere_invalido],
+    )
     natureza = serializers.CharField(max_length=29, validators=[_sem_caractere_invalido])
     vigencia_inicio = serializers.DateField()
     vigencia_fim = serializers.DateField(required=False, allow_null=True)
@@ -202,6 +224,9 @@ def _dados_da_entrada(entrada: dict) -> classificacao.DadosDaRegra:
         ncm_modo=entrada.get("ncm_modo") or "",
         cst_csosn=entrada.get("cst_csosn") or "",
         id_dest=entrada.get("id_dest") or "",
+        crt_emitente=entrada.get("crt_emitente") or "",
+        uf_emitente=entrada.get("uf_emitente") or "",
+        cfop_entrada=entrada.get("cfop_entrada") or "",
     )
 
 
@@ -223,6 +248,10 @@ def _regra_payload(regra: RegraClassificacaoNFe) -> dict:
         "ncm_modo": regra.ncm_modo or None,
         "cst_csosn": regra.cst_csosn or None,
         "id_dest": regra.id_dest or None,
+        # DL-091 (A2): critérios de fornecedor e CFOP de entrada (só na regra de entrada).
+        "crt_emitente": regra.crt_emitente or None,
+        "uf_emitente": regra.uf_emitente or None,
+        "cfop_entrada": regra.cfop_entrada or None,
         "natureza": regra.natureza,
         "natureza_rotulo": NaturezaOperacaoNFe(regra.natureza).label,
         "vigencia_inicio": _iso(regra.vigencia_inicio),

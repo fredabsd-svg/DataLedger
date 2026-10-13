@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+
+{% block titulo %}Conferência de entradas — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Competência</span>
+        <strong>{{ competencia_rotulo }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_lista }}">NF-e a escriturar</a></li>
+            <li aria-current="page">Conferência de entradas</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_lista }}">‹ Voltar para as NF-e a escriturar</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-091 (frente B), tela nova, classe "conferência" (docs/projeto/personalizacao-de-relatorio.md, classe 1): relatório de
+LEITURA. Não é livro registro de entradas nem documento para impressão oficial, e por isso não tem timbre. Todo número
+vem do serviço `conferencia_entradas` (DL-091, A2); a tela só soma o que já vem pronto, para nada.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Conferência de entradas do mês</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Compras (NF-e de terceiro em que a empresa é a destinatária) do mês: o que foi recebido, o que está escriturado,
+        o que falta e o que ficou fora, com o motivo. Os totais são do valor do item (vProd) das compras efetivadas. Compra
+        não é receita: nada aqui entra na receita do Simples nem do Presumido.
+    </p>
+    <p class="texto-apoio">
+        Esta conferência não é livro registro de entradas nem documento para impressão oficial: é para conferir o mês.
+    </p>
+
+    {% if vazio %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Nenhuma NF-e recebida pela empresa em {{ competencia_rotulo }}.</strong></p>
+            <p class="estado-vazio__descricao">Escolha outra competência, ou confira se as notas já foram recebidas.</p>
+        </div>
+    {% else %}
+        <div class="documento-sem-quebra">
+            <table class="tabela-dados">
+                <caption>NF-e recebidas no mês, por situação de escrituração de compra</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Situação</th>
+                        <th scope="col">Quantidade</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in situacao %}
+                        <tr>
+                            <th scope="row">{{ linha.rotulo }}</th>
+                            <td class="valor-monetario">{{ linha.quantidade }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="documento-sem-quebra">
+            <h2>Compras efetivadas, por natureza</h2>
+            {% if por_natureza %}
+                <table class="tabela-dados">
+                    <caption>Compras efetivadas no mês, por natureza de entrada: itens e valor do item (vProd)</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Natureza</th>
+                            <th scope="col">Itens</th>
+                            <th scope="col">Valor (vProd)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for linha in por_natureza %}
+                            <tr>
+                                <th scope="row">{{ linha.rotulo }}</th>
+                                <td class="valor-monetario">{{ linha.itens }}</td>
+                                <td class="valor-monetario">{{ linha.valor_ptbr }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="texto-apoio">Nenhuma compra efetivada neste mês: não há natureza para somar.</p>
+            {% endif %}
+        </div>
+
+        <div class="documento-sem-quebra">
+            <h2>Compras efetivadas, por CFOP de entrada</h2>
+            {% if por_cfop %}
+                <table class="tabela-dados">
+                    <caption>Compras efetivadas no mês, por CFOP de entrada confirmado: itens e valor do item (vProd)</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">CFOP de entrada</th>
+                            <th scope="col">Itens</th>
+                            <th scope="col">Valor (vProd)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for linha in por_cfop %}
+                            <tr>
+                                <th scope="row">{{ linha.rotulo }}</th>
+                                <td class="valor-monetario">{{ linha.itens }}</td>
+                                <td class="valor-monetario">{{ linha.valor_ptbr }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="texto-apoio">Nenhuma compra efetivada neste mês: não há CFOP de entrada para somar.</p>
+            {% endif %}
+        </div>
+
+        <div class="documento-sem-quebra">
+            <h2>Crédito e ST, da memória gravada na efetivação</h2>
+            <table class="tabela-dados">
+                <caption>Crédito de ICMS elegível e ICMS-ST retido das compras efetivadas, como a memória de cada item os registrou</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Componente</th>
+                        <th scope="col">Valor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <th scope="row">Crédito destacado elegível (marcas de crédito destacado e de crédito limitado ao informado)</th>
+                        <td class="valor-monetario">{{ credito_ptbr }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">ICMS-ST retido (vICMSSTRet), sem crédito e compondo o custo: {{ itens_com_st_retido }} item(ns)</th>
+                        <td class="valor-monetario">{{ st_retido_ptbr }}</td>
+                    </tr>
+                </tbody>
+            </table>
+            {% if por_marca %}
+                <table class="tabela-dados">
+                    <caption>Itens efetivados por marca de crédito, com o crédito que a regra admite em cada marca</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Marca de crédito</th>
+                            <th scope="col">Itens</th>
+                            <th scope="col">Crédito admitido</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for linha in por_marca %}
+                            <tr>
+                                <th scope="row">{{ linha.rotulo }}</th>
+                                <td class="valor-monetario">{{ linha.itens }}</td>
+                                <td class="valor-monetario">{{ linha.credito_ptbr }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% endif %}
+        </div>
+
+        <div class="documento-sem-quebra">
+            <h2>Notas com aviso de outro estado</h2>
+            {% if avisos %}
+                <table class="tabela-dados">
+                    <caption>Compras efetivadas com aviso de antecipação ou de DIFAL, com o texto do aviso e o link para a escrituração</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Nota</th>
+                            <th scope="col">Aviso nomeado (sem valor calculado)</th>
+                            <th scope="col">Escrituração</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for nota in avisos %}
+                            <tr>
+                                <th scope="row">Nº {{ nota.numero }}, série {{ nota.serie }}</th>
+                                <td>{{ nota.avisos }}</td>
+                                <td><a href="{{ nota.url }}">Ver a escrituração</a></td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="texto-apoio">Nenhuma compra efetivada com aviso de outro estado neste mês.</p>
+            {% endif %}
+        </div>
+
+        <div class="documento-sem-quebra">
+            <h2>Notas fora da escrituração de compra</h2>
+            {% if pagina.object_list %}
+                <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0" aria-label="Notas recebidas que ficaram fora da escrituração de compra, com o motivo">
+                <table class="tabela-dados">
+                    <caption>NF-e recebidas no mês que não são compra escriturável, com o motivo nomeado</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Nota</th>
+                            <th scope="col">Emissão</th>
+                            <th scope="col">Situação</th>
+                            <th scope="col">Motivo</th>
+                            <th scope="col">Escrituração</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for nota in fora_linhas %}
+                            <tr>
+                                <th scope="row">Nº {{ nota.numero }}, série {{ nota.serie }}</th>
+                                <td>{{ nota.emissao|date:"d/m/Y H:i" }}</td>
+                                <td>{{ nota.rotulo_codigo }}</td>
+                                <td>{{ nota.motivo }}</td>
+                                <td><a href="{{ nota.url }}">Ver a nota</a></td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+                {% include "fiscal/_paginacao.html" %}
+            {% else %}
+                <p class="texto-apoio">Nenhuma nota recebida ficou fora da escrituração de compra neste mês.</p>
+            {% endif %}
+        </div>
+
+        <p>
+            <a class="botao botao--secundario" href="{{ url_lote }}">Escriturar o mês em lote</a>
+        </p>
+    {% endif %}
+{% endblock %}

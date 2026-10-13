@@ -76,10 +76,15 @@ def test_comercial_exportadora_e_bonificacao_nunca_tem_sugestao(cfop):
 
 
 def test_devolucao_de_compra_em_saida_nao_vira_devolucao_de_venda():
-    """5.202 tem indDevol 1 na tabela, mas em saída é devolução de compra: fora do catálogo."""
+    """5.202 tem indDevol 1 na tabela, em saída é devolução de COMPRA: nunca de venda.
+
+    DL-091 (item 7): a sugestão agora é `devolucao_compra`, a natureza de saída própria. Antes era
+    "fora do catálogo", sem natureza. O que continua valendo é a separação: não é devolução de
+    venda.
+    """
     sugestao = servico.sugerir_natureza_item(nota(), item("5202", csosn="102"))
-    assert sugestao.natureza is None
-    assert "devolução de compra" in sugestao.motivo
+    assert sugestao.natureza == N.DEVOLUCAO_COMPRA
+    assert sugestao.natureza != N.DEVOLUCAO_VENDA
 
 
 # --- sinais de CST/CSOSN ----------------------------------------------------------------------
@@ -159,11 +164,13 @@ def test_finNFe_4_com_indDevol_1_e_devolucao_de_venda():
     assert sugestao.natureza == N.DEVOLUCAO_VENDA
 
 
-def test_finNFe_4_com_cfop_sem_indDevol_e_conflito():
-    """Devolução declarada (finNFe 4) com CFOP de venda: sinais contrários, sem sugestão."""
+def test_finNFe_4_em_saida_com_cfop_de_venda_fica_sem_sugestao_com_motivo_de_retorno():
+    """DL-091, contrato do arquiteto (item 3): saída com finNFe 4 e CFOP que não é devolução
+    de compra fica sem sugestão, com motivo nomeado. Não é mais "conflito" (o tipo é
+    DEVOLUCAO_COMPRA)."""
     sugestao = servico.sugerir_natureza_item(nota(fin_nfe="4"), item("5102", csosn="102"))
     assert sugestao.natureza is None
-    assert "conflito" in sugestao.motivo
+    assert "retorno em finNFe 4: fora do catálogo do corte 1" in sugestao.motivo
 
 
 def test_devolucao_nao_depende_da_faixa_mas_da_coluna():
@@ -200,15 +207,25 @@ def test_devolucao_propria_de_entrada_e_emitente_com_tpNF_0_e_finNFe_4():
     )
 
 
-def test_compra_e_entrada_de_terceiro_ficam_fora():
-    assert servico.tipo_da_nota(nota(tp_nf="1", fin_nfe="1"), PapelNFe.DESTINATARIO) is None
+def test_compra_com_tpnf_1_e_escrituravel_e_tpnf_0_de_terceiro_fica_fora():
+    """DL-091 (A1): a compra (tpNF 1, finNFe 1) é ENTRADA. tpNF 0 de terceiro continua fora."""
+    assert (
+        servico.tipo_da_nota(nota(tp_nf="1", fin_nfe="1"), PapelNFe.DESTINATARIO)
+        == TipoEscrituracaoNFe.ENTRADA
+    )
     assert servico.tipo_da_nota(nota(tp_nf="0", fin_nfe="1"), PapelNFe.DESTINATARIO) is None
 
 
-def test_saida_que_nao_e_venda_nem_ajuste_fica_fora_com_motivo():
-    assert servico.tipo_da_nota(nota(tp_nf="1", fin_nfe="4"), PapelNFe.EMITENTE) is None
-    motivo = servico.motivo_fora_da_escrituracao(nota(tp_nf="1", fin_nfe="4"), PapelNFe.EMITENTE)
-    assert "finNFe 4" in motivo
+def test_saida_com_finnfe_4_modelo_55_e_devolucao_de_compra_e_modelo_65_fica_fora():
+    """DL-091, contrato do arquiteto: finNFe 4 é devolução/retorno genérico. Saída própria modelo 55
+    com finNFe 4 é DEVOLUCAO_COMPRA. Modelo 65 com finNFe 4 continua fora, com o motivo."""
+    assert (
+        servico.tipo_da_nota(nota(tp_nf="1", fin_nfe="4"), PapelNFe.EMITENTE)
+        == TipoEscrituracaoNFe.DEVOLUCAO_COMPRA
+    )
+    nfce = nota(modelo="65", tp_nf="1", fin_nfe="4")
+    assert servico.tipo_da_nota(nfce, PapelNFe.EMITENTE) is None
+    assert "finNFe 4" in servico.motivo_fora_da_escrituracao(nfce, PapelNFe.EMITENTE)
 
 
 def test_modelo_fora_de_55_e_65_fica_fora():

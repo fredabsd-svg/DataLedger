@@ -1495,12 +1495,25 @@ NOMES_DE_TELA_ESCRITURACAO_NFE = {
     "fiscal_web:nfe_a_escriturar": (
         "test_lista_mostra_a_nota_sem_escrituracao_com_valor_ptbr_e_botao_de_criar, "
         "test_lista_sem_empresa_pede_a_escolha_e_nao_lista_nada, "
-        "test_telas_novas_sao_acessiveis_sem_estilo_embutido_e_com_rotulo"
+        "test_telas_novas_sao_acessiveis_sem_estilo_embutido_e_com_rotulo, "
+        # DL-091, frente B (test_dl091_telas_lista_lote.py): compra com tipo e competência.
+        "test_compra_com_data_de_entrada_em_marco_conta_em_marco_com_tipo, "
+        "test_lista_leva_a_conferencia_de_entradas_do_mes_so_quando_ha_empresa, "
+        "test_lista_mostra_as_colunas_de_tipo_e_competencia"
     ),
+    # DL-091, frente B (apps/fiscal/tests/test_dl091_telas_escriturar.py): a COMPRA tem a mesma
+    # rota; o seletor por tipo, o CFOP de entrada no campo, a prévia, a memória e as permissões.
     "fiscal_web:nfe_escriturar": (
         "test_telas_novas_sao_acessiveis_sem_estilo_embutido_e_com_rotulo, "
         "test_exemplo_do_simples_pela_tela_efetiva_com_receita_2880_e_segregacao, "
-        "test_trilha_da_escriturar_leva_a_lista_e_marca_a_tela_atual"
+        "test_trilha_da_escriturar_leva_a_lista_e_marca_a_tela_atual, "
+        "test_compra_sem_rascunho_mostra_o_tipo_e_o_botao_de_criar_com_data_sugerida, "
+        "test_seletor_da_saida_nao_oferece_nenhuma_natureza_de_entrada, "
+        "test_seletor_da_compra_nao_oferece_revenda_de_saida, "
+        "test_devolucao_de_compra_mostra_o_tipo_e_oferece_so_devolucao_de_compra, "
+        "test_cfop_de_entrada_recusado_pelo_servico_volta_ao_campo_com_a_mensagem, "
+        "test_memoria_depois_da_efetivacao_mostra_os_valores_escritos_a_mao, "
+        "test_paralegal_ve_a_compra_sem_controles_de_escrita_e_o_post_responde_403"
     ),
     "fiscal_web:nfe_estornar": (
         "test_estorno_com_motivo_volta_a_nota_para_a_escriturar, "
@@ -1514,8 +1527,19 @@ NOMES_DE_TELA_ESCRITURACAO_NFE = {
         "test_conferencia_mostra_receita_por_natureza_composicao_e_totais, "
         "test_conferencia_nao_soma_nota_cancelada_depois_de_escriturada_e_a_destaca"
     ),
+    # DL-091, frente B (apps/fiscal/tests/test_dl091_telas_conferencia.py): conferência de entradas
+    # do mês. Classe "conferência", sem impressão oficial; chega-se pela lista e pelo lote.
+    "fiscal_web:nfe_conferencia_entradas": (
+        "test_conferencia_de_entradas_bate_com_o_servico_e_tem_legenda_e_cabecalhos, "
+        "test_conferencia_de_entradas_de_outro_escritorio_responde_404, "
+        "test_conferencia_de_entradas_sem_permissao_responde_403_e_paralegal_le, "
+        "test_conferencia_de_entradas_vazia_mostra_o_estado_vazio"
+    ),
     # DL-085, frente B (apps/fiscal/tests/test_dl085_telas.py): escrituração do mês em lote.
     "fiscal_web:nfe_lote": (
+        # DL-091, frente B (test_dl091_telas_lista_lote.py): CFOP de entrada e fora da receita.
+        "test_lote_do_mes_mostra_o_cfop_de_entrada_e_que_a_compra_fica_fora_da_receita, "
+        "test_lote_com_grupo_sem_cfop_de_entrada_sai_do_lote_com_o_motivo, "
         "test_depois_de_ler_mostra_grupos_fora_do_lote_com_motivo_e_link, "
         "test_ler_em_partes_pela_tela_ate_zerar, "
         "test_confirmar_com_todos_os_grupos_efetiva_as_notas_do_lote_e_so_elas, "
@@ -1525,15 +1549,23 @@ NOMES_DE_TELA_ESCRITURACAO_NFE = {
     ),
     # DL-087, frente B (apps/fiscal/tests/test_dl087_telas*.py): regras de classificação, fila
     # "a classificar" e regras do produto. Integração do arquiteto.
+    # DL-091, frente B (apps/fiscal/tests/test_dl091_telas_regras.py): tipo entrada, CRT, UF e CFOP
+    # de entrada na regra; "Como a regra decide" com os pesos atuais.
     "fiscal_web:classificacao_regras": (
         "test_criar_regra_grava_pelo_servico_e_volta_para_a_lista, "
         "test_lista_filtra_desativadas_depois_de_desativar, "
-        "test_tabelas_das_telas_tem_legenda_e_cabecalho_com_escopo"
+        "test_tabelas_das_telas_tem_legenda_e_cabecalho_com_escopo, "
+        "test_criar_regra_de_compra_grava_crt_uf_e_cfop_de_entrada_pelo_servico, "
+        "test_como_a_regra_decide_publica_os_pesos_atuais_e_que_crt_e_uf_so_valem_para_compra"
     ),
     "fiscal_web:classificacao_regra_nova": (
         "test_formulario_vazio_tem_rotulo_em_todo_campo_e_referencias_validas, "
         "test_erro_de_campo_e_anunciado_e_referenciado_pelo_proprio_campo, "
-        "test_formulario_pre_preenchido_pela_fila_traz_os_criterios_e_o_aviso"
+        "test_formulario_pre_preenchido_pela_fila_traz_os_criterios_e_o_aviso, "
+        "test_formulario_tem_os_tres_criterios_de_compra_com_rotulo_e_texto_de_ajuda, "
+        "test_criterio_de_compra_em_regra_de_saida_e_recusado_no_campo_do_tipo, "
+        "test_cfop_de_entrada_com_primeiro_digito_errado_e_erro_no_proprio_campo, "
+        "test_formulario_de_compra_so_leitura_para_quem_so_consulta"
     ),
     "fiscal_web:classificacao_regra_desativar": (
         "test_desativar_mostra_o_efeito_e_pede_o_motivo, "
@@ -1552,7 +1584,8 @@ NOMES_DE_TELA_ESCRITURACAO_NFE = {
     ),
     "fiscal_web:classificacao_produto": (
         "test_regras_do_produto_mostra_as_linhas_com_fonte, "
-        "test_regras_do_produto_nao_aceita_escrita"
+        "test_regras_do_produto_nao_aceita_escrita, "
+        "test_regras_do_produto_descrevem_a_entrada_e_nao_dizem_mais_sem_sugestao_para_devolucao"
     ),
 }
 

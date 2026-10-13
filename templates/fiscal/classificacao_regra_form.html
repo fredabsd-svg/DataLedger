@@ -168,6 +168,53 @@ POST de qualquer forma.
             {% endif %}
         </div>
 
+        {% comment %}
+        DL-091 (frente B, A2): critérios da regra de COMPRA (tipo Entrada). O serviço recusa qualquer um deles
+        nos outros tipos, com a mensagem; a tela só deixa escolher e mostra o erro no campo.
+        {% endcomment %}
+        <fieldset class="campo">
+            <legend>Só para compra (tipo Entrada): CRT e UF do emitente, e CFOP de entrada</legend>
+            <p class="texto-apoio" id="ajuda_compra">
+                Nas regras de saída e de devolução de venda, estes campos ficam vazios: a tela e o serviço recusam.
+            </p>
+            <div class="campo">
+                <label for="id_crt_emitente">CRT do emitente (opcional)</label>
+                <select id="id_crt_emitente" name="crt_emitente"
+                        aria-describedby="ajuda_compra{% if erros.crt_emitente %} erro_crt_emitente{% endif %}"{% if not pode_escrever %} disabled{% endif %}>
+                    {% for valor, rotulo in crt_opcoes %}
+                        <option value="{{ valor }}"{% if valor == valores.crt_emitente %} selected{% endif %}>{{ rotulo }}</option>
+                    {% endfor %}
+                </select>
+                {% if erros.crt_emitente %}
+                    <p class="mensagem mensagem-error" role="alert" id="erro_crt_emitente"><strong>Erro:</strong> {{ erros.crt_emitente }}</p>
+                {% endif %}
+            </div>
+            <div class="campo">
+                <label for="id_uf_emitente">UF do emitente (opcional)</label>
+                <select id="id_uf_emitente" name="uf_emitente"
+                        aria-describedby="ajuda_compra{% if erros.uf_emitente %} erro_uf_emitente{% endif %}"{% if not pode_escrever %} disabled{% endif %}>
+                    {% for valor, rotulo in uf_opcoes %}
+                        <option value="{{ valor }}"{% if valor == valores.uf_emitente %} selected{% endif %}>{{ rotulo }}</option>
+                    {% endfor %}
+                </select>
+                {% if erros.uf_emitente %}
+                    <p class="mensagem mensagem-error" role="alert" id="erro_uf_emitente"><strong>Erro:</strong> {{ erros.uf_emitente }}</p>
+                {% endif %}
+            </div>
+            <div class="campo">
+                <label for="id_cfop_entrada">CFOP de entrada fixado (opcional)</label>
+                <input type="text" id="id_cfop_entrada" name="cfop_entrada" value="{{ valores.cfop_entrada }}" maxlength="5" inputmode="numeric"
+                       aria-describedby="ajuda_cfop_entrada{% if erros.cfop_entrada %} erro_cfop_entrada{% endif %}"{% if not pode_escrever %} disabled{% endif %}>
+                <p class="texto-apoio" id="ajuda_cfop_entrada">
+                    Quatro dígitos da tabela oficial, com 1, 2 ou 3 na frente, e o grupo da natureza escolhida. Em branco, a
+                    escrituração escolhe o CFOP de entrada.
+                </p>
+                {% if erros.cfop_entrada %}
+                    <p class="mensagem mensagem-error" role="alert" id="erro_cfop_entrada"><strong>Erro:</strong> {{ erros.cfop_entrada }}</p>
+                {% endif %}
+            </div>
+        </fieldset>
+
         <div class="campo">
             <label for="id_natureza">Natureza resultante</label>
             <select id="id_natureza" name="natureza" required

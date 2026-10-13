@@ -23,6 +23,7 @@ from apps.fiscal import presumido as presumido_servico
 from apps.fiscal import presumido_tabelas as tab
 from apps.fiscal.models import (
     CATALOGO_NATUREZA_NFE,
+    NATUREZAS_DE_ENTRADA,
     EventoNFe,
     NaturezaItemNFe,
     NaturezaOperacaoNFe,
@@ -143,6 +144,9 @@ def test_toda_natureza_do_catalogo_tem_destino_definido_no_presumido():
         NaturezaOperacaoNFe.BONIFICACAO,
         NaturezaOperacaoNFe.CUPOM_NFCE,
         NaturezaOperacaoNFe.AJUSTE,
+        # DL-091 (A1), critério 1: compra e devolução de compra não compõem receita nem dedução.
+        *NATUREZAS_DE_ENTRADA,
+        NaturezaOperacaoNFe.DEVOLUCAO_COMPRA,
     }
     assert set(CATALOGO_NATUREZA_NFE) == set(mapeadas) | set(deducao) | recusa | nao_receita
     for natureza, atividade in mapeadas.items():

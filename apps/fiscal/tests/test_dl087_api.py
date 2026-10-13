@@ -419,7 +419,8 @@ def test_lista_de_regras_informa_pesos_e_contagem_de_itens_confirmados(client, g
     client.force_login(gestor)
     _post(client, _url("nfe_classificacao_regras", empresa.pk), _corpo(escopo="escritorio"))
     corpo = client.get(_url("nfe_classificacao_regras", empresa.pk)).json()
-    assert corpo["pesos"]["cfop"] == 16
+    # DL-091 (A2): pesos multiplicados por quatro (CFOP 64). CRT e UF entraram (1 e 2).
+    assert corpo["pesos"]["cfop"] == 64
     assert corpo["regras"][0]["itens_confirmados"] == 0
     assert date(2026, 3, 1).isoformat() == corpo["regras"][0]["vigencia_inicio"]
 

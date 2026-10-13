@@ -89,6 +89,7 @@ from apps.fiscal.models import (
     NaturezaOperacaoNFe,
     ParametrosPresumidoEmpresa,
     ReceitaTrimestralPresumido,
+    TipoEscrituracaoNFe,
 )
 from apps.fiscal.services import CODIGOS_QUE_CANCELAM, situacao_do_documento
 from apps.fiscal.tomadas import TP_RET_PIS_COFINS_COM_RETENCAO
@@ -1874,7 +1875,15 @@ def _nfe_nao_escriturada(empresa: Empresa, ano: int, meses) -> list[Recusa]:
     pendentes_2027: list[str] = []
     for mes in meses:
         for nota in nfe_servico.notas_do_mes(empresa, ano, mes):
-            if nota.tipo is None:
+            # DL-091 (A1): a compra não é receita; a NF-e de entrada pendente não bloqueia o
+            # trimestre.
+            # DL-091: a compra e a devolução de compra (finNFe 4) não são receita: não bloqueiam o
+            # trimestre.
+            if nota.tipo in (
+                None,
+                TipoEscrituracaoNFe.ENTRADA,
+                TipoEscrituracaoNFe.DEVOLUCAO_COMPRA,
+            ):
                 continue
             if nota.situacao in (nfe_servico.SITUACAO_A_ESCRITURAR, nfe_servico.SITUACAO_RASCUNHO):
                 rotulo = f"NF-e nº {nota.documento.numero}"

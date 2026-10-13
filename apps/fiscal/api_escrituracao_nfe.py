@@ -33,7 +33,7 @@ from apps.core.requisicao import (
     recusar_dado_nao_contratado,
 )
 from apps.empresas.mixins import EmpresaEscopadaMixin
-from apps.fiscal import classificacao
+from apps.fiscal import classificacao, conferencia_entradas, entradas
 from apps.fiscal import escrituracao_nfe as servico
 from apps.fiscal import escrituracao_nfe_lote as lote_servico
 from apps.fiscal.api import PodeConsultarFiscal, PodeEscriturarFiscal, _ano_e_mes_da_consulta
@@ -44,6 +44,7 @@ from apps.fiscal.models import (
     EscrituracaoNFe,
     ItemNFe,
     LeituraItensNFe,
+    MemoriaEntradaItemNFe,
     NaturezaItemNFe,
     NaturezaOperacaoNFe,
     TipoEscrituracaoNFe,
@@ -62,14 +63,20 @@ _TAMANHO_MOTIVO = servico.MOTIVO_MAXIMO
 _MAXIMO_ITENS_POR_PEDIDO = 5000
 
 CONTRATO_CRIAR_RASCUNHO = ContratoDeRequisicao(
-    campos={"vinculo_id"},
+    campos={"vinculo_id", "data_entrada"},
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na criação do rascunho de NF-e",
 )
 CONTRATO_NATUREZAS = ContratoDeRequisicao(
-    campos={"natureza", "itens"},
+    campos={"natureza", "itens", "cfop_entrada"},
     cabecalhos_ignorados=("Idempotency-Key",),
     contexto="na definição da natureza dos itens",
+)
+# DL-091 (A1): a data de entrada da escrituração de entrada, em rascunho.
+CONTRATO_DATA_ENTRADA = ContratoDeRequisicao(
+    campos={"data_entrada"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na data de entrada da escrituração de NF-e",
 )
 CONTRATO_MARCA_MONOFASICO = ContratoDeRequisicao(
     campos={"monofasico", "itens"},
@@ -162,11 +169,21 @@ def _resposta_de_conflito(exc: servico.EscrituracaoNFeErro) -> Response:
 
 class CriarRascunhoEntradaSerializer(serializers.Serializer):
     vinculo_id = serializers.IntegerField(min_value=1, max_value=MAIOR_ID)
+    # DL-091 (A1): só na escrituração de entrada. Ausente vale a data de emissão (HI-158).
+    data_entrada = serializers.DateField(required=False, allow_null=True)
+
+
+class DataEntradaSerializer(serializers.Serializer):
+    data_entrada = serializers.DateField()
 
 
 class NaturezasEntradaSerializer(serializers.Serializer):
     natureza = serializers.CharField(
         max_length=_TAMANHO_NATUREZA, validators=[_sem_caractere_invalido]
+    )
+    # DL-091 (A1): o CFOP de entrada, obrigatório na escrituração de entrada e recusado nas outras.
+    cfop_entrada = serializers.CharField(
+        max_length=5, required=False, allow_blank=True, validators=[_sem_caractere_invalido]
     )
     itens = serializers.ListField(
         child=serializers.IntegerField(min_value=1, max_value=MAIOR_ID),
@@ -364,6 +381,63 @@ def _sugestao_segmento_payload(item: ItemNFe, natureza: NaturezaItemNFe) -> dict
     return {"segmento": sugestao.segmento, "motivo": sugestao.motivo}
 
 
+def _entrada_do_item(
+    escrituracao: EscrituracaoNFe,
+    natureza: NaturezaItemNFe,
+    sugestao: servico.Sugestao,
+    contexto_entrada: entradas.ContextoDaEntrada,
+    memorias: dict[int, MemoriaEntradaItemNFe],
+) -> dict:
+    """Campos da escrituração de ENTRADA de UM item (DL-091, A1).
+
+    `cfop_entrada` é o confirmado (ou nulo). `cfop_entrada_sugerido` é o par que o produto sugere a
+    partir do CFOP do emitente, do CST, do NCM e do CRT, sem gravar nada. `memoria` é a memória
+    gravada na efetivação (imutável) ou, no rascunho, a prévia da marca e dos avisos.
+
+    DL-091 (rodada 1, A9): `contexto_entrada` (regime e UF na data de entrada) e `memorias` (as
+    memórias gravadas, por id do item da escrituração) vêm lidos UMA vez pelo chamador. Ler por item
+    faz a consulta crescer com o número de itens.
+    """
+    item = natureza.item
+    documento = escrituracao.vinculo.documento
+    # DL-091 (A2): o CFOP sugerido segue a mesma resolução da natureza (regra de entrada, quando
+    # houver, e a conversão da A1 depois). A `sugestao` vem da chamada, que carregou o contexto.
+    cfop_sugerido = (
+        entradas.cfop_de_entrada_para(documento, item, sugestao.natureza, sugestao)
+        if sugestao.natureza
+        else ""
+    )
+    memoria = None
+    gravada = memorias.get(natureza.pk)
+    if gravada is not None:
+        memoria = {
+            "fonte": "efetivada",
+            "marca_credito": gravada.marca_credito,
+            "credito_elegivel": _decimal(gravada.credito_elegivel),
+            "avisos": gravada.avisos,
+        }
+    elif natureza.natureza and natureza.cfop_entrada:
+        previa = entradas.previa_do_item(
+            escrituracao, item, natureza.natureza, natureza.cfop_entrada, contexto_entrada
+        )
+        memoria = {
+            "fonte": "previa",
+            "marca_credito": previa["marca_credito"],
+            "credito_elegivel": _decimal(previa["credito_elegivel"]),
+            "avisos": previa["avisos"],
+        }
+    return {
+        "cfop_entrada": natureza.cfop_entrada or None,
+        "cfop_entrada_sugerido": {
+            "cfop": cfop_sugerido or None,
+            "natureza": sugestao.natureza,
+            "motivo": sugestao.motivo,
+            "origem": sugestao.origem,
+        },
+        "memoria": memoria,
+    }
+
+
 def _escrituracao_payload(escrituracao: EscrituracaoNFe) -> dict:
     return {
         "id": escrituracao.pk,
@@ -372,6 +446,7 @@ def _escrituracao_payload(escrituracao: EscrituracaoNFe) -> dict:
         "estado": escrituracao.estado,
         "competencia": _iso(escrituracao.competencia),
         "data_emissao": _iso(escrituracao.data_emissao),
+        "data_entrada": _iso(escrituracao.data_entrada),
         "valor_nf": _decimal(escrituracao.valor_nf),
         "soma_itens": _decimal(escrituracao.soma_itens),
         "receita_bruta": _decimal(escrituracao.receita_bruta),
@@ -421,7 +496,12 @@ class EscrituracaoNFeListaView(_EmpresaComIdValido, APIView):
             documento__escritorio=request.escritorio,
         )
         try:
-            escrituracao = servico.criar_rascunho(vinculo, usuario=request.user, request=request)
+            escrituracao = servico.criar_rascunho(
+                vinculo,
+                usuario=request.user,
+                request=request,
+                data_entrada=entrada.validated_data.get("data_entrada"),
+            )
         except servico.EntradaInvalidaNFe as exc:
             raise DRFValidationError(exc.mensagem) from exc
         except servico.EscrituracaoNFeErro as exc:
@@ -459,18 +539,41 @@ class EscrituracaoNFeDetalheView(_EmpresaComIdValido, APIView):
             # por
             # requisição e repassados a todos os itens (BL-698).
             contexto = classificacao.contexto_da_empresa(empresa)
+            # DL-091 (rodada 1, A9): na compra, o regime da data de entrada e as memórias gravadas
+            # são lidos UMA vez por requisição, e não por item.
+            e_entrada = escrituracao.tipo == TipoEscrituracaoNFe.ENTRADA
+            contexto_entrada = (
+                entradas.contexto_da_entrada(empresa, escrituracao.data_entrada)
+                if e_entrada
+                else None
+            )
+            memorias = (
+                {
+                    memoria.natureza_item_id: memoria
+                    for memoria in MemoriaEntradaItemNFe.objects.filter(
+                        natureza_item__escrituracao=escrituracao
+                    )
+                }
+                if e_entrada
+                else {}
+            )
             for natureza in naturezas:
                 sugestao = classificacao.sugerir_natureza_com_regras(
                     contexto, documento, natureza.item, escrituracao.tipo
                 )
-                itens.append(
-                    _item_payload(
-                        natureza,
-                        sugestao,
-                        avisos_por_item.get(natureza.item_id, ()),
-                        None if receitas is None else receitas.get(natureza.item_id),
-                    )
+                payload_do_item = _item_payload(
+                    natureza,
+                    sugestao,
+                    avisos_por_item.get(natureza.item_id, ()),
+                    None if receitas is None else receitas.get(natureza.item_id),
                 )
+                if e_entrada:
+                    payload_do_item.update(
+                        _entrada_do_item(
+                            escrituracao, natureza, sugestao, contexto_entrada, memorias
+                        )
+                    )
+                itens.append(payload_do_item)
         payload = _escrituracao_payload(escrituracao)
         payload.update(
             {
@@ -491,9 +594,9 @@ class EscrituracaoNFeDetalheView(_EmpresaComIdValido, APIView):
                 # A8: a tela desabilita "Efetivar" com este motivo (data e, em 2027, o regime:
                 # só o Simples no regime único do semestre se efetiva — DL-088 A2, HI-149).
                 # O servidor recusa de novo no POST, com o mesmo motivo.
-                "motivo_bloqueio_efetivacao": servico.motivo_bloqueio_efetivacao(
-                    documento, escrituracao.empresa
-                ),
+                "motivo_bloqueio_efetivacao": None
+                if escrituracao.tipo == TipoEscrituracaoNFe.ENTRADA
+                else servico.motivo_bloqueio_efetivacao(documento, escrituracao.empresa),
                 "catalogo": {
                     codigo: {
                         "rotulo": NaturezaOperacaoNFe(codigo).label,
@@ -519,11 +622,56 @@ class DefinirNaturezasView(_EmpresaComIdValido, APIView):
         escrituracao = get_object_or_404(EscrituracaoNFe, pk=escrituracao_id, empresa=empresa)
         entrada = NaturezasEntradaSerializer(data=request.data)
         entrada.is_valid(raise_exception=True)
+        cfop_entrada = entrada.validated_data.get("cfop_entrada", "")
         try:
-            atualizada = servico.definir_natureza(
+            if escrituracao.tipo == TipoEscrituracaoNFe.ENTRADA:
+                # DL-091 (A1): na entrada, a natureza e o CFOP de entrada se confirmam juntos.
+                atualizada = entradas.definir_natureza_de_entrada(
+                    escrituracao,
+                    entrada.validated_data["natureza"],
+                    cfop_entrada,
+                    entrada.validated_data["itens"],
+                    usuario=request.user,
+                    request=request,
+                )
+            else:
+                if cfop_entrada:
+                    raise DRFValidationError(
+                        "CFOP de entrada só existe na escrituração de entrada."
+                    )
+                atualizada = servico.definir_natureza(
+                    escrituracao,
+                    entrada.validated_data["natureza"],
+                    entrada.validated_data["itens"],
+                    usuario=request.user,
+                    request=request,
+                )
+        except servico.EntradaInvalidaNFe as exc:
+            raise DRFValidationError(exc.mensagem) from exc
+        except servico.EscrituracaoNFeErro as exc:
+            return _resposta_de_conflito(exc)
+        return Response(_escrituracao_payload(atualizada), status=status.HTTP_200_OK)
+
+
+class DefinirDataEntradaView(_EmpresaComIdValido, APIView):
+    """POST — troca a data de entrada de uma escrituração de ENTRADA em rascunho (DL-091, HI-158).
+
+    A data não pode ser anterior à emissão. Efetivada ou estornada, a recusa vem do serviço (409).
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeEscriturarFiscal]
+
+    def post(self, request, empresa_id, escrituracao_id):
+        _recusar_dado_nao_contratado(request, CONTRATO_DATA_ENTRADA)
+        empresa = self.get_empresa()
+        _id_valido(escrituracao_id)
+        escrituracao = get_object_or_404(EscrituracaoNFe, pk=escrituracao_id, empresa=empresa)
+        entrada = DataEntradaSerializer(data=request.data)
+        entrada.is_valid(raise_exception=True)
+        try:
+            atualizada = entradas.definir_data_de_entrada(
                 escrituracao,
-                entrada.validated_data["natureza"],
-                entrada.validated_data["itens"],
+                entrada.validated_data["data_entrada"],
                 usuario=request.user,
                 request=request,
             )
@@ -715,6 +863,77 @@ class ConferenciaNFeView(_EmpresaComIdValido, APIView):
 # ---------------------------------------------------------------------------
 
 
+class ConferenciaEntradasView(_EmpresaComIdValido, APIView):
+    """GET — conferência das entradas do mês da empresa (DL-091, A2).
+
+    Recebidas, escrituradas, a escriturar e fora (com o motivo de cada uma); totais por natureza e
+    por CFOP de entrada; crédito destacado elegível e ST retido, da memória gravada; e as notas com
+    aviso de outro estado. Classe "conferência": não é impressão oficial nem livro.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        ano, mes = _ano_e_mes_da_consulta(request)
+        conferencia = conferencia_entradas.conferencia_de_entradas(empresa, ano, mes)
+        return Response(
+            {
+                "ano": conferencia.ano,
+                "mes": conferencia.mes,
+                "classe": "conferencia",
+                "recebidas": conferencia.recebidas,
+                "escrituradas": conferencia.escrituradas,
+                "a_escriturar": conferencia.a_escriturar,
+                "fora": {
+                    "total": len(conferencia.fora),
+                    "notas": [
+                        {
+                            "vinculo_id": nota.vinculo_id,
+                            "documento_id": nota.documento_id,
+                            "numero": nota.numero,
+                            "serie": nota.serie,
+                            "dh_emissao": _iso(nota.dh_emissao),
+                            "codigo": nota.codigo,
+                            "motivo": nota.motivo,
+                        }
+                        for nota in conferencia.fora
+                    ],
+                },
+                "por_natureza": [
+                    {
+                        "natureza": linha.chave,
+                        "rotulo": linha.rotulo,
+                        "itens": linha.itens,
+                        "valor": _decimal(linha.valor),
+                    }
+                    for linha in conferencia.por_natureza
+                ],
+                "por_cfop_de_entrada": [
+                    {"cfop": linha.chave, "itens": linha.itens, "valor": _decimal(linha.valor)}
+                    for linha in conferencia.por_cfop_de_entrada
+                ],
+                "credito_destacado_elegivel": _decimal(conferencia.credito_destacado_elegivel),
+                "por_marca": [
+                    {"marca": total.marca, "itens": total.itens, "credito": _decimal(total.credito)}
+                    for total in conferencia.por_marca
+                ],
+                "st_retido": _decimal(conferencia.st_retido),
+                "itens_com_st_retido": conferencia.itens_com_st_retido,
+                "notas_com_aviso_de_outro_estado": [
+                    {
+                        "vinculo_id": nota.vinculo_id,
+                        "documento_id": nota.documento_id,
+                        "numero": nota.numero,
+                        "serie": nota.serie,
+                        "avisos": list(nota.avisos),
+                    }
+                    for nota in conferencia.notas_com_aviso_de_outro_estado
+                ],
+            }
+        )
+
+
 class TrocaDeGrupoEntradaSerializer(serializers.Serializer):
     """Uma escolha de natureza por grupo: {id da assinatura: natureza}. Validada no serviço."""
 
@@ -799,6 +1018,8 @@ def _previa_payload(previa: lote_servico.PreviaDoLote) -> dict:
                         "cst_csosn": a.cst_csosn or None,
                         "natureza_sugerida": a.natureza,
                         "rotulo_natureza": NaturezaOperacaoNFe(a.natureza).label,
+                        # DL-091 (A2): o CFOP de entrada do grupo da compra (nulo na saída).
+                        "cfop_entrada_sugerido": a.cfop_entrada or None,
                     }
                     for a in grupo.assinaturas
                 ],

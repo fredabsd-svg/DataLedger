@@ -26,7 +26,7 @@ from apps.empresas.models import Empresa, HistoricoRegimeTributario, RegimeTribu
 from apps.fiscal import escrituracao_nfe as servico
 from apps.fiscal import presumido as presumido_servico
 from apps.fiscal import presumido_tabelas as tab
-from apps.fiscal.models import NaturezaItemNFe, PapelNFe
+from apps.fiscal.models import NaturezaItemNFe, PapelNFe, TipoEscrituracaoNFe
 from apps.fiscal.models import NaturezaOperacaoNFe as N
 from apps.fiscal.ncm_combustivel import normalizar_ncm
 from apps.fiscal.tests import xml_nfe_dl081 as xml
@@ -330,7 +330,9 @@ def test_devolucao_de_compra_emitida_pela_propria_empresa_nao_entra_na_escritura
             fin_nfe="4",
         ),
     )
-    assert servico.tipo_da_nota(documento, PapelNFe.EMITENTE) is None
-    with pytest.raises(servico.EscrituracaoNFeErro) as erro:
-        servico.criar_rascunho(vinculo(documento, cliente), usuario=gestor)
-    assert "finNFe 4" in erro.value.mensagem
+    # DL-091, contrato do arquiteto: finNFe 4 em saída própria é DEVOLUCAO_COMPRA (escriturável).
+    assert (
+        servico.tipo_da_nota(documento, PapelNFe.EMITENTE) == TipoEscrituracaoNFe.DEVOLUCAO_COMPRA
+    )
+    rascunho = servico.criar_rascunho(vinculo(documento, cliente), usuario=gestor)
+    assert rascunho.tipo == TipoEscrituracaoNFe.DEVOLUCAO_COMPRA

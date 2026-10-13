@@ -29,6 +29,13 @@ serviço diz se a nota confere, e o servidor recusa de novo no POST, por mais qu
 
 {% block content %}
     <dl class="lista-de-definicao documento-sem-quebra">
+        {% if tipo_rotulo %}
+            {# DL-091 (frente B): a devolução de compra (finNFe 4, saída própria) mostra o próprio tipo. #}
+            <div>
+                <dt>Tipo na escrituração</dt>
+                <dd>{{ tipo_rotulo }}</dd>
+            </div>
+        {% endif %}
         <div>
             <dt>Modelo</dt>
             <dd>{{ modelo_rotulo }}, série {{ documento.serie }}, número {{ documento.numero }}</dd>

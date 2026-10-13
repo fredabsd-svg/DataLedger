@@ -55,8 +55,10 @@ def test_migracao_0013_vai_volta_e_vai_sem_tocar_nas_escrituracoes(escritorio_a)
     try:
         call_command("migrate", "fiscal", ULTIMA_ANTES, verbosity=0)
         assert not any(_tabela_existe(t) for t in TABELAS)
-        efetivada.refresh_from_db()
-        assert efetivada.estado == "efetivada"
+        # DL-091 (ajuste de harness, mesma asserção): a 0021 acrescenta colunas a esta tabela. A
+        # volta até a 0012 as remove, e `refresh_from_db` leria essas colunas. Lê-se só o estado.
+        estado = EscrituracaoNFe.objects.filter(pk=efetivada.pk).values_list("estado", flat=True)
+        assert estado.get() == "efetivada"
         assert EscrituracaoNFe.objects.filter(pk=efetivada.pk).exists()
     finally:
         # Ida até o head de TODAS as apps, também se uma asserção acima falhar (DL-082): a volta

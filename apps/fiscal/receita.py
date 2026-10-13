@@ -74,6 +74,7 @@ from apps.fiscal.models import (
     RegimeIbsCbsSimples,
     SituacaoIpiMantido,
     SituacaoIssReceitaInformada,
+    TipoEscrituracaoNFe,
     classificacao_da_devolucao,
     classificacao_da_venda,
     mercado_da_natureza,
@@ -332,6 +333,9 @@ def linhas_nfe_do_periodo(
             escrituracao__competencia__lt=ate,
         )
         .exclude(natureza="")
+        # DL-091 (A1): a compra (entrada) não compõe receita, RBT12, pré-DAS nem Presumido. Sem este
+        # filtro, a data de entrada (outro mês) poderia puxar uma linha de natureza não-receita.
+        .exclude(escrituracao__tipo=TipoEscrituracaoNFe.ENTRADA)
         .filter(~Exists(_cancelada_depois_de_escriturada("escrituracao__")))
         .order_by("escrituracao__competencia", "escrituracao_id", "item__n_item")
     )

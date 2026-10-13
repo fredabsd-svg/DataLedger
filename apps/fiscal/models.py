@@ -3110,6 +3110,31 @@ class NaturezaOperacaoNFe(models.TextChoices):
     BONIFICACAO = "bonificacao", "Bonificação, doação, brinde ou amostra (incondicional)"
     CUPOM_NFCE = "cupom_nfce", "Operação já registrada em NFC-e ou cupom"
     SERVICO_CONJUGADA = "servico_conjugada", "Prestação de serviço em NF-e conjugada"
+    # DL-091 (A1). E1 a E11: naturezas de ENTRADA, por item (`CATALOGO_EFEITOS_NATUREZA_NFE`). Todas
+    # `nao_receita`. Não entram em `naturezas_permitidas` de saída nem de devolução.
+    ENTRADA_COMERCIALIZACAO = "entrada_comercializacao", "E1 · Compra para comercialização"
+    ENTRADA_INDUSTRIALIZACAO = "entrada_industrializacao", "E2 · Compra para industrialização"
+    ENTRADA_ST = "entrada_st", "E3 · Compra com ICMS-ST (substituído)"
+    ENTRADA_USO_CONSUMO = "entrada_uso_consumo", "E4 · Compra para uso ou consumo"
+    ENTRADA_ATIVO = "entrada_ativo", "E5 · Compra para o ativo imobilizado"
+    ENTRADA_COMBUSTIVEL_REVENDA = (
+        "entrada_combustivel_revenda",
+        "E6 · Compra de combustível ou lubrificante para revenda",
+    )
+    ENTRADA_COMBUSTIVEL_CONSUMO = (
+        "entrada_combustivel_consumo",
+        "E7 · Combustível ou lubrificante para consumo próprio",
+    )
+    ENTRADA_TRANSFERENCIA = "entrada_transferencia", "E8 · Transferência recebida"
+    ENTRADA_BONIFICACAO = "entrada_bonificacao", "E9 · Bonificação, doação ou amostra recebida"
+    ENTRADA_REMESSA_RETORNO = (
+        "entrada_remessa_retorno",
+        "E10 · Remessa, retorno, consignação ou conserto",
+    )
+    ENTRADA_SERVICO = "entrada_servico", "E11 · Compra para prestação de serviço"
+    # DL-091 (A1): devolução de compra é SAÍDA própria (a empresa devolve a mercadoria comprada).
+    # Fora da receita e fora do saldo de devolução do Simples (art. 17). Vínculo por NFref: depois.
+    DEVOLUCAO_COMPRA = "devolucao_compra", "Devolução de compra (saída própria, indDevol 1)"
     AJUSTE = "ajuste", "Ajuste (finNFe 2, 3, 5 ou 6)"
 
 
@@ -3245,6 +3270,215 @@ CATALOGO_NATUREZA_NFE: dict[str, NaturezaNFeInfo] = {
     ),
     NaturezaOperacaoNFe.AJUSTE: NaturezaNFeInfo(
         _NAO_RECEITA, "interno", None, "fora da receita (ajuste)", None
+    ),
+    # DL-091 (A1), critério 1: compra e devolução de compra não compõem receita, nenhum regime, e
+    # não entram no saldo de devolução do Simples. `papel` nao_receita é a única fonte disto para
+    # `linhas_nfe_do_periodo`, o RBT12, o pré-DAS e o Presumido.
+    **{
+        natureza: NaturezaNFeInfo(
+            _NAO_RECEITA,
+            "interno",
+            None,
+            "fora da receita (compra: não é receita de nenhum regime, DL-091)",
+            None,
+        )
+        for natureza in (
+            NaturezaOperacaoNFe.ENTRADA_COMERCIALIZACAO,
+            NaturezaOperacaoNFe.ENTRADA_INDUSTRIALIZACAO,
+            NaturezaOperacaoNFe.ENTRADA_ST,
+            NaturezaOperacaoNFe.ENTRADA_USO_CONSUMO,
+            NaturezaOperacaoNFe.ENTRADA_ATIVO,
+            NaturezaOperacaoNFe.ENTRADA_COMBUSTIVEL_REVENDA,
+            NaturezaOperacaoNFe.ENTRADA_COMBUSTIVEL_CONSUMO,
+            NaturezaOperacaoNFe.ENTRADA_TRANSFERENCIA,
+            NaturezaOperacaoNFe.ENTRADA_BONIFICACAO,
+            NaturezaOperacaoNFe.ENTRADA_REMESSA_RETORNO,
+            NaturezaOperacaoNFe.ENTRADA_SERVICO,
+            NaturezaOperacaoNFe.DEVOLUCAO_COMPRA,
+        )
+    },
+}
+
+# DL-091 (A1): as naturezas de ENTRADA, para a lista de tipo e para a validação do CFOP.
+NATUREZAS_DE_ENTRADA = frozenset(
+    {
+        NaturezaOperacaoNFe.ENTRADA_COMERCIALIZACAO,
+        NaturezaOperacaoNFe.ENTRADA_INDUSTRIALIZACAO,
+        NaturezaOperacaoNFe.ENTRADA_ST,
+        NaturezaOperacaoNFe.ENTRADA_USO_CONSUMO,
+        NaturezaOperacaoNFe.ENTRADA_ATIVO,
+        NaturezaOperacaoNFe.ENTRADA_COMBUSTIVEL_REVENDA,
+        NaturezaOperacaoNFe.ENTRADA_COMBUSTIVEL_CONSUMO,
+        NaturezaOperacaoNFe.ENTRADA_TRANSFERENCIA,
+        NaturezaOperacaoNFe.ENTRADA_BONIFICACAO,
+        NaturezaOperacaoNFe.ENTRADA_REMESSA_RETORNO,
+        NaturezaOperacaoNFe.ENTRADA_SERVICO,
+    }
+)
+
+
+class CreditoNaturezaEntrada(models.TextChoices):
+    """Efeito da natureza sobre o crédito de ICMS no regime normal (DL-091, A1). É DADO, não
+    cálculo:
+    o crédito real sai da memória por item (`MemoriaEntradaItemNFe`), que repete o que a nota
+    destaca."""
+
+    SIM = "sim", "Sim: o ICMS destacado (LC 87, art. 20)"
+    SIM_SE_DESTACADO = "sim_se_destacado", "Só se destacado e tributado (bonificação)"
+    VEDADO_ATE_2032 = "vedado_ate_2032", "Vedado até 31/12/2032 (LC 87, art. 33, I)"
+    UM_QUARENTA_OITAVO = "um_quarenta_oitavo", "1/48 por mês, CIAP (LC 87, art. 20, § 5º)"
+    MONOFASICO = "monofasico", "Monofásico (LC 192): sem crédito nem débito"
+    NAO = "nao", "Não gera crédito"
+    A_CONFIRMAR = "a_confirmar", "A confirmar (não lido)"
+    ESTORNO_PELA_ETAPA_DO_ICMS = "estorno_pela_etapa_do_icms", "Estorno de crédito: etapa do ICMS"
+
+
+@dataclass(frozen=True)
+class EfeitosNaturezaNFe:
+    """Efeitos de UMA natureza de entrada ou de devolução de compra, publicados como dado (DL-091).
+
+    `sufixos`: os três últimos dígitos do CFOP de entrada que a natureza aceita (o grupo). O
+    primeiro
+    dígito não está aqui: é fixo, 5→1, 6→2, 7→3. Vazio para `devolucao_compra`, que é saída.
+    `destino`: onde a mercadoria ou o gasto vai (estoque, despesa, imobilizado, custo de serviço,
+    fora do estoque, saída do estoque). `credito`: `CreditoNaturezaEntrada`. `marca_st`: o ST retido
+    compõe o custo e não dá crédito. `difal_possivel`: marca de diferencial, só com interestadual.
+    `fonte`: o que sustenta o efeito e o que não foi conferido. Nenhum valor de alíquota aqui.
+    """
+
+    sufixos: frozenset[str]
+    destino: str
+    credito: str
+    marca_st: bool
+    difal_possivel: bool
+    fonte: str
+
+
+_FONTE_LC87_ART20 = "LC 87, art. 20 (lido, 13/10/2026); consulta de 13/10/2026, seção 2"
+_FONTE_CONSULTA_E = "consulta de 13/10/2026, seção 2 (catálogo proposto; CFOP no CSV de apoio)"
+
+CATALOGO_EFEITOS_NATUREZA_NFE: dict[str, EfeitosNaturezaNFe] = {
+    NaturezaOperacaoNFe.ENTRADA_COMERCIALIZACAO: EfeitosNaturezaNFe(
+        frozenset({"102", "113", "117", "121"}),
+        "estoque",
+        CreditoNaturezaEntrada.SIM,
+        False,
+        False,
+        _FONTE_LC87_ART20 + "; fornecedor do Simples: LC 123, art. 23, §§ 1º a 4º (lido)",
+    ),
+    NaturezaOperacaoNFe.ENTRADA_INDUSTRIALIZACAO: EfeitosNaturezaNFe(
+        frozenset({"101", "111", "116", "120", "122", "124", "125"}),
+        "estoque",
+        CreditoNaturezaEntrada.SIM,
+        False,
+        False,
+        _FONTE_LC87_ART20 + "; sem crédito se a saída do produto for isenta (art. 20, § 3º, I)",
+    ),
+    NaturezaOperacaoNFe.ENTRADA_ST: EfeitosNaturezaNFe(
+        frozenset({"401", "403"}),
+        "estoque",
+        CreditoNaturezaEntrada.NAO,
+        True,
+        False,
+        "ST retido compõe o custo; substituído não se credita do retido (Convênio ICMS 142/2018, "
+        "não conferido; " + _FONTE_CONSULTA_E + ")",
+    ),
+    NaturezaOperacaoNFe.ENTRADA_USO_CONSUMO: EfeitosNaturezaNFe(
+        frozenset({"556", "407"}),
+        "despesa",
+        CreditoNaturezaEntrada.VEDADO_ATE_2032,
+        False,
+        True,
+        "LC 87, art. 33, I, redação da LC 171/2019 (lido, 13/10/2026); DIFAL: CF art. 155, § 2º, "
+        "VII (não conferido)",
+    ),
+    NaturezaOperacaoNFe.ENTRADA_ATIVO: EfeitosNaturezaNFe(
+        frozenset({"551", "406"}),
+        "imobilizado",
+        CreditoNaturezaEntrada.UM_QUARENTA_OITAVO,
+        False,
+        True,
+        "LC 87, art. 20, § 5º (lido, 13/10/2026): 1/48 por mês, CIAP fora do corte 1",
+    ),
+    NaturezaOperacaoNFe.ENTRADA_COMBUSTIVEL_REVENDA: EfeitosNaturezaNFe(
+        frozenset({"652"}),
+        "estoque",
+        CreditoNaturezaEntrada.MONOFASICO,
+        False,
+        False,
+        "LC 192, arts. 2º, 4º e 5º (lidos, 13/10/2026); "
+        "lubrificante e etanol hidratado: a conferir "
+        "(pendência P5)",
+    ),
+    NaturezaOperacaoNFe.ENTRADA_COMBUSTIVEL_CONSUMO: EfeitosNaturezaNFe(
+        frozenset({"653"}),
+        "despesa",
+        CreditoNaturezaEntrada.NAO,
+        False,
+        False,
+        "LC 192, arts. 2º e 4º (lidos): monofásico, sem crédito; uso e consumo (LC 87, art. 33, I)",
+    ),
+    NaturezaOperacaoNFe.ENTRADA_TRANSFERENCIA: EfeitosNaturezaNFe(
+        frozenset({"151", "152"}),
+        "estoque",
+        CreditoNaturezaEntrada.SIM,
+        False,
+        False,
+        _FONTE_CONSULTA_E + "; depende do vínculo de entrada da filial (HI-111, pendência P8)",
+    ),
+    NaturezaOperacaoNFe.ENTRADA_BONIFICACAO: EfeitosNaturezaNFe(
+        frozenset({"910", "911"}),
+        "estoque",
+        CreditoNaturezaEntrada.SIM_SE_DESTACADO,
+        False,
+        False,
+        _FONTE_CONSULTA_E + "; receita no Presumido: pendência P9 (não decidida)",
+    ),
+    NaturezaOperacaoNFe.ENTRADA_REMESSA_RETORNO: EfeitosNaturezaNFe(
+        frozenset(
+            {
+                "901",
+                "902",
+                "903",
+                "912",
+                "913",
+                "915",
+                "916",
+                "917",
+                "920",
+                "921",
+                "922",
+                "923",
+                "924",
+                "925",
+                "926",
+                # 1.949 está no grupo só para ser ACEITO quando o contador o escolhe. A sugestão
+                # nunca o propõe (consulta, seção 2).
+                "949",
+            }
+        ),
+        "fora_do_estoque",
+        CreditoNaturezaEntrada.NAO,
+        False,
+        False,
+        _FONTE_CONSULTA_E + "; 1.949 só por escolha manual",
+    ),
+    NaturezaOperacaoNFe.ENTRADA_SERVICO: EfeitosNaturezaNFe(
+        frozenset({"126", "128", "933"}),
+        "custo_do_servico",
+        CreditoNaturezaEntrada.A_CONFIRMAR,
+        False,
+        False,
+        _FONTE_CONSULTA_E + "; 1.126 a confirmar; 1.128 e 1.933 sem crédito",
+    ),
+    NaturezaOperacaoNFe.DEVOLUCAO_COMPRA: EfeitosNaturezaNFe(
+        frozenset(),
+        "saida_do_estoque",
+        CreditoNaturezaEntrada.ESTORNO_PELA_ETAPA_DO_ICMS,
+        False,
+        False,
+        "saída, fora da receita e do saldo do art. 17 (LC 123; Res. CGSN 140, art. 17, em cópia); "
+        "estorno do crédito: etapa do ICMS (consulta, seção 4; não conferido)",
     ),
 }
 
@@ -3518,6 +3752,18 @@ class TipoEscrituracaoNFe(models.TextChoices):
     SAIDA_PROPRIA = "saida_propria", "Saída própria (finNFe 1)"
     DEVOLUCAO = "devolucao", "Devolução de venda recebida (finNFe 4)"
     AJUSTE = "ajuste", "Ajuste (finNFe 2, 3, 5 ou 6)"
+    # DL-091 (A1): compra de NF-e modelo 55 com finNFe 1, em que a empresa é a destinatária. Fora
+    # da receita: nenhuma natureza de entrada compõe receita (consulta de 13/10/2026, seção 2).
+    ENTRADA = "entrada", "Entrada de compra (NF-e de terceiro, finNFe 1)"
+    # DL-091 (arquiteto, correção do contrato): finNFe 4 é "Devolução/Retorno" genérico no leiaute
+    # (leiauteNFe_v4.00.xsd, PL_010f, linha 185). A devolução de compra do cliente sai com tpNF 1 e
+    # finNFe 4. Este tipo é a SAÍDA própria com finNFe 4 (modelo 55): só `devolucao_compra` cabe
+    # nele,
+    # e nenhuma natureza de receita. É o que protege a receita de uma nota de finNFe 4.
+    DEVOLUCAO_COMPRA = (
+        "devolucao_compra",
+        "Devolução de compra ou retorno (saída própria, finNFe 4)",
+    )
 
 
 class EscrituracaoNFe(models.Model):
@@ -3572,6 +3818,10 @@ class EscrituracaoNFe(models.Model):
     competencia = models.DateField("competência (mês de dhEmi)", null=True, blank=True)
     # Dia escrito no dhEmi, no fuso de São Paulo. Só exibição e o aviso de competência.
     data_emissao = models.DateField("data de emissão", null=True, blank=True)
+    # DL-091 (A1, HI-158): data de entrada da compra. Obrigatória na escrituração de ENTRADA (a
+    # restrição abaixo), sugerida pela data de emissão e anterior a ela é recusada. A competência
+    # da entrada é o mês DESTA data. Nas outras escriturações fica vazia.
+    data_entrada = models.DateField("data de entrada", null=True, blank=True)
     valor_nf = models.DecimalField(
         "valor da nota (vNF)", max_digits=15, decimal_places=2, null=True, blank=True
     )
@@ -3631,6 +3881,11 @@ class EscrituracaoNFe(models.Model):
             models.CheckConstraint(
                 condition=Q(estado__in=["rascunho", "efetivada", "estornada"]),
                 name="escrituracao_nfe_estado_valido",
+            ),
+            # DL-091 (A1, HI-158): a escrituração de entrada tem data de entrada, sempre.
+            models.CheckConstraint(
+                condition=~Q(tipo="entrada") | Q(data_entrada__isnull=False),
+                name="escrituracao_nfe_entrada_com_data_de_entrada",
             ),
             # Coerência entre estado e colunas do ato, como na DL-072.
             models.CheckConstraint(
@@ -3979,6 +4234,12 @@ class NaturezaItemNFe(models.Model):
         blank=True,
         default="",
     )
+    # CFOP de ENTRADA confirmado pelo contador (DL-091, A1). Vazio fora da escrituração de entrada.
+    # O CFOP do emitente (`ItemNFe.cfop`) não muda: este é outro campo, do destinatário. O primeiro
+    # dígito é fixo (5→1, 6→2, 7→3) e o grupo é o da natureza (`CATALOGO_EFEITOS_NATUREZA_NFE`).
+    cfop_entrada = models.CharField(
+        "CFOP de entrada (confirmado)", max_length=4, blank=True, default=""
+    )
     # Marca de monofásico de PIS e Cofins dada pelo contador (DL-082, HI-128). Separada da natureza
     # de ICMS, para permitir "ST e monofásico" no mesmo item. Sem marca, o item é normal. Só vale
     # para natureza de mercadoria, e só enquanto a escrituração é rascunho (gatilho da DL-081).
@@ -4002,6 +4263,11 @@ class NaturezaItemNFe(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["escrituracao", "item"], name="natureza_item_nfe_unica_por_item"
+            ),
+            # DL-091 (A1): o CFOP de entrada só existe em natureza de entrada.
+            models.CheckConstraint(
+                condition=Q(cfop_entrada="") | Q(natureza__in=sorted(NATUREZAS_DE_ENTRADA)),
+                name="natureza_item_nfe_cfop_entrada_so_na_entrada",
             ),
         ]
 
@@ -4057,6 +4323,128 @@ class OrigemNaturezaItemNFe(models.Model):
 
     def __str__(self):
         return f"Origem {self.origem} da natureza do item {self.natureza_item_id}"
+
+
+class MarcaCreditoEntrada(models.TextChoices):
+    """Marca de crédito de ICMS de UM item de entrada, na efetivação (DL-091, A1; consulta, seção
+    3).
+
+    Cada marca diz por que o item tem (ou não tem) crédito. Nenhuma depende de alíquota do
+    Tocantins:
+    o item repete o que a nota destaca (`vBC`, `pICMS`, `vICMS`, CST/CSOSN). A ordem em que as
+    regras decidem está em `apps.fiscal.entradas.marca_do_credito`.
+    """
+
+    CREDITO_DESTACADO = "credito_destacado", "Crédito destacado: elegível (LC 87, art. 20)"
+    CREDITO_LIMITADO = (
+        "credito_limitado_ao_informado",
+        "Crédito limitado ao vCredICMSSN informado pelo fornecedor do Simples (LC 123, art. 23)",
+    )
+    SEM_CREDITO_SEM_PCREDSN = (
+        "sem_credito_sem_pcredsn",
+        "Sem crédito: fornecedor do Simples sem pCredSN (LC 123, art. 23, § 4º)",
+    )
+    # DL-091 (rodada 1, A1): o COMPRADOR é optante do Simples na data de entrada. O optante não se
+    # apropria de crédito (LC 123, art. 23, caput), então nenhum valor é elegível.
+    SEM_CREDITO_OPTANTE_DO_SIMPLES = (
+        "sem_credito_optante_do_simples",
+        "Sem crédito: comprador optante do Simples (LC 123, art. 23, caput)",
+    )
+    VEDADO_ATE_2032 = "vedado_ate_2032", "Crédito vedado até 31/12/2032 (LC 87, art. 33, I)"
+    UM_QUARENTA_OITAVO = (
+        "um_quarenta_oitavo",
+        "Ativo: 1/48 por mês, CIAP (LC 87, art. 20, § 5º): etapa do ICMS",
+    )
+    ST_RETIDO = "st_retido_sem_credito", "ICMS-ST retido: sem crédito, compõe o custo"
+    MONOFASICO = "monofasico_sem_credito", "ICMS monofásico (LC 192): sem crédito nem débito"
+    NAO_SE_CREDITA = "nao_se_credita", "A natureza não gera crédito"
+    SEM_DESTAQUE = "sem_destaque", "A nota não destaca ICMS próprio"
+    SEM_CREDITO_PLENO = (
+        "sem_credito_pleno_pelo_cst",
+        "CST/CSOSN sem direito a crédito pleno: conferir (LC 87, art. 20, § 1º)",
+    )
+    # DL-091 (correção): NCM de combustível da lista, mas que a lista NÃO separa com segurança como
+    # um dos combustíveis do art. 2º da LC 192. Não se afirma monofásico: pede conferência do NCM.
+    MONOFASICO_CONFERIR_NCM = (
+        "monofasico_conferir_ncm",
+        "Monofásico (LC 192): conferir o NCM; a lista não separa com segurança",
+    )
+    A_CONFERIR = "a_conferir", "A conferir: a regra do caso não foi lida ou falta o dado"
+
+
+class MemoriaEntradaItemNFe(models.Model):
+    """Memória de crédito e de impostos de UM item de entrada, gravada na efetivação (DL-091, A1).
+
+    Segue o padrão da cópia de valores da DL-078/081: os números são copiados do XML lido, e a
+    marca e os avisos são calculados na mesma transação. Imutável depois de gravada: a linha só
+    entra enquanto a escrituração está em rascunho (gatilho da migração 0021), e nunca muda.
+    Estornar
+    não apaga a memória: é fato de auditoria de quando a compra foi escriturada.
+
+    Nenhum campo aqui é alíquota do Tocantins. `credito_elegivel` é o valor que a regra admite (o
+    `vICMS` da nota ou o `vCredICMSSN` informado), e fica nulo quando a marca não admite crédito.
+    """
+
+    natureza_item = models.ForeignKey(
+        NaturezaItemNFe,
+        on_delete=models.CASCADE,
+        related_name="memoria_de_entrada",
+        verbose_name="natureza do item",
+    )
+    marca_credito = models.CharField(
+        "marca de crédito", max_length=32, choices=MarcaCreditoEntrada.choices
+    )
+    credito_elegivel = models.DecimalField(
+        "crédito elegível (valor que a regra admite)",
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    cst = models.CharField("CST do ICMS", max_length=2, blank=True, default="")
+    csosn = models.CharField("CSOSN", max_length=3, blank=True, default="")
+    v_bc = models.DecimalField("BC do ICMS (vBC)", max_digits=15, decimal_places=2, null=True)
+    p_icms = models.DecimalField(
+        "alíquota do ICMS (pICMS)", max_digits=7, decimal_places=4, null=True
+    )
+    v_icms = models.DecimalField(
+        "ICMS destacado (vICMS)", max_digits=15, decimal_places=2, null=True
+    )
+    p_cred_sn = models.DecimalField(
+        "alíquota do crédito do Simples (pCredSN)", max_digits=7, decimal_places=4, null=True
+    )
+    v_cred_icms_sn = models.DecimalField(
+        "crédito do Simples (vCredICMSSN)", max_digits=15, decimal_places=2, null=True
+    )
+    v_bc_st_ret = models.DecimalField(
+        "BC do ICMS-ST retido (vBCSTRet)", max_digits=15, decimal_places=2, null=True
+    )
+    v_icms_st_ret = models.DecimalField(
+        "ICMS-ST retido (vICMSSTRet)", max_digits=15, decimal_places=2, null=True
+    )
+    v_fcp = models.DecimalField("FCP (vFCP)", max_digits=15, decimal_places=2, null=True)
+    cst_ipi = models.CharField("CST do IPI", max_length=2, blank=True, default="")
+    v_ipi = models.DecimalField("IPI (vIPI)", max_digits=15, decimal_places=2, null=True)
+    cst_pis = models.CharField("CST do PIS", max_length=2, blank=True, default="")
+    v_pis = models.DecimalField("PIS (vPIS)", max_digits=15, decimal_places=2, null=True)
+    cst_cofins = models.CharField("CST da Cofins", max_length=2, blank=True, default="")
+    v_cofins = models.DecimalField("Cofins (vCOFINS)", max_digits=15, decimal_places=2, null=True)
+    # Avisos nomeados, sem valor (DL-091, A1, item 6), como texto em pt-BR, gravados como estavam
+    # na efetivação. Lista vazia quando não há aviso.
+    avisos = models.JSONField("avisos da entrada", default=list, blank=True)
+    gravada_em = models.DateTimeField("gravada em", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "memória de entrada de item de NF-e"
+        verbose_name_plural = "memórias de entrada de itens de NF-e"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["natureza_item"], name="memoria_entrada_unica_por_item"
+            ),
+        ]
+
+    def __str__(self):
+        return f"Memória de entrada do item {self.natureza_item_id}: {self.marca_credito}"
 
 
 class EstadoLoteEscrituracaoNFe(models.TextChoices):
@@ -4221,10 +4609,29 @@ class RegraImutavel(Exception):
 
 class TipoRegraClassificacaoNFe(models.TextChoices):
     """Tipo de nota que a regra classifica. Ajuste (finNFe 2, 3, 5 ou 6) NÃO recebe regra (DL-087,
-    corte 1): a nota de ajuste tem natureza própria, fixa na sugestão embutida."""
+    corte 1): a nota de ajuste tem natureza própria, fixa na sugestão embutida.
+
+    DL-091 (A2): `entrada` é a compra (NF-e de terceiro, finNFe 1). Regra de entrada resolve uma
+    natureza E1 a E11 e pode fixar o CFOP de entrada. `devolucao_compra` NÃO é tipo de regra: a nota
+    finNFe 4 em saída própria só leva a devolução de compra oficial, e o contrato da A1 deixa o
+    retorno (conserto, remessa) sem sugestão. Uma regra aqui só serviria para empurrá-lo para
+    devolução de compra, o que o contrato proíbe.
+    """
 
     SAIDA_PROPRIA = "saida_propria", "Saída própria (finNFe 1)"
     DEVOLUCAO = "devolucao", "Devolução de venda recebida (finNFe 4)"
+    ENTRADA = "entrada", "Entrada de compra (NF-e de terceiro, finNFe 1)"
+
+
+# DL-091 (A2): CRT do emitente que a regra de entrada aceita (NF-e, campo CRT: 1 Simples Nacional,
+# 2 Simples Nacional com excesso de sublimite, 3 regime normal, 4 MEI).
+CRTS_DO_EMITENTE_NA_REGRA = ("1", "2", "3", "4")
+# DL-091 (A2): siglas das 27 UFs, para o critério de UF do emitente. O `cUF` da nota é traduzido
+# para a sigla por `entradas.CODIGO_IBGE_DA_UF`, e o teste confere que as duas listas batem.
+SIGLAS_DE_UF_DO_EMITENTE_NA_REGRA = (
+    "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA", "PB",
+    "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO",
+)  # fmt: skip
 
 
 class ModoNcmRegraNFe(models.TextChoices):
@@ -4244,6 +4651,10 @@ class RegraClassificacaoNFe(models.Model):
     Critérios: CFOP (obrigatório, da tabela oficial), NCM (opcional, exato ou por prefixo), CST ou
     CSOSN do ICMS (opcional, comparado como está na nota) e `idDest` (opcional). O resultado é uma
     natureza de `NaturezaOperacaoNFe` permitida para o tipo.
+
+    DL-091 (A2): na regra de ENTRADA, mais dois critérios de fornecedor, CRT e UF do emitente
+    (opcionais), e o CFOP de entrada que a regra fixa (opcional). Esses três só existem na
+    entrada (CHECK `criterio_de_entrada_so_na_entrada`). Os pesos estão em `classificacao`.
 
     Vigência: `vigencia_inicio` obrigatória e `vigencia_fim` opcional, comparadas com a DATA
     DE EMISSÃO da nota (dia no fuso de São Paulo). Desativar é REVOGAR (correção da rodada 1,
@@ -4287,6 +4698,22 @@ class RegraClassificacaoNFe(models.Model):
         default="",
         choices=[("1", "1 (operação interna)"), ("2", "2 (interestadual)"), ("3", "3 (exterior)")],
     )
+    # DL-091 (A2): critérios do FORNECEDOR, só para a regra de ENTRADA (`tipo` entrada). CRT do
+    # emitente (1 a 4) e UF do emitente (sigla). Vazios nas regras de saída e de devolução: o
+    # produto não os usa na saída, e o banco recusa a combinação (CHECK de critério de entrada).
+    crt_emitente = models.CharField(
+        "CRT do emitente", max_length=1, blank=True, default="", choices=[
+            ("1", "1 (Simples Nacional)"),
+            ("2", "2 (Simples Nacional, excesso de sublimite)"),
+            ("3", "3 (regime normal)"),
+            ("4", "4 (MEI)"),
+        ],
+    )  # fmt: skip
+    uf_emitente = models.CharField("UF do emitente", max_length=2, blank=True, default="")
+    # DL-091 (A2): CFOP de ENTRADA que a regra fixa (opcional). Vazio: vale a conversão da A1 para
+    # a natureza (`entradas.cfop_de_entrada_para`). Preenchido, é validado contra a natureza e o
+    # CFOP do critério (primeiro dígito e grupo) antes do INSERT.
+    cfop_entrada = models.CharField("CFOP de entrada", max_length=4, blank=True, default="")
     # Valor de `NaturezaOperacaoNFe`, permitido para o tipo. A checagem por tipo é do serviço (o
     # catálogo é de código); o banco só recusa vazio e ajuste.
     natureza = models.CharField(
@@ -4318,8 +4745,34 @@ class RegraClassificacaoNFe(models.Model):
         ordering = ["id"]
         constraints = [
             models.CheckConstraint(
-                condition=Q(tipo__in=["saida_propria", "devolucao"]),
+                condition=Q(tipo__in=["saida_propria", "devolucao", "entrada"]),
                 name="regra_classificacao_nfe_tipo_valido",
+            ),
+            # DL-091 (A2): critérios de fornecedor e CFOP de entrada. Só a regra de entrada os tem.
+            models.CheckConstraint(
+                condition=Q(crt_emitente__in=["", "1", "2", "3", "4"]),
+                name="regra_classificacao_nfe_crt_valido",
+            ),
+            models.CheckConstraint(
+                condition=Q(uf_emitente__in=["", *SIGLAS_DE_UF_DO_EMITENTE_NA_REGRA]),
+                name="regra_classificacao_nfe_uf_valida",
+            ),
+            models.CheckConstraint(
+                condition=Q(cfop_entrada="") | Q(cfop_entrada__regex=r"^[1-3][0-9]{3}$"),
+                name="regra_classificacao_nfe_cfop_entrada_valido",
+            ),
+            models.CheckConstraint(
+                condition=(Q(tipo="entrada") | Q(crt_emitente="", uf_emitente="", cfop_entrada="")),
+                name="regra_classificacao_nfe_criterio_de_entrada_so_na_entrada",
+            ),
+            # Regra de entrada resolve só natureza de entrada; regra de saída nunca a resolve.
+            models.CheckConstraint(
+                condition=~Q(tipo="entrada") | Q(natureza__in=sorted(NATUREZAS_DE_ENTRADA)),
+                name="regra_classificacao_nfe_entrada_so_natureza_de_entrada",
+            ),
+            models.CheckConstraint(
+                condition=Q(tipo="entrada") | ~Q(natureza__in=sorted(NATUREZAS_DE_ENTRADA)),
+                name="regra_classificacao_nfe_saida_sem_natureza_de_entrada",
             ),
             models.CheckConstraint(
                 condition=Q(cfop__regex=r"^[0-9]{4}$"),
