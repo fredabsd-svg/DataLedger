@@ -1039,10 +1039,11 @@ nível 1, e PR para a `main`.
 | 12 | [DL-082](DL-082-pre-das-de-comercio-e-industria.md) | Pré-DAS de comércio e indústria (Anexos I e II) com segregação | 1 | 10 |
 | 13 | [DL-084](DL-084-rotina-do-presumido.md) | Rotina do Presumido: dias sem expediente bancário, feriados locais, coerência da CSLL retida, retenção tardia, competência da receita informada, parâmetros por empresa (RC-172) | 1 | 7 |
 | 14 | [DL-090](DL-090-documentacao-e-painel-do-fiscal.md) | Documentação e painel do fiscal alinhados ao código (RC-175) | 3 | — |
-| 15 | [DL-087](DL-087-classificacao-fiscal-versionada.md) | Classificação fiscal versionada e regras de importação, corte 1, sem mudar comportamento (o "acumulador" do DataLedger; RC-175) | 1 | 11 e 12 |
+| 15 | [DL-087](DL-087-classificacao-fiscal-versionada.md) | Classificação fiscal versionada, corte 1: regras do escritório e da empresa por cima da sugestão embutida, fila "a classificar" (o "acumulador" do DataLedger; RC-175, DE-107) | 1 | 11 e 12 |
 | 16 | [DL-089](DL-089-origem-do-lancamento-contabil.md) | Origem e documento de origem do lançamento contábil (BL-72, BL-73), pré-requisito da integração | 1 | — |
 | 17 | [DL-088](DL-088-virada-de-2027-no-simples.md) | Virada de 2027 no Simples: tabelas 2027-2028 lidas no DOU, RBT12 defasado, CBS/IBS no DAS, regime regular, receita de NF-e 2027 no regime único | 1 | 11 e 12 |
-| 18 | a numerar | NF-e de entrada (compras e créditos); depois ICMS-TO em fatias; integração contábil; livros | 1 | 15 |
+| 18 | [DL-091](DL-091-nfe-de-entrada.md) | NF-e de entrada (compras), corte 1: naturezas de entrada, CFOP de entrada, memória de crédito com marcas federais e avisos, sem ICMS estadual calculado | 1 | 15 |
+| 19 | a numerar | ICMS-TO em fatias (depois de ler o RICMS-TO); integração contábil; livros | 1 | 18 |
 
 O que continua bloqueado, mesmo com a delegação: alíquota, prazo ou leiaute
 **sem fonte oficial com data** (HI-54) e qualquer transmissão de obrigação

@@ -203,10 +203,16 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
   - Suíte completa medida pelo arquiteto: 10.120/1/56 (a falha é a de
     ambiente). Na CI, "Lint e testes" levou 22,5 min, dentro do limite de
     30.
+- **Em andamento:** [DL-091](../planos/DL-091-nfe-de-entrada.md), NF-e de
+  entrada (compras), corte 1. Base: o
+  [mapa do código](../projeto/mapa-nfe-de-entrada-2026-10-13.md) e a
+  [consulta ao `contador-senior`](../projeto/consultas/2026-10-13-contador-senior-nfe-de-entrada.md)
+  (HI-154 a HI-158; PE-93 para o Fred, que não bloqueia). Nada de ICMS
+  estadual calculado: a legislação do Tocantins não foi lida, porque a
+  SEFAZ-TO estava fora do ar. Frente A1 em desenvolvimento.
 - **Próximo do roteiro fiscal** (fim do
   [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md)): o corte 2 da
   DL-087 (naturezas como tabela e regras tributárias) e depois:
-  - entradas e compras;
   - ICMS-TO em fatias;
   - integração fiscal → contábil (a DL-089 é a base);
   - livros e obrigações acessórias.
