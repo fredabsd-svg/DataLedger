@@ -306,6 +306,26 @@ Decisões do arquiteto para a correção única (§3.1), reversíveis pelo Fred:
 - **A13** e a observação sobre o destinatário com `finNFe` 4 que é retorno
   foram para o BL-706.
 
+## Decisões tomadas na correção
+
+Correção única integrada; migração `fiscal 0023` (só estado: a marca nova).
+Medido pelo desenvolvedor: suíte completa 10.403/1/56 (a falha é a de
+ambiente), com 50 testes novos. Mutantes provam as correções de A1 a A4 e de
+A9 a A12.
+
+- **Regime ambíguo no dia** (Simples e Presumido ao mesmo tempo): "a
+  conferir".
+- **Data de entrada:** o teto é o maior valor entre hoje e a data de
+  emissão. Assim, uma nota emitida com data futura ainda pode usar a data de
+  emissão como padrão.
+- **Mensagem do lote:** quando a divergência é só no CFOP de entrada, o lote
+  usa a mesma mensagem de "natureza já escolhida", porque um teste da
+  DL-085 confere esse texto.
+- **Resíduo, que vai para o BL-706:** a saída própria com `finNFe` 1 em que
+  todos os itens são devolução de compra ainda reabre o mês confirmado. A
+  correção cobriu o tipo `DEVOLUCAO_COMPRA` (`finNFe` 4), que é o caso
+  comum.
+
 ## Critérios de aceite
 
 1. **Nenhuma entrada mexe em receita, RBT12, pré-DAS ou Presumido.** Teste

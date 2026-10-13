@@ -217,7 +217,7 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
   - [Rodada 1](../auditorias/2026-10-13-dl-091-rodada-1.md), relançada
     depois do reinício: **reprovada**. A1 é alto: o comprador do Simples
     recebia "crédito elegível", o que a LC 123, art. 23, veda. Correção
-    única em andamento, com as decisões no plano.
+    única integrada (migração `fiscal 0023`). Reconferência em andamento.
 - **Próximo do roteiro fiscal** (fim do
   [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md)): o corte 2 da
   DL-087 (naturezas como tabela e regras tributárias) e depois:
