@@ -15,7 +15,12 @@ from django.db import connection
 from apps.auditoria.models import RegistroAuditoria
 from apps.empresas.models import Empresa
 from apps.fiscal import escrituracao_nfe as servico_nfe
-from apps.fiscal.models import ItemNFe, NaturezaItemNFe, NaturezaOperacaoNFe
+from apps.fiscal.models import (
+    ItemNFe,
+    NaturezaItemNFe,
+    NaturezaOperacaoNFe,
+    OrigemNaturezaItemNFe,
+)
 from apps.fiscal.tests.suporte_dl081 import vinculo
 from apps.fiscal.tests.suporte_dl082 import nota
 from apps.fiscal.tests.xml_nfe_dl080 import CNPJ_EMITENTE_A
@@ -83,8 +88,13 @@ def test_reversao_recusa_com_marca_em_efetivada_e_nao_muda_nada(
     try:
         with pytest.raises(RuntimeError) as erro:
             call_command("migrate", "fiscal", ULTIMA_ANTES, verbosity=0)
-        assert MENSAGEM in str(erro.value)
-        assert "1 item(ns) com marca de monofásico" in str(erro.value)
+        # DL-087 (A9 da rodada 1, ajuste do arquiteto): a nota efetivada agora tem a origem da
+        # natureza gravada, e a reversão da 0020 (DL-087) vem antes da 0014 e recusa primeiro. O
+        # que este teste protege continua igual: a reversão é recusada e nada muda no banco. A
+        # mensagem da DL-082 segue testada nos casos de rascunho, acima e abaixo.
+        mensagem = str(erro.value)
+        assert MENSAGEM in mensagem or "Reversão da DL-087 recusada" in mensagem
+        assert "monofasico" in _colunas_do_item()
         assert NaturezaItemNFe.objects.get().monofasico is True
     finally:
         call_command("migrate", verbosity=0)
@@ -139,3 +149,35 @@ def test_reversao_passa_com_so_estornadas_e_a_marca_fica_na_trilha(
 
     assert "monofasico" in _colunas_do_item()
     assert "segmento_devolucao" in _colunas_do_item()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_reversao_dl082_recusa_com_marca_em_efetivada_sem_origem_gravada(
+    escritorio_a, usuario_gestor_a, empresa
+):
+    """Reconferência da DL-087, R4(a) (ajuste do arquiteto; teste proposto e verificado pela
+    auditoria). Nota efetivada SEM origem gravada (dado anterior à DL-087): a reversão da 0020
+    passa, e quem recusa é a guarda da 0014, com a mensagem da DL-082."""
+    documento = nota(
+        escritorio_a,
+        usuario_gestor_a,
+        empresa,
+        numero=905,
+        itens=[{"cfop": "5102", "vprod": "1000.00"}],
+    )
+    esc = servico_nfe.criar_rascunho(vinculo(documento, empresa), usuario=usuario_gestor_a)
+    item_id = ItemNFe.objects.get(documento=documento).pk
+    servico_nfe.definir_natureza(
+        esc, NaturezaOperacaoNFe.REVENDA, [item_id], usuario=usuario_gestor_a
+    )
+    servico_nfe.definir_marca_monofasico(esc, [item_id], True, usuario=usuario_gestor_a)
+    # A origem só é apagável enquanto a escrituração é rascunho (gatilho da 0020).
+    OrigemNaturezaItemNFe.objects.all().delete()
+    servico_nfe.efetivar(esc, usuario=usuario_gestor_a)
+    try:
+        with pytest.raises(RuntimeError) as erro:
+            call_command("migrate", "fiscal", ULTIMA_ANTES, verbosity=0)
+        assert MENSAGEM in str(erro.value)
+        assert "1 item(ns) com marca de monofásico" in str(erro.value)
+    finally:
+        call_command("migrate", verbosity=0)

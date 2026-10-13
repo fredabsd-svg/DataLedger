@@ -5454,3 +5454,56 @@ rota de exceção segue funcional e testada.
 **Reversão:** a migração nova tem guarda; voltar ao arranjo global é reverter
 a migração do `escritorio` e o trecho da reversão da 0015, e tirar o escopo
 das views — nada de dado do contador se perde.
+
+## DE-107 — DL-087: o corte 1 entrega as regras do escritório antes de converter a sugestão embutida
+
+**Data:** 12/10/2026. **Etapa:** [DL-087](../planos/DL-087-classificacao-fiscal-versionada.md).
+
+**Decisão:** o corte 1 da classificação fiscal entrega as regras de
+classificação do escritório e da empresa como dado, a fila "a classificar"
+e as telas. A sugestão embutida de hoje continua em código, como camada
+global, e só vira linhas de tabela no corte 2, junto com as naturezas como
+tabela e as regras tributárias.
+
+**Motivo:** a sugestão embutida tem regras finas, como combustível pela
+descrição oficial do CFOP e pelo NCM, lubrificante fora do 1,6%, devolução
+pela coluna indDevol, conflito entre sinais e CSOSN 500 do posto. Reescrevê-la
+como dado, com a mesma resposta, é o maior risco da etapa. Para o escritório,
+nada muda, porque a camada global já é imutável para ele (HI-141). O que ele
+precisa já é ensinar regra nova e ver o que ficou sem classificação.
+
+**Alternativas descartadas:** fazer tudo no corte 1, como no plano de
+09/10/2026, com auditoria de nível 1 sobre a reescrita inteira da sugestão.
+
+**Reversão:** a ordem dos cortes é só sequência. O corte 2 continua no plano.
+
+## DE-108 — DL-087: o mês confirmado só avisa na fila; desativar regra é revogar
+
+**Data:** 12/10/2026. **Etapa:** [DL-087](../planos/DL-087-classificacao-fiscal-versionada.md),
+A1 e A7 da [rodada 1](../auditorias/2026-10-12-dl-087-rodada-1.md).
+
+**Decisão:**
+
+1. A fila "a classificar" e a regra **avisam** quando o mês já foi
+   confirmado, mas não bloqueiam. O mesmo aviso aparece na prévia do lote e
+   na prévia de impacto.
+2. Desativar uma regra é **revogá-la**: ela deixa de casar com qualquer nota,
+   pendente ou futura. A escrituração efetivada guarda a origem que teve.
+
+**Motivo:**
+
+1. O fiscal permite escriturar nota de mês confirmado e reabre a confirmação
+   como "a retificar" (DL-074). Bloquear na fila seria mais restritivo que a
+   própria escrituração e esconderia o item que precisa ser classificado.
+2. A consulta ao `contador-senior` dispensou a aprovação prévia de regra
+   porque desativar desfaz o efeito. Com o fim de vigência em "ontem", a
+   regra errada continuava valendo para todas as notas pendentes, que são
+   sempre de antes de hoje.
+
+**Alternativas descartadas:**
+- fila somente leitura nos meses confirmados (H6 da consulta);
+- desativar com fim de vigência em "ontem", como na frente A.
+
+**Reversão:** o bloqueio do mês confirmado pode ser acrescentado se o Fred
+preferir. Uma operação separada de "encerrar vigência" é aditiva.
+

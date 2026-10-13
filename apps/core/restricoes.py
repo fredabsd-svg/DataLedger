@@ -230,6 +230,20 @@ MENSAGENS_DE_RESTRICAO = {
 # Python, quem recusou (a janela de corrida entre a checagem em Python e
 # o INSERT/UPDATE).
 MENSAGENS_DE_RESTRICAO_DE_GATILHO = {
+    # DL-087 (frente A): a regra de classificação de NF-e não muda depois de criada e não se apaga.
+    # O gatilho da migração 0019 recusa UPDATE de critério, natureza ou vigência, DELETE, segunda
+    # desativação, fim de vigência que não seja a revogação (véspera do início), e TRUNCATE com
+    # linha. O serviço (`apps.fiscal.classificacao`) revoga com `update()` condicionado.
+    "regra_classificacao_nfe_imutavel": (
+        "Regra de classificação de NF-e não pode ser alterada nem excluída: desative-a com motivo "
+        "e crie outra."
+    ),
+    # DL-087, correção da rodada 1 (A8): a origem é fato de auditoria. Enquanto a escrituração da
+    # natureza não está em rascunho, nenhuma linha de origem entra, muda ou sai (gatilho da 0020).
+    "origem_natureza_item_imutavel_depois_de_efetivada": (
+        "Origem da natureza de nota efetivada ou estornada não muda: ela registra de onde veio a "
+        "natureza confirmada, e o que foi efetivado não se altera."
+    ),
     # DL-077 (fatia 3, frente A), gatilhos da migração 0024 de `apps.contabilidade`: a importação
     # de lançamentos é área de conferência, e depois de efetivada ou descartada nenhuma linha muda.
     "importacao_lancamentos_sem_exclusao": (
@@ -1320,6 +1334,48 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
     # falhou. Só `_gravar_estado` (apps.fiscal.escrituracao_nfe_lote) escreve o estado.
     "lote_nfe_nota_estado_valido": (
         "Estado da linha do lote fora do conjunto fixo: só o serviço do lote escreve o estado."
+    ),
+    # DL-087 (frente A): CHECKs da regra de classificação. O serviço (`apps.fiscal.classificacao`)
+    # valida CFOP, NCM, CST/CSOSN, idDest, natureza e tipo ANTES do INSERT, e a API traduz a recusa
+    # em 400; nenhuma entrada do cliente chega a estas colunas sem passar por essa checagem.
+    "regra_classificacao_nfe_tipo_valido": (
+        "Tipo da regra fora de saída própria e devolução: o serviço recusa antes do INSERT, e "
+        "ajuste nunca recebe regra."
+    ),
+    "regra_classificacao_nfe_cfop_de_4_digitos": (
+        "CFOP da regra com menos ou mais de 4 dígitos: o serviço exige 4 dígitos da tabela oficial "
+        "antes do INSERT."
+    ),
+    "regra_classificacao_nfe_ncm_coerente": (
+        "NCM da regra fora do par (vazio, exato de 8 dígitos ou prefixo de 2 a 7): o serviço valida"
+        "o modo e o tamanho antes do INSERT."
+    ),
+    "regra_classificacao_nfe_cst_csosn_valido": (
+        "CST ou CSOSN da regra fora de 2 ou 3 dígitos: o serviço valida antes do INSERT, e a "
+        "comparação é com o código como está na nota."
+    ),
+    "regra_classificacao_nfe_id_dest_valido": (
+        "idDest da regra fora de 1, 2 ou 3 (ou vazio): o serviço valida antes do INSERT."
+    ),
+    "regra_classificacao_nfe_natureza_sem_ajuste": (
+        "Natureza da regra vazia ou ajuste: o serviço só aceita natureza de `naturezas_permitidas` "
+        "para o tipo, e ajuste nunca entra."
+    ),
+    # DL-087, item 6: a origem da natureza confirmada é gravada pelo serviço de escrituração, na
+    # mesma transação da natureza. Tabela própria (OrigemNaturezaItemNFe), sem caminho de escrita do
+    # cliente.
+    "origem_natureza_item_unica": (
+        "Duas origens para a mesma natureza de item: `_gravar_origem` faz upsert pela chave do "
+        "item "
+        "(bulk_create com update_conflicts). Nenhum caminho do cliente grava esta tabela."
+    ),
+    "origem_natureza_item_regra_coerente": (
+        'Origem "regra" sem regra, ou regra sem origem "regra": `_gravar_origem` grava as duas '
+        "colunas juntas, a partir da sugestão que a própria confirmação calculou."
+    ),
+    "regra_classificacao_nfe_desativacao_completa": (
+        "Desativação incompleta (sem quem, quando, motivo ou fim da vigência): só "
+        "`apps.fiscal.classificacao.desativar_regra` grava os quatro campos juntos."
     ),
 }
 

@@ -1523,6 +1523,37 @@ NOMES_DE_TELA_ESCRITURACAO_NFE = {
         "test_continuar_processa_as_partes_ate_concluir_sem_duplicar, "
         "test_paralegal_ve_a_previa_sem_botoes_e_o_post_e_recusado"
     ),
+    # DL-087, frente B (apps/fiscal/tests/test_dl087_telas*.py): regras de classificação, fila
+    # "a classificar" e regras do produto. Integração do arquiteto.
+    "fiscal_web:classificacao_regras": (
+        "test_criar_regra_grava_pelo_servico_e_volta_para_a_lista, "
+        "test_lista_filtra_desativadas_depois_de_desativar, "
+        "test_tabelas_das_telas_tem_legenda_e_cabecalho_com_escopo"
+    ),
+    "fiscal_web:classificacao_regra_nova": (
+        "test_formulario_vazio_tem_rotulo_em_todo_campo_e_referencias_validas, "
+        "test_erro_de_campo_e_anunciado_e_referenciado_pelo_proprio_campo, "
+        "test_formulario_pre_preenchido_pela_fila_traz_os_criterios_e_o_aviso"
+    ),
+    "fiscal_web:classificacao_regra_desativar": (
+        "test_desativar_mostra_o_efeito_e_pede_o_motivo, "
+        "test_desativar_sem_motivo_responde_400_e_nada_muda, "
+        "test_erro_do_motivo_da_desativacao_e_associado_ao_campo"
+    ),
+    # DL-087, correção da rodada 1 (A8): "ver notas" de uma regra, na empresa da URL.
+    "fiscal_web:classificacao_regra_notas": (
+        "test_ver_notas_da_regra_lista_so_a_empresa_da_url, "
+        "test_ver_notas_de_regra_de_outra_empresa_responde_404"
+    ),
+    "fiscal_web:classificacao_fila": (
+        "test_fila_agrupa_e_oferece_criar_regra_pre_preenchida, "
+        "test_fila_vazia_diz_que_nao_ha_nada_a_classificar_no_mes, "
+        "test_fila_com_grupo_tem_rotulo_no_campo_de_competencia_e_tabela_conferida"
+    ),
+    "fiscal_web:classificacao_produto": (
+        "test_regras_do_produto_mostra_as_linhas_com_fonte, "
+        "test_regras_do_produto_nao_aceita_escrita"
+    ),
 }
 
 

@@ -59,6 +59,7 @@ que guarda a duplicação.
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal, localcontext
 from functools import wraps
@@ -75,6 +76,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods, require_safe
+from rest_framework.exceptions import PermissionDenied
 
 from apps.auditoria.models import RegistroAuditoria
 from apps.auditoria.services import registrar
@@ -85,6 +87,7 @@ from apps.core.requisicao import (
     recusar_dado_nao_contratado,
 )
 from apps.empresas.models import Empresa
+from apps.fiscal import api_classificacao, classificacao
 from apps.fiscal import escrituracao as servico_escrituracao
 from apps.fiscal import escrituracao_nfe as servico_nfe
 from apps.fiscal import escrituracao_nfe_lote as servico_lote
@@ -141,12 +144,14 @@ from apps.fiscal.models import (
     MedidaJudicialLC224,
     MercadoReceita,
     ModeloNFe,
+    ModoNcmRegraNFe,
     NaturezaItemNFe,
     NaturezaOperacao,
     NaturezaOperacaoNFe,
     NaturezaTomada,
     OpcaoRegimeCaixaSimples,
     OpcaoRegimeIbsCbsSimples,
+    OrigemNaturezaItemNFe,
     OrigemReceitaInformada,
     PapelDocumento,
     PapelNFe,
@@ -155,11 +160,13 @@ from apps.fiscal.models import (
     RegimeIbsCbsSimples,
     RegimeIss,
     RegimeIssEmpresa,
+    RegraClassificacaoNFe,
     RegraIssMunicipio,
     SegmentoDevolucao,
     SituacaoIpiMantido,
     SituacaoIssReceitaInformada,
     TipoEscrituracaoNFe,
+    TipoRegraClassificacaoNFe,
     VinculoDocumentoEmpresa,
     VinculoNFeEmpresa,
     segmentos_permitidos,
@@ -8676,6 +8683,14 @@ def nfe_a_escriturar(request):
         "url_reclassificar": url_reclassificar,
         "url_conferencia": reverse("fiscal_web:nfe_conferencia"),
     }
+    if empresa is not None:
+        # DL-087 (frente B): a fila "a classificar" do mês e as regras da empresa, a um clique.
+        contexto.update(
+            {
+                "url_fila": _url_da_fila_de_classificacao(empresa, ano, mes),
+                "url_regras": _url_das_regras_da_empresa(empresa),
+            }
+        )
     if empresa is None:
         return render(request, "fiscal/nfe_a_escriturar.html", contexto)
 
@@ -8790,6 +8805,63 @@ def _marcas_do_item_na_tela(item, registro, natureza):
     }
 
 
+_ROTULO_DO_ESCOPO_NA_TELA = {
+    classificacao.ESCOPO_EMPRESA: "da empresa",
+    classificacao.ESCOPO_ESCRITORIO: "do escritório",
+}
+
+
+def _juntar_com_e(partes):
+    """'a', 'a e b', 'a, b e c' — a enumeração que o contador lê em português."""
+    partes = list(partes)
+    if len(partes) <= 1:
+        return "".join(partes)
+    return ", ".join(partes[:-1]) + " e " + partes[-1]
+
+
+def _url_das_regras_da_empresa(empresa):
+    """Lista de regras da empresa; a âncora `#regra-<id>` é acrescida por quem chama. None sem
+    empresa."""
+    if empresa is None:
+        return None
+    return reverse("fiscal_web:classificacao_regras", args=[empresa.pk])
+
+
+def _rotulo_da_regra_na_tela(regra_id, escopo):
+    """'regra n.º 3 (do escritório)'. O escopo vem do serviço; sem ele, só o número."""
+    if escopo is None:
+        return f"regra n.º {regra_id}"
+    return f"regra n.º {regra_id} ({_ROTULO_DO_ESCOPO_NA_TELA[escopo]})"
+
+
+def _origem_da_sugestao_na_tela(sugestao, empresa):
+    """De onde veio a sugestão de natureza do item, em texto e com os links para as regras (DL-087,
+    frente B). A origem é a que o serviço devolveu (`origem`, `regra_ids`, `escopo_regra`); a tela
+    só a traduz. Sem empresa, não há link para a regra (a lista é de uma empresa)."""
+    url = _url_das_regras_da_empresa(empresa)
+    origem = sugestao.origem
+    if origem == servico_nfe.ORIGEM_DA_SUGESTAO_CONFLITO_DE_REGRAS:
+        texto = "regras em conflito: " + _juntar_com_e(
+            f"regra n.º {regra_id}" for regra_id in sugestao.regra_ids
+        )
+    elif sugestao.natureza is None:
+        texto = "nenhuma (sem sugestão)"
+    elif origem == servico_nfe.ORIGEM_DA_SUGESTAO_REGRA:
+        texto = _rotulo_da_regra_na_tela(sugestao.regra_ids[0], sugestao.escopo_regra)
+    elif origem == servico_nfe.ORIGEM_DA_SUGESTAO_PADRAO:
+        texto = "padrão de combustível da empresa"
+    else:
+        texto = "sugestão do produto"
+    links = []
+    if url is not None and origem in (
+        servico_nfe.ORIGEM_DA_SUGESTAO_REGRA,
+        servico_nfe.ORIGEM_DA_SUGESTAO_CONFLITO_DE_REGRAS,
+    ):
+        for regra_id in sugestao.regra_ids:
+            links.append({"rotulo": f"regra n.º {regra_id}", "url": f"{url}#regra-{regra_id}"})
+    return {"origem_texto": texto, "origem_links": links}
+
+
 def _linha_do_item_nfe(
     item,
     natureza,
@@ -8799,6 +8871,9 @@ def _linha_do_item_nfe(
     receita_atribuida=None,
     registro=None,
     padrao_combustivel="",
+    contexto=None,
+    empresa=None,
+    origem=None,
 ):
     """Uma linha de item. CFOP (texto da tabela oficial), CST/CSOSN, NCM, valor, receita, natureza
     gravada e sugestão com o motivo que o serviço deu. Sem sugestão, a tela diz "escolha".
@@ -8810,9 +8885,20 @@ def _linha_do_item_nfe(
     escrituração do item). A sugestão do segmento vem do serviço, nunca daqui.
 
     DL-084, item 6 (HI-136): a sugestão de natureza leva o padrão de combustível da empresa
-    (`sugerir_natureza_com_padrao`), que só decide quando o CFOP não decide. O padrão é buscado
-    UMA vez por requisição, na tela que chama."""
-    sugestao = servico_nfe.sugerir_natureza_com_padrao(documento, item, padrao_combustivel, tipo)
+    (`sugerir_natureza_com_regras`, DL-087, com a sugestão embutida e o padrão), que só decide
+    quando o CFOP não decide. O contexto é buscado UMA vez por requisição, na tela que chama."""
+    # DL-087: regras do escritório e da empresa, e padrão de combustível (DL-084), no MESMO
+    # contexto, carregado uma vez por requisição na tela que chama.
+    if contexto is None:
+        # Chamada sem contexto (o caminho antigo de DL-084): nenhuma regra, só o padrão informado.
+        # A tela da escrituração sempre passa o contexto da empresa, com as regras dela.
+        contexto = classificacao.ContextoDeClassificacao(
+            escritorio_id=0,
+            empresa_id=0,
+            padrao_combustivel=padrao_combustivel,
+            regras=(),
+        )
+    sugestao = classificacao.sugerir_natureza_com_regras(contexto, documento, item, tipo)
     info = consultar_cfop(item.cfop)
     if item.csosn:
         cst_csosn = f"CSOSN {item.csosn}"
@@ -8846,6 +8932,10 @@ def _linha_do_item_nfe(
             else "sem sugestão — escolha"
         ),
         "sugestao_motivo": sugestao.motivo,
+        # DL-087 (frente B): de onde veio a sugestão, com o link para a regra quando for regra.
+        **_origem_da_sugestao_na_tela(sugestao, empresa),
+        # DL-087, A8: a origem GRAVADA da natureza confirmada (vazia sem natureza confirmada).
+        "origem_gravada": _origem_gravada_na_tela(origem, empresa) if natureza else None,
         "opcoes": _opcoes_de_natureza(tipo),
         "selecionada": natureza or sugestao.natureza or "",
         # DL-082: marca de monofásico e segmento da devolução (leitura fora do rascunho).
@@ -8997,9 +9087,10 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
             if escrituracao is not None
             else {}
         )
-        # DL-084, item 6: o padrão de combustível da empresa entra na sugestão de natureza. Buscado
-        # UMA vez por requisição, para não repetir a consulta em cada item.
-        padrao_combustivel = servico_presumido.parametros_da_empresa(empresa).padrao_combustivel
+        # DL-084, item 6 e DL-087: regras e padrão de combustível entram na sugestão de natureza.
+        # Carregados UMA vez por requisição, para não repetir a consulta em cada item.
+        contexto = classificacao.contexto_da_empresa(empresa)
+        origens = _origens_da_escrituracao(escrituracao)
         linhas = [
             _linha_do_item_nfe(
                 item,
@@ -9009,7 +9100,9 @@ def _tela_de_escriturar_nfe(request, empresa, vinculo, *, status=200):
                 avisos_por_item.get(item.pk, ()),
                 None if receitas is None else receitas.get(item.pk),
                 registro=registros.get(item.pk),
-                padrao_combustivel=padrao_combustivel,
+                contexto=contexto,
+                empresa=empresa,
+                origem=origens.get(item.pk),
             )
             for item, natureza in pares
         ]
@@ -9102,27 +9195,28 @@ def _redirecionar_escriturar_nfe(empresa, vinculo):
     return redirect("fiscal_web:nfe_escriturar", empresa_id=empresa.pk, vinculo_id=vinculo.pk)
 
 
-def _itens_com_sugestao_pendente(documento, escrituracao, sinal, padrao_combustivel):
+def _itens_com_sugestao_pendente(documento, escrituracao, sinal, contexto):
     """Itens SEM natureza confirmada cuja sugestão é `sinal`: o alvo do bloco é escolhido aqui,
-    no servidor, pelo mesmo serviço de sugestão (DL-084, item 6: `sugerir_natureza_com_padrao`, com
-    o padrão de combustível da empresa). O cliente não envia lista de itens."""
+    no servidor, pelo mesmo serviço de sugestão (DL-084, item 6; DL-087:
+    `sugerir_natureza_com_regras`, com o padrão de combustível). O cliente não envia lista
+    de itens."""
     registros = NaturezaItemNFe.objects.select_related("item").filter(
         escrituracao=escrituracao, natureza=""
     )
     return [
         registro.item_id
         for registro in registros
-        if servico_nfe.sugerir_natureza_com_padrao(
-            documento, registro.item, padrao_combustivel, escrituracao.tipo
+        if classificacao.sugerir_natureza_com_regras(
+            contexto, documento, registro.item, escrituracao.tipo
         ).natureza
         == sinal
     ]
 
 
 def _escriturar_nfe_post(request, empresa, vinculo):
-    # DL-084, item 6: o padrão de combustível da empresa entra na sugestão de natureza dos itens
-    # confirmados em bloco. Buscado UMA vez por requisição.
-    padrao_combustivel = servico_presumido.parametros_da_empresa(empresa).padrao_combustivel
+    # DL-084, item 6 e DL-087: regras e padrão de combustível entram na sugestão dos itens
+    # confirmados em bloco. Carregados UMA vez por requisição.
+    contexto = classificacao.contexto_da_empresa(empresa)
     try:
         recusar_dado_nao_contratado(request, _CONTRATO_ESCRITURAR_NFE)
     except DadoNaoContratado as exc:
@@ -9199,9 +9293,7 @@ def _escriturar_nfe_post(request, empresa, vinculo):
             )
         else:  # bloco
             sinal = _texto_nfe(request.POST.get("sinal"), "Sinal", _TAMANHO_NATUREZA_NFE)
-            ids = _itens_com_sugestao_pendente(
-                vinculo.documento, escrituracao, sinal, padrao_combustivel
-            )
+            ids = _itens_com_sugestao_pendente(vinculo.documento, escrituracao, sinal, contexto)
             if not ids:
                 raise servico_nfe.EntradaInvalidaNFe(
                     "Nenhum item sem natureza confirmada tem esta sugestão."
@@ -9704,7 +9796,59 @@ def _preenchimento_do_post(post, grupos):
     }
 
 
-def _linha_do_grupo_no_lote(grupo, posicao, preenchido):
+_PADRAO_FONTE_DE_REGRA = re.compile(r"regra:([0-9]{1,19})")
+
+
+def _id_da_fonte_da_regra(fonte):
+    """Id da regra de uma assinatura do lote (`regra:<id>`), ou None quando a fonte é outra."""
+    casamento = _PADRAO_FONTE_DE_REGRA.fullmatch(fonte or "")
+    return int(casamento.group(1)) if casamento else None
+
+
+def _regras_das_assinaturas_do_lote(previa, empresa):
+    """As regras que produziram alguma sugestão do lote, numa consulta. Só as que valem para a
+    empresa (as do escritório e as dela): a fonte vem do serviço, a busca fica no escopo dela."""
+    ids = {
+        regra_id
+        for grupo in previa.grupos
+        for assinatura in grupo.assinaturas
+        if (regra_id := _id_da_fonte_da_regra(assinatura.fonte)) is not None
+    }
+    if not ids:
+        return {}
+    consulta = RegraClassificacaoNFe.objects.filter(
+        pk__in=ids, escritorio_id=empresa.escritorio_id
+    ).filter(Q(empresa__isnull=True) | Q(empresa=empresa))
+    return {regra.pk: regra for regra in consulta}
+
+
+def _origem_da_assinatura_na_tela(assinatura, empresa, regras):
+    """Origem de um par (CFOP, CST/CSOSN, natureza) do lote, em texto e com o link da regra.
+
+    A assinatura traz só `regra:<id>` ou nada. Sem regra, a origem é o PRODUTO OU o PADRÃO de
+    combustível: o lote não os distingue (a assinatura não guarda isso), e a escrituração de cada
+    nota mostra a origem exata.
+    """
+    regra_id = _id_da_fonte_da_regra(assinatura.fonte)
+    if regra_id is None:
+        return {
+            "origem_texto": "sugestão do produto ou padrão de combustível da empresa",
+            "origem_url": None,
+        }
+    regra = regras.get(regra_id)
+    escopo = None
+    if regra is not None:
+        escopo = (
+            classificacao.ESCOPO_EMPRESA if regra.empresa_id else classificacao.ESCOPO_ESCRITORIO
+        )
+    url = _url_das_regras_da_empresa(empresa)
+    return {
+        "origem_texto": _rotulo_da_regra_na_tela(regra_id, escopo),
+        "origem_url": f"{url}#regra-{regra_id}" if url is not None else None,
+    }
+
+
+def _linha_do_grupo_no_lote(grupo, posicao, preenchido, empresa=None, regras=None):
     chave = grupo.chave
     return {
         "posicao": posicao,
@@ -9716,6 +9860,8 @@ def _linha_do_grupo_no_lote(grupo, posicao, preenchido):
                 "cfop": combinacao.cfop,
                 "cst_csosn": combinacao.cst_csosn or "—",
                 "natureza_rotulo": NaturezaOperacaoNFe(combinacao.natureza).label,
+                # DL-087 (frente B): de onde veio a sugestão deste par, com o link da regra.
+                **_origem_da_assinatura_na_tela(combinacao, empresa, regras or {}),
             }
             for combinacao in grupo.assinaturas
         ],
@@ -9761,6 +9907,7 @@ def _tela_do_lote_nfe(request, empresa, ano, mes, *, status=200, preenchido=None
         raise _EntradaNfeRecusada(exc.mensagem) from exc
     pode = _pode_escriturar(request)
     pagina = Paginator(previa.fora, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
+    regras_do_lote = _regras_das_assinaturas_do_lote(previa, empresa)
     aberto = previa.lote_em_andamento
     lote_aberto = servico_lote.resumo_do_lote(aberto) if aberto is not None else None
     a_ler = len(previa.a_ler)
@@ -9780,8 +9927,18 @@ def _tela_do_lote_nfe(request, empresa, ano, mes, *, status=200, preenchido=None
         + "?"
         + urlencode({"empresa": empresa.pk, "ano": ano, "mes": mes}),
         "assinatura": previa.assinatura,
+        # DL-087 (frente B): a fila "a classificar" do mês, e a origem de cada sugestão do lote.
+        "url_fila": _url_da_fila_de_classificacao(empresa, ano, mes),
+        # DL-087, A7: mês confirmado não bloqueia o lote, mas o aviso aparece aqui.
+        "aviso_do_mes": previa.aviso_do_mes,
         "grupos": [
-            _linha_do_grupo_no_lote(grupo, posicao, preenchido)
+            _linha_do_grupo_no_lote(
+                grupo,
+                posicao,
+                preenchido,
+                empresa=empresa,
+                regras=regras_do_lote,
+            )
             for posicao, grupo in enumerate(previa.grupos, start=1)
         ],
         "total_grupos": len(previa.grupos),
@@ -9846,6 +10003,7 @@ def _tela_do_progresso_nfe(request, empresa, dados):
         "url_lista": reverse("fiscal_web:nfe_a_escriturar")
         + "?"
         + urlencode({"empresa": empresa.pk, "ano": dados["ano"], "mes": dados["mes"]}),
+        "url_fila": _url_da_fila_de_classificacao(empresa, dados["ano"], dados["mes"]),
         "progresso": dados,
         "vazio": False,
         "grupos": [],
@@ -10633,3 +10791,935 @@ def ipi_mantido_gravar(request, empresa_id):
         )
     messages.success(request, "Dado de IPI mantido registrado para esta empresa.")
     return redirect(reverse("fiscal_web:ipi_mantido") + "?" + urlencode({"empresa": empresa.pk}))
+
+
+# ---------------------------------------------------------------------------
+# DL-087 (frente B): telas da classificação fiscal versionada.
+#
+# Regras de classificação do escritório e da empresa, prévia de impacto, fila "a classificar" e as
+# regras do produto (só leitura). As telas chamam o SERVIÇO da frente A
+# (`apps.fiscal.classificacao`): não recalculam nada e não chamam a API por HTTP.
+#
+# Permissão (AGENTS.md §11, no servidor): a decisão é a MESMA da API, por
+# `api_classificacao._pode` e `_exigir_permissao_para_o_escopo`. Regra de empresa: quem escritura
+# no fiscal. Regra de escritório: só administrador e gestor, porque alcança todos os clientes.
+# Leitura: quem consulta documentos fiscais; o cliente recebe 403. A empresa vem do escritório
+# ativo (404 para outro escritório), e a regra e o grupo são buscados DENTRO dela.
+#
+# Arquétipos (direção de arte §2): a lista e a fila são de consulta e conferência (A e C); o
+# formulário da regra é de documento (B), com a prévia de impacto ANTES de gravar; desativar é
+# confirmação de ação sensível (E), com motivo obrigatório.
+# ---------------------------------------------------------------------------
+
+_MENSAGEM_SEM_CONSULTA_CLASSIFICACAO = (
+    "Seu papel não permite consultar as regras de classificação de NF-e."
+)
+_ESCOPOS_DE_REGRA = (classificacao.ESCOPO_EMPRESA, classificacao.ESCOPO_ESCRITORIO)
+_FILTROS_DE_ESCOPO = ("", classificacao.ESCOPO_EMPRESA, classificacao.ESCOPO_ESCRITORIO)
+_FILTROS_DE_SITUACAO = ("", "ativa", "desativada")
+_ACOES_DA_REGRA_NOVA = frozenset({"atualizar", "previa", "criar"})
+_PADRAO_COMPETENCIA = re.compile(r"(0[1-9]|1[0-2])/([0-9]{4})")
+_PADRAO_ANO_DO_PEDIDO = re.compile(r"[0-9]{4}")
+_PADRAO_MES_DO_PEDIDO = re.compile(r"(0?[1-9]|1[0-2])")
+
+# Tamanho máximo de cada campo digitado (a regra exata fica no serviço; aqui só o que cabe).
+_TAMANHO_DOS_CAMPOS_DA_REGRA = {
+    "tipo": 16,
+    "cfop": 5,
+    "ncm": 10,
+    "ncm_modo": 8,
+    "cst_csosn": 3,
+    "id_dest": 1,
+    "natureza": _TAMANHO_NATUREZA_NFE,
+    "vigencia_inicio": 10,
+    "vigencia_fim": 10,
+    "competencia": 7,
+}
+_ROTULO_DO_CAMPO = {
+    "escopo": "Alcance da regra",
+    "tipo": "Tipo da nota",
+    "cfop": "CFOP",
+    "ncm": "NCM",
+    "ncm_modo": "Modo do NCM",
+    "cst_csosn": "CST ou CSOSN",
+    "id_dest": "idDest",
+    "natureza": "Natureza",
+    "vigencia_inicio": "Início da vigência",
+    "vigencia_fim": "Fim da vigência",
+    "competencia": "Competência da prévia",
+    "motivo": "Motivo da desativação",
+}
+# A mensagem do serviço nomeia o campo que a recusou. A ORDEM importa: a recusa de natureza de
+# combustível diz "exige NCM" e "CFOP", e tem de cair em natureza, antes de NCM e de CFOP.
+_CAMPO_DA_RECUSA = (
+    ("Tipo da nota", "tipo"),
+    ("Nota de ajuste", "tipo"),
+    ("Natureza", "natureza"),
+    ("natureza", "natureza"),
+    ("CFOP", "cfop"),
+    ("Modo do NCM", "ncm_modo"),
+    ("modo do NCM", "ncm_modo"),
+    ("NCM", "ncm"),
+    ("CST ou CSOSN", "cst_csosn"),
+    ("idDest", "id_dest"),
+    ("início da vigência", "vigencia_inicio"),
+    ("fim da vigência", "vigencia_fim"),
+)
+_CONTRATO_REGRA_NOVA = ContratoDeRequisicao(
+    campos={
+        "csrfmiddlewaretoken",
+        "acao",
+        "escopo",
+        "origem",
+        "competencia",
+        "tipo",
+        "cfop",
+        "ncm",
+        "ncm_modo",
+        "cst_csosn",
+        "id_dest",
+        "natureza",
+        "vigencia_inicio",
+        "vigencia_fim",
+    },
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na criação de regra de classificação de NF-e pela tela",
+)
+_CONTRATO_DESATIVAR_REGRA_NA_TELA = ContratoDeRequisicao(
+    campos={"csrfmiddlewaretoken", "motivo"},
+    cabecalhos_ignorados=("Idempotency-Key",),
+    contexto="na desativação de regra de classificação de NF-e pela tela",
+)
+
+
+def _pode_gerir_regra(request, escopo):
+    """Pode criar ou desativar regra deste escopo? A decisão é a da API (uma função só)."""
+    return api_classificacao._pode(request, escopo)
+
+
+def _recusa_de_escopo(request, escopo):
+    """403 com a mensagem da API quando o papel não gere regra deste escopo. None quando pode."""
+    try:
+        api_classificacao._exigir_permissao_para_o_escopo(request, escopo)
+    except PermissionDenied as exc:
+        return _resposta_sem_permissao(request, str(exc.detail))
+    return None
+
+
+def _url_da_fila_de_classificacao(empresa, ano, mes):
+    return (
+        reverse("fiscal_web:classificacao_fila", args=[empresa.pk])
+        + "?"
+        + urlencode({"ano": ano, "mes": mes})
+    )
+
+
+def _url_produto_classificacao():
+    return reverse("fiscal_web:classificacao_produto")
+
+
+def _competencia_padrao_da_tela():
+    hoje = timezone.localdate()
+    return f"{hoje.month:02d}/{hoje.year}"
+
+
+def _criterios_da_regra_na_tela(regra):
+    """'CFOP 5102; NCM exato 22030000; CST/CSOSN 102; idDest 1'. Só o que a regra usa."""
+    partes = [f"CFOP {regra.cfop}"]
+    if regra.ncm:
+        modo = "NCM exato" if regra.ncm_modo == ModoNcmRegraNFe.EXATO else "NCM por prefixo"
+        partes.append(f"{modo} {regra.ncm}")
+    if regra.cst_csosn:
+        partes.append(f"CST/CSOSN {regra.cst_csosn}")
+    if regra.id_dest:
+        partes.append(f"idDest {regra.id_dest}")
+    return "; ".join(partes)
+
+
+def _vigencia_da_regra_na_tela(inicio, fim, ativa=True):
+    """Vigência da regra em texto. Nome próprio: `_vigencia_na_tela` já existe, na tela de ISS.
+
+    Regra desativada é REVOGADA (DL-087, A1): nenhuma nota a recebe, pendente ou futura. O fim
+    gravado é técnico (a véspera do início) e não aparece como data de vigência.
+    """
+    if not ativa:
+        return "revogada: nenhuma nota a recebe, pendente ou futura"
+    if fim is None:
+        return f"a partir de {inicio:%d/%m/%Y}, sem fim"
+    if fim < inicio:
+        return "vigência vazia (o fim é anterior ao início): nenhuma nota a recebe"
+    return f"de {inicio:%d/%m/%Y} a {fim:%d/%m/%Y}"
+
+
+def _linha_da_regra(regra, empresa, *, pode_desativar, total_confirmados=None):
+    """Uma regra, em texto, para a lista e a confirmação. Nenhum dado de outra empresa: a regra já
+    chegou filtrada pelo escopo (escritório, ou a empresa dela). `empresa` é a da URL da tela."""
+    escopo = classificacao.ESCOPO_EMPRESA if regra.empresa_id else classificacao.ESCOPO_ESCRITORIO
+    if total_confirmados is None:
+        total_confirmados = getattr(regra, "total_confirmados", 0)
+    desativacao = ""
+    if not regra.ativa:
+        desativacao = (
+            f"revogada em {timezone.localtime(regra.desativada_em):%d/%m/%Y}: "
+            f"{regra.motivo_desativacao}"
+        )
+    return {
+        "id": regra.pk,
+        "ancora": f"regra-{regra.pk}",
+        "escopo": escopo,
+        "escopo_rotulo": {
+            classificacao.ESCOPO_EMPRESA: "Da empresa",
+            classificacao.ESCOPO_ESCRITORIO: "Do escritório",
+        }[escopo],
+        "tipo_rotulo": TipoRegraClassificacaoNFe(regra.tipo).label,
+        "criterios": _criterios_da_regra_na_tela(regra),
+        "natureza_rotulo": NaturezaOperacaoNFe(regra.natureza).label,
+        "vigencia": _vigencia_da_regra_na_tela(
+            regra.vigencia_inicio, regra.vigencia_fim, regra.ativa
+        ),
+        "ativa": regra.ativa,
+        "situacao_rotulo": "Ativa" if regra.ativa else "Desativada",
+        "desativacao": desativacao,
+        "autor": regra.criada_por.get_username(),
+        "criada_em": timezone.localtime(regra.criada_em).strftime("%d/%m/%Y %H:%M"),
+        "itens_confirmados": total_confirmados,
+        "url_notas": reverse("fiscal_web:classificacao_regra_notas", args=[empresa.pk, regra.pk]),
+        "url_desativar": (
+            reverse("fiscal_web:classificacao_regra_desativar", args=[empresa.pk, regra.pk])
+            if regra.ativa and pode_desativar
+            else ""
+        ),
+    }
+
+
+def _ordem_de_decisao_na_tela():
+    """A ordem em que o serviço decide, em palavras. Os pesos vêm do serviço (uma fonte só)."""
+    return [
+        "Vale só a regra vigente na data de emissão da nota, e cuja natureza cabe no tipo da nota.",
+        "Vence a de maior especificidade. Os pesos são: CFOP "
+        f"{classificacao.PESO_CFOP}, NCM exato {classificacao.PESO_NCM_EXATO}, NCM por prefixo "
+        f"{classificacao.PESO_NCM_PREFIXO}, CST/CSOSN {classificacao.PESO_CST_CSOSN}, idDest "
+        f"{classificacao.PESO_ID_DEST}. Como são potências de dois, conjuntos diferentes de "
+        "critérios nunca empatam.",
+        "Entre prefixos de NCM que casam o mesmo item, vence o mais longo.",
+        "Empate de especificidade: vence a regra da empresa sobre a do escritório.",
+        "Empate com a mesma natureza não é conflito: a sugestão sai, e o motivo nomeia as regras.",
+        "Empate com natureza diferente é conflito: o item fica sem sugestão, e a fila mostra as "
+        "regras em conflito.",
+        "Se nenhuma regra casa, vale a sugestão do produto e, depois, o padrão de combustível da "
+        "empresa, como antes da regra existir.",
+        "A regra só muda a sugestão. Nota efetivada e natureza escolhida num rascunho não mudam.",
+    ]
+
+
+def _campo_da_recusa(mensagem):
+    """O campo do formulário que a mensagem do serviço nomeia. Sem nome reconhecido: 'geral'."""
+    for trecho, campo in _CAMPO_DA_RECUSA:
+        if trecho in mensagem:
+            return campo
+    return "geral"
+
+
+def _texto_da_regra(fonte, nome, erros, maximo):
+    """Texto aparado de um campo. Byte nulo, substituto ou texto longo viram erro DO CAMPO."""
+    bruto = fonte.get(nome) or ""
+    if "\x00" in bruto or any(0xD800 <= ord(caractere) <= 0xDFFF for caractere in bruto):
+        erros.setdefault(nome, f"{_ROTULO_DO_CAMPO[nome]} tem caractere inválido.")
+        return ""
+    texto = bruto.strip()
+    if len(texto) > maximo:
+        erros.setdefault(nome, f"{_ROTULO_DO_CAMPO[nome]} tem no máximo {maximo} caracteres.")
+    return texto
+
+
+def _valores_da_regra(fonte, erros):
+    """Os campos da regra como texto. O que não cabe vira erro do campo, e a tela o mostra."""
+    return {
+        nome: _texto_da_regra(fonte, nome, erros, maximo)
+        for nome, maximo in _TAMANHO_DOS_CAMPOS_DA_REGRA.items()
+    }
+
+
+def _data_da_regra(texto, nome, erros, *, obrigatoria):
+    """`dd/mm/aaaa` -> date. Vazio é erro quando obrigatória; fora do formato ou da faixa é erro do
+    campo, com a data que a tela pede."""
+    rotulo = _ROTULO_DO_CAMPO[nome]
+    if not texto:
+        if obrigatoria:
+            erros.setdefault(nome, f"Informe o {rotulo.lower()} no formato dd/mm/aaaa.")
+        return None
+    try:
+        data = _data_br_do_filtro(texto, rotulo)
+    except ValueError as exc:
+        erros.setdefault(nome, str(exc))
+        return None
+    if not _ANO_MINIMO_NFE <= data.year <= _ANO_MAXIMO_NFE:
+        erros.setdefault(
+            nome, f"{rotulo} fora do intervalo aceito ({_ANO_MINIMO_NFE} a {_ANO_MAXIMO_NFE})."
+        )
+        return None
+    return data
+
+
+def _competencia_da_previa(texto, erros):
+    """(ano, mês) de `mm/aaaa` da prévia. Fora do formato ou da faixa: erro do campo."""
+    casamento = _PADRAO_COMPETENCIA.fullmatch(texto or "")
+    if casamento is None:
+        erros.setdefault("competencia", "Competência da prévia: use mm/aaaa, por exemplo 03/2026.")
+        return None
+    mes, ano = int(casamento.group(1)), int(casamento.group(2))
+    if not _ANO_MINIMO_NFE <= ano <= _ANO_MAXIMO_NFE:
+        erros.setdefault(
+            "competencia",
+            f"Ano da prévia fora do intervalo aceito ({_ANO_MINIMO_NFE} a {_ANO_MAXIMO_NFE}).",
+        )
+        return None
+    return ano, mes
+
+
+def _competencia_do_pedido(fonte):
+    """`mm/aaaa` a partir de `?ano=&mes=` (a fila pede a regra do mês dela). Vazio se não couber."""
+    ano, mes = fonte.get("ano") or "", fonte.get("mes") or ""
+    if _PADRAO_ANO_DO_PEDIDO.fullmatch(ano) and _PADRAO_MES_DO_PEDIDO.fullmatch(mes):
+        return f"{int(mes):02d}/{ano}"
+    return ""
+
+
+def _valores_do_pedido_de_regra(fonte):
+    """Valores do formulário vazio ou pré-preenchido pela fila (GET: só leitura, sem erro)."""
+    valores = _valores_da_regra(fonte, {})
+    escopo = fonte.get("escopo")
+    valores["escopo"] = escopo if escopo in _ESCOPOS_DE_REGRA else classificacao.ESCOPO_EMPRESA
+    valores["origem"] = "fila" if fonte.get("origem") == "fila" else ""
+    valores["competencia"] = _competencia_do_pedido(fonte) or valores["competencia"]
+    return valores
+
+
+def _dados_da_regra_do_formulario(valores, vigencia_inicio, vigencia_fim):
+    return classificacao.DadosDaRegra(
+        tipo=valores["tipo"],
+        cfop=valores["cfop"],
+        natureza=valores["natureza"],
+        vigencia_inicio=vigencia_inicio,
+        vigencia_fim=vigencia_fim,
+        ncm=valores["ncm"],
+        ncm_modo=valores["ncm_modo"],
+        cst_csosn=valores["cst_csosn"],
+        id_dest=valores["id_dest"],
+    )
+
+
+def _previas_da_regra(empresa, ano, mes, dados, escopo):
+    """A prévia com todos os critérios e uma por critério opcional preenchido (sem o NCM, sem o
+    CST/CSOSN, sem o idDest). Uma PASSADA só no serviço (DL-087, A6): as notas são lidas uma vez e
+    cada variante sai das mesmas contagens. Variante que o serviço recusa (p. ex., combustível sem
+    NCM) não entra na passada e vai com a recusa dele. Nada é gravado."""
+    retiradas = (
+        ("Sem o NCM", bool(dados.ncm), {"ncm": "", "ncm_modo": ""}),
+        ("Sem o CST ou CSOSN", bool(dados.cst_csosn), {"cst_csosn": ""}),
+        ("Sem o idDest", bool(dados.id_dest), {"id_dest": ""}),
+    )
+    validas = [dados]
+    ordem = []  # (rótulo, posição em `validas` ou None, recusa)
+    for rotulo, presente, troca in retiradas:
+        if not presente:
+            continue
+        try:
+            validas.append(classificacao.validar_dados_da_regra(replace(dados, **troca)))
+        except servico_nfe.EntradaInvalidaNFe as exc:
+            ordem.append((rotulo, None, exc.mensagem))
+        else:
+            ordem.append((rotulo, len(validas) - 1, ""))
+    previas = classificacao.previas_de_impacto(empresa, ano, mes, validas, escopo)
+    variantes = [
+        {
+            "rotulo": rotulo,
+            "previa": None if posicao is None else previas[posicao],
+            "recusa": recusa,
+        }
+        for rotulo, posicao, recusa in ordem
+    ]
+    return previas[0], variantes
+
+
+def _escopos_da_tela(empresa, pode_escritorio, marcado):
+    escopos = [
+        {
+            "valor": classificacao.ESCOPO_EMPRESA,
+            "rotulo": "Da empresa",
+            "ajuda": (
+                f"Vale só para {empresa.razao_social}. Quem escritura no fiscal cria e desativa."
+            ),
+            "marcado": marcado == classificacao.ESCOPO_EMPRESA,
+        }
+    ]
+    if pode_escritorio:
+        escopos.append(
+            {
+                "valor": classificacao.ESCOPO_ESCRITORIO,
+                "rotulo": "Do escritório",
+                "ajuda": (
+                    "Vale para todas as empresas do escritório. Só administrador e gestor criam "
+                    "e desativam, porque alcança todos os clientes."
+                ),
+                "marcado": marcado == classificacao.ESCOPO_ESCRITORIO,
+            }
+        )
+    return escopos
+
+
+def _tela_da_regra_nova(
+    request,
+    empresa,
+    *,
+    valores,
+    erros,
+    status,
+    previa=None,
+    variantes=(),
+    avisos=(),
+):
+    """O formulário de regra, com o que foi digitado, os erros por campo e, se pedida, a prévia.
+    Nada aqui grava: a prévia é contagem, e a gravação está em `_criar_regra_na_tela`."""
+    pode_empresa = _pode_gerir_regra(request, classificacao.ESCOPO_EMPRESA)
+    pode_escritorio = _pode_gerir_regra(request, classificacao.ESCOPO_ESCRITORIO)
+    pode_escrever = pode_empresa or pode_escritorio
+    tipo_marcado = valores.get("tipo") or TipoRegraClassificacaoNFe.SAIDA_PROPRIA
+    competencia = valores.get("competencia") or _competencia_padrao_da_tela()
+    casamento = _PADRAO_COMPETENCIA.fullmatch(competencia)
+    if casamento:
+        ano, mes = int(casamento.group(2)), int(casamento.group(1))
+    else:
+        ano, mes = _ano_e_mes_padrao_da_tela()
+    contexto = {
+        "empresa": empresa,
+        "valores": valores,
+        "erros": erros,
+        "erro_geral": erros.get("geral", ""),
+        "pode_escrever": pode_escrever,
+        "pode_escritorio": pode_escritorio,
+        "motivo_sem_escrita": (
+            "Seu papel consulta as regras, mas não cria: criar regra de classificação é de "
+            "quem escritura no fiscal."
+        ),
+        "escopos": _escopos_da_tela(empresa, pode_escritorio, valores.get("escopo")),
+        "tipos": TipoRegraClassificacaoNFe.choices,
+        "tipo_marcado": tipo_marcado,
+        "naturezas": _opcoes_de_natureza(tipo_marcado),
+        "modos_ncm": [
+            ("", "Sem NCM"),
+            (ModoNcmRegraNFe.EXATO, "Exato: 8 dígitos"),
+            (ModoNcmRegraNFe.PREFIXO, "Prefixo: de 2 a 7 dígitos"),
+        ],
+        "ids_dest": [
+            ("", "Qualquer (não usa o idDest)"),
+            ("1", "1: operação interna"),
+            ("2", "2: operação interestadual"),
+            ("3", "3: operação com o exterior"),
+        ],
+        "competencia_valor": competencia,
+        "veio_da_fila": valores.get("origem") == "fila",
+        "previa": previa,
+        "variantes": list(variantes),
+        "avisos": list(avisos),
+        "url_form": reverse("fiscal_web:classificacao_regra_nova", args=[empresa.pk]),
+        "url_lista": _url_das_regras_da_empresa(empresa),
+        "url_fila": _url_da_fila_de_classificacao(empresa, ano, mes),
+        "url_produto": _url_produto_classificacao(),
+        "ajuda_do_combustivel": (
+            "Natureza de combustível (consumo, revenda ou devolução para consumo) exige NCM exato "
+            "ou por prefixo. Prefixo que alcança lubrificante gera aviso antes de gravar."
+        ),
+        "ordem_de_decisao": _ordem_de_decisao_na_tela(),
+    }
+    return render(request, "fiscal/classificacao_regra_form.html", contexto, status=status)
+
+
+def _ano_e_mes_padrao_da_tela():
+    hoje = timezone.localdate()
+    return hoje.year, hoje.month
+
+
+def _criar_regra_na_tela(request, empresa, dados, escopo, valores, erros):
+    """Grava a regra pelo serviço. Recusa 400 (critério) ou 409 (duplicada), com a mensagem dele.
+    Sucesso: volta à lista, com a regra em destaque e os avisos do serviço."""
+    avisos = classificacao.avisos_da_regra(dados, escopo)
+    try:
+        regra = classificacao.criar_regra(
+            escritorio=request.escritorio,
+            empresa=empresa if escopo == classificacao.ESCOPO_EMPRESA else None,
+            dados=dados,
+            usuario=request.user,
+            request=request,
+        )
+    except servico_nfe.EntradaInvalidaNFe as exc:
+        erros[_campo_da_recusa(exc.mensagem)] = exc.mensagem
+        return _tela_da_regra_nova(request, empresa, valores=valores, erros=erros, status=400)
+    except servico_nfe.EscrituracaoNFeErro as exc:
+        erros["geral"] = exc.mensagem
+        return _tela_da_regra_nova(request, empresa, valores=valores, erros=erros, status=409)
+    for aviso in avisos:
+        messages.warning(request, aviso)
+    messages.success(
+        request,
+        f"Regra n.º {regra.pk} criada ({_ROTULO_DO_ESCOPO_NA_TELA[escopo]}). A partir de agora ela "
+        "sugere a natureza das notas a escriturar. Nenhuma nota já efetivada muda.",
+    )
+    return redirect(_url_das_regras_da_empresa(empresa) + f"#regra-{regra.pk}")
+
+
+def _regra_nova_post(request, empresa):
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_REGRA_NOVA)
+    except DadoNaoContratado as exc:
+        raise _EntradaNfeRecusada(exc.mensagem) from exc
+    acao = request.POST.get("acao", "")
+    if acao not in _ACOES_DA_REGRA_NOVA:
+        raise _EntradaNfeRecusada("Ação desconhecida no formulário da regra.")
+    escopo = (request.POST.get("escopo") or classificacao.ESCOPO_EMPRESA).strip()
+    if escopo not in _ESCOPOS_DE_REGRA:
+        raise _EntradaNfeRecusada("Alcance da regra inválido: use da empresa ou do escritório.")
+    # 403 antes de qualquer validação de conteúdo: quem não pode criar não aprende nada das regras.
+    recusa = _recusa_de_escopo(request, escopo)
+    if recusa is not None:
+        return recusa
+
+    erros = {}
+    valores = _valores_da_regra(request.POST, erros)
+    valores["escopo"] = escopo
+    valores["origem"] = "fila" if request.POST.get("origem") == "fila" else ""
+    if acao == "atualizar":
+        # Só troca as naturezas oferecidas para o tipo escolhido: não valida, não grava.
+        return _tela_da_regra_nova(request, empresa, valores=valores, erros={}, status=200)
+
+    competencia = (
+        _competencia_da_previa(valores["competencia"], erros) if acao == "previa" else None
+    )
+    vigencia_inicio = _data_da_regra(
+        valores["vigencia_inicio"], "vigencia_inicio", erros, obrigatoria=True
+    )
+    vigencia_fim = _data_da_regra(valores["vigencia_fim"], "vigencia_fim", erros, obrigatoria=False)
+    if erros:
+        return _tela_da_regra_nova(request, empresa, valores=valores, erros=erros, status=400)
+
+    dados = _dados_da_regra_do_formulario(valores, vigencia_inicio, vigencia_fim)
+    try:
+        dados = classificacao.validar_dados_da_regra(dados)
+    except servico_nfe.EntradaInvalidaNFe as exc:
+        erros[_campo_da_recusa(exc.mensagem)] = exc.mensagem
+        return _tela_da_regra_nova(request, empresa, valores=valores, erros=erros, status=400)
+
+    if acao == "previa":
+        ano, mes = competencia
+        try:
+            completa, variantes = _previas_da_regra(empresa, ano, mes, dados, escopo)
+        except servico_nfe.EntradaInvalidaNFe as exc:
+            erros[_campo_da_recusa(exc.mensagem)] = exc.mensagem
+            return _tela_da_regra_nova(request, empresa, valores=valores, erros=erros, status=400)
+        except servico_nfe.EscrituracaoNFeErro as exc:
+            # A2: regra igual à existente é 409 com a mensagem, e não 500.
+            erros["geral"] = exc.mensagem
+            return _tela_da_regra_nova(request, empresa, valores=valores, erros=erros, status=409)
+        # A7: o mês confirmado aparece na prévia, sem bloquear.
+        avisos = (
+            (*completa.avisos, completa.aviso_do_mes) if completa.aviso_do_mes else completa.avisos
+        )
+        return _tela_da_regra_nova(
+            request,
+            empresa,
+            valores=valores,
+            erros={},
+            status=200,
+            previa=completa,
+            variantes=variantes,
+            avisos=avisos,
+        )
+    return _criar_regra_na_tela(request, empresa, dados, escopo, valores, erros)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+@_entrada_nfe_verificada
+def classificacao_regra_nova(request, empresa_id):
+    """GET: o formulário (vazio, ou pré-preenchido pela fila). POST: `atualizar` (troca as naturezas
+    do tipo), `previa` (mostra o alcance, sem gravar) ou `criar` (grava, pelo serviço)."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_CLASSIFICACAO)
+    empresa = _empresa_nfe_da_rota(request, empresa_id)
+    if request.method == "GET":
+        valores = _valores_do_pedido_de_regra(request.GET)
+        return _tela_da_regra_nova(request, empresa, valores=valores, erros={}, status=200)
+    return _regra_nova_post(request, empresa)
+
+
+def _filtro_da_lista(bruto, permitidos, rotulo):
+    texto = _texto_nfe(bruto, rotulo, 16)
+    if texto not in permitidos:
+        raise _EntradaNfeRecusada(f"Filtro '{rotulo}' inválido.")
+    return texto
+
+
+@login_required
+@require_safe
+@_entrada_nfe_verificada
+def classificacao_regras(request, empresa_id):
+    """Lista das regras que valem para a empresa (as do escritório e as dela), com filtros."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_CLASSIFICACAO)
+    empresa = _empresa_nfe_da_rota(request, empresa_id)
+    escopo = _filtro_da_lista(request.GET.get("escopo"), _FILTROS_DE_ESCOPO, "Alcance")
+    situacao = _filtro_da_lista(request.GET.get("situacao"), _FILTROS_DE_SITUACAO, "Situação")
+    regras = (
+        classificacao.regras_da_empresa(empresa, escopo=escopo or None, situacao=situacao or None)
+        .select_related("criada_por")
+        .annotate(total_confirmados=classificacao.contagem_de_confirmados(empresa))
+    )
+    pode_empresa = _pode_gerir_regra(request, classificacao.ESCOPO_EMPRESA)
+    pode_escritorio = _pode_gerir_regra(request, classificacao.ESCOPO_ESCRITORIO)
+    # A13: a lista pagina, como a fila. A contagem de confirmados é só da empresa (A3).
+    pagina = Paginator(regras, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
+    linhas = []
+    for regra in pagina.object_list:
+        escopo_da_regra = (
+            classificacao.ESCOPO_EMPRESA if regra.empresa_id else classificacao.ESCOPO_ESCRITORIO
+        )
+        pode = pode_empresa if escopo_da_regra == classificacao.ESCOPO_EMPRESA else pode_escritorio
+        linhas.append(_linha_da_regra(regra, empresa, pode_desativar=pode))
+    contexto = {
+        "empresa": empresa,
+        "linhas": linhas,
+        "pagina": pagina,
+        "total_regras": pagina.paginator.count,
+        "querystring_sem_pagina": _querystring_sem_pagina(request),
+        "escopo_filtro": escopo,
+        "situacao_filtro": situacao,
+        "pode_criar": pode_empresa or pode_escritorio,
+        "motivo_sem_criar": (
+            "Seu papel consulta as regras, mas não cria nem desativa: isso é de quem escritura no "
+            "fiscal (e, para regra do escritório, de administrador e gestor)."
+        ),
+        "ordem_de_decisao": _ordem_de_decisao_na_tela(),
+        "url_nova": reverse("fiscal_web:classificacao_regra_nova", args=[empresa.pk]),
+        "url_lista": _url_das_regras_da_empresa(empresa),
+        "url_escrituracao": (
+            reverse("fiscal_web:nfe_a_escriturar") + "?" + urlencode({"empresa": empresa.pk})
+        ),
+        "url_fila": _url_da_fila_de_classificacao(empresa, *_ano_e_mes_padrao_da_tela()),
+        "url_produto": _url_produto_classificacao(),
+    }
+    return render(request, "fiscal/classificacao_regras.html", contexto)
+
+
+def _tela_de_desativar_regra(request, empresa, regra, *, motivo, erro="", status=200):
+    """Confirmação da REVOGAÇÃO: diz o efeito (vale para pendentes e futuras), o que não muda, e
+    pede o motivo. A regra não casa com nenhuma nota a partir de agora (DL-087, A1)."""
+    efeito = (
+        "A regra deixa de valer para TODAS as notas: as pendentes de escriturar e as que ainda "
+        "vierem. A sugestão dessas notas passa a ser a das outras regras que valem, ou, sem elas, "
+        "a do produto e a do padrão da empresa. A prévia do lote muda. As notas já efetivadas não "
+        "mudam e guardam a origem que tiveram, marcada como desativada. Para outra regra, crie uma "
+        "nova."
+    )
+    linha = _linha_da_regra(
+        regra,
+        empresa,
+        pode_desativar=False,
+        total_confirmados=classificacao.confirmados_da_regra(empresa, regra).count(),
+    )
+    contexto = {
+        "empresa": empresa,
+        "regra": linha,
+        "efeito": efeito,
+        "motivo": motivo,
+        "erro": erro,
+        "motivo_maximo": servico_nfe.MOTIVO_MAXIMO,
+        "url_post": reverse(
+            "fiscal_web:classificacao_regra_desativar", args=[empresa.pk, regra.pk]
+        ),
+        "url_regras": _url_das_regras_da_empresa(empresa),
+    }
+    return render(request, "fiscal/classificacao_regra_desativar.html", contexto, status=status)
+
+
+def _regra_da_empresa_na_tela(request, empresa, regra_id):
+    """Regra do escritório ativo que vale para a empresa da URL. Outra empresa: 404 (IDOR)."""
+    _id_da_rota_nfe(regra_id)
+    consulta = RegraClassificacaoNFe.objects.filter(escritorio=request.escritorio).filter(
+        Q(empresa__isnull=True) | Q(empresa=empresa)
+    )
+    return get_object_or_404(consulta.select_related("criada_por"), pk=regra_id)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+@_entrada_nfe_verificada
+def classificacao_regra_desativar(request, empresa_id, regra_id):
+    """GET: a confirmação, com o efeito e o campo de motivo. POST: desativa, com motivo obrigatório.
+    A permissão é a do escopo DA REGRA (não a do que a URL pede), como na API. Quem não consulta o
+    fiscal recebe 403 ANTES de qualquer busca de empresa ou de regra: a resposta não pode mudar
+    conforme o ID existe (DL-086, papel antes da empresa)."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_CLASSIFICACAO)
+    empresa = _empresa_nfe_da_rota(request, empresa_id)
+    regra = _regra_da_empresa_na_tela(request, empresa, regra_id)
+    escopo = classificacao.ESCOPO_EMPRESA if regra.empresa_id else classificacao.ESCOPO_ESCRITORIO
+    recusa = _recusa_de_escopo(request, escopo)
+    if recusa is not None:
+        return recusa
+    if request.method == "GET":
+        return _tela_de_desativar_regra(request, empresa, regra, motivo="")
+
+    try:
+        recusar_dado_nao_contratado(request, _CONTRATO_DESATIVAR_REGRA_NA_TELA)
+    except DadoNaoContratado as exc:
+        raise _EntradaNfeRecusada(exc.mensagem) from exc
+    motivo = _texto_seguro_nfe(request.POST.get("motivo"), "Motivo da desativação")
+    try:
+        desativada = classificacao.desativar_regra(
+            regra, motivo=motivo, usuario=request.user, request=request
+        )
+    except servico_nfe.EntradaInvalidaNFe as exc:
+        return _tela_de_desativar_regra(
+            request, empresa, regra, motivo=motivo, erro=exc.mensagem, status=400
+        )
+    except servico_nfe.EscrituracaoNFeErro as exc:
+        return _tela_de_desativar_regra(
+            request, empresa, regra, motivo=motivo, erro=exc.mensagem, status=409
+        )
+    messages.success(
+        request,
+        f"Regra n.º {desativada.pk} desativada (revogada). Ela não casa com nenhuma nota, "
+        "pendente ou futura. As notas já efetivadas guardam a origem que tiveram; o histórico fica "
+        "na trilha.",
+    )
+    return redirect(_url_das_regras_da_empresa(empresa) + f"#regra-{desativada.pk}")
+
+
+# DL-087, A8: rótulo da origem GRAVADA (a que a confirmação registrou, não a sugestão de hoje).
+_ROTULO_DA_ORIGEM_NA_TELA = {
+    classificacao.ORIGEM_NATUREZA_REGRA: "regra de classificação",
+    classificacao.ORIGEM_NATUREZA_PRODUTO: "sugestão do produto",
+    classificacao.ORIGEM_NATUREZA_PADRAO_EMPRESA: "padrão de combustível da empresa",
+    classificacao.ORIGEM_NATUREZA_MANUAL: "escolha do contador",
+}
+
+
+def _origem_gravada_na_tela(origem, empresa):
+    """De onde veio a natureza CONFIRMADA, como a confirmação gravou (A8). Regra revogada aparece
+    como desativada, com a data. Sem linha: natureza confirmada antes da DL-087. A tela da nota
+    efetivada usa isto, e não a sugestão de hoje, que pode ser de regra que nem existia na época."""
+    if origem is None:
+        return {"texto": "não registrada (confirmada antes da DL-087)", "url": ""}
+    rotulo = _ROTULO_DA_ORIGEM_NA_TELA[origem.origem]
+    if origem.origem != classificacao.ORIGEM_NATUREZA_REGRA:
+        return {"texto": rotulo, "url": ""}
+    regra = origem.regra_classificacao
+    texto = _rotulo_da_regra_na_tela(regra.pk, _escopo_da_regra_na_tela(regra))
+    if not regra.ativa:
+        texto += f", desativada (revogada) em {timezone.localtime(regra.desativada_em):%d/%m/%Y}"
+    return {
+        "texto": texto,
+        "url": f"{_url_das_regras_da_empresa(empresa)}#regra-{regra.pk}",
+    }
+
+
+def _escopo_da_regra_na_tela(regra):
+    return classificacao.ESCOPO_EMPRESA if regra.empresa_id else classificacao.ESCOPO_ESCRITORIO
+
+
+def _origens_da_escrituracao(escrituracao):
+    """{item_id: origem gravada}. Uma consulta, com a regra junto. Sem escrituração, vazio."""
+    if escrituracao is None:
+        return {}
+    return {
+        origem.natureza_item.item_id: origem
+        for origem in OrigemNaturezaItemNFe.objects.select_related(
+            "natureza_item", "regra_classificacao"
+        ).filter(natureza_item__escrituracao=escrituracao)
+    }
+
+
+def _linha_do_confirmado(origem, empresa):
+    """Uma nota e um item confirmados a partir da regra (A8). Só o que a lista mostra."""
+    natureza_item = origem.natureza_item
+    item = natureza_item.item
+    documento = item.documento
+    escrituracao = natureza_item.escrituracao
+    return {
+        "numero": documento.numero,
+        "serie": documento.serie,
+        "chave_em_grupos": _chave_em_grupos(documento.chave),
+        "emissao": timezone.localtime(documento.dh_emissao).strftime("%d/%m/%Y"),
+        "item": item.n_item,
+        "cfop": item.cfop,
+        "natureza_rotulo": (
+            NaturezaOperacaoNFe(natureza_item.natureza).label if natureza_item.natureza else "—"
+        ),
+        "estado_rotulo": EstadoEscrituracao(escrituracao.estado).label,
+        "origem_rotulo": _ROTULO_DA_ORIGEM_NA_TELA[origem.origem],
+        "url_escriturar": reverse(
+            "fiscal_web:nfe_escriturar", args=[empresa.pk, escrituracao.vinculo_id]
+        ),
+    }
+
+
+@login_required
+@require_safe
+@_entrada_nfe_verificada
+def classificacao_regra_notas(request, empresa_id, regra_id):
+    """Notas e itens CONFIRMADOS a partir desta regra, na empresa da URL (DL-087, A8). Só leitura.
+
+    A regra tem de valer para a empresa (404 para regra de outra). A contagem e a lista são da
+    empresa da URL (A3). Paginado, como a fila.
+    """
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_CLASSIFICACAO)
+    empresa = _empresa_nfe_da_rota(request, empresa_id)
+    regra = _regra_da_empresa_na_tela(request, empresa, regra_id)
+    confirmados = classificacao.confirmados_da_regra(empresa, regra)
+    pagina = Paginator(confirmados, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
+    contexto = {
+        "empresa": empresa,
+        "regra": _linha_da_regra(
+            regra, empresa, pode_desativar=False, total_confirmados=pagina.paginator.count
+        ),
+        "linhas": [_linha_do_confirmado(origem, empresa) for origem in pagina.object_list],
+        "pagina": pagina,
+        "total": pagina.paginator.count,
+        "querystring_sem_pagina": _querystring_sem_pagina(request),
+        "url_regras": _url_das_regras_da_empresa(empresa),
+        "url_lista_de_regras": _url_das_regras_da_empresa(empresa),
+    }
+    return render(request, "fiscal/classificacao_regra_notas.html", contexto)
+
+
+def _url_de_criar_regra_pela_fila(grupo, empresa, ano, mes, escopo):
+    """O formulário de regra pré-preenchido com os critérios do grupo. NCM, CST/CSOSN e idDest vão
+    todos: o formulário diz que são opcionais e mostra o alcance com e sem cada um."""
+    criterios = grupo.criterios_da_regra
+    pedido = {
+        "origem": "fila",
+        "escopo": escopo,
+        "tipo": criterios["tipo"],
+        "cfop": criterios["cfop"],
+        "ncm": criterios["ncm"],
+        "ncm_modo": criterios["ncm_modo"],
+        "cst_csosn": criterios["cst_csosn"],
+        "id_dest": criterios["id_dest"],
+        "vigencia_inicio": date.fromisoformat(criterios["vigencia_inicio"]).strftime("%d/%m/%Y"),
+        "ano": ano,
+        "mes": mes,
+    }
+    limpo = {chave: valor for chave, valor in pedido.items() if valor not in ("", None)}
+    return (
+        reverse("fiscal_web:classificacao_regra_nova", args=[empresa.pk]) + "?" + urlencode(limpo)
+    )
+
+
+def _linha_do_grupo_da_fila(grupo, posicao, empresa, ano, mes, pode_empresa, pode_escritorio):
+    """Uma linha da fila. A ação "criar regra" só existe quando o CFOP cabe na tabela e o papel
+    pode criar regra de algum escopo; o escopo pré-escolhido é o da empresa, quando o papel pode."""
+    url_criar = ""
+    motivo_sem_criar = ""
+    if not grupo.criavel:
+        motivo_sem_criar = grupo.motivo_nao_criavel
+    elif not (pode_empresa or pode_escritorio):
+        motivo_sem_criar = (
+            "Seu papel consulta a fila, mas não cria regra: isso é de quem escritura no fiscal."
+        )
+    else:
+        escopo = classificacao.ESCOPO_EMPRESA if pode_empresa else classificacao.ESCOPO_ESCRITORIO
+        url_criar = _url_de_criar_regra_pela_fila(grupo, empresa, ano, mes, escopo)
+    return {
+        "posicao": posicao,
+        "tipo_rotulo": TipoRegraClassificacaoNFe(grupo.tipo).label,
+        "cfop": grupo.cfop,
+        "ncm": grupo.ncm or "—",
+        "cst_csosn": grupo.cst_csosn or "—",
+        "id_dest": grupo.id_dest or "—",
+        "situacao_rotulo": (
+            "Em conflito" if grupo.situacao == classificacao.SITUACAO_CONFLITO else "Sem sugestão"
+        ),
+        "motivo": grupo.motivo,
+        "notas": grupo.notas,
+        "itens": grupo.itens,
+        "valor_ptbr": _valor_ptbr(grupo.valor),
+        "url_criar": url_criar,
+        "motivo_sem_criar": motivo_sem_criar,
+    }
+
+
+@login_required
+@require_safe
+@_entrada_nfe_verificada
+def classificacao_fila(request, empresa_id):
+    """A fila "a classificar" do mês: itens das notas a escriturar sem sugestão ou em conflito,
+    agrupados. Só notas lidas entram (as demais são contadas)."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_CLASSIFICACAO)
+    empresa = _empresa_nfe_da_rota(request, empresa_id)
+    ano, mes = _competencia_nfe(request)
+    fila = classificacao.fila_a_classificar(empresa, ano, mes)
+    pode_empresa = _pode_gerir_regra(request, classificacao.ESCOPO_EMPRESA)
+    pode_escritorio = _pode_gerir_regra(request, classificacao.ESCOPO_ESCRITORIO)
+    pagina = Paginator(fila.grupos, ITENS_POR_PAGINA).get_page(request.GET.get("pagina"))
+    linhas = [
+        _linha_do_grupo_da_fila(grupo, posicao, empresa, ano, mes, pode_empresa, pode_escritorio)
+        for posicao, grupo in enumerate(pagina.object_list, start=pagina.start_index())
+    ]
+    contexto = {
+        "empresa": empresa,
+        "ano": ano,
+        "mes": mes,
+        "competencia_rotulo": f"{mes:02d}/{ano}",
+        "quantidade_notas": fila.quantidade_notas,
+        "quantidade_itens": fila.quantidade_itens,
+        "valor_ptbr": _valor_ptbr(fila.valor),
+        "notas_sem_leitura": fila.notas_sem_leitura,
+        "mes_confirmado": fila.mes_confirmado,
+        "aviso_do_mes": fila.aviso_do_mes,
+        "vazio": not fila.grupos,
+        "total_grupos": len(fila.grupos),
+        "linhas": linhas,
+        "pagina": pagina,
+        "querystring_sem_pagina": _querystring_sem_pagina(request),
+        "pode_criar": pode_empresa or pode_escritorio,
+        "motivo_sem_criar": (
+            "Seu papel consulta a fila, mas não cria regra: isso é de quem escritura no fiscal."
+        ),
+        "url_fila": _url_da_fila_de_classificacao(empresa, ano, mes),
+        "url_escrituracao": (
+            reverse("fiscal_web:nfe_a_escriturar")
+            + "?"
+            + urlencode({"empresa": empresa.pk, "ano": ano, "mes": mes})
+        ),
+        "url_regras": _url_das_regras_da_empresa(empresa),
+        "url_produto": _url_produto_classificacao(),
+    }
+    return render(request, "fiscal/classificacao_fila.html", contexto)
+
+
+@login_required
+@require_safe
+@_entrada_nfe_verificada
+def classificacao_produto(request):
+    """A sugestão embutida do produto, em palavras, com a fonte de cada linha. Só leitura."""
+    if request.escritorio is None:
+        return _resposta_sem_escritorio(request)
+    if not _pode_consultar(request):
+        return _resposta_sem_permissao(request, _MENSAGEM_SEM_CONSULTA_CLASSIFICACAO)
+    contexto = {
+        "regras": classificacao.REGRAS_DO_PRODUTO,
+        "url_escrituracao": reverse("fiscal_web:nfe_a_escriturar"),
+    }
+    return render(request, "fiscal/classificacao_produto.html", contexto)

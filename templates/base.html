@@ -931,6 +931,18 @@
                                                         {% endif %}
                                                     </li>
                                                     {% endif %}
+                                                    {% comment %}
+                                                    DL-087 (integração do arquiteto): as regras de cada empresa e a fila
+                                                    "a classificar" pedem a empresa e saem da lista "NF-e a escriturar";
+                                                    as regras do produto não dependem de empresa e ficam no menu.
+                                                    {% endcomment %}
+                                                    <li>
+                                                        {% if pagina_atual == "classificacao_produto" %}
+                                                            <span class="item-atual" aria-current="page">Regras do produto</span>
+                                                        {% else %}
+                                                            <a href="{% url 'fiscal_web:classificacao_produto' %}">Regras do produto</a>
+                                                        {% endif %}
+                                                    </li>
                                                 </ul>
                                             </div>
                                             {% comment %}

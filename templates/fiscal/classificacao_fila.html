@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block titulo %}A classificar {{ competencia_rotulo }} — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Competência</span>
+        <strong>{{ competencia_rotulo }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_escrituracao }}">NF-e a escriturar</a></li>
+            <li aria-current="page">A classificar</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_escrituracao }}">‹ Voltar para as NF-e a escriturar</a>
+    </nav>
+{% endblock %}
+
+{% comment %}
+DL-087 (frente B), arquétipo C (caixa de entrada e conferência): o que está sem sugestão ou em conflito,
+agrupado por tipo, CFOP, NCM, CST/CSOSN, idDest e motivo. Cada grupo diz o que falta e oferece "criar
+regra" já pré-preenchida. A fila é do serviço; a tela só agrupa a leitura para a tela.
+{% endcomment %}
+{% block titulo_pagina %}<h1>A classificar: {{ competencia_rotulo }}</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Itens das notas de saída e de devolução do mês, ainda não efetivadas, que não têm natureza sugerida
+        (sem sugestão) ou têm regras em conflito. Agrupados para que um posto com milhares de notas veja grupos,
+        não linhas. Criar uma regra para o grupo reaplica sozinha: a sugestão é calculada na hora.
+    </p>
+
+    {% if aviso_do_mes %}
+        <p class="mensagem mensagem-warning" role="status"><strong>Aviso:</strong> {{ aviso_do_mes }}</p>
+    {% endif %}
+    {% if notas_sem_leitura %}
+        <p class="texto-apoio">
+            {{ notas_sem_leitura }} nota(s) ainda não lida(s). Elas não entram nesta fila até a leitura dos itens.
+        </p>
+    {% endif %}
+
+    <form method="get" action="{{ url_fila }}" class="formulario-periodo formulario-periodo--rotulo-acima">
+        <div class="campo">
+            <label for="id_fila_ano">Ano da competência</label>
+            <input type="text" id="id_fila_ano" name="ano" value="{{ ano }}" inputmode="numeric" maxlength="4"
+                   aria-describedby="ajuda_fila_competencia">
+        </div>
+        <div class="campo">
+            <label for="id_fila_mes">Mês da competência</label>
+            <input type="text" id="id_fila_mes" name="mes" value="{{ mes }}" inputmode="numeric" maxlength="2"
+                   aria-describedby="ajuda_fila_competencia">
+        </div>
+        <button type="submit">Ver o mês</button>
+        <p class="texto-apoio" id="ajuda_fila_competencia">Competência pelo mês da data de emissão. Ano (AAAA) e mês (1 a 12).</p>
+    </form>
+
+    {% if vazio %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Nada a classificar em {{ competencia_rotulo }}.</strong></p>
+            <p class="estado-vazio__descricao">
+                Todos os itens lidos do mês já têm natureza sugerida ou confirmada.
+                {% if notas_sem_leitura %}Restam {{ notas_sem_leitura }} nota(s) sem leitura, que a fila não conta.{% endif %}
+            </p>
+        </div>
+    {% else %}
+        <p class="texto-apoio">
+            <strong>{{ quantidade_notas }}</strong> nota(s), <strong>{{ quantidade_itens }}</strong> item(ns),
+            valor de <span class="valor-monetario">{{ valor_ptbr }}</span>, em {{ total_grupos }} grupo(s).
+        </p>
+        {% if pode_criar %}
+            <p class="texto-apoio">
+                NCM, CST ou CSOSN e idDest são opcionais na regra. Ao criar a partir do grupo, eles vêm
+                preenchidos, e a tela mostra o alcance com e sem cada um antes de gravar.
+            </p>
+        {% else %}
+            <p class="texto-apoio" id="id_motivo_sem_criar">{{ motivo_sem_criar }}</p>
+        {% endif %}
+
+        <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0" aria-label="Grupos a classificar, com critérios, situação, notas, itens, valor e ação">
+            <table class="tabela-dados">
+                <caption>Grupos de itens a classificar em {{ competencia_rotulo }}: tipo, CFOP, NCM, CST ou CSOSN, idDest, motivo, notas, itens, valor e ação</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Tipo da nota</th>
+                        <th scope="col">CFOP</th>
+                        <th scope="col">NCM</th>
+                        <th scope="col">CST ou CSOSN</th>
+                        <th scope="col">idDest</th>
+                        <th scope="col">Situação e motivo</th>
+                        <th scope="col">Notas</th>
+                        <th scope="col">Itens</th>
+                        <th scope="col">Valor</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in linhas %}
+                        <tr>
+                            <td>{{ linha.tipo_rotulo }}</td>
+                            <td class="valor-monetario">{{ linha.cfop }}</td>
+                            <td class="valor-monetario">{{ linha.ncm }}</td>
+                            <td class="valor-monetario">{{ linha.cst_csosn }}</td>
+                            <td class="valor-monetario">{{ linha.id_dest }}</td>
+                            <td>
+                                <strong>{{ linha.situacao_rotulo }}</strong>
+                                <br><span class="texto-apoio">{{ linha.motivo }}</span>
+                            </td>
+                            <td class="valor-monetario">{{ linha.notas }}</td>
+                            <td class="valor-monetario">{{ linha.itens }}</td>
+                            <td class="valor-monetario">{{ linha.valor_ptbr }}</td>
+                            <td>
+                                {% if linha.url_criar %}
+                                    <a class="botao botao--secundario botao--pequeno" href="{{ linha.url_criar }}">Criar regra<span class="visualmente-oculto"> para o grupo {{ linha.posicao }}</span></a>
+                                {% else %}
+                                    <span class="texto-apoio">{{ linha.motivo_sem_criar }}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include "fiscal/_paginacao.html" %}
+    {% endif %}
+
+    <p class="texto-apoio">
+        <a href="{{ url_regras }}">Ver as regras de classificação</a>
+        · <a href="{{ url_produto }}">Ver as regras do produto (só leitura)</a>
+    </p>
+{% endblock %}

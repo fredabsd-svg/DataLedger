@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block titulo %}Regras de classificação — {{ empresa.razao_social }}{% endblock %}
+
+{% block contexto_extra %}
+    <span class="contexto-item">
+        <span class="contexto-rotulo">Empresa</span>
+        <strong>{{ empresa.razao_social }}</strong>
+    </span>
+{% endblock %}
+
+{% block trilha %}
+    <nav class="trilha" aria-label="Trilha de navegação">
+        <ol>
+            <li><a href="{% url 'tenancy:painel' %}">Início</a></li>
+            <li><a href="{{ url_escrituracao }}">NF-e a escriturar</a></li>
+            <li aria-current="page">Regras de classificação</li>
+        </ol>
+        <a class="botao botao--secundario" href="{{ url_escrituracao }}">‹ Voltar para as NF-e a escriturar</a>
+    </nav>
+{% endblock %}
+
+{% block acoes_pagina %}
+    {% if pode_criar %}
+        <a class="botao botao--primario" href="{{ url_nova }}">Nova regra</a>
+    {% else %}
+        <button type="button" class="botao botao--primario" disabled aria-describedby="id_motivo_sem_criar">Nova regra</button>
+    {% endif %}
+{% endblock %}
+
+{% comment %}
+DL-087 (frente B), arquétipo A (tabela de consulta) com a régua de decisão no topo. A lista é das
+regras que VALEM para a empresa: as do escritório e as dela, nunca as de outra empresa (o serviço
+filtra). Desativar leva a uma confirmação (tela própria, com motivo). Tudo é do serviço da frente A.
+{% endcomment %}
+{% block titulo_pagina %}<h1>Regras de classificação de NF-e</h1>{% endblock %}
+
+{% block content %}
+    <p class="texto-apoio">
+        Uma regra sugere a natureza de um item de NF-e de saída ou de devolução de venda, por cima da
+        sugestão do produto. Ela só muda a sugestão: nenhuma nota efetivada muda, e nenhuma natureza já
+        escolhida num rascunho muda. Regra criada não se altera: para mudar, desative-a com motivo (ela é
+        REVOGADA: não casa com nenhuma nota, pendente ou futura) e crie outra.
+    </p>
+    {% if not pode_criar %}
+        <p class="texto-apoio" id="id_motivo_sem_criar">{{ motivo_sem_criar }}</p>
+    {% endif %}
+
+    <section class="painel-etapa" aria-labelledby="id_como_decide">
+        <h2 id="id_como_decide">Como a regra decide</h2>
+        <ol>
+            {% for passo in ordem_de_decisao %}
+                <li>{{ passo }}</li>
+            {% endfor %}
+        </ol>
+    </section>
+
+    <form method="get" action="{{ url_lista }}" class="formulario-periodo formulario-periodo--rotulo-acima">
+        <div class="campo">
+            <label for="id_filtro_escopo">Alcance</label>
+            <select id="id_filtro_escopo" name="escopo">
+                <option value="">Todos</option>
+                <option value="empresa"{% if escopo_filtro == "empresa" %} selected{% endif %}>Da empresa</option>
+                <option value="escritorio"{% if escopo_filtro == "escritorio" %} selected{% endif %}>Do escritório</option>
+            </select>
+        </div>
+        <div class="campo">
+            <label for="id_filtro_situacao">Situação</label>
+            <select id="id_filtro_situacao" name="situacao">
+                <option value="">Todas</option>
+                <option value="ativa"{% if situacao_filtro == "ativa" %} selected{% endif %}>Ativas</option>
+                <option value="desativada"{% if situacao_filtro == "desativada" %} selected{% endif %}>Desativadas</option>
+            </select>
+        </div>
+        <button type="submit">Filtrar</button>
+    </form>
+
+    {% if linhas %}
+        <div class="tabela-com-rolagem-horizontal" role="region" tabindex="0" aria-label="Regras de classificação da empresa, com critérios, natureza, vigência e autor">
+            <table class="tabela-dados">
+                <caption>Regras que valem para a empresa: as do escritório e as dela, com critérios, natureza resultante, vigência, autor e itens confirmados a partir de cada uma</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Nº</th>
+                        <th scope="col">Alcance</th>
+                        <th scope="col">Tipo da nota</th>
+                        <th scope="col">Critérios</th>
+                        <th scope="col">Natureza resultante</th>
+                        <th scope="col">Vigência</th>
+                        <th scope="col">Situação</th>
+                        <th scope="col">Autor</th>
+                        <th scope="col">Itens confirmados a partir desta regra</th>
+                        <th scope="col">Ação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in linhas %}
+                        <tr id="{{ linha.ancora }}">
+                            <td class="valor-monetario">{{ linha.id }}</td>
+                            <td>{{ linha.escopo_rotulo }}</td>
+                            <td>{{ linha.tipo_rotulo }}</td>
+                            <td>{{ linha.criterios }}</td>
+                            <td>{{ linha.natureza_rotulo }}</td>
+                            <td>{{ linha.vigencia }}</td>
+                            <td>
+                                {{ linha.situacao_rotulo }}
+                                {% if linha.desativacao %}
+                                    <br><span class="texto-apoio">Desativada: {{ linha.desativacao }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {{ linha.autor }}
+                                <br><span class="texto-apoio">criada em {{ linha.criada_em }}</span>
+                            </td>
+                            <td class="valor-monetario">{{ linha.itens_confirmados }}</td>
+                            <td>
+                                <a class="botao botao--secundario botao--pequeno" href="{{ linha.url_notas }}">Ver notas<span class="visualmente-oculto"> da regra n.º {{ linha.id }}</span></a>
+                                {% if linha.url_desativar %}
+                                    <a class="botao botao--perigoso botao--pequeno" href="{{ linha.url_desativar }}">Desativar<span class="visualmente-oculto"> a regra n.º {{ linha.id }}</span></a>
+                                {% elif linha.ativa %}
+                                    <span class="texto-apoio">Sem permissão para desativar esta regra</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% include "fiscal/_paginacao.html" %}
+    {% else %}
+        <div class="estado-vazio">
+            <svg class="estado-vazio__icone" aria-hidden="true"><use href="#icone-fiscal"></use></svg>
+            <p class="estado-vazio__titulo"><strong>Nenhuma regra de classificação para esta empresa{% if escopo_filtro or situacao_filtro %} com estes filtros{% endif %}.</strong></p>
+            <p class="estado-vazio__descricao">
+                Sem regra, a sugestão é a do produto e, depois, o padrão de combustível da empresa, como antes.
+                {% if escopo_filtro or situacao_filtro %}Limpe os filtros para ver todas.{% endif %}
+            </p>
+        </div>
+    {% endif %}
+
+    <p class="texto-apoio">
+        <a href="{{ url_fila }}">Ver a fila a classificar do mês</a>
+        · <a href="{{ url_produto }}">Ver as regras do produto (só leitura)</a>
+    </p>
+{% endblock %}

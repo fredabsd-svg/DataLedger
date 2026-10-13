@@ -185,6 +185,20 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
   etapas de nível 1 desta leva — DL-084 e DL-088 — terminaram com
   **reconferência APROVADA**. Os quatro checks da CI verdes antes do merge
   (RC-171).
+- **Em andamento, nesta sessão (RC-177, 12/10/2026):**
+  [DL-087](../planos/DL-087-classificacao-fiscal-versionada.md), corte 1
+  reordenado (DE-107): regras de classificação do escritório e da empresa por
+  cima da sugestão embutida, fila "a classificar" e telas. Consulta ao
+  `contador-senior` aplicada (pesos fixos, HI-153). **Frentes A e B integradas**
+  (migrações `fiscal 0019` e `0020`; telas de regras, fila, regras do produto
+  e origem da sugestão).
+  [Rodada 1](../auditorias/2026-10-12-dl-087-rodada-1.md) **reprovada** (A1
+  alta: desativar não desfazia a regra nas notas pendentes); correção única
+  integrada (desativar passa a revogar; DE-108);
+  [reconferência](../auditorias/2026-10-12-dl-087-reconferencia.md) **aprovada
+  com ressalvas**, com os ajustes do arquiteto R1, R3 e R4 e os resíduos no
+  BL-705. **Ciclo de auditoria encerrado.** Próximo: PR e merge (RC-171). Outra sessão não deve mexer nos mesmos arquivos ao mesmo
+  tempo.
 - **Próximo do roteiro fiscal** (fim do
   [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md)): DL-087
   (classificação fiscal versionada — o "acumulador"); depois entradas e
@@ -234,42 +248,10 @@ o BL-697 (estorno da contabilidade sem motivo);
 seguem abertos BL-18, BL-35, BL-547, BL-548, BL-552, BL-580/581/642,
 BL-598, BL-599, BL-640, BL-652, BL-653.
 
-**Fechamento de 10/10/2026 (RC-176: "registre e envie tudo, depois pode
-encerrar por hoje").** Para retomar, comece por aqui:
-
-- **Branch `ccr-bf4b4a55-hpqgbp`, enviada ao GitHub, sem PR aberto.** Ela
-  está à frente da `main` com:
-  - DL-085 e DL-090, ciclo de auditoria encerrado;
-  - DL-082 e DL-089, ciclo de auditoria encerrado;
-  - DL-084 frente A e DL-088 frente A1, **sem auditoria ainda**.
-- **Testes medidos pelo arquiteto, em banco próprio:**
-  - `apps/contabilidade`, `apps/core` e `apps/auditoria`: 4.299 passaram,
-    com 1 falha de ambiente (`test_versao_minima_python`, Python 3.13
-    local);
-  - `apps/fiscal` com a DL-084: 3.369 passaram.
-
-  Antes do PR, rode a suíte completa numa única invocação. Ela leva cerca de
-  19 min local, e o job "Lint e testes" tem limite de 20 min: confira o
-  tempo na CI.
-- **Testes em paralelo precisam de banco próprio**
-  (`DATABASE_URL=.../<nome>`). Ver [equipe.md](equipe.md), "Limitações
-  reais da plataforma".
-- **Próximos passos, nesta ordem:**
-  1. Frente B da DL-084 (telas e ligação do padrão de combustível), depois
-     a auditoria da DL-084.
-  2. Frente A2 da DL-088 (opção pelo regime regular, Zona Franca, NF-e de
-     2027), frente B e auditoria.
-  3. PR com tudo o que estiver auditado, e merge pela RC-171 com os quatro
-     checks verdes. Alternativa: abrir o PR já com DL-082/085/089/090 e
-     deixar DL-084 e DL-088 para o PR seguinte. Para isso, separe os
-     commits; a ordem na branch está no `git log`.
-  4. Depois: DL-087 (classificação fiscal versionada).
-- **Para o Fred:**
-  - PE-90, PE-91 e PE-92;
-  - HI-150 e DE-104 (importação e zeramento contam como automáticos no
-    estorno?);
-  - HI-151 (encerramento da medida cobre o trimestre?);
-  - HI-152 (monofasia em 2027; algum cliente na Zona Franca?).
+**10/10/2026 (RC-176):** fechamento da sessão daquele dia. O que estava na
+branch entrou na `main` pelo PR #108; a situação atual está no bloco **AGORA**
+acima. Ficou a lição de que testes em paralelo precisam de banco próprio (ver
+[equipe.md](equipe.md), "Limitações reais da plataforma").
 
 **Em 08/10/2026:**
 

@@ -218,13 +218,34 @@ serviço diz se a nota confere, e o servidor recusa de novo no POST, por mais qu
                                     <p class="texto-apoio" id="id_sugestao_{{ linha.item_id }}">
                                         Sugestão: {{ linha.sugestao_rotulo }}. {{ linha.sugestao_motivo }}
                                     </p>
+                                    {% comment %}
+                                    DL-087 (frente B): de onde veio a sugestão, com o link para cada regra que a produziu.
+                                    {% endcomment %}
+                                    <p class="texto-apoio">
+                                        Origem da sugestão: {{ linha.origem_texto }}.
+                                        {% for link in linha.origem_links %}<a href="{{ link.url }}">Abrir {{ link.rotulo }}</a>{% if not forloop.last %} · {% endif %}{% endfor %}
+                                    </p>
+                                    {% if linha.origem_gravada %}
+                                        <p class="texto-apoio">
+                                            Origem da natureza confirmada: {{ linha.origem_gravada.texto }}.
+                                            {% if linha.origem_gravada.url %}<a href="{{ linha.origem_gravada.url }}">Abrir a regra</a>{% endif %}
+                                        </p>
+                                    {% endif %}
                                 {% else %}
                                     {% if linha.natureza_gravada %}
                                         {{ linha.natureza_gravada_rotulo }}
+                                        {% comment %}
+                                        DL-087, A8: com natureza confirmada, mostra a ORIGEM GRAVADA na confirmação, e não a
+                                        sugestão de hoje (que pode vir de regra criada depois, e não se aplica a esta nota).
+                                        {% endcomment %}
+                                        {% if linha.origem_gravada %}
+                                            <br><span class="texto-apoio">Origem gravada: {{ linha.origem_gravada.texto }}.{% if linha.origem_gravada.url %} <a href="{{ linha.origem_gravada.url }}">Abrir a regra</a>{% endif %}</span>
+                                        {% endif %}
                                     {% else %}
                                         Sem natureza confirmada
+                                        <br><span class="texto-apoio">Sugestão: {{ linha.sugestao_rotulo }}. {{ linha.sugestao_motivo }}</span>
+                                        <br><span class="texto-apoio">Origem da sugestão: {{ linha.origem_texto }}.{% for link in linha.origem_links %} <a href="{{ link.url }}">Abrir {{ link.rotulo }}</a>{% endfor %}</span>
                                     {% endif %}
-                                    <br><span class="texto-apoio">Sugestão: {{ linha.sugestao_rotulo }}. {{ linha.sugestao_motivo }}</span>
                                 {% endif %}
                             </td>
                             {% comment %}
