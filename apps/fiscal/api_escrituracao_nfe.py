@@ -33,7 +33,7 @@ from apps.core.requisicao import (
     recusar_dado_nao_contratado,
 )
 from apps.empresas.mixins import EmpresaEscopadaMixin
-from apps.fiscal import classificacao, entradas
+from apps.fiscal import classificacao, conferencia_entradas, entradas
 from apps.fiscal import escrituracao_nfe as servico
 from apps.fiscal import escrituracao_nfe_lote as lote_servico
 from apps.fiscal.api import PodeConsultarFiscal, PodeEscriturarFiscal, _ano_e_mes_da_consulta
@@ -381,7 +381,9 @@ def _sugestao_segmento_payload(item: ItemNFe, natureza: NaturezaItemNFe) -> dict
     return {"segmento": sugestao.segmento, "motivo": sugestao.motivo}
 
 
-def _entrada_do_item(escrituracao: EscrituracaoNFe, natureza: NaturezaItemNFe) -> dict:
+def _entrada_do_item(
+    escrituracao: EscrituracaoNFe, natureza: NaturezaItemNFe, sugestao: servico.Sugestao
+) -> dict:
     """Campos da escrituração de ENTRADA de UM item (DL-091, A1).
 
     `cfop_entrada` é o confirmado (ou nulo). `cfop_entrada_sugerido` é o par que o produto sugere a
@@ -389,7 +391,14 @@ def _entrada_do_item(escrituracao: EscrituracaoNFe, natureza: NaturezaItemNFe) -
     gravada na efetivação (imutável) ou, no rascunho, a prévia da marca e dos avisos.
     """
     item = natureza.item
-    par = entradas.sugerir_par_de_entrada(escrituracao.vinculo.documento, item)
+    documento = escrituracao.vinculo.documento
+    # DL-091 (A2): o CFOP sugerido segue a mesma resolução da natureza (regra de entrada, quando
+    # houver, e a conversão da A1 depois). A `sugestao` vem da chamada, que carregou o contexto.
+    cfop_sugerido = (
+        entradas.cfop_de_entrada_para(documento, item, sugestao.natureza, sugestao)
+        if sugestao.natureza
+        else ""
+    )
     memoria = None
     gravada = MemoriaEntradaItemNFe.objects.filter(natureza_item=natureza).first()
     if gravada is not None:
@@ -412,9 +421,10 @@ def _entrada_do_item(escrituracao: EscrituracaoNFe, natureza: NaturezaItemNFe) -
     return {
         "cfop_entrada": natureza.cfop_entrada or None,
         "cfop_entrada_sugerido": {
-            "cfop": par.cfop,
-            "natureza": par.natureza,
-            "motivo": par.motivo,
+            "cfop": cfop_sugerido or None,
+            "natureza": sugestao.natureza,
+            "motivo": sugestao.motivo,
+            "origem": sugestao.origem,
         },
         "memoria": memoria,
     }
@@ -532,7 +542,7 @@ class EscrituracaoNFeDetalheView(_EmpresaComIdValido, APIView):
                     None if receitas is None else receitas.get(natureza.item_id),
                 )
                 if escrituracao.tipo == TipoEscrituracaoNFe.ENTRADA:
-                    payload_do_item.update(_entrada_do_item(escrituracao, natureza))
+                    payload_do_item.update(_entrada_do_item(escrituracao, natureza, sugestao))
                 itens.append(payload_do_item)
         payload = _escrituracao_payload(escrituracao)
         payload.update(
@@ -823,6 +833,77 @@ class ConferenciaNFeView(_EmpresaComIdValido, APIView):
 # ---------------------------------------------------------------------------
 
 
+class ConferenciaEntradasView(_EmpresaComIdValido, APIView):
+    """GET — conferência das entradas do mês da empresa (DL-091, A2).
+
+    Recebidas, escrituradas, a escriturar e fora (com o motivo de cada uma); totais por natureza e
+    por CFOP de entrada; crédito destacado elegível e ST retido, da memória gravada; e as notas com
+    aviso de outro estado. Classe "conferência": não é impressão oficial nem livro.
+    """
+
+    permission_classes = [TemEscritorioAtivo, PodeConsultarFiscal]
+
+    def get(self, request, empresa_id):
+        empresa = self.get_empresa()
+        ano, mes = _ano_e_mes_da_consulta(request)
+        conferencia = conferencia_entradas.conferencia_de_entradas(empresa, ano, mes)
+        return Response(
+            {
+                "ano": conferencia.ano,
+                "mes": conferencia.mes,
+                "classe": "conferencia",
+                "recebidas": conferencia.recebidas,
+                "escrituradas": conferencia.escrituradas,
+                "a_escriturar": conferencia.a_escriturar,
+                "fora": {
+                    "total": len(conferencia.fora),
+                    "notas": [
+                        {
+                            "vinculo_id": nota.vinculo_id,
+                            "documento_id": nota.documento_id,
+                            "numero": nota.numero,
+                            "serie": nota.serie,
+                            "dh_emissao": _iso(nota.dh_emissao),
+                            "codigo": nota.codigo,
+                            "motivo": nota.motivo,
+                        }
+                        for nota in conferencia.fora
+                    ],
+                },
+                "por_natureza": [
+                    {
+                        "natureza": linha.chave,
+                        "rotulo": linha.rotulo,
+                        "itens": linha.itens,
+                        "valor": _decimal(linha.valor),
+                    }
+                    for linha in conferencia.por_natureza
+                ],
+                "por_cfop_de_entrada": [
+                    {"cfop": linha.chave, "itens": linha.itens, "valor": _decimal(linha.valor)}
+                    for linha in conferencia.por_cfop_de_entrada
+                ],
+                "credito_destacado_elegivel": _decimal(conferencia.credito_destacado_elegivel),
+                "por_marca": [
+                    {"marca": total.marca, "itens": total.itens, "credito": _decimal(total.credito)}
+                    for total in conferencia.por_marca
+                ],
+                "st_retido": _decimal(conferencia.st_retido),
+                "itens_com_st_retido": conferencia.itens_com_st_retido,
+                "notas_com_aviso_de_outro_estado": [
+                    {
+                        "vinculo_id": nota.vinculo_id,
+                        "documento_id": nota.documento_id,
+                        "numero": nota.numero,
+                        "serie": nota.serie,
+                        "avisos": list(nota.avisos),
+                    }
+                    for nota in conferencia.notas_com_aviso_de_outro_estado
+                ],
+            }
+        )
+
+
 class TrocaDeGrupoEntradaSerializer(serializers.Serializer):
     """Uma escolha de natureza por grupo: {id da assinatura: natureza}. Validada no serviço."""
 
@@ -907,6 +988,8 @@ def _previa_payload(previa: lote_servico.PreviaDoLote) -> dict:
                         "cst_csosn": a.cst_csosn or None,
                         "natureza_sugerida": a.natureza,
                         "rotulo_natureza": NaturezaOperacaoNFe(a.natureza).label,
+                        # DL-091 (A2): o CFOP de entrada do grupo da compra (nulo na saída).
+                        "cfop_entrada_sugerido": a.cfop_entrada or None,
                     }
                     for a in grupo.assinaturas
                 ],

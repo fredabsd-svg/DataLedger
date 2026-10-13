@@ -23,8 +23,9 @@ ORDEM DA RESOLUÇÃO (por item, em `sugerir_natureza_com_regras`)
    natureza cabe no tipo da nota. Uma regra cuja natureza não cabe no tipo não vale (conta como não
    casada); se for o único candidato, o motivo diz isso.
 3. Entre as que casam, vence a de MAIOR ESPECIFICIDADE: soma dos pesos publicados, em potência de
-   dois (CFOP 16, NCM exato 8, NCM por prefixo 4, CST/CSOSN 2, `idDest` 1). Como os pesos são
-   potências de dois, conjuntos diferentes de critérios nunca empatam.
+   dois (CFOP 64, NCM exato 32, NCM por prefixo 16, CST/CSOSN 8, `idDest` 4, UF do emitente 2, CRT
+   do emitente 1; DL-091, A2). Como os pesos são potências de dois, conjuntos diferentes de
+   critérios nunca empatam.
 4. Empate de especificidade: vence o PREFIXO DE NCM MAIS LONGO (ajuste do arquiteto, 12/10/2026).
 5. Empate com o prefixo igual: vence o escopo EMPRESA sobre o ESCRITÓRIO.
 6. Empate de precedência com NATUREZAS DIFERENTES: CONFLITO. O item fica sem sugestão e o motivo
@@ -102,12 +103,14 @@ from django.db.models import Count, Q
 from django.utils import timezone
 
 from apps.auditoria.services import registrar
+from apps.fiscal import entradas, presumido
 from apps.fiscal import escrituracao_nfe as servico
-from apps.fiscal import presumido
 from apps.fiscal import receita as receita_servico
 from apps.fiscal.cfop import cfop as consultar_cfop
 from apps.fiscal.models import (
     CATALOGO_NATUREZA_NFE,
+    CRTS_DO_EMITENTE_NA_REGRA,
+    SIGLAS_DE_UF_DO_EMITENTE_NA_REGRA,
     EstadoConfirmacaoMes,
     ItemNFe,
     LeituraItensNFe,
@@ -129,17 +132,29 @@ from apps.tenancy.models import Escritorio
 
 # Potências de dois: qualquer conjunto de critérios opcionais tem soma distinta, e dois conjuntos
 # diferentes nunca empatam (com 8/4/2/1 empatavam, p. ex., CFOP+prefixo+CST com CFOP+exato+idDest).
-PESO_CFOP = 16
-PESO_NCM_EXATO = 8
-PESO_NCM_PREFIXO = 4
-PESO_CST_CSOSN = 2
-PESO_ID_DEST = 1
+#
+# DL-091 (A2): os pesos antigos (CFOP 16, NCM exato 8, NCM prefixo 4, CST/CSOSN 2, idDest 1) foram
+# multiplicados por quatro, e os dois critérios de fornecedor (CRT e UF do emitente, só na regra de
+# entrada) entraram nos menores valores, 1 e 2. Dobrar não bastava: sobrariam dois valores iguais
+# a 1, e dois critérios diferentes empatariam. Multiplicar por quatro mantém a ORDEM entre os
+# critérios antigos (todos os pesos antigos cresceram na mesma proporção), e os de fornecedor são
+# os menos específicos. `test_dl091_regras_entrada` confere a ausência de empate entre TODOS os
+# conjuntos de critérios.
+PESO_CFOP = 64
+PESO_NCM_EXATO = 32
+PESO_NCM_PREFIXO = 16
+PESO_CST_CSOSN = 8
+PESO_ID_DEST = 4
+PESO_UF_EMITENTE = 2
+PESO_CRT_EMITENTE = 1
 PESOS_DE_ESPECIFICIDADE = {
     "cfop": PESO_CFOP,
     "ncm_exato": PESO_NCM_EXATO,
     "ncm_prefixo": PESO_NCM_PREFIXO,
     "cst_csosn": PESO_CST_CSOSN,
     "id_dest": PESO_ID_DEST,
+    "uf_emitente": PESO_UF_EMITENTE,
+    "crt_emitente": PESO_CRT_EMITENTE,
 }
 
 ESCOPO_EMPRESA = "empresa"
@@ -158,6 +173,10 @@ NATUREZAS_DE_COMBUSTIVEL_QUE_EXIGEM_NCM = frozenset(
         NaturezaOperacaoNFe.COMBUSTIVEL,
         NaturezaOperacaoNFe.COMBUSTIVEL_REVENDA,
         NaturezaOperacaoNFe.DEVOLUCAO_COMBUSTIVEL_CONSUMO,
+        # DL-091 (A2): a compra de combustível para revenda (E6) e para consumo (E7) também exige
+        # NCM, como a venda (consulta de 13/10/2026, seção 5).
+        NaturezaOperacaoNFe.ENTRADA_COMBUSTIVEL_REVENDA,
+        NaturezaOperacaoNFe.ENTRADA_COMBUSTIVEL_CONSUMO,
     }
 )
 
@@ -172,6 +191,16 @@ _IDS_DEST = ("1", "2", "3")
 MENSAGEM_TIPO_AJUSTE = (
     "Nota de ajuste (finNFe 2, 3, 5 ou 6) não recebe regra de classificação: a natureza de ajuste "
     "é fixa."
+)
+# DL-091 (A2): finNFe 4 em saída própria só leva a devolução de compra oficial (sugerida pelo
+# produto). O retorno (conserto, remessa) fica sem sugestão por contrato (A1): regra não o empurra.
+MENSAGEM_TIPO_DEVOLUCAO_COMPRA = (
+    "A nota de devolução de compra (finNFe 4 em saída própria) não recebe regra: a natureza é a "
+    "devolução de compra oficial, e o retorno fica sem sugestão (contrato da DL-091, A1)."
+)
+MENSAGEM_CRITERIO_SO_NA_ENTRADA = (
+    "CRT do emitente, UF do emitente e CFOP de entrada só valem para a regra de entrada: a saída "
+    "usa a própria empresa, e o produto não os lê na nota de saída."
 )
 
 
@@ -304,6 +333,10 @@ def especificidade(regra) -> int:
         pontos += PESO_CST_CSOSN
     if regra.id_dest:
         pontos += PESO_ID_DEST
+    if regra.uf_emitente:
+        pontos += PESO_UF_EMITENTE
+    if regra.crt_emitente:
+        pontos += PESO_CRT_EMITENTE
     return pontos
 
 
@@ -354,6 +387,12 @@ def _casa(regra, contexto: ContextoDeClassificacao, documento, item, tipo: str, 
     if regra.cst_csosn and regra.cst_csosn not in (item.csosn, item.cst):
         return False
     if regra.id_dest and documento.id_dest != regra.id_dest:
+        return False
+    # DL-091 (A2): critérios do fornecedor. O CRT vem do XML; a UF do emitente é o `cUF` traduzido
+    # para a sigla. Vazio na regra: não restringe.
+    if regra.crt_emitente and documento.emitente_crt != regra.crt_emitente:
+        return False
+    if regra.uf_emitente and entradas.CODIGO_IBGE_DA_UF.get(documento.c_uf) != regra.uf_emitente:
         return False
     return True
 
@@ -454,6 +493,7 @@ def sugerir_natureza_com_regras(
         origem=servico.ORIGEM_DA_SUGESTAO_REGRA,
         regra_ids=_pks_das(vencedoras),
         escopo_regra=_escopo_da(regra),
+        cfop_entrada=regra.cfop_entrada or "",
     )
 
 
@@ -474,6 +514,10 @@ def _escopo_da(regra) -> str:
 def _rotulo_do_tipo(tipo: str) -> str:
     if tipo == TipoEscrituracaoNFe.DEVOLUCAO:
         return "devolução de venda"
+    if tipo == TipoEscrituracaoNFe.ENTRADA:
+        return "entrada de compra"
+    if tipo == TipoEscrituracaoNFe.DEVOLUCAO_COMPRA:
+        return "devolução de compra (finNFe 4)"
     return "saída própria"
 
 
@@ -486,6 +530,10 @@ def _descricao_dos_criterios(regra) -> str:
         partes.append(f"CST/CSOSN {regra.cst_csosn}")
     if regra.id_dest:
         partes.append(f"idDest {regra.id_dest}")
+    if regra.crt_emitente:
+        partes.append(f"CRT do emitente {regra.crt_emitente}")
+    if regra.uf_emitente:
+        partes.append(f"UF do emitente {regra.uf_emitente}")
     return ", ".join(partes)
 
 
@@ -710,6 +758,10 @@ class DadosDaRegra:
     ncm_modo: str = ""
     cst_csosn: str = ""
     id_dest: str = ""
+    # DL-091 (A2): só a regra de entrada usa estes três. Vazios nas demais.
+    crt_emitente: str = ""
+    uf_emitente: str = ""
+    cfop_entrada: str = ""
 
 
 def _recusa(mensagem: str):
@@ -726,8 +778,10 @@ def validar_dados_da_regra(dados: DadosDaRegra) -> DadosDaRegra:
     tipo = (dados.tipo or "").strip()
     if tipo == TipoEscrituracaoNFe.AJUSTE:
         raise _recusa(MENSAGEM_TIPO_AJUSTE)
+    if tipo == TipoEscrituracaoNFe.DEVOLUCAO_COMPRA:
+        raise _recusa(MENSAGEM_TIPO_DEVOLUCAO_COMPRA)
     if tipo not in TIPOS_COM_REGRA:
-        raise _recusa("Tipo da nota inválido: use saída própria ou devolução de venda.")
+        raise _recusa("Tipo da nota inválido: use saída própria, devolução de venda ou entrada.")
 
     cfop = (dados.cfop or "").strip().replace(".", "")
     if not _CFOP_DE_4_DIGITOS.fullmatch(cfop):
@@ -784,6 +838,24 @@ def validar_dados_da_regra(dados: DadosDaRegra) -> DadosDaRegra:
             "Informe o NCM de combustível."
         )
 
+    # DL-091 (A2): CRT, UF e CFOP de entrada só existem na regra de entrada (o banco recusa o
+    # resto). O CFOP de entrada fixado é conferido contra o CFOP do critério e a natureza, com a
+    # mesma regra da escrituração: primeiro dígito e grupo.
+    crt = (dados.crt_emitente or "").strip()
+    uf = (dados.uf_emitente or "").strip().upper()
+    cfop_de_entrada = (dados.cfop_entrada or "").strip().replace(".", "")
+    if tipo != TipoEscrituracaoNFe.ENTRADA and (crt or uf or cfop_de_entrada):
+        raise _recusa(MENSAGEM_CRITERIO_SO_NA_ENTRADA)
+    if crt and crt not in CRTS_DO_EMITENTE_NA_REGRA:
+        raise _recusa(
+            "CRT do emitente deve ser 1 (Simples Nacional), 2 (Simples, excesso de sublimite), "
+            "3 (regime normal) ou 4 (MEI)."
+        )
+    if uf and uf not in SIGLAS_DE_UF_DO_EMITENTE_NA_REGRA:
+        raise _recusa("UF do emitente deve ser uma das 27 siglas (ex.: TO).")
+    if cfop_de_entrada:
+        cfop_de_entrada = entradas.validar_cfop_de_entrada_para(cfop, natureza, cfop_de_entrada)
+
     inicio = dados.vigencia_inicio
     if not isinstance(inicio, date):
         raise _recusa("Informe o início da vigência.")
@@ -801,6 +873,9 @@ def validar_dados_da_regra(dados: DadosDaRegra) -> DadosDaRegra:
         ncm_modo=modo if ncm else "",
         cst_csosn=cst_csosn,
         id_dest=id_dest,
+        crt_emitente=crt,
+        uf_emitente=uf,
+        cfop_entrada=cfop_de_entrada,
     )
 
 
@@ -846,6 +921,8 @@ def _mesmos_criterios(regra, dados: DadosDaRegra) -> bool:
         and regra.ncm_modo == dados.ncm_modo
         and regra.cst_csosn == dados.cst_csosn
         and regra.id_dest == dados.id_dest
+        and regra.crt_emitente == dados.crt_emitente
+        and regra.uf_emitente == dados.uf_emitente
     )
 
 
@@ -893,6 +970,9 @@ def criar_regra(
             ncm_modo=dados.ncm_modo,
             cst_csosn=dados.cst_csosn,
             id_dest=dados.id_dest,
+            crt_emitente=dados.crt_emitente,
+            uf_emitente=dados.uf_emitente,
+            cfop_entrada=dados.cfop_entrada,
             natureza=dados.natureza,
             vigencia_inicio=dados.vigencia_inicio,
             vigencia_fim=dados.vigencia_fim,
@@ -1007,6 +1087,9 @@ def _detalhes_da_regra(regra: RegraClassificacaoNFe) -> dict:
         "ncm_modo": regra.ncm_modo,
         "cst_csosn": regra.cst_csosn,
         "id_dest": regra.id_dest,
+        "crt_emitente": regra.crt_emitente,
+        "uf_emitente": regra.uf_emitente,
+        "cfop_entrada": regra.cfop_entrada,
         "natureza": regra.natureza,
         "vigencia_inicio": regra.vigencia_inicio.isoformat(),
         "vigencia_fim": regra.vigencia_fim.isoformat() if regra.vigencia_fim else None,
@@ -1151,6 +1234,17 @@ def _chave_do_grupo_da_fila(nota, item, sugestao: servico.Sugestao) -> tuple:
     )
 
 
+def _motivo_nao_criavel(tipo: str, cfop: str, criavel: bool) -> str:
+    """Por que o grupo da fila não vira regra. Vazio quando vira."""
+    if consultar_cfop(cfop) is None:
+        return f"CFOP {cfop} fora da tabela oficial: a regra exige um CFOP da tabela."
+    if not criavel and tipo == TipoEscrituracaoNFe.DEVOLUCAO_COMPRA:
+        return (
+            "retorno em finNFe 4: sem regra (contrato da DL-091, A1). Escolha a natureza na nota."
+        )
+    return ""
+
+
 def fila_a_classificar(empresa, ano: int, mes: int) -> FilaAClassificar:
     """Itens sem sugestão ou em conflito, das notas a escriturar e dos rascunhos sem natureza.
 
@@ -1175,7 +1269,7 @@ def fila_a_classificar(empresa, ano: int, mes: int) -> FilaAClassificar:
     inicio_do_mes = date(ano, mes, 1)
     grupos = []
     for (tipo, cfop, ncm, cst_csosn, id_dest, motivo, situacao), dados in acumulado.items():
-        criavel = consultar_cfop(cfop) is not None
+        criavel = consultar_cfop(cfop) is not None and tipo != TipoEscrituracaoNFe.DEVOLUCAO_COMPRA
         criterios = {
             "tipo": tipo,
             "cfop": cfop,
@@ -1200,11 +1294,7 @@ def fila_a_classificar(empresa, ano: int, mes: int) -> FilaAClassificar:
                 itens=dados["itens"],
                 valor=dados["valor"],
                 criavel=criavel,
-                motivo_nao_criavel=(
-                    ""
-                    if criavel
-                    else f"CFOP {cfop} fora da tabela oficial: a regra exige um CFOP da tabela."
-                ),
+                motivo_nao_criavel=_motivo_nao_criavel(tipo, cfop, criavel),
                 criterios_da_regra=criterios,
             )
         )
@@ -1286,6 +1376,9 @@ def previas_de_impacto(
             ncm_modo=dados.ncm_modo,
             cst_csosn=dados.cst_csosn,
             id_dest=dados.id_dest,
+            crt_emitente=dados.crt_emitente,
+            uf_emitente=dados.uf_emitente,
+            cfop_entrada=dados.cfop_entrada,
             natureza=dados.natureza,
             vigencia_inicio=dados.vigencia_inicio,
             vigencia_fim=dados.vigencia_fim,

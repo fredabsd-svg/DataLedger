@@ -309,6 +309,9 @@ class Sugestao:
     regra_ids: tuple[int, ...] = ()
     # "escritorio" ou "empresa" quando a sugestão veio de uma regra.
     escopo_regra: str | None = None
+    # DL-091 (A2): CFOP de entrada sugerido para a natureza (da regra de entrada que fixou, ou da
+    # conversão da A1). Vazio quando a sugestão não traz um; ver `entradas.cfop_de_entrada_para`.
+    cfop_entrada: str = ""
 
 
 # Venda de combustível pela DESCRIÇÃO oficial da tabela de `cfop.py` (PE-85.1; HI-118). Só o que a
@@ -526,6 +529,11 @@ def sugerir_natureza_com_padrao(
     continua sendo a sugestão embutida e o caminho sem regra: não muda de comportamento.
     """
     base = sugerir_natureza_item(documento, item, tipo)
+    # DL-091 (A2): o padrão de combustível é de SAÍDA (posto e TRR vendem a consumidor). Na compra
+    # ele devolveria a natureza `combustivel`, que é de saída e não cabe na entrada. A entrada
+    # não recebe o padrão: sem sinal, fica sem sugestão, e o contador escolhe.
+    if (tipo or "") == TipoEscrituracaoNFe.ENTRADA:
+        return base
     if base.natureza is not None or padrao_combustivel not in _PADROES_QUE_SUGEREM_CONSUMO:
         return base
     if _natureza_de_combustivel_pelo_cfop(item.cfop) is not None:
@@ -620,25 +628,49 @@ def notas_do_mes(empresa, ano: int, mes: int) -> list[NotaDoMes]:
     )
     # `xml_original` não é carregado: a lista do mês só precisa do cabeçalho e dos itens. A leitura
     # de itens, que precisa do XML, carrega o campo na hora (DL-085, auditoria A7).
-    vinculos = list(
+    # DL-091 (A2), competência da compra: a nota de ENTRADA cai no mês da data de entrada quando já
+    # está escriturada (rascunho ou efetivada), e no mês de emissão enquanto não está. Por isso a
+    # consulta traz as notas emitidas no mês e também as de entrada escriturada com data de entrada
+    # no mês; a regra final é conferida abaixo, com a escrituração ativa de cada nota.
+    dia_inicio = date(ano, mes, 1)
+    proximo = receita_servico._proximo_mes(ano, mes)
+    dia_fim = date(proximo.year, proximo.month, 1)
+    estados_ativos = [EstadoEscrituracao.RASCUNHO, EstadoEscrituracao.EFETIVADA]
+    candidatas = list(
         VinculoNFeEmpresa.objects.filter(
             empresa=empresa,
             documento__escritorio=empresa.escritorio,
-            documento__dh_emissao__gte=inicio,
-            documento__dh_emissao__lt=fim,
+        )
+        .filter(
+            Q(documento__dh_emissao__gte=inicio, documento__dh_emissao__lt=fim)
+            | Q(
+                escrituracoes_nfe__tipo=TipoEscrituracaoNFe.ENTRADA,
+                escrituracoes_nfe__estado__in=estados_ativos,
+                escrituracoes_nfe__data_entrada__gte=dia_inicio,
+                escrituracoes_nfe__data_entrada__lt=dia_fim,
+            )
         )
         .select_related("documento")
         .defer("documento__xml_original")
         .annotate(cancelada=Exists(eventos_de_cancelamento))
+        .distinct()
         .order_by("-documento__dh_emissao", "-documento_id")
     )
     ativas = {
         e.vinculo_id: e
         for e in EscrituracaoNFe.objects.filter(
-            vinculo__in=vinculos,
-            estado__in=[EstadoEscrituracao.RASCUNHO, EstadoEscrituracao.EFETIVADA],
+            vinculo__in=candidatas,
+            estado__in=estados_ativos,
         )
     }
+
+    def _no_mes(vinculo) -> bool:
+        ativa = ativas.get(vinculo.pk)
+        if ativa is not None and ativa.tipo == TipoEscrituracaoNFe.ENTRADA and ativa.data_entrada:
+            return dia_inicio <= ativa.data_entrada < dia_fim
+        return inicio <= vinculo.documento.dh_emissao < fim
+
+    vinculos = [vinculo for vinculo in candidatas if _no_mes(vinculo)]
     leituras = {
         lt.documento_id: lt
         for lt in LeituraItensNFe.objects.filter(documento__in=[v.documento_id for v in vinculos])

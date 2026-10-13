@@ -216,6 +216,12 @@ def validar_cfop_de_entrada(item, natureza: str, cfop_entrada: str) -> str:
     CFOP do emitente manda; grupo (três últimos dígitos) que a natureza não aceita. CFOP do emitente
     fora de 5, 6 e 7 também é recusado: não há conversão para ele.
     """
+    return validar_cfop_de_entrada_para(item.cfop, natureza, cfop_entrada)
+
+
+def validar_cfop_de_entrada_para(cfop_emitente: str, natureza: str, cfop_entrada: str) -> str:
+    """A mesma conferência, pelo CFOP do emitente (sem item). Usada também pela regra de entrada
+    (DL-091, A2), que valida o CFOP fixado contra o CFOP do próprio critério antes de gravar."""
     from apps.fiscal.escrituracao_nfe import EntradaInvalidaNFe
 
     if natureza not in NATUREZAS_DE_ENTRADA:
@@ -227,23 +233,49 @@ def validar_cfop_de_entrada(item, natureza: str, cfop_entrada: str) -> str:
         )
     if consultar_cfop(limpo) is None:
         raise EntradaInvalidaNFe(MENSAGEM_CFOP_FORA_DA_TABELA)
-    primeiro_do_emitente = item.cfop[0] if item.cfop else ""
+    primeiro_do_emitente = cfop_emitente[0] if cfop_emitente else ""
     primeiro_esperado = PRIMEIRO_DIGITO_DA_ENTRADA.get(primeiro_do_emitente)
     if primeiro_esperado is None:
         raise EntradaInvalidaNFe(
-            f"CFOP {item.cfop} do emitente não tem conversão para entrada (só 5, 6 e 7)."
+            f"CFOP {cfop_emitente} do emitente não tem conversão para entrada (só 5, 6 e 7)."
         )
     if limpo[0] != primeiro_esperado:
         raise EntradaInvalidaNFe(
-            f"O primeiro dígito do CFOP de entrada é {primeiro_esperado} para o CFOP {item.cfop} "
-            f"do "
-            f"emitente (5→1, 6→2, 7→3). Informado: {limpo}."
+            f"O primeiro dígito do CFOP de entrada é {primeiro_esperado} para o CFOP "
+            f"{cfop_emitente} do emitente (5→1, 6→2, 7→3). Informado: {limpo}."
         )
     if limpo[1:] not in CATALOGO_EFEITOS_NATUREZA_NFE[natureza].sufixos:
         raise EntradaInvalidaNFe(
             f"O CFOP de entrada {limpo} não pertence ao grupo da natureza escolhida."
         )
     return limpo
+
+
+def cfop_de_entrada_para(documento, item, natureza: str, sugestao=None) -> str:
+    """CFOP de entrada SUGERIDO para um item, numa natureza. Vazio = não há padrão: escolha manual.
+
+    DL-091 (A2). Ordem, a primeira que vale:
+    1. o CFOP de entrada que a REGRA fixou, se a sugestão veio dela para esta mesma natureza;
+    2. a conversão da A1 (`sugerir_par_de_entrada`), se ela sugere esta natureza para o item;
+    3. o único sufixo do grupo da natureza, se o grupo tem um só (com o primeiro dígito da
+       conversão: 5→1, 6→2, 7→3);
+    4. vazio. Natureza de grupo com mais de um sufixo e sem sinal do item (p. ex., E4 sem o CFOP
+       do emitente) não tem padrão: o contador escolhe. O lote não confirma esse grupo.
+
+    Não grava nada. `sugestao` é a `Sugestao` da resolução de regras, quando já foi calculada.
+    """
+    if natureza not in NATUREZAS_DE_ENTRADA:
+        return ""
+    if sugestao is not None and sugestao.natureza == natureza and sugestao.cfop_entrada:
+        return sugestao.cfop_entrada
+    par = sugerir_par_de_entrada(documento, item)
+    if par.natureza == natureza and par.cfop:
+        return par.cfop
+    primeiro = PRIMEIRO_DIGITO_DA_ENTRADA.get(item.cfop[0] if item.cfop else "")
+    grupo = CATALOGO_EFEITOS_NATUREZA_NFE[natureza].sufixos
+    if primeiro is None or len(grupo) != 1:
+        return ""
+    return f"{primeiro}{next(iter(grupo))}"
 
 
 def sugerir_par_de_entrada(documento, item) -> SugestaoDeEntrada:
@@ -350,7 +382,7 @@ def sugerir_natureza_de_entrada(documento, item):
     from apps.fiscal.escrituracao_nfe import Sugestao
 
     par = sugerir_par_de_entrada(documento, item)
-    return Sugestao(par.natureza, par.motivo)
+    return Sugestao(par.natureza, par.motivo, cfop_entrada=par.cfop or "")
 
 
 def validar_devolucao_de_compra(item) -> None:

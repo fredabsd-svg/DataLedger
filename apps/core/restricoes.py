@@ -1364,8 +1364,32 @@ RESTRICOES_SEM_CAMINHO_DE_CLIENTE = {
     # valida CFOP, NCM, CST/CSOSN, idDest, natureza e tipo ANTES do INSERT, e a API traduz a recusa
     # em 400; nenhuma entrada do cliente chega a estas colunas sem passar por essa checagem.
     "regra_classificacao_nfe_tipo_valido": (
-        "Tipo da regra fora de saída própria e devolução: o serviço recusa antes do INSERT, e "
-        "ajuste nunca recebe regra."
+        "Tipo da regra fora de saída própria, devolução e entrada: o serviço recusa antes do "
+        "INSERT, e ajuste nunca recebe regra."
+    ),
+    # DL-091 (A2): critérios de fornecedor (CRT e UF do emitente) e CFOP de entrada da regra. O
+    # serviço valida antes do INSERT; o CHECK é a segunda defesa.
+    "regra_classificacao_nfe_crt_valido": (
+        "CRT do emitente da regra fora de 1 a 4 (ou vazio): o serviço valida antes do INSERT."
+    ),
+    "regra_classificacao_nfe_uf_valida": (
+        "UF do emitente da regra fora das 27 siglas (ou vazia): o serviço valida antes do INSERT."
+    ),
+    "regra_classificacao_nfe_cfop_entrada_valido": (
+        "CFOP de entrada da regra fora de quatro dígitos com 1, 2 ou 3 na frente: o serviço valida "
+        "antes do INSERT, pela conversão da natureza."
+    ),
+    "regra_classificacao_nfe_criterio_de_entrada_so_na_entrada": (
+        "CRT, UF ou CFOP de entrada numa regra que não é de entrada: o serviço recusa antes do "
+        "INSERT, porque esses critérios só existem na entrada."
+    ),
+    "regra_classificacao_nfe_entrada_so_natureza_de_entrada": (
+        "Regra de entrada com natureza que não é de entrada: o serviço usa `naturezas_permitidas` "
+        "antes do INSERT."
+    ),
+    "regra_classificacao_nfe_saida_sem_natureza_de_entrada": (
+        "Regra de saída ou devolução com natureza de entrada: o serviço usa `naturezas_permitidas` "
+        "antes do INSERT, e a natureza de entrada não casa com nota de saída."
     ),
     "regra_classificacao_nfe_cfop_de_4_digitos": (
         "CFOP da regra com menos ou mais de 4 dígitos: o serviço exige 4 dígitos da tabela oficial "

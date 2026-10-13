@@ -103,7 +103,7 @@ from django.utils import timezone
 
 from apps.auditoria.services import registrar
 from apps.core.restricoes import RestricaoViolada, mensagens_de, restricao_como_400
-from apps.fiscal import classificacao
+from apps.fiscal import classificacao, entradas
 from apps.fiscal import escrituracao_nfe as servico
 from apps.fiscal import receita as receita_servico
 from apps.fiscal.itens_nfe import (
@@ -178,6 +178,16 @@ CODIGO_NATUREZA_ESCOLHIDA = "natureza_escolhida"
 # a nota recusa o pré-DAS e não se muda depois (gatilho do banco): por isso ela sai aqui, antes da
 # efetivação. A equivalência lote x individual (DL-085) vale para as demais notas.
 CODIGO_DEVOLUCAO_SEGMENTO = "devolucao_segmento_a_confirmar"
+# DL-091 (A2): item de compra sem CFOP de entrada padrão para a natureza: a nota sai do lote.
+CODIGO_CFOP_DE_ENTRADA_A_ESCOLHER = "cfop_entrada_a_escolher"
+MENSAGEM_CFOP_DE_ENTRADA_A_ESCOLHER = (
+    "item {item}: sem CFOP de entrada padrão para a natureza {natureza}: escriture esta nota "
+    "individualmente e confirme o CFOP de entrada."
+)
+MENSAGEM_ESCOLHA_SEM_CFOP_DE_ENTRADA = (
+    "A natureza escolhida não tem CFOP de entrada padrão para o item {item} da nota {numero}: "
+    "escriture a nota individualmente e confirme o CFOP. Nada foi efetivado."
+)
 MENSAGEM_DEVOLUCAO_SEGMENTO = (
     "segmento da devolução a confirmar: escriture esta nota individualmente"
 )
@@ -250,6 +260,8 @@ class ItemDoLote:
     # DL-087: a regra que produziu a sugestão ("regra:<id>"), ou vazio (produto e padrão). Vazio
     # mantém a assinatura de antes da DL-087; com regra, criar ou desativar regra muda a prévia.
     fonte: str = ""
+    # DL-091 (A2): CFOP de entrada sugerido, só na compra. Vazio nas notas de saída.
+    cfop_entrada: str = ""
 
 
 @dataclass(frozen=True)
@@ -264,10 +276,14 @@ class AssinaturaDoItem:
     cst_csosn: str
     natureza: str
     fonte: str = ""
+    # DL-091 (A2): o CFOP de entrada sugerido também define o grupo da compra.
+    cfop_entrada: str = ""
 
     @property
     def id(self) -> str:
-        return _id_da_assinatura(self.cfop, self.cst_csosn, self.natureza, self.fonte)
+        return _id_da_assinatura(
+            self.cfop, self.cst_csosn, self.natureza, self.fonte, self.cfop_entrada
+        )
 
 
 @dataclass(frozen=True)
@@ -350,6 +366,8 @@ class _Candidata:
     leitura: LeituraItensNFe
     tipo: str
     pares: tuple[tuple[ItemNFe, str | None], ...]
+    # DL-091 (A2): a `Sugestao` de cada item, na ordem de `pares`. Vazio fora da compra.
+    sugestoes: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -400,18 +418,28 @@ def _cst_csosn(item) -> str:
     return item.csosn or item.cst or ""
 
 
-def _id_da_assinatura(cfop: str, cst_csosn: str, natureza: str, fonte: str = "") -> str:
+def _id_da_assinatura(
+    cfop: str, cst_csosn: str, natureza: str, fonte: str = "", cfop_entrada: str = ""
+) -> str:
     """Identificador estável de um par de grupo. Vai na API e nas escolhas.
 
-    A natureza sugerida é o TERCEIRO campo, e a fonte (DL-087) só entra quando há regra.
+    A natureza sugerida é o TERCEIRO campo, e a fonte (DL-087) só entra quando há regra. Na compra
+    (DL-091, A2), o CFOP de entrada vem por último e a fonte fica vazia se não houver regra; sem
+    CFOP de entrada, o id é o de antes da A2, e a assinatura das notas de saída não muda.
     """
+    if cfop_entrada:
+        return f"{cfop}|{cst_csosn}|{natureza}|{fonte}|{cfop_entrada}"
     base = f"{cfop}|{cst_csosn}|{natureza}"
     return f"{base}|{fonte}" if fonte else base
 
 
-def _tupla_da_assinatura(cfop: str, cst_csosn: str, natureza: str, fonte: str) -> tuple:
-    """(CFOP, CST/CSOSN, natureza[, fonte]). Sem regra, a tupla é a de antes da DL-087: a chave do
-    grupo (hash) não muda para as notas que não têm regra."""
+def _tupla_da_assinatura(
+    cfop: str, cst_csosn: str, natureza: str, fonte: str, cfop_entrada: str = ""
+) -> tuple:
+    """(CFOP, CST/CSOSN, natureza[, fonte][, CFOP de entrada]). Sem regra nem CFOP de entrada, a
+    tupla é a de antes da DL-087: a chave do grupo (hash) não muda para as notas de saída."""
+    if cfop_entrada:
+        return (cfop, cst_csosn, natureza, fonte, cfop_entrada)
     return (cfop, cst_csosn, natureza, fonte) if fonte else (cfop, cst_csosn, natureza)
 
 
@@ -434,7 +462,9 @@ def _assinatura_da_previa(empresa_id: int, ano: int, mes: int, grupos, a_ler) ->
                     [
                         nota.vinculo_id,
                         [
-                            [item.item_id, item.natureza_sugerida, item.fonte]
+                            [item.item_id, item.natureza_sugerida, item.fonte, item.cfop_entrada]
+                            if item.cfop_entrada
+                            else [item.item_id, item.natureza_sugerida, item.fonte]
                             if item.fonte
                             else [item.item_id, item.natureza_sugerida]
                             for item in nota.itens
@@ -506,7 +536,13 @@ def _fora(nota: servico.NotaDoMes, codigo: str, motivo: str) -> ForaDoLote:
 
 def _recusa_de_data(empresa, nota: servico.NotaDoMes) -> tuple[str, str] | None:
     """Nota de 2027 (HI-133; DL-088 A2, HI-149). Primeira recusa, como em `efetivar`, com a
-    empresa: em 2027 em diante só a nota do Simples no regime único do semestre entra no lote."""
+    empresa: em 2027 em diante só a nota do Simples no regime único do semestre entra no lote.
+
+    DL-091 (A2): a compra não tem receita, e a regra de receita de 2027 não se aplica a ela (a
+    efetivação de entrada também não a consulta).
+    """
+    if nota.tipo == TipoEscrituracaoNFe.ENTRADA:
+        return None
     motivo = servico.motivo_bloqueio_efetivacao(nota.documento, empresa)
     return (CODIGO_2027, motivo) if motivo else None
 
@@ -671,17 +707,29 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
     acumulado: dict[tuple, list[NotaDoLote]] = {}
     for nota, leitura in lidas:
         documento = nota.documento
+        # DL-091 (A2): na compra, o CFOP de entrada é sugerido por item, e a nota não tem receita.
+        e_entrada = nota.tipo == TipoEscrituracaoNFe.ENTRADA
         pares: list[tuple[ItemNFe, str | None]] = []
+        sugestoes: list[servico.Sugestao] = []
         fontes: list[str] = []
+        cfops_de_entrada: list[str] = []
         sem_sugestao: list[tuple[ItemNFe, str]] = []
         for item in itens_das_notas.get(documento.pk, ()):
             sugestao = classificacao.sugerir_natureza_com_regras(
                 contexto, documento, item, nota.tipo
             )
             pares.append((item, sugestao.natureza))
+            sugestoes.append(sugestao)
             fontes.append(classificacao.fonte_da_sugestao(sugestao))
             if sugestao.natureza is None:
                 sem_sugestao.append((item, sugestao.motivo))
+                cfops_de_entrada.append("")
+            elif e_entrada:
+                cfops_de_entrada.append(
+                    entradas.cfop_de_entrada_para(documento, item, sugestao.natureza, sugestao)
+                )
+            else:
+                cfops_de_entrada.append("")
         if sem_sugestao:
             item, motivo = sem_sugestao[0]
             # "conflito" é o texto da sugestão quando dois sinais discordam (sugerir_natureza_item)
@@ -689,6 +737,23 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
             extra = f" (e mais {len(sem_sugestao) - 1} item(ns))" if len(sem_sugestao) > 1 else ""
             fora.append(_fora(nota, codigo, f"item {item.n_item}: {motivo}{extra}"))
             continue
+        if e_entrada:
+            sem_cfop = [
+                (item, natureza)
+                for (item, natureza), cfop in zip(pares, cfops_de_entrada, strict=True)
+                if not cfop
+            ]
+            if sem_cfop:
+                item, natureza = sem_cfop[0]
+                motivo = MENSAGEM_CFOP_DE_ENTRADA_A_ESCOLHER.format(
+                    item=item.n_item, natureza=natureza
+                )
+                fora.append(_fora(nota, CODIGO_CFOP_DE_ENTRADA_A_ESCOLHER, motivo))
+                continue
+            # A compra sem o campo do vNF não fecha a efetivação (`efetivar_entrada`).
+            if documento.v_nf is None:
+                fora.append(_fora(nota, CODIGO_SEM_VNF, MENSAGEM_SEM_VNF))
+                continue
         # Rascunho com natureza escolhida pelo contador que difere da sugestão: não é sobrescrito em
         # silêncio. Sai do lote com o motivo (DL-085, auditoria A2, opção (a)).
         gravadas = (
@@ -700,25 +765,39 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
             fora.append(_fora(nota, CODIGO_NATUREZA_ESCOLHIDA, MENSAGEM_NATUREZA_ESCOLHIDA))
             continue
 
-        conferencia, recusa = _conferencia_ou_recusa(empresa, documento, leitura, pares)
-        if recusa is not None:
-            fora.append(_fora(nota, *recusa))
-            continue
+        if e_entrada:
+            receita_bruta = devolucao = Decimal("0.00")
+        else:
+            conferencia, recusa = _conferencia_ou_recusa(empresa, documento, leitura, pares)
+            if recusa is not None:
+                fora.append(_fora(nota, *recusa))
+                continue
+            receita_bruta, devolucao = conferencia.receita_bruta, conferencia.devolucao
 
         itens_da_nota = tuple(
-            ItemDoLote(item.pk, item.n_item, item.cfop, _cst_csosn(item), natureza, fonte)
-            for (item, natureza), fonte in zip(pares, fontes, strict=True)
+            ItemDoLote(
+                item.pk, item.n_item, item.cfop, _cst_csosn(item), natureza, fonte, cfop_entrada
+            )
+            for (item, natureza), fonte, cfop_entrada in zip(
+                pares, fontes, cfops_de_entrada, strict=True
+            )
         )
         assinaturas = tuple(
             sorted(
                 {
-                    _tupla_da_assinatura(i.cfop, i.cst_csosn, i.natureza_sugerida, i.fonte)
+                    _tupla_da_assinatura(
+                        i.cfop, i.cst_csosn, i.natureza_sugerida, i.fonte, i.cfop_entrada
+                    )
                     for i in itens_da_nota
                 }
             )
         )
         candidatas[nota.vinculo.pk] = _Candidata(
-            documento, leitura, nota.tipo, tuple((item, natureza) for item, natureza in pares)
+            documento,
+            leitura,
+            nota.tipo,
+            tuple((item, natureza) for item, natureza in pares),
+            tuple(sugestoes),
         )
         nota_do_lote = NotaDoLote(
             vinculo_id=nota.vinculo.pk,
@@ -728,8 +807,8 @@ def _calcular(empresa, ano: int, mes: int, aberto) -> PreviaDoLote:
             chave=documento.chave,
             dh_emissao=documento.dh_emissao,
             itens=itens_da_nota,
-            receita_bruta=conferencia.receita_bruta,
-            devolucao=conferencia.devolucao,
+            receita_bruta=receita_bruta,
+            devolucao=devolucao,
         )
         acumulado.setdefault((nota.tipo, assinaturas), []).append(nota_do_lote)
 
@@ -880,10 +959,16 @@ def ler_notas_do_mes(
 
 
 def _natureza_final(
-    escolhas: dict, chave_grupo: str, cfop: str, cst_csosn: str, sugerida: str, fonte: str = ""
+    escolhas: dict,
+    chave_grupo: str,
+    cfop: str,
+    cst_csosn: str,
+    sugerida: str,
+    fonte: str = "",
+    cfop_entrada: str = "",
 ):
     """A natureza que a nota recebe: a escolhida para a assinatura do grupo, ou a sugerida."""
-    id_da_assinatura = _id_da_assinatura(cfop, cst_csosn, sugerida, fonte)
+    id_da_assinatura = _id_da_assinatura(cfop, cst_csosn, sugerida, fonte, cfop_entrada)
     return escolhas.get(chave_grupo, {}).get(id_da_assinatura, sugerida)
 
 
@@ -946,15 +1031,23 @@ def _fixar_naturezas(empresa, previa: PreviaDoLote, escolhas: dict) -> dict[int,
     Devolve {vinculo_id: [[item_id, sugerida, final(, fonte)], ...]}. A fonte (DL-087) só aparece
     quando a sugestão veio de uma regra. Recusa (400) antes de gravar nada, se alguma escolha deixa
     uma nota sem fechar a atribuição ou a W16.
+
+    DL-091 (A2): na compra, cada item leva `[item, sugerida, final, fonte, CFOP sugerido, CFOP
+    final]`, e o CFOP final é o padrão da NATUREZA FINAL (`entradas.cfop_de_entrada_para`). Natureza
+    escolhida sem CFOP padrão para o item é recusada: a escrituração individual escolhe o CFOP.
+    A compra não tem receita, então não há W16 a simular.
     """
     fixados: dict[int, list] = {}
     for grupo in previa.grupos:
         for nota in grupo.notas:
             candidata = previa._candidatas[nota.vinculo_id]
+            e_entrada = candidata.tipo == TipoEscrituracaoNFe.ENTRADA
             itens = []
             finais = []
             mudou = False
-            for item_do_lote, (item, sugerida) in zip(nota.itens, candidata.pares, strict=True):
+            for item_do_lote, (item, sugerida), sugestao in zip(
+                nota.itens, candidata.pares, candidata.sugestoes, strict=True
+            ):
                 final = _natureza_final(
                     escolhas,
                     grupo.chave,
@@ -962,15 +1055,37 @@ def _fixar_naturezas(empresa, previa: PreviaDoLote, escolhas: dict) -> dict[int,
                     item_do_lote.cst_csosn,
                     sugerida,
                     item_do_lote.fonte,
+                    item_do_lote.cfop_entrada,
                 )
-                itens.append(
-                    [item.pk, sugerida, final, item_do_lote.fonte]
-                    if item_do_lote.fonte
-                    else [item.pk, sugerida, final]
-                )
+                if e_entrada:
+                    cfop_final = entradas.cfop_de_entrada_para(
+                        candidata.documento, item, final, sugestao
+                    )
+                    if not cfop_final:
+                        raise servico.EntradaInvalidaNFe(
+                            MENSAGEM_ESCOLHA_SEM_CFOP_DE_ENTRADA.format(
+                                item=item.n_item, numero=nota.numero
+                            )
+                        )
+                    itens.append(
+                        [
+                            item.pk,
+                            sugerida,
+                            final,
+                            item_do_lote.fonte,
+                            item_do_lote.cfop_entrada,
+                            cfop_final,
+                        ]
+                    )
+                else:
+                    itens.append(
+                        [item.pk, sugerida, final, item_do_lote.fonte]
+                        if item_do_lote.fonte
+                        else [item.pk, sugerida, final]
+                    )
                 finais.append((item, final))
                 mudou = mudou or final != sugerida
-            if mudou:
+            if mudou and not e_entrada:
                 _simular_conferencia(empresa, nota, candidata, finais)
             fixados[nota.vinculo_id] = itens
     return fixados
@@ -1002,7 +1117,13 @@ def _detalhes_dos_grupos(previa: PreviaDoLote, escolhas: dict) -> list[dict]:
                 "devolucao": format(grupo.devolucao, "f"),
                 "naturezas": {
                     a.id: _natureza_final(
-                        escolhas, grupo.chave, a.cfop, a.cst_csosn, a.natureza, a.fonte
+                        escolhas,
+                        grupo.chave,
+                        a.cfop,
+                        a.cst_csosn,
+                        a.natureza,
+                        a.fonte,
+                        a.cfop_entrada,
                     )
                     for a in grupo.assinaturas
                 },
@@ -1170,18 +1291,46 @@ def _desvio_desde_a_confirmacao(linha: LoteEscrituracaoNFeNota, contexto) -> str
     A sugestão usa o MESMO contexto (regras e padrão de combustível) da prévia que fixou
     `linha.itens` (DL-084, DL-087): sem o padrão, todo item decidido pelo padrão viraria "desvio".
     Com regra, a comparação inclui a fonte: uma regra criada ou desativada depois da confirmação
-    faz a nota falhar com o motivo, e a prévia é refeita.
+    faz a nota falhar com o motivo, e a prévia é refeita. Na compra (DL-091, A2), inclui também o
+    CFOP de entrada sugerido: uma regra que fixa outro CFOP muda a efetivação.
     """
     documento = linha.vinculo.documento
     tipo = servico.tipo_da_nota(documento, linha.vinculo.papel)
-    atuais = []
+    e_entrada = tipo == TipoEscrituracaoNFe.ENTRADA
+    atuais: list[tuple] = []
     for item in _itens_do_documento(documento):
         sugestao = classificacao.sugerir_natureza_com_regras(contexto, documento, item, tipo)
-        atuais.append((item.pk, sugestao.natureza, classificacao.fonte_da_sugestao(sugestao)))
-    gravados = [
-        (item_id, sugerida, fonte) for item_id, sugerida, _final, fonte in _entradas_de_itens(linha)
-    ]
+        fonte = classificacao.fonte_da_sugestao(sugestao)
+        if e_entrada:
+            cfop = (
+                entradas.cfop_de_entrada_para(documento, item, sugestao.natureza, sugestao)
+                if sugestao.natureza
+                else ""
+            )
+            atuais.append((item.pk, sugestao.natureza, fonte, cfop))
+        else:
+            atuais.append((item.pk, sugestao.natureza, fonte))
+    if e_entrada:
+        gravados = [
+            (int(entrada[0]), entrada[1], entrada[3] if len(entrada) > 3 else "", entrada[4])
+            for entrada in linha.itens
+        ]
+    else:
+        gravados = [
+            (item_id, sugerida, fonte)
+            for item_id, sugerida, _final, fonte in _entradas_de_itens(linha)
+        ]
     return None if atuais == gravados else MENSAGEM_DESVIO
+
+
+def _por_natureza_e_cfop(itens) -> list[tuple[str, str, list[int]]]:
+    """Itens da compra por (natureza final, CFOP de entrada final). Um
+    `definir_natureza_de_entrada` por par: o CFOP é validado item a item, e a nota inteira é
+    recusada se um não vale."""
+    agrupado: dict[tuple[str, str], list[int]] = {}
+    for entrada in itens:
+        agrupado.setdefault((entrada[2], entrada[5]), []).append(int(entrada[0]))
+    return [(natureza, cfop, ids) for (natureza, cfop), ids in sorted(agrupado.items())]
 
 
 def _por_natureza(itens) -> list[tuple[str, list[int]]]:
@@ -1301,15 +1450,28 @@ def _processar_nota_uma_vez(
                     raise servico.EscrituracaoNFeErro(MENSAGEM_NATUREZA_ESCOLHIDA)
 
             escrituracao = servico.criar_rascunho(linha.vinculo, usuario=usuario, request=request)
-            for natureza, ids in _por_natureza(linha.itens):
-                servico.definir_natureza(
-                    escrituracao,
-                    natureza,
-                    ids,
-                    usuario=usuario,
-                    request=request,
-                    contexto=contexto,
-                )
+            if escrituracao.tipo == TipoEscrituracaoNFe.ENTRADA:
+                # DL-091 (A2): a compra confirma natureza e CFOP de entrada juntos, como na
+                # escrituração individual (`definir_natureza_de_entrada`).
+                for natureza, cfop, ids in _por_natureza_e_cfop(linha.itens):
+                    entradas.definir_natureza_de_entrada(
+                        escrituracao,
+                        natureza,
+                        cfop,
+                        ids,
+                        usuario=usuario,
+                        request=request,
+                    )
+            else:
+                for natureza, ids in _por_natureza(linha.itens):
+                    servico.definir_natureza(
+                        escrituracao,
+                        natureza,
+                        ids,
+                        usuario=usuario,
+                        request=request,
+                        contexto=contexto,
+                    )
             escrituracao = servico.efetivar(escrituracao, usuario=usuario, request=request)
             _marcar_sob_trava(linha.pk, EstadoNotaDoLoteNFe.EFETIVADA, escrituracao=escrituracao)
             return EstadoNotaDoLoteNFe.EFETIVADA, ""

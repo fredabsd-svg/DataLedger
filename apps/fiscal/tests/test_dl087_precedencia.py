@@ -66,6 +66,9 @@ def regra(
         ncm_modo=ncm_modo,
         cst_csosn=cst_csosn,
         id_dest=id_dest,
+        crt_emitente="",
+        uf_emitente="",
+        cfop_entrada="",
         # Regra fake não revogada: o modelo tem este campo, e a resolução o lê (A1).
         desativada_em=None,
         natureza=natureza,
@@ -86,12 +89,17 @@ def contexto(*regras, padrao=""):
 
 
 def test_pesos_sao_potencias_de_dois_com_o_cfop_acima_de_todos():
+    # DL-091 (A2): os pesos antigos foram multiplicados por quatro, e CRT e UF do emitente entraram
+    # nos menores valores. A ordem entre os critérios antigos é a mesma
+    # (ver `test_dl091_regras_entrada`).
     assert cl.PESOS_DE_ESPECIFICIDADE == {
-        "cfop": 16,
-        "ncm_exato": 8,
-        "ncm_prefixo": 4,
-        "cst_csosn": 2,
-        "id_dest": 1,
+        "cfop": 64,
+        "ncm_exato": 32,
+        "ncm_prefixo": 16,
+        "cst_csosn": 8,
+        "id_dest": 4,
+        "uf_emitente": 2,
+        "crt_emitente": 1,
     }
 
 

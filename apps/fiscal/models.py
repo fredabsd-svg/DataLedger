@@ -4603,10 +4603,29 @@ class RegraImutavel(Exception):
 
 class TipoRegraClassificacaoNFe(models.TextChoices):
     """Tipo de nota que a regra classifica. Ajuste (finNFe 2, 3, 5 ou 6) NÃO recebe regra (DL-087,
-    corte 1): a nota de ajuste tem natureza própria, fixa na sugestão embutida."""
+    corte 1): a nota de ajuste tem natureza própria, fixa na sugestão embutida.
+
+    DL-091 (A2): `entrada` é a compra (NF-e de terceiro, finNFe 1). Regra de entrada resolve uma
+    natureza E1 a E11 e pode fixar o CFOP de entrada. `devolucao_compra` NÃO é tipo de regra: a nota
+    finNFe 4 em saída própria só leva a devolução de compra oficial, e o contrato da A1 deixa o
+    retorno (conserto, remessa) sem sugestão. Uma regra aqui só serviria para empurrá-lo para
+    devolução de compra, o que o contrato proíbe.
+    """
 
     SAIDA_PROPRIA = "saida_propria", "Saída própria (finNFe 1)"
     DEVOLUCAO = "devolucao", "Devolução de venda recebida (finNFe 4)"
+    ENTRADA = "entrada", "Entrada de compra (NF-e de terceiro, finNFe 1)"
+
+
+# DL-091 (A2): CRT do emitente que a regra de entrada aceita (NF-e, campo CRT: 1 Simples Nacional,
+# 2 Simples Nacional com excesso de sublimite, 3 regime normal, 4 MEI).
+CRTS_DO_EMITENTE_NA_REGRA = ("1", "2", "3", "4")
+# DL-091 (A2): siglas das 27 UFs, para o critério de UF do emitente. O `cUF` da nota é traduzido
+# para a sigla por `entradas.CODIGO_IBGE_DA_UF`, e o teste confere que as duas listas batem.
+SIGLAS_DE_UF_DO_EMITENTE_NA_REGRA = (
+    "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA", "PB",
+    "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO",
+)  # fmt: skip
 
 
 class ModoNcmRegraNFe(models.TextChoices):
@@ -4626,6 +4645,10 @@ class RegraClassificacaoNFe(models.Model):
     Critérios: CFOP (obrigatório, da tabela oficial), NCM (opcional, exato ou por prefixo), CST ou
     CSOSN do ICMS (opcional, comparado como está na nota) e `idDest` (opcional). O resultado é uma
     natureza de `NaturezaOperacaoNFe` permitida para o tipo.
+
+    DL-091 (A2): na regra de ENTRADA, mais dois critérios de fornecedor, CRT e UF do emitente
+    (opcionais), e o CFOP de entrada que a regra fixa (opcional). Esses três só existem na
+    entrada (CHECK `criterio_de_entrada_so_na_entrada`). Os pesos estão em `classificacao`.
 
     Vigência: `vigencia_inicio` obrigatória e `vigencia_fim` opcional, comparadas com a DATA
     DE EMISSÃO da nota (dia no fuso de São Paulo). Desativar é REVOGAR (correção da rodada 1,
@@ -4669,6 +4692,22 @@ class RegraClassificacaoNFe(models.Model):
         default="",
         choices=[("1", "1 (operação interna)"), ("2", "2 (interestadual)"), ("3", "3 (exterior)")],
     )
+    # DL-091 (A2): critérios do FORNECEDOR, só para a regra de ENTRADA (`tipo` entrada). CRT do
+    # emitente (1 a 4) e UF do emitente (sigla). Vazios nas regras de saída e de devolução: o
+    # produto não os usa na saída, e o banco recusa a combinação (CHECK de critério de entrada).
+    crt_emitente = models.CharField(
+        "CRT do emitente", max_length=1, blank=True, default="", choices=[
+            ("1", "1 (Simples Nacional)"),
+            ("2", "2 (Simples Nacional, excesso de sublimite)"),
+            ("3", "3 (regime normal)"),
+            ("4", "4 (MEI)"),
+        ],
+    )  # fmt: skip
+    uf_emitente = models.CharField("UF do emitente", max_length=2, blank=True, default="")
+    # DL-091 (A2): CFOP de ENTRADA que a regra fixa (opcional). Vazio: vale a conversão da A1 para
+    # a natureza (`entradas.cfop_de_entrada_para`). Preenchido, é validado contra a natureza e o
+    # CFOP do critério (primeiro dígito e grupo) antes do INSERT.
+    cfop_entrada = models.CharField("CFOP de entrada", max_length=4, blank=True, default="")
     # Valor de `NaturezaOperacaoNFe`, permitido para o tipo. A checagem por tipo é do serviço (o
     # catálogo é de código); o banco só recusa vazio e ajuste.
     natureza = models.CharField(
@@ -4700,8 +4739,34 @@ class RegraClassificacaoNFe(models.Model):
         ordering = ["id"]
         constraints = [
             models.CheckConstraint(
-                condition=Q(tipo__in=["saida_propria", "devolucao"]),
+                condition=Q(tipo__in=["saida_propria", "devolucao", "entrada"]),
                 name="regra_classificacao_nfe_tipo_valido",
+            ),
+            # DL-091 (A2): critérios de fornecedor e CFOP de entrada. Só a regra de entrada os tem.
+            models.CheckConstraint(
+                condition=Q(crt_emitente__in=["", "1", "2", "3", "4"]),
+                name="regra_classificacao_nfe_crt_valido",
+            ),
+            models.CheckConstraint(
+                condition=Q(uf_emitente__in=["", *SIGLAS_DE_UF_DO_EMITENTE_NA_REGRA]),
+                name="regra_classificacao_nfe_uf_valida",
+            ),
+            models.CheckConstraint(
+                condition=Q(cfop_entrada="") | Q(cfop_entrada__regex=r"^[1-3][0-9]{3}$"),
+                name="regra_classificacao_nfe_cfop_entrada_valido",
+            ),
+            models.CheckConstraint(
+                condition=(Q(tipo="entrada") | Q(crt_emitente="", uf_emitente="", cfop_entrada="")),
+                name="regra_classificacao_nfe_criterio_de_entrada_so_na_entrada",
+            ),
+            # Regra de entrada resolve só natureza de entrada; regra de saída nunca a resolve.
+            models.CheckConstraint(
+                condition=~Q(tipo="entrada") | Q(natureza__in=sorted(NATUREZAS_DE_ENTRADA)),
+                name="regra_classificacao_nfe_entrada_so_natureza_de_entrada",
+            ),
+            models.CheckConstraint(
+                condition=Q(tipo="entrada") | ~Q(natureza__in=sorted(NATUREZAS_DE_ENTRADA)),
+                name="regra_classificacao_nfe_saida_sem_natureza_de_entrada",
             ),
             models.CheckConstraint(
                 condition=Q(cfop__regex=r"^[0-9]{4}$"),

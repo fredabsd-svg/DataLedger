@@ -178,11 +178,12 @@ def test_lista_publica_a_ordem_de_decisao_e_os_pesos_do_servico(client, gestor, 
 
     assert "Como a regra decide" in html
     for trecho in (
-        "CFOP 16",
-        "NCM exato 8",
-        "NCM por prefixo 4",
-        "CST/CSOSN 2",
-        "idDest 1",
+        # DL-091 (A2): pesos multiplicados por quatro. A tela (views_web.py) não mostra CRT nem UF.
+        "CFOP 64",
+        "NCM exato 32",
+        "NCM por prefixo 16",
+        "CST/CSOSN 8",
+        "idDest 4",
         "Vence a de maior especificidade",
         "mais longo",
         "vence a regra da empresa sobre a do escritório",
