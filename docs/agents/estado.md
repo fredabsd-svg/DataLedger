@@ -209,7 +209,10 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
   [consulta ao `contador-senior`](../projeto/consultas/2026-10-13-contador-senior-nfe-de-entrada.md)
   (HI-154 a HI-158; PE-93 para o Fred, que não bloqueia). Nada de ICMS
   estadual calculado: a legislação do Tocantins não foi lida, porque a
-  SEFAZ-TO estava fora do ar. Frente A1 em desenvolvimento.
+  SEFAZ-TO estava fora do ar. **Frente A1 integrada** (migração
+  `fiscal 0021`), com a correção do `finNFe` 4, que o leiaute oficial define
+  como "Devolução/Retorno". Frente A2 (regras, lote e conferência de
+  entradas) em desenvolvimento.
 - **Próximo do roteiro fiscal** (fim do
   [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md)): o corte 2 da
   DL-087 (naturezas como tabela e regras tributárias) e depois:

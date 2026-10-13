@@ -172,6 +172,41 @@ Também foi decidido: a marca "monofásico" vale só para os combustíveis do
 art. 2º da LC 192 (gasolina e etanol anidro, diesel e biodiesel, GLP). Fora
 deles, "conferir NCM".
 
+## Entrega da frente A1 (13/10/2026)
+
+Integrada na branch, com a correção do `finNFe` 4. Migração `fiscal 0021`.
+Medido pelo desenvolvedor, num banco próprio: suíte completa 10.230/1/56 (a
+falha é a de ambiente). Os nove mutantes derrubam testes.
+
+**O que a A1 entrega:**
+- elegibilidade da compra;
+- data de entrada e competência;
+- naturezas E1 a E11 com os efeitos;
+- dois CFOPs no item;
+- memória por item, gravada na efetivação e imutável no banco;
+- avisos de outro estado;
+- tipo `DEVOLUCAO_COMPRA`.
+
+**Decisões e limites registrados:**
+- **Sugestões por CFOP do emitente:**
+  - 5.656 sugere E7 (consumo, 1.653), porque é venda a consumidor final;
+  - 5.655 sugere E6 (revenda, 1.652);
+  - 5.405 sugere E3 (compra com ST, 1.403).
+- **Monofásico só no art. 2º da LC 192, pelo NCM:**
+  - diesel e GLP são marcados "monofásico";
+  - querosene de aviação, óleos combustíveis e gás natural, "a conferir";
+  - gasolina (2710.12.59) e diesel com biodiesel (2710.20.00), "conferir
+    NCM", porque a descrição da tabela de NCM não os separa com segurança.
+
+  Em todos os casos é tratamento conservador: nenhum crédito é afirmado. O
+  refinamento vem depois da leitura item a item da tabela de NCM.
+- **Posto:** os grupos de ICMS monofásico do XML são lidos sem erro, com o
+  CST, mas o valor monofásico (`vICMSMono`) não é guardado. Isso é da nova
+  versão do leitor, fora do corte 1.
+- A conferência de saída (identidade W16) não se aplica à entrada.
+- A devolução de compra em mês já confirmado reabre a confirmação, pelo
+  gatilho existente de saída. É conservador e não mexe em receita.
+
 ## Critérios de aceite
 
 1. **Nenhuma entrada mexe em receita, RBT12, pré-DAS ou Presumido.** Teste
