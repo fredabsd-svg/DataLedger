@@ -233,6 +233,31 @@ derrubam testes.
   aparecem só nas notas efetivadas.
 - **Não medido:** o custo da consulta de competência com 10.000 notas.
 
+## Entrega da frente B (13/10/2026)
+
+Integrada na branch. São 60 testes novos. Medido pelo desenvolvedor: suíte
+completa 10.353/1/56 (a falha é a de ambiente).
+
+**Telas:**
+- escrituração da compra, com data de entrada, CFOP do emitente só como
+  texto, natureza de entrada, CFOP de entrada editável, prévia de marca e
+  avisos e, depois de efetivar, a memória por item;
+- devolução de compra;
+- lista com tipo e competência;
+- lote com o CFOP de entrada do grupo;
+- conferência de entradas do mês;
+- estorno de compra;
+- regras com tipo de entrada, CRT, UF e CFOP de entrada, e os pesos atuais
+  publicados;
+- "regras do produto", agora com a sugestão de entrada.
+
+**Limitações:**
+- não houve verificação em navegador real;
+- a tela repete a checagem de presença para habilitar o botão de efetivar,
+  e o serviço continua sendo a autoridade;
+- a conferência pede a empresa na URL e é aberta a partir da lista e do
+  lote.
+
 ## Critérios de aceite
 
 1. **Nenhuma entrada mexe em receita, RBT12, pré-DAS ou Presumido.** Teste

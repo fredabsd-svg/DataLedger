@@ -213,7 +213,8 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
   `fiscal 0021`), com a correção do `finNFe` 4, que o leiaute oficial define
   como "Devolução/Retorno". **Frente A2 integrada** (migração `fiscal 0022`: regras
   de entrada com CRT e UF do emitente, lote de compras, conferência de
-  entradas). Frente B (telas) em desenvolvimento.
+  entradas). **Frente B integrada** (telas). Auditoria, rodada 1, em
+  andamento.
 - **Próximo do roteiro fiscal** (fim do
   [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md)): o corte 2 da
   DL-087 (naturezas como tabela e regras tributárias) e depois:
