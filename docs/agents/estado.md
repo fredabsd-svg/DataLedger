@@ -217,7 +217,11 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
   - [Rodada 1](../auditorias/2026-10-13-dl-091-rodada-1.md), relançada
     depois do reinício: **reprovada**. A1 é alto: o comprador do Simples
     recebia "crédito elegível", o que a LC 123, art. 23, veda. Correção
-    única integrada (migração `fiscal 0023`). Reconferência em andamento.
+    única integrada (migração `fiscal 0023`).
+    [Reconferência](../auditorias/2026-10-13-dl-091-reconferencia.md)
+    **aprovada com ressalvas**. Os ajustes do arquiteto N1, N2, N3 e N5
+    estão feitos; os resíduos foram para o BL-706. **Ciclo de auditoria
+    encerrado.** Próximo: suíte completa, PR e merge (RC-171).
 - **Próximo do roteiro fiscal** (fim do
   [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md)): o corte 2 da
   DL-087 (naturezas como tabela e regras tributárias) e depois:

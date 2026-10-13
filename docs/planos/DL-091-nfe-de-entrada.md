@@ -326,6 +326,28 @@ A9 a A12.
   correção cobriu o tipo `DEVOLUCAO_COMPRA` (`finNFe` 4), que é o caso
   comum.
 
+## Decisões tomadas na reconferência
+
+[Reconferência](../auditorias/2026-10-13-dl-091-reconferencia.md): **aprovada
+com ressalvas**. A1 está resolvido de ponta a ponta, conferido nos regimes
+Simples, Presumido e Real, no regime desconhecido, no regime ambíguo e na troca
+de regime no meio do ano. Os outros achados também estão resolvidos (A2 a
+A12); A13 foi para o BL-706. Medido pela auditoria: suíte completa
+10.403/1/56 (a falha é a de ambiente).
+
+Era a última rodada. Os ajustes abaixo são do arquiteto (§3.1), com testes em
+`apps/fiscal/tests/test_dl091_ajustes_do_arquiteto.py`:
+
+- **N1:** a efetivação também recusa a data de entrada posterior a hoje.
+- **N2:** teste de que "hoje" é o dia em São Paulo, e não em UTC.
+- **N3:** teste de que a reclassificação em massa deixa a devolução de
+  compra de fora.
+- **N5:** o estorno chama a devolução de compra pelo nome, e a HI-158
+  registra o teto da data.
+- **N4** (teste de defesa da conferência contra uma memória anômala) foi para
+  o BL-706. O gatilho do banco só aceita gravar memória em rascunho, então o
+  caso não se monta pelo ORM sem desligá-lo.
+
 ## Critérios de aceite
 
 1. **Nenhuma entrada mexe em receita, RBT12, pré-DAS ou Presumido.** Teste

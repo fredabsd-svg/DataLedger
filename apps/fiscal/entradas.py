@@ -766,6 +766,11 @@ def efetivar_entrada(travada: EscrituracaoNFe, usuario, request=None) -> Escritu
     emissao, _ = servico.dia_e_competencia(documento)
     if travada.data_entrada < emissao:
         raise servico.EscrituracaoNFeErro(MOTIVO_DATA_ANTERIOR_A_EMISSAO)
+    # Reconferência da DL-091, N1 (ajuste do arquiteto): o teto da data de entrada (A11) também na
+    # efetivação, e não só na criação e na troca. Um rascunho gravado por outro caminho com data
+    # futura não efetiva.
+    if travada.data_entrada > max(hoje_em_sao_paulo(), emissao):
+        raise servico.EscrituracaoNFeErro(MOTIVO_DATA_POSTERIOR_A_HOJE)
 
     registros = list(
         NaturezaItemNFe.objects.select_related("item")

@@ -33,7 +33,7 @@ que ainda dá para desfazer. O motivo é obrigatório e fica na trilha de audito
             {% if compra %}
                 {# DL-091 (frente B): a compra não compõe receita. O estorno não mexe na receita do mês. #}
                 <p>
-                    A escrituração da compra nº {{ documento.numero }} (competência {{ competencia_rotulo }}) passa a
+                    A escrituração da {% if devolucao_de_compra %}devolução de compra{% else %}compra{% endif %} nº {{ documento.numero }} (competência {{ competencia_rotulo }}) passa a
                     estornada. A compra não compõe a receita: o estorno não muda a receita do mês, e a nota volta para
                     <strong>a escriturar</strong>.
                 </p>

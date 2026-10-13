@@ -9868,6 +9868,8 @@ def _tela_de_estornar_nfe(request, empresa, escrituracao, *, motivo, status=200)
         # A12) também está fora da receita: usa o mesmo texto.
         "compra": escrituracao.tipo
         in (TipoEscrituracaoNFe.ENTRADA, TipoEscrituracaoNFe.DEVOLUCAO_COMPRA),
+        # Reconferência, N5 (ajuste do arquiteto): a devolução de compra é chamada pelo nome.
+        "devolucao_de_compra": escrituracao.tipo == TipoEscrituracaoNFe.DEVOLUCAO_COMPRA,
         "motivo": motivo,
         "motivo_maximo": servico_nfe.MOTIVO_MAXIMO,
         "url_detalhe": reverse(
