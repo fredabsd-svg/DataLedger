@@ -631,9 +631,25 @@ REGRAS_DO_PRODUTO = (
         "fonte": "HI-140, em _sugestao_de_devolucao",
     },
     {
-        "sinal": "Saída com indDevol 1 (devolução de compra, em nota de saída).",
-        "resultado": "sem sugestão: fora do catálogo de venda",
-        "fonte": "escrituracao_nfe.sugerir_natureza_item",
+        "sinal": (
+            "Saída própria com finNFe 4 (tpNF 1) e CFOP com indDevol 1 cuja descrição oficial é de "
+            "devolução de compra, de mercadoria recebida em transferência, de bem do ativo, de uso "
+            "ou consumo, ou de embalagens."
+        ),
+        "resultado": "devolução de compra: natureza só dela, fora da receita",
+        "fonte": (
+            "DL-091, correção do arquiteto (13/10/2026), em sugerir_natureza_item e "
+            "entradas.TEXTOS_DE_DEVOLUCAO_DE_COMPRA"
+        ),
+    },
+    {
+        "sinal": (
+            "Saída própria com finNFe 4 (tpNF 1) e CFOP de retorno: sem indDevol 1, "
+            "ou com indDevol 1 "
+            "mas fora da lista de devolução de compra (conserto, remessa, consignação)."
+        ),
+        "resultado": "sem sugestão: a nota não efetiva enquanto o item não tiver natureza",
+        "fonte": "DL-091, correção do arquiteto (item 3), em sugerir_natureza_item",
     },
     {
         "sinal": "Devolução (finNFe 4) com CFOP sem indDevol.",
@@ -736,6 +752,94 @@ REGRAS_DO_PRODUTO = (
         ),
         "resultado": "combustível para consumo (1,6%); distribuidora não tem padrão",
         "fonte": "DL-084, item 6 (HI-136; PE-85.1), em sugerir_natureza_com_padrao",
+    },
+    # DL-091 (A1 e A2): sugestão da COMPRA (NF-e de terceiro, finNFe 1, com a empresa destinatária).
+    # Vale só para o tipo `entrada`; a saída não lê estas linhas. Fonte: a conversão e os grupos do
+    # código, e a consulta de 13/10/2026, seção 2. Nenhuma linha aqui é norma relida.
+    {
+        "sinal": (
+            "Compra com CFOP do emitente x.101 ou x.103 (industrialização), sem sinal de ST (CST "
+            "ou CSOSN): o primeiro dígito é convertido (5→1, 6→2, 7→3)."
+        ),
+        "resultado": "E2 · compra para industrialização (1.101, 2.101 ou 3.101)",
+        "fonte": "DL-091 (A1), entradas.sugerir_par_de_entrada; consulta de 13/10/2026, seção 2",
+    },
+    {
+        "sinal": (
+            "Compra com CFOP do emitente x.102 ou x.104 (revenda), sem sinal de ST (CST ou "
+            "CSOSN): o primeiro dígito é convertido (5→1, 6→2, 7→3)."
+        ),
+        "resultado": "E1 · compra para comercialização (1.102, 2.102 ou 3.102)",
+        "fonte": "DL-091 (A1), entradas.sugerir_par_de_entrada; consulta de 13/10/2026, seção 2",
+    },
+    {
+        "sinal": (
+            "Compra com ST do emitente: CST 10, 30, 60 ou 70, ou CSOSN 201, 202, 203 ou 500, com "
+            "CFOP x.101 a x.104 (esse sinal troca E1 ou E2 por E3); ou CFOP x.401, x.403 ou x.405."
+        ),
+        "resultado": (
+            "E3 · compra com ICMS-ST: 1.401 para x.101, x.103 e x.401; 1.403 para x.102, x.104, "
+            "x.403 e x.405"
+        ),
+        "fonte": "DL-091 (A1), entradas.sugerir_par_de_entrada; consulta de 13/10/2026, seção 2",
+    },
+    {
+        "sinal": "Compra com CFOP do emitente x.402 ou x.404.",
+        "resultado": "sem sugestão, com ou sem ST: escolha a natureza e o CFOP de entrada",
+        "fonte": "DL-091 (A1), entradas.sugerir_par_de_entrada (o código não converte esses dois)",
+    },
+    {
+        "sinal": "Compra com CFOP do emitente x.151 ou x.152 (transferência).",
+        "resultado": (
+            "E8 · transferência recebida (1.151 ou 1.152); o vínculo da filial fica para o HI-111"
+        ),
+        "fonte": "DL-091 (A1), entradas.sugerir_par_de_entrada",
+    },
+    {
+        "sinal": "Compra com CFOP do emitente x.910 ou x.911 (bonificação ou amostra).",
+        "resultado": "E9 · bonificação, doação ou amostra recebida (1.910 ou 1.911)",
+        "fonte": "DL-091 (A1), entradas.sugerir_par_de_entrada",
+    },
+    {
+        "sinal": "Compra com CFOP do emitente x.655 e NCM de combustível ou lubrificante.",
+        "resultado": "E6 · combustível ou lubrificante para revenda (1.652)",
+        "fonte": "DL-091 (A1), entradas.sugerir_par_de_entrada; NCM exigido como na venda (HI-139)",
+    },
+    {
+        "sinal": "Compra com CFOP do emitente x.656 e NCM de combustível ou lubrificante.",
+        "resultado": (
+            "E7 · combustível ou lubrificante para consumo próprio (1.653); o contador confirma"
+        ),
+        "fonte": "DL-091 (A1), entradas.sugerir_par_de_entrada; NCM exigido como na venda (HI-139)",
+    },
+    {
+        "sinal": (
+            "Compra com CFOP do emitente x.655 ou x.656 e NCM ausente ou fora da lista de "
+            "combustível."
+        ),
+        "resultado": "sem sugestão: escolha a natureza e o CFOP de entrada",
+        "fonte": "DL-091 (A1), entradas.sugerir_par_de_entrada; HI-139",
+    },
+    {
+        "sinal": (
+            "Compra com qualquer outro CFOP do emitente (uso e consumo, ativo, remessa, serviço), "
+            "ou CFOP fora de 5, 6 e 7."
+        ),
+        "resultado": ("sem sugestão: o produto não sugere E4, E5, E10 nem E11; escolha a natureza"),
+        "fonte": "DL-091 (A1), entradas.sugerir_par_de_entrada; consulta de 13/10/2026, seção 2",
+    },
+    {
+        "sinal": "Compra: CFOP de entrada sugerido com o primeiro dígito fixo (5→1, 6→2, 7→3).",
+        "resultado": (
+            "os três últimos dígitos são do grupo da natureza; sem padrão de grupo, fica vazio "
+            "e o contador escolhe"
+        ),
+        "fonte": "DL-091 (A2), entradas.cfop_de_entrada_para; consulta de 13/10/2026, seção 2",
+    },
+    {
+        "sinal": "Compra: 1.949 (remessa, retorno, consignação e conserto).",
+        "resultado": "nunca sugerido: só por escolha manual do contador",
+        "fonte": "DL-091 (A1), entradas.sugerir_par_de_entrada e CATALOGO_EFEITOS_NATUREZA_NFE",
     },
 )
 

@@ -56,6 +56,7 @@ from apps.fiscal.views_web import (
     iss_retido_sofrido,
     nfe_a_escriturar,
     nfe_conferencia,
+    nfe_conferencia_entradas,
     nfe_detalhe,
     nfe_escriturar,
     nfe_estornar,
@@ -147,6 +148,15 @@ urlpatterns = [
     # caminho, e a nota ou a escrituração é buscada DENTRO dela (404 fora, IDOR).
     path("nfe/escrituracao/", nfe_a_escriturar, name="nfe_a_escriturar"),
     path("nfe/escrituracao/conferencia/", nfe_conferencia, name="nfe_conferencia"),
+    # DL-091 (frente B): conferência das entradas (compras) do mês. A empresa vai no caminho (a
+    # lista é dela, e a empresa de outro escritório é 404); o mês, na querystring. Sem link no
+    # menu: a conferência depende da empresa, e se chega pela lista de NF-e a escriturar e pelo
+    # lote.
+    path(
+        "nfe/escrituracao/empresas/<int:empresa_id>/entradas/conferencia/",
+        nfe_conferencia_entradas,
+        name="nfe_conferencia_entradas",
+    ),
     path("nfe/escrituracao/reclassificar/", nfe_reclassificar, name="nfe_reclassificar"),
     # DL-087 (frente B): regras de classificação de NF-e, prévia de impacto, fila "a classificar"
     # e regras do produto (só leitura). A empresa vai no caminho; a regra e o grupo são buscados

@@ -239,7 +239,9 @@ def test_lista_de_outro_mes_nao_mostra_a_nota(client, cenario):
     texto = _texto(client.get(_url_lista(cenario["empresa"], ano=2025, mes=1)))
 
     assert "2.970,00" not in texto
-    assert "Nenhuma NF-e de saída ou devolução desta empresa em 01/2025." in texto
+    # DL-091 (frente B): a lista passou a trazer compras e devolução de compra; o estado vazio diz
+    # "escriturável", e não "de saída ou devolução", que deixou de ser verdade.
+    assert "Nenhuma NF-e escriturável desta empresa em 01/2025." in texto
 
 
 def test_criar_rascunho_pela_lista_leva_a_tela_de_escriturar_com_os_itens(client, cenario):

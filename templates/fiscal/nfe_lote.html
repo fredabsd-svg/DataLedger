@@ -35,11 +35,17 @@ conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do
 {% block content %}
     <p class="texto-apoio">
         Agrupa as NF-e e NFC-e do mês que ainda não estão efetivadas, por tipo, CFOP, CST ou CSOSN e natureza
-        sugerida. Cada nota é efetivada pela mesma regra da escrituração individual: o lote não tem atalho.
+        sugerida. Na compra, o CFOP de entrada sugerido vai junto, e um grupo sem CFOP de entrada padrão sai do
+        lote com o motivo. Cada nota é efetivada pela mesma regra da escrituração individual: o lote não tem atalho.
     </p>
     {% if url_fila %}
         <p class="texto-apoio">
             <a href="{{ url_fila }}">Ver as notas a classificar do mês (sem sugestão ou em conflito)</a>
+        </p>
+    {% endif %}
+    {% if url_conferencia_entradas %}
+        <p class="texto-apoio">
+            <a href="{{ url_conferencia_entradas }}">Conferência de entradas do mês (compras, fora da receita)</a>
         </p>
     {% endif %}
     {% if aviso_do_mes %}
@@ -207,7 +213,7 @@ conferência (arquétipo C). A tela não calcula nada: exibe o que o serviço do
                                             </td>
                                         {% endif %}
                                         <td>{{ grupo.tipo_rotulo }}</td>
-                                        <td>{% for combinacao in grupo.combinacoes %}{{ combinacao.cfop }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
+                                        <td>{% for combinacao in grupo.combinacoes %}{{ combinacao.cfop }}{% if combinacao.cfop_entrada_rotulo %}<br><span class="texto-apoio">{{ combinacao.cfop_entrada_rotulo }}</span>{% endif %}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
                                         <td>{% for combinacao in grupo.combinacoes %}{{ combinacao.cst_csosn }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
                                         <td>{% for combinacao in grupo.combinacoes %}{{ combinacao.natureza_rotulo }}<br><span class="texto-apoio">Origem: {% if combinacao.origem_url %}<a href="{{ combinacao.origem_url }}">{{ combinacao.origem_texto }}</a>{% else %}{{ combinacao.origem_texto }}{% endif %}</span>{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
                                         <td class="valor-monetario">{{ grupo.notas }}</td>
