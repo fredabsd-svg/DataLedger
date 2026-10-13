@@ -207,6 +207,32 @@ falha é a de ambiente). Os nove mutantes derrubam testes.
 - A devolução de compra em mês já confirmado reabre a confirmação, pelo
   gatilho existente de saída. É conservador e não mexe em receita.
 
+## Entrega da frente A2 (13/10/2026)
+
+Integrada na branch. Migração `fiscal 0022`. Medido pelo desenvolvedor:
+suíte completa 10.292/1/56 (a falha é a de ambiente). Os nove mutantes
+derrubam testes.
+
+- **Regras de entrada:** tipo `entrada`, com os critérios CRT do emitente,
+  UF do emitente e CFOP de entrada fixado.
+  - "Devolução de compra" não é tipo de regra: a nota só aceita essa
+    natureza, e uma regra só serviria para empurrar retorno para devolução
+    de compra.
+  - CRT e UF só valem na regra de entrada, porque na saída o emitente é a
+    própria empresa.
+- **Pesos multiplicados por quatro** para abrir espaço sem empate: CFOP 64,
+  NCM exato 32, NCM por prefixo 16, CST/CSOSN 8, `idDest` 4, UF 2, CRT 1. A
+  ordem entre os critérios antigos não mudou, e um teste verifica que
+  nenhum conjunto de critérios empata com outro.
+- **Lote de compras:** sem a identidade W16 e sem atribuição de receita. Um
+  grupo sem CFOP de entrada sugerido fica fora do lote.
+- **Competência na lista do mês:** a compra escriturada (rascunho ou
+  efetivada) aparece no mês da data de entrada. Sem escrituração, ou depois
+  de estornada, aparece no mês de emissão.
+- **Conferência de entradas** (serviço e API). Os avisos de outro estado
+  aparecem só nas notas efetivadas.
+- **Não medido:** o custo da consulta de competência com 10.000 notas.
+
 ## Critérios de aceite
 
 1. **Nenhuma entrada mexe em receita, RBT12, pré-DAS ou Presumido.** Teste

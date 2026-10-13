@@ -211,8 +211,9 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
   estadual calculado: a legislação do Tocantins não foi lida, porque a
   SEFAZ-TO estava fora do ar. **Frente A1 integrada** (migração
   `fiscal 0021`), com a correção do `finNFe` 4, que o leiaute oficial define
-  como "Devolução/Retorno". Frente A2 (regras, lote e conferência de
-  entradas) em desenvolvimento.
+  como "Devolução/Retorno". **Frente A2 integrada** (migração `fiscal 0022`: regras
+  de entrada com CRT e UF do emitente, lote de compras, conferência de
+  entradas). Frente B (telas) em desenvolvimento.
 - **Próximo do roteiro fiscal** (fim do
   [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md)): o corte 2 da
   DL-087 (naturezas como tabela e regras tributárias) e depois:
