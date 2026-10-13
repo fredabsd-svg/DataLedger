@@ -176,7 +176,7 @@ publicação ou exclusão (HI-55). Roteiro de execução no fim do
 [consultas/](../projeto/consultas/2026-10-08-contador-senior-fiscal.md);
 hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
 
-**AGORA, em 11/10/2026 (após o merge do PR #108):**
+**AGORA, em 13/10/2026 (após o merge do PR #110):**
 
 - **Integrado na `main` (PR #108, squash `7474b12`)**: DL-082, DL-084, DL-085,
   DL-088, DL-089 e DL-090, mais a integração da revisão de layout e a
@@ -185,31 +185,40 @@ hipóteses HI-56 a HI-63 em [requisitos.md](../projeto/requisitos.md).
   etapas de nível 1 desta leva — DL-084 e DL-088 — terminaram com
   **reconferência APROVADA**. Os quatro checks da CI verdes antes do merge
   (RC-171).
-- **Em andamento, nesta sessão (RC-177, 12/10/2026):**
-  [DL-087](../planos/DL-087-classificacao-fiscal-versionada.md), corte 1
-  reordenado (DE-107): regras de classificação do escritório e da empresa por
-  cima da sugestão embutida, fila "a classificar" e telas. Consulta ao
-  `contador-senior` aplicada (pesos fixos, HI-153). **Frentes A e B integradas**
-  (migrações `fiscal 0019` e `0020`; telas de regras, fila, regras do produto
-  e origem da sugestão).
-  [Rodada 1](../auditorias/2026-10-12-dl-087-rodada-1.md) **reprovada** (A1
-  alta: desativar não desfazia a regra nas notas pendentes); correção única
-  integrada (desativar passa a revogar; DE-108);
-  [reconferência](../auditorias/2026-10-12-dl-087-reconferencia.md) **aprovada
-  com ressalvas**, com os ajustes do arquiteto R1, R3 e R4 e os resíduos no
-  BL-705. **Ciclo de auditoria encerrado.** Próximo: PR e merge (RC-171). Outra sessão não deve mexer nos mesmos arquivos ao mesmo
-  tempo.
+- **[DL-087](../planos/DL-087-classificacao-fiscal-versionada.md) —
+  classificação fiscal versionada, corte 1: INTEGRADA** pelo
+  [PR #110](https://github.com/fredabsd-svg/DataLedger/pull/110), squash
+  `58a6fc4`, em 13/10/2026. Os quatro checks ficaram verdes em todas as
+  execuções do último commit (RC-171).
+  - Escopo: regras de classificação do escritório e da empresa por cima da
+    sugestão embutida, fila "a classificar", telas e origem da sugestão
+    gravada. Corte 1 reordenado (DE-107); pesos fixos pela consulta ao
+    `contador-senior` (HI-153).
+  - Auditoria (ciclo do §3.1):
+    - [rodada 1](../auditorias/2026-10-12-dl-087-rodada-1.md) **reprovada**:
+      desativar não desfazia a regra nas notas pendentes;
+    - correção única: desativar passa a revogar (DE-108);
+    - [reconferência](../auditorias/2026-10-12-dl-087-reconferencia.md)
+      **aprovada com ressalvas**; resíduos no BL-705.
+  - Suíte completa medida pelo arquiteto: 10.120/1/56 (a falha é a de
+    ambiente). Na CI, "Lint e testes" levou 22,5 min, dentro do limite de
+    30.
 - **Próximo do roteiro fiscal** (fim do
-  [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md)): DL-087
-  (classificação fiscal versionada — o "acumulador"); depois entradas e
-  compras, ICMS-TO em fatias, integração fiscal → contábil (a DL-089 é a
-  base), livros e obrigações acessórias. Dúvidas de domínio vão ao
-  `contador-senior` antes do Fred (RC-164).
+  [DL-067](../planos/DL-067-plano-do-modulo-fiscal.md)): o corte 2 da
+  DL-087 (naturezas como tabela e regras tributárias) e depois:
+  - entradas e compras;
+  - ICMS-TO em fatias;
+  - integração fiscal → contábil (a DL-089 é a base);
+  - livros e obrigações acessórias.
+
+  Dúvidas de domínio vão ao `contador-senior` antes do Fred (RC-164,
+  RC-178).
 - **Para o Fred decidir ou validar:** PE-90, PE-91 e PE-92 (calendário da
   virada); HI-150 e DE-104 (importação e zeramento contam como automáticos
   no estorno?); HI-151 (encerramento da medida cobre o trimestre?); HI-152
-  (monofasia em 2027; algum cliente na Zona Franca?); P15 (frete na receita
-  de 2027).
+  (monofasia em 2027; algum cliente na Zona Franca?); HI-153 (quem cria regra
+  de classificação; pesos fixos); DE-108 (mês confirmado só avisa); P15
+  (frete na receita de 2027).
 - **Aberto no produto:** BL-701 (estado do trimestre no Presumido), BL-702,
   BL-703 (testes de concorrência flutuantes), BL-704 (fórmulas do sublimite),
   os resíduos BL-698 a BL-700 e os BL-689 a BL-697 da revisão de layout.
